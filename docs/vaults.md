@@ -28,7 +28,30 @@ See [vault items](items.md) for the entry templates and preservation rules. Veri
 - **Supported matrix.** Read: KDBX 3.1 and 4.0/4.1, AES-256 or ChaCha20, AES-KDF, Argon2d, Argon2id, password and/or key file (XML v1 and v2, 32 bytes, hex, any file), gzip or none, inner header attachments and the KDBX 3 binary pool. Write: always KDBX 4.1, so a 3.x file is upgraded on its first save (the Setup sheet shows “KDBX 3.1, saved as KDBX 4.1”). Not supported and refused before anything is written: Twofish, Argon2 versions other than 0x13, Salsa20 inner stream in KDBX 4.
 - **Round trips.** The document is an XML tree edited in place, so unknown elements, icons, auto-type, custom data, attachments and history survive. Changing an entry pushes the old version into its history (limit from `HistoryMaxItems`). Deleting removes the entry and records a `DeletedObject` (the Recycle Bin is not used yet). `scripts/test-kdbx.sh` opens and edits files made by KeePassXC 2.8 and checks KeePassXC reads the result. Strongbox fixtures are not checked yet.
 - **Storage.** A new vault lives in Application Support (`Vaults/`). An opened file stays where it is, reached through a security-scoped bookmark, with a Locate Vault File flow when it moved. Writes are coordinated and atomic. Before each write the app compares the file with what it opened and refuses if it changed, offering Reload or Overwrite. The previous file is kept as one of five encrypted rollback copies. Entry-level merge is not built.
-- **Unlock.** Vault password and optional key file, derived in the app on a background task (Argon2id 64 MiB, three passes, two lanes for new vaults). The derived key is kept in memory while the vault is open and reused for saves, so saving never repeats the KDF. Locking writes pending use counts and drops the document. No biometric unlock yet: that is the Keychain-wrapped key work (S2, S6).
+- **Unlock.** Vault password and optional key file, derived in the app on a background task (Argon2id 64 MiB, three passes, two lanes for new vaults). The derived key is kept in memory while the vault is open and reused for saves, so saving never repeats the KDF. Locking writes pending use counts and drops the document. No biometric unlock yet: that is the Keychain-wrapped key work (S2, S6); see [lock screen gaps](#lock-screen-gaps-2026-11-22-handoff).
+
+## Lock screen gaps (2026-11-22, handoff)
+
+The KeePass lock screen ("Unlock Vault:" selector, Vault Password, optional Key file, Unlock, one help block) is built, but it is a password-only screen.
+Three gaps stop it from being the screen we want.
+Design each from a mock first (ui-clarity skill, step 0), show the normal and error states, and get approval before building.
+
+1. **No Face ID or Touch ID.**
+   Every unlock runs Argon2 from the password, which is slow and typed again each time.
+   Wanted: after the first successful password unlock, offer "Unlock with Face ID" (Touch ID on Mac, Apple Watch where the system allows).
+   The vault key is wrapped in the Keychain behind biometrics, shared with the extension (S2, S6), and the lock screen leads with a labeled biometric button, with the password field below as the fallback.
+   Open design points: opt-in prompt wording and where "turn off" lives in Setup; what happens when biometry changes (key invalidated, password required once); whether the wrapped key syncs through iCloud Keychain or stays device-only (S6); Mac Touch ID and Watch behavior; the simulator needs a manual Face ID match (docs/development.md).
+   The current `UnlockGate` device-owner prompt is only a UI gate and does not release a key.
+2. **Nothing says what "Vault Password" is.**
+   People who opened a file made elsewhere may not know which password it wants; people who created one forget they chose it.
+   Wanted: one labeled "What is this?" action in the help block that opens a short explainer: it is the password chosen when the vault was created, not the Apple Account or device passcode; for a file from KeePassXC or Strongbox it is the one set there; a key file is a separate file that only some vaults use; Psss cannot see or reset it.
+   The wrong-password message already names the vault and mentions the key file; keep it short and link to the explainer.
+3. **No help when the password is lost.**
+   Psss cannot recover a vault password, and the screen says so, but it offers nothing to try next.
+   Wanted, in this order: after a failed attempt show a few plain checks (Caps Lock, keyboard layout, key file chosen); say where a recovery phrase would help (the S6 default for new vaults) or that none exists for this vault; offer "Open Another Vault…" (built) and a safe "Forget This Vault" that removes Psss's reference but never deletes a file the person opened, and for a vault Psss created says clearly that its data is deleted unless they exported a copy.
+   Decision to take: an optional device-local password hint set at creation (never written into the KDBX file) versus no hints at all.
+
+Related and not built: the selector lists one vault; it becomes a real list with the multi-vault work below.
 
 ## Roadmap
 

@@ -215,6 +215,12 @@ Browser shell on every platform:
 
 Steps affected, in build order, are listed in [vaults](vaults.md#steps-in-order). The roadmap carries spike S7 and the M1 item.
 
+## KeePass lock screen (2026-11-22)
+
+Built: "Unlock Vault:" with a bordered pop-up, Vault Password field, "Key file (optional)" with Choose…, a full-width Unlock button and one help block under it. One text size, 16 pt rhythm, same layout on iPhone, iPad and Mac.
+Not built: biometric unlock, a "What is this?" explainer for the password and key file, and lost-password help. These are specified in [vaults](vaults.md#lock-screen-gaps-2026-11-22-handoff).
+Rules learned while building it: mock first, help text in one place, never shrink text to fit, and no unlabeled or text-looking actions.
+
 ## Lock policy: follow Apple Passwords (2026-11-22)
 
 Apple Passwords always asks for Face ID, Touch ID or the device password to open, offers no switch to turn that off, locks when the device or Mac locks or sleeps, and on Mac also after about a minute of inactivity. Psss follows that: authentication is not opt-in and not a setting. The only setting is how long the app may stay in the background (Immediately, 1, 5 or 15 minutes), because people hold different views on that and it never weakens the floor. Mac already locks on sleep, a sleeping display and a locked screen; inactivity locking is on the roadmap.
