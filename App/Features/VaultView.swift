@@ -425,7 +425,8 @@ struct VaultView: View {
             // Only on launch: returning from an item must not pop the keyboard and hide the actions.
             guard !didFocusOnLaunch else { return }
             didFocusOnLaunch = true
-            searchFocused = true
+            // An empty vault shows its actions, and the keyboard would cover them.
+            if !items.isEmpty { searchFocused = true }
         }
         .navigationTitle(activeCategory.title)
         #if os(macOS)
@@ -568,7 +569,16 @@ struct VaultView: View {
         }
     }
 
+    /// The prototype's stand-in for the vault file: your own items persist in the App Group, which the AutoFill
+    /// extension reads too. Sample items are never written.
+    private func persist(_ item: VaultItem) {
+        let isSample = SampleVault.items.contains { $0.id == item.id }
+        guard !isSample else { return }
+        SharedVault.save(item)
+    }
+
     private func save(_ item: VaultItem) {
+        persist(item)
         if let index = items.firstIndex(where: { $0.id == item.id }) {
             items[index] = item
         } else {
