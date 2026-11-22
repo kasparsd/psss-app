@@ -1,6 +1,6 @@
-:root { color-scheme: light dark; font: 13px/1.4 system-ui, -apple-system, sans-serif; }
-body { margin: 0; width: 320px; padding: 12px; box-sizing: border-box; }
-h1 { font-size: 15px; margin: 0; }
+:root { color-scheme: light dark; font: 15px/1.4 system-ui, -apple-system, sans-serif; }
+body { margin: 0; width: 360px; padding: 14px; box-sizing: border-box; }
+h1 { font-size: 18px; margin: 0; }
 .secondary { color: GrayText; margin: 2px 0 0; overflow-wrap: anywhere; }
 header { margin-bottom: 8px; }
 #status:empty { display: none; }
@@ -23,7 +23,7 @@ input[type=search]:focus-visible, input[type=text]:focus-visible { outline: 2px 
 li.confirm { flex-wrap: wrap; border-color: color-mix(in srgb, CanvasText 45%, transparent); }
 .actions { display: flex; gap: 6px; margin-left: auto; }
 .footer { margin: 12px 0 0; text-align: right; }
-h2 { font-size: 13px; margin: 0 0 6px; }
+h2 { font-size: 16px; margin: 0 0 6px; }
 #generate { margin-top: 8px; width: 100%; }
 #created:empty { display: none; }
 #created { margin: 6px 0 0; }
