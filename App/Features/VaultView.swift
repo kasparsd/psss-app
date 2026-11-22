@@ -246,7 +246,8 @@ struct VaultView: View {
                 }
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button("Setup") { showsSetup = true }
+                        Button("Setup", systemImage: "gearshape") { showsSetup = true }
+                            .labelStyle(.iconOnly)
                     }
                     ToolbarSpacer(.fixed, placement: .topBarTrailing)
                     ToolbarItem(placement: .topBarTrailing) {
@@ -535,12 +536,12 @@ struct VaultView: View {
             }
         } label: {
             if expanded {
-                Label("New item", systemImage: "plus").frame(maxWidth: .infinity)
+                Label("Add item", systemImage: "plus").frame(maxWidth: .infinity)
             } else {
                 // Navigation and bottom bars drop the title from a Label, so spell it out.
                 HStack(spacing: 4) {
                     Image(systemName: "plus")
-                    Text("New")
+                    Text("Add")
                 }
             }
         }
@@ -679,7 +680,11 @@ private struct ItemIcon: View {
     }
 
     private var brand: BrandIcons.Brand? {
-        item.kind == .login ? BrandIcons.brand(forWebsite: item.website) : nil
+        switch item.kind {
+        case .login: BrandIcons.brand(forWebsite: item.website)
+        case .creditCard: CardBrand(number: item.secret).map { BrandIcons.Brand(asset: $0.asset, color: $0.color, glyph: .white) }
+        default: nil
+        }
     }
 
     var body: some View {
@@ -739,7 +744,7 @@ private struct ItemDetail: View {
                 if !item.expiry.isEmpty { field(.expiry, "Expiry", item.expiry) }
                 if !item.website.isEmpty { field(.website, "Website", item.website) }
                 if !item.notes.isEmpty {
-                    field(.notes, "Notes", item.notes, hidden: item.kind == .secureNote)
+                    field(.notes, "Notes", item.notes)
                 }
             } header: {
                 #if os(macOS)

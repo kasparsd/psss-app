@@ -24,6 +24,8 @@ OVERRIDES = {
     "linkedin.com": "linkedin", "github.com": "github", "githubusercontent.com": "github",
     "wikipedia.org": "wikipedia", "facebook.com": "facebook", "instagram.com": "instagram", "paypal.me": "paypal", "spotify.com": "spotify", "adobe.com": "adobe",
 }
+# Card networks are always bundled; App/Core/CardBrand.swift detects them from the card number.
+CARD_NETWORKS = ["visa", "mastercard", "americanexpress", "discover", "jcb", "dinersclub"]
 NOISE = {"github.com", "commons.wikimedia.org", "wikimedia.org", "en.wikipedia.org", "gitlab.com", "figma.com"}
 
 def registrable(host):
@@ -54,7 +56,7 @@ def main():
         if host and host not in NOISE:
             by_source.setdefault(host, i["slug"])
 
-    domains, slugs = {}, []
+    domains, slugs = {}, list(CARD_NETWORKS)
     with open(args.tranco) as f:
         for _, domain in csv.reader(f):
             slug = OVERRIDES.get(domain) or by_name.get(norm(domain.split(".")[0])) or by_source.get(domain)
