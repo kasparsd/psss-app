@@ -60,23 +60,7 @@ struct WelcomeView: View {
             .frame(maxWidth: .infinity)
         }
         .background(.background)
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.commaSeparatedText, .plainText]) { result in
-            do {
-                let url = try result.get()
-                let scoped = url.startAccessingSecurityScopedResource()
-                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                let parsed = try CSVImport.items(from: String(contentsOf: url, encoding: .utf8))
-                for item in parsed.items { SharedVault.save(item) }
-                SharedVault.registerIdentities(for: parsed.items)
-                notice = parsed.skipped == 0
-                    ? String(localized: "Imported \(parsed.items.count) logins.")
-                    : String(localized: "Imported \(parsed.items.count) logins. Skipped \(parsed.skipped) empty rows.")
-            } catch let failure as CSVImport.Failure {
-                comingSoon = failure.message
-            } catch {
-                comingSoon = error.localizedDescription
-            }
-        }
+        .passwordsImporter(isPresented: $importing, notice: $notice, problem: $comingSoon)
         .alert("Imported", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
             Button("Open vault") { notice = nil; onFinish("mine") }
         } message: { Text(notice ?? "") }
@@ -90,5 +74,28 @@ private struct Prominent: ViewModifier {
     let on: Bool
     func body(content: Content) -> some View {
         if on { content.buttonStyle(.borderedProminent) } else { content }
+    }
+}
+
+extension View {
+    /// Reads an Apple Passwords (or browser) CSV export into saved logins. Reports through `notice` or `problem`.
+    func passwordsImporter(isPresented: Binding<Bool>, notice: Binding<String?>, problem: Binding<String?>) -> some View {
+        fileImporter(isPresented: isPresented, allowedContentTypes: [.commaSeparatedText, .plainText]) { result in
+            do {
+                let url = try result.get()
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                let parsed = try CSVImport.items(from: String(contentsOf: url, encoding: .utf8))
+                for item in parsed.items { SharedVault.save(item) }
+                SharedVault.registerIdentities(for: parsed.items)
+                notice.wrappedValue = parsed.skipped == 0
+                    ? String(localized: "Imported \(parsed.items.count) logins.")
+                    : String(localized: "Imported \(parsed.items.count) logins. Skipped \(parsed.skipped) empty rows.")
+            } catch let failure as CSVImport.Failure {
+                problem.wrappedValue = failure.message
+            } catch {
+                problem.wrappedValue = error.localizedDescription
+            }
+        }
     }
 }

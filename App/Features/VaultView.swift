@@ -110,6 +110,9 @@ struct VaultView: View {
     @State var items: [VaultItem]
     @AppStorage("vaultSource") private var vaultSource = ""
     @State private var confirmsReset = false
+    @State private var importing = false
+    @State private var importNotice: String?
+    @State private var importProblem: String?
     @Environment(UnlockGate.self) private var gate
     @AppStorage("lockTiming") private var lockTiming = LockTiming.oneMinute.rawValue
     @State private var columns: NavigationSplitViewVisibility = .all
@@ -168,8 +171,15 @@ struct VaultView: View {
 
     var body: some View {
         Group {
-            if usesStack { stackLayout } else { splitLayout }
+            if items.isEmpty { emptyVault } else if usesStack { stackLayout } else { splitLayout }
         }
+        .passwordsImporter(isPresented: $importing, notice: $importNotice, problem: $importProblem)
+        .alert("Imported", isPresented: Binding(get: { importNotice != nil }, set: { if !$0 { importNotice = nil } })) {
+            Button("Open vault") { importNotice = nil; items = SharedVault.items(source: vaultSource) }
+        } message: { Text(importNotice ?? "") }
+        .alert("Could not import", isPresented: Binding(get: { importProblem != nil }, set: { if !$0 { importProblem = nil } })) {
+            Button("OK") { importProblem = nil }
+        } message: { Text(importProblem ?? "") }
         .focusedSceneValue(\.newItem, { kind in editor = VaultItem(kind: kind) })
         .task { SharedVault.registerIdentities(for: items) }
         .onChange(of: scenePhase) { _, phase in
@@ -179,6 +189,46 @@ struct VaultView: View {
             ItemEditor(item: item, onSave: save)
         }
         .sheet(isPresented: $showsSetup) { setupSheet }
+    }
+
+    /// A new vault has nothing to select, so there is no list, no detail pane and no search: just the ways to fill it.
+    private var emptyVault: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                VStack(spacing: 8) {
+                    Image(systemName: "tray").font(.system(size: 40)).foregroundStyle(.secondary).accessibilityHidden(true)
+                    Text("Your vault is empty").font(.title2.weight(.semibold))
+                    Text("Add passwords yourself, bring them from another app, or let Psss offer to save the ones you sign in with in Safari and other apps.")
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                VStack(spacing: 10) {
+                    emptyChoice("Add a login", "plus", prominent: true) { editor = VaultItem(kind: .login) }
+                    emptyChoice("Add a credit card", "creditcard") { editor = VaultItem(kind: .creditCard) }
+                    emptyChoice("Add a secure note", "note.text") { editor = VaultItem(kind: .secureNote) }
+                    emptyChoice("Import from Apple Passwords", "square.and.arrow.down") { importing = true }
+                    emptyChoice("Vault setup", "gearshape") { showsSetup = true }
+                }
+                Text("To save passwords and passkeys from your browser, turn on Psss in Settings, AutoFill & Passwords. Then sign in to a site and choose Save in Psss.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: 420)
+            .padding(24)
+            .frame(maxWidth: .infinity)
+        }
+        .background(.background)
+    }
+
+    private func emptyChoice(_ title: LocalizedStringKey, _ symbol: String, prominent: Bool = false,
+                             action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol).frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+        .modifier(EmptyProminent(on: prominent))
     }
 
     /// iPhone: the pills already switch categories, so there is no separate Vault screen to go back to.
@@ -229,7 +279,7 @@ struct VaultView: View {
             .navigationSplitViewColumnWidth(min: 180, ideal: 220)
         } content: {
             itemResults(visibleItems)
-                .navigationSplitViewColumnWidth(min: 300, ideal: 400)
+                .navigationSplitViewColumnWidth(min: 360, ideal: 440)
         } detail: {
             if let item = visibleItems.first(where: { $0.id == selection }) {
                 ItemDetail(item: item, edit: { editor = item }, used: { markUsed(item.id) })
@@ -500,7 +550,9 @@ struct VaultView: View {
             ItemRow(item: item)
         }
         #if os(iOS)
-        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+        .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
+        #else
+        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
         #endif
     }
 
@@ -538,14 +590,8 @@ private struct ItemRow: View {
     let item: VaultItem
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    /// The Mac list column is narrow, so name and login stack like Notes' title and preview.
-    private static var stacked: Bool {
-        #if os(macOS)
-        true
-        #else
-        false
-        #endif
-    }
+    /// One line per row on every platform. The Mac list column is given enough width for it.
+    private static var stacked: Bool { false }
 
     private var secondary: Text {
         item.account.isEmpty ? Text(item.kind.label) : Text(verbatim: item.account)
@@ -1062,5 +1108,12 @@ private struct TOTPQRSheet: View {
         guard let output = filter.outputImage,
               let cg = CIContext().createCGImage(output, from: output.extent) else { return nil }
         return Image(decorative: cg, scale: 1)
+    }
+}
+
+private struct EmptyProminent: ViewModifier {
+    let on: Bool
+    func body(content: Content) -> some View {
+        if on { content.buttonStyle(.borderedProminent) } else { content }
     }
 }
