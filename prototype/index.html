@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Psss — Interaction prototype</title>
+<link rel="stylesheet" href="style.css">
+<script defer src="app.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="mark" aria-hidden="true">◆</span> Psss <small>Interaction prototype</small></div>
+  <label>Scenario <select id="scenario">
+    <option value="fill">Fill a login</option><option value="locked">Fill while locked</option>
+    <option value="signup">Create on a website</option><option value="update">Change a password</option>
+    <option value="checkout">Fill a card at checkout</option><option value="vault">Manage the vault</option><option value="onboarding">Set up a vault</option>
+  </select></label>
+</header>
+<main id="app"></main>
+<p id="status" role="status"></p>
+<dialog id="dialog"></dialog>
+</body>
+</html>

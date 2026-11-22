@@ -1,0 +1,860 @@
+import SwiftUI
+
+private extension ItemKind {
+    var label: LocalizedStringKey {
+        switch self {
+        case .login: "Login"
+        case .creditCard: "Credit card"
+        case .secureNote: "Secure note"
+        case .keePassEntry: "Custom item"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .login: "key"
+        case .creditCard: "creditcard"
+        case .secureNote: "note.text"
+        case .keePassEntry: "doc"
+        }
+    }
+}
+
+private enum VaultCategory: Hashable {
+    case recent
+    case mostUsed
+    case allItems
+    case kind(ItemKind)
+
+    static var choices: [Self] { [.recent, .mostUsed, .allItems] + ItemKind.allCases.map(Self.kind) }
+
+    /// Usage views are scopes of "what I need now". Searching always looks across everything.
+    var isUsageView: Bool { self == .recent || self == .mostUsed }
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .recent: "Recent"
+        case .mostUsed: "Most used"
+        case .allItems: "All items"
+        case .kind(.login): "Logins"
+        case .kind(.creditCard): "Credit cards"
+        case .kind(.secureNote): "Secure notes"
+        case .kind(.keePassEntry): "Custom items"
+        }
+    }
+
+    var shortTitle: LocalizedStringKey {
+        switch self {
+        case .recent: "Recent"
+        case .mostUsed: "Most used"
+        case .allItems: "All"
+        case .kind(.login): "Logins"
+        case .kind(.creditCard): "Cards"
+        case .kind(.secureNote): "Notes"
+        case .kind(.keePassEntry): "Custom"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .recent: "clock"
+        case .mostUsed: "star"
+        case .allItems: "tray.full"
+        case .kind(let kind): kind.symbol
+        }
+    }
+
+    func includes(_ item: VaultItem) -> Bool {
+        switch self {
+        case .recent: item.lastUsed != nil
+        case .mostUsed: item.useCount > 0
+        case .allItems: true
+        case .kind(let kind): item.kind == kind
+        }
+    }
+}
+
+struct VaultView: View {
+    @State var items: [VaultItem]
+    @State private var columns: NavigationSplitViewVisibility = .all
+    @State private var compactColumn: NavigationSplitViewColumn = .content
+    @State private var compactPath: [VaultItem.ID] = []
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    #endif
+    @State private var category: VaultCategory? = .recent
+    private var categorySelection: Binding<VaultCategory?> {
+        Binding(get: { category }, set: { newCategory in
+            if category != newCategory { selection = nil }
+            category = newCategory
+        })
+    }
+    @State private var selection: VaultItem.ID?
+    @State private var search = ""
+    @FocusState private var searchFocused: Bool
+    @State private var didFocusOnLaunch = false
+    @State private var editor: VaultItem?
+    @State private var showsSetup = false
+    @Environment(\.scenePhase) private var scenePhase
+
+    /// A usage pill with nothing to show falls back to All, so a new vault never opens empty.
+    private var activeCategory: VaultCategory {
+        let chosen = category ?? .recent
+        return chosen.isUsageView && !items.contains(where: chosen.includes) ? .allItems : chosen
+    }
+
+    private var isSearching: Bool { !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    private var results: [VaultItem] {
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        let scope: VaultCategory = query.isEmpty || !activeCategory.isUsageView ? activeCategory : .allItems
+        let matches = items.filter { item in
+            scope.includes(item) && (query.isEmpty ||
+                [item.title, item.website, item.account, item.displayTitle].contains { $0.localizedStandardContains(query) })
+        }
+        switch scope {
+        case .recent:
+            return Array(matches.sorted { ($0.lastUsed ?? .distantPast) > ($1.lastUsed ?? .distantPast) }.prefix(10))
+        case .mostUsed:
+            return Array(matches.sorted { $0.useCount > $1.useCount }.prefix(10))
+        default:
+            return matches.sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
+        }
+    }
+
+    private var usesStack: Bool {
+        #if os(iOS)
+        sizeClass == .compact
+        #else
+        false
+        #endif
+    }
+
+    var body: some View {
+        Group {
+            if usesStack { stackLayout } else { splitLayout }
+        }
+        .focusedSceneValue(\.newItem, { kind in editor = VaultItem(kind: kind) })
+        .task { SharedVault.registerIdentities(for: items) }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { reloadSaved() }
+        }
+        .sheet(item: $editor) { item in
+            ItemEditor(item: item, onSave: save)
+        }
+        .sheet(isPresented: $showsSetup) { setupSheet }
+    }
+
+    /// iPhone: the pills already switch categories, so there is no separate Vault screen to go back to.
+    @ViewBuilder
+    private var stackLayout: some View {
+        #if os(iOS)
+        NavigationStack(path: $compactPath) {
+            itemResults(results)
+                .navigationDestination(for: VaultItem.ID.self) { id in
+                    if let item = items.first(where: { $0.id == id }) {
+                        ItemDetail(item: item, edit: { editor = item }, used: { markUsed(item.id) })
+                            .id(item.id)
+                    }
+                }
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Setup") { showsSetup = true }
+                    }
+                    ToolbarSpacer(.fixed, placement: .topBarTrailing)
+                    ToolbarItem(placement: .topBarTrailing) {
+                        newItemMenu(expanded: false)
+                    }
+                }
+        }
+        #endif
+    }
+
+    private var splitLayout: some View {
+        let visibleItems = results
+        return NavigationSplitView(columnVisibility: $columns, preferredCompactColumn: $compactColumn) {
+            List(selection: categorySelection) {
+                Section("Sample vault") {
+                    ForEach(VaultCategory.choices, id: \.self) { scope in
+                        NavigationLink(value: scope) {
+                            let count = items.count(where: scope.includes)
+                            Label(scope.title, systemImage: scope.symbol)
+                                .badge(count)
+                        }
+                    }
+                }
+            }
+            .listStyle(.sidebar)
+            .navigationTitle("Vault")
+            .navigationSplitViewColumnWidth(min: 180, ideal: 220)
+        } content: {
+            itemResults(visibleItems)
+                .navigationSplitViewColumnWidth(min: 300, ideal: 400)
+        } detail: {
+            if let item = visibleItems.first(where: { $0.id == selection }) {
+                ItemDetail(item: item, edit: { editor = item }, used: { markUsed(item.id) })
+                    .id(item.id)
+            } else {
+                ContentUnavailableView("Choose an item", systemImage: "lock")
+            }
+        }
+        .navigationSplitViewStyle(.balanced)
+    }
+
+    private var setupSheet: some View {
+            NavigationStack {
+                Form {
+                    Section("Vaults") {
+                        Label("Open a KeePass vault", systemImage: "folder")
+                        Label("Import from 1Password", systemImage: "square.and.arrow.down")
+                        Label("Create a local or iCloud vault", systemImage: "plus")
+                    }
+                    Section("AutoFill") {
+                        Label("Set up the credential provider", systemImage: "key")
+                    }
+                    Text("Setup is a preview. These options will be enabled in a future build.")
+                        .foregroundStyle(.secondary)
+                }
+                .formStyle(.grouped)
+                .navigationTitle("Vault setup")
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { showsSetup = false }
+                    }
+                }
+            }
+            .modifier(SheetSize())
+    }
+
+    private func itemResults(_ results: [VaultItem]) -> some View {
+        Group {
+            if usesStack {
+                // A stack pushes through its links, so the list must not also track a selection.
+                List {
+                    pills
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                    ForEach(results) { row($0) }
+                }
+            } else {
+                List(selection: $selection) { ForEach(results) { row($0) } }
+            }
+        }
+        #if os(iOS)
+        // HIG: touch targets are at least 44 x 44 pt.
+        .environment(\.defaultMinListRowHeight, 44)
+        #else
+        .environment(\.defaultMinListRowHeight, 32)
+        #endif
+        #if os(macOS)
+        .listStyle(.inset)
+        #else
+        .listStyle(.plain)
+        #endif
+        .overlay {
+            if results.isEmpty {
+                if search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    ContentUnavailableView("No items", systemImage: "tray")
+                } else {
+                    ContentUnavailableView {
+                        Label("No results for “\(search)”", systemImage: "magnifyingglass")
+                    } description: {
+                        Text("Check the spelling, or add it now.")
+                    } actions: {
+                        Button("Add “\(search)” as a login") {
+                            let text = search.trimmingCharacters(in: .whitespacesAndNewlines)
+                            // Something that looks like a domain becomes the website, anything else a name.
+                            if text.contains("."), !text.contains(" ") {
+                                editor = VaultItem(kind: .login, website: text)
+                            } else {
+                                editor = VaultItem(kind: .login, title: text)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
+            }
+        }
+        .searchable(text: $search, prompt: "Search")
+        .searchFocused($searchFocused)
+        #if os(iOS)
+        // Keep the title and the New button on screen while search is active.
+        .searchPresentationToolbarBehavior(.avoidHidingContent)
+        #endif
+        #if os(iOS)
+        .textInputAutocapitalization(.never)
+        #endif
+        .autocorrectionDisabled()
+        .onSubmit(of: .search) {
+            // Return opens the top result.
+            if let first = results.first {
+                selection = first.id
+                compactColumn = .detail
+                compactPath = [first.id]
+            }
+        }
+        .task {
+            // Only on launch: returning from an item must not pop the keyboard and hide the actions.
+            guard !didFocusOnLaunch else { return }
+            didFocusOnLaunch = true
+            searchFocused = true
+        }
+        .navigationTitle(activeCategory.title)
+        #if os(macOS)
+        .navigationSubtitle("\(results.count) items")
+        #endif
+        .safeAreaInset(edge: .top, spacing: 0) {
+            // The sidebar already filters on Mac and iPad. Pills fill in on iPhone and when the sidebar is hidden.
+            if usesStack || columns != .all { pills }
+        }
+        #if os(iOS)
+        // iOS 26 and later: a floating glass search field at the bottom, within thumb reach.
+        .toolbar {
+            DefaultToolbarItem(kind: .search, placement: .bottomBar)
+        }
+        #endif
+        // Mac and iPad keep Setup and a labeled New in the window toolbar, where Notes and Mail put compose.
+        .toolbar {
+            if !usesStack {
+                ToolbarItem(placement: .primaryAction) {
+                    newItemMenu(expanded: false)
+                }
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+                ToolbarItem(placement: .primaryAction) {
+                    // Rarely needed, so it lives in the overflow menu, as in Notes.
+                    Menu {
+                        Button("Vault setup…") { showsSetup = true }
+                    } label: {
+                        Label("More", systemImage: "ellipsis")
+                    }
+                }
+            }
+        }
+    }
+
+    /// Filters are always on screen as pills, one tap each. Usage pills lead.
+    /// The row fades out at its trailing edge to show that it scrolls.
+    private var pills: some View {
+        HStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(VaultCategory.choices, id: \.self) { scope in
+                        pill(scope)
+                    }
+                }
+                .padding(.leading)
+                .padding(.trailing, 12)
+                .padding(.vertical, 8)
+            }
+            .scrollClipDisabled()
+            .mask(fadeMask)
+        }
+    }
+
+    private var fadeMask: some View {
+        HStack(spacing: 0) {
+            Color.black
+            #if os(iOS)
+            LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                .frame(width: 24)
+            #endif
+        }
+    }
+
+    @ViewBuilder
+    private func pill(_ scope: VaultCategory) -> some View {
+        // While searching from a usage pill the results span everything, so All is the honest highlight.
+        let shown: VaultCategory = isSearching && activeCategory.isUsageView ? .allItems : activeCategory
+        let selected = shown == scope
+        let button = Button {
+            categorySelection.wrappedValue = scope
+        } label: {
+            if scope.isUsageView {
+                // A tight HStack: Label's default icon spacing is too wide inside a capsule.
+                HStack(spacing: 4) {
+                    Image(systemName: scope.symbol)
+                    Text(scope.shortTitle)
+                }
+            } else {
+                Text(scope.shortTitle)
+            }
+        }
+        .buttonBorderShape(.capsule)
+        .controlSize(.regular)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        if selected {
+            button.buttonStyle(.borderedProminent)
+        } else {
+            button.buttonStyle(.bordered)
+        }
+    }
+
+    /// The most common action stays visible and labeled. The type choice appears only after tapping it.
+    private func newItemMenu(expanded: Bool) -> some View {
+        Menu {
+            ForEach(ItemKind.allCases) { kind in
+                Button {
+                    editor = VaultItem(kind: kind)
+                } label: {
+                    Label(kind.label, systemImage: kind.symbol)
+                }
+            }
+        } label: {
+            if expanded {
+                Label("New item", systemImage: "plus").frame(maxWidth: .infinity)
+            } else {
+                // Navigation and bottom bars drop the title from a Label, so spell it out.
+                HStack(spacing: 4) {
+                    Image(systemName: "plus")
+                    Text("New")
+                }
+            }
+        }
+    }
+
+    private func row(_ item: VaultItem) -> some View {
+        NavigationLink(value: item.id) {
+            ItemRow(item: item)
+        }
+        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+    }
+
+    /// Picks up logins that the AutoFill extension saved while the app was in the background.
+    private func reloadSaved() {
+        for saved in SharedVault.loadSaved() {
+            if let index = items.firstIndex(where: { $0.id == saved.id }) { items[index] = saved } else { items.append(saved) }
+        }
+        SharedVault.registerIdentities(for: items)
+    }
+
+    private func markUsed(_ id: VaultItem.ID) {
+        if let index = items.firstIndex(where: { $0.id == id }) {
+            items[index].lastUsed = .now
+            items[index].useCount += 1
+        }
+    }
+
+    private func save(_ item: VaultItem) {
+        if let index = items.firstIndex(where: { $0.id == item.id }) {
+            items[index] = item
+        } else {
+            items.append(item)
+        }
+        search = ""
+        if !activeCategory.includes(item) { category = .kind(item.kind) }
+        selection = item.id
+        compactColumn = .detail
+        editor = nil
+    }
+}
+
+/// One line per item: icon, name and login. The name is capped so the login always stays visible.
+private struct ItemRow: View {
+    let item: VaultItem
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// The Mac list column is narrow, so name and login stack like Notes' title and preview.
+    private static var stacked: Bool {
+        #if os(macOS)
+        true
+        #else
+        false
+        #endif
+    }
+
+    private var secondary: Text {
+        let base = item.account.isEmpty ? Text(item.kind.label) : Text(verbatim: item.account)
+        guard item.passkey != nil else { return base }
+        // A passkey glyph before the login tells apart rows that share a title.
+        return Text(Image(systemName: "person.badge.key")) + Text(verbatim: " ") + base
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ItemIcon(item: item)
+            if typeSize.isAccessibilitySize || Self.stacked {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: item.displayTitle).lineLimit(1)
+                    secondary.font(.subheadline).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                }
+            } else {
+                TitleAndLogin {
+                    Text(verbatim: item.displayTitle).lineLimit(1)
+                    secondary
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+        }
+    }
+}
+
+/// Gives the name the space it needs, but never takes more than 60% once the login would be squeezed out.
+private struct TitleAndLogin: Layout {
+    var spacing: CGFloat = 10
+
+    private func widths(_ available: CGFloat?, _ subviews: Subviews) -> (CGFloat, CGFloat) {
+        let title = subviews[0].sizeThatFits(.unspecified).width
+        let login = subviews[1].sizeThatFits(.unspecified).width
+        guard let available else { return (title, login) }
+        let room = available - spacing
+        if title + login <= room { return (title, login) }
+        let loginShare = min(login, room * 0.4)
+        let titleWidth = min(title, room - loginShare)
+        return (titleWidth, min(login, room - titleWidth))
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let (title, login) = widths(proposal.width, subviews)
+        let height = max(subviews[0].sizeThatFits(.init(width: title, height: nil)).height,
+                         subviews[1].sizeThatFits(.init(width: login, height: nil)).height)
+        return CGSize(width: proposal.width ?? title + login + spacing, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let (title, login) = widths(bounds.width, subviews)
+        subviews[0].place(at: CGPoint(x: bounds.minX, y: bounds.midY), anchor: .leading,
+                          proposal: .init(width: title, height: bounds.height))
+        subviews[1].place(at: CGPoint(x: bounds.maxX, y: bounds.midY), anchor: .trailing,
+                          proposal: .init(width: login, height: bounds.height))
+    }
+}
+
+/// A site monogram today and the favicon slot later. Colour comes from the site so it is stable and offline.
+private struct ItemIcon: View {
+    let item: VaultItem
+    var size: CGFloat = 30
+
+    private var tint: Color {
+        guard item.kind == .login else { return .gray }
+        let seed = (item.website.isEmpty ? item.displayTitle : item.website).unicodeScalars.reduce(UInt32(7)) { $0 &* 31 &+ $1.value }
+        return Color(hue: Double(seed % 360) / 360, saturation: 0.5, brightness: 0.72)
+    }
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: size * 0.27, style: .continuous).fill(tint)
+            if item.kind == .login, let letter = item.displayTitle.first {
+                Text(String(letter).uppercased())
+                    .font(.system(size: size * 0.53, weight: .semibold, design: .rounded))
+            } else {
+                Image(systemName: item.kind.symbol).font(.system(size: size * 0.47, weight: .semibold))
+            }
+        }
+        .foregroundStyle(.white)
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct ItemDetail: View {
+    let item: VaultItem
+    let edit: () -> Void
+    let used: () -> Void
+    @State private var revealed: Set<FieldID> = []
+    @State private var copied: FieldID?
+
+    private enum FieldID: Hashable { case website, account, expiry, secret, code, notes }
+
+    private var secretLabel: LocalizedStringKey {
+        switch item.kind {
+        case .login: "Password"
+        case .creditCard: "Card number"
+        case .keePassEntry: "Value"
+        case .secureNote: "Secret"
+        }
+    }
+
+    private var accountLabel: LocalizedStringKey { item.kind == .creditCard ? "Cardholder" : "Username" }
+
+    var body: some View {
+        Form {
+            if !item.otpSecret.isEmpty, item.kind == .login { codeSection }
+            Section {
+                if !item.account.isEmpty {
+                    field(.account, accountLabel, item.account)
+                }
+                if !item.secret.isEmpty {
+                    field(.secret, secretLabel, item.secret, hidden: true)
+                }
+                if !item.expiry.isEmpty { field(.expiry, "Expiry", item.expiry) }
+                if !item.website.isEmpty { field(.website, "Website", item.website) }
+                if !item.notes.isEmpty {
+                    field(.notes, "Notes", item.notes, hidden: item.kind == .secureNote)
+                }
+            } header: {
+                #if os(macOS)
+                // Mac has no large title, so the name leads the page as plain text, as in Notes.
+                // Mac has no large title, so the item leads the page with its icon and name, as in Passwords.
+                VStack(spacing: 8) {
+                    ItemIcon(item: item, size: 64)
+                    Text(item.displayTitle)
+                        .font(.title.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .textCase(nil)
+                .padding(.vertical, 8)
+                #endif
+            } footer: {
+                #if os(macOS)
+                Text("Click a row to copy it. Copied values leave the clipboard after 60 seconds.")
+                #else
+                Text("Tap a row to copy it. Copied values leave the clipboard after 60 seconds.")
+                #endif
+            }
+            if let passkey = item.passkey {
+                Section {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Passkey").font(.caption).foregroundStyle(.secondary)
+                            Text("Saved \(passkey.created.formatted(date: .abbreviated, time: .omitted)) for \(passkey.rpID)")
+                        }
+                    } icon: {
+                        Image(systemName: "person.badge.key")
+                    }
+                } footer: {
+                    Text("Sign in on \(passkey.rpID) with this passkey. It never leaves your vault.")
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle(item.displayTitle)
+        // A labeled Edit in the toolbar of the detail column, as in Passwords (Mac) and Contacts (iOS).
+        .toolbar {
+            Button("Edit", action: edit)
+                .keyboardShortcut("e", modifiers: .command)
+        }
+        .overlay(alignment: .bottom) {
+            if copied != nil {
+                Label("Copied", systemImage: "checkmark.circle.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .glassEffect(.regular, in: .capsule)
+                    .padding(.bottom, 24)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .accessibilityAddTraits(.updatesFrequently)
+            }
+        }
+        .animation(.snappy, value: copied)
+        #if os(iOS)
+        .sensoryFeedback(.success, trigger: copied)
+        #endif
+    }
+
+    private var codeSection: some View {
+        Section {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let remaining = TOTP.secondsRemaining(at: context.date)
+                let code = TOTP.code(secret: item.otpSecret, at: context.date) ?? "------"
+                Button {
+                    copy(code, as: .code)
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Verification code").font(.caption).foregroundStyle(.secondary)
+                            Text(grouped(code))
+                                .font(.system(.largeTitle, design: .monospaced).weight(.medium))
+                                .contentTransition(.numericText())
+                        }
+                        Spacer()
+                        Image(systemName: "doc.on.doc")
+                            .foregroundStyle(Color.accentColor)
+                            .accessibilityHidden(true)
+                        Gauge(value: Double(remaining), in: 0...TOTP.period) {
+                            Text("Seconds left")
+                        } currentValueLabel: {
+                            Text("\(remaining)")
+                        }
+                        .gaugeStyle(.accessoryCircularCapacity)
+                        .tint(remaining <= 5 ? .red : .accentColor)
+                        .scaleEffect(0.8)
+                        .accessibilityHidden(true)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Verification code")
+                .accessibilityValue(Text("Expires in \(remaining) seconds"))
+                .accessibilityHint("Copies the code")
+            }
+        }
+    }
+
+    private func grouped(_ code: String) -> String {
+        guard code.count == 6 else { return code }
+        return code.prefix(3) + " " + code.suffix(3)
+    }
+
+    private func masked(_ id: FieldID) -> String {
+        id == .secret && item.kind == .creditCard ? "•••• " + item.secret.suffix(4) : "••••••••"
+    }
+
+    private func shown(_ id: FieldID, _ value: String) -> String {
+        guard id == .secret, item.kind == .creditCard else { return value }
+        return stride(from: 0, to: value.count, by: 4).map {
+            String(value.dropFirst($0).prefix(4))
+        }.joined(separator: " ")
+    }
+
+    /// A field is one row. Click or tap copies it. Protected values stay hidden until a deliberate reveal.
+    private func field(_ id: FieldID, _ label: LocalizedStringKey, _ value: String, hidden: Bool = false) -> some View {
+        let isHidden = hidden && !revealed.contains(id)
+        return HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label).font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 4) {
+                    Text(isHidden ? masked(id) : shown(id, value))
+                        .textSelection(.disabled)
+                    if hidden {
+                        // The reveal control sits right beside the value it reveals.
+                        // A high-priority tap so it wins over the row's copy gesture.
+                        Image(systemName: revealed.contains(id) ? "eye.slash" : "eye")
+                            .foregroundStyle(Color.accentColor)
+                            #if os(iOS)
+                            .frame(minWidth: 44, minHeight: 32, alignment: .leading)
+                            #else
+                            .frame(minWidth: 28, minHeight: 18, alignment: .leading)
+                            #endif
+                            .contentShape(Rectangle())
+                            .highPriorityGesture(TapGesture().onEnded {
+                                if revealed.contains(id) { revealed.remove(id) } else { revealed.insert(id) }
+                            })
+                            .accessibilityLabel(revealed.contains(id) ? Text("Hide") : Text("Show"))
+                            .accessibilityAddTraits(.isButton)
+                    }
+                }
+            }
+            Spacer(minLength: 8)
+            // Copy icons stay visible at the trailing edge of every row, quietly tinted.
+            Image(systemName: "doc.on.doc")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { copy(value, as: id) }
+        .accessibilityElement(children: .contain)
+        .accessibilityAction(named: Text("Copy")) { copy(value, as: id) }
+    }
+
+    private func copy(_ value: String, as id: FieldID) {
+        Clipboard.copy(value)
+        used()
+        copied = id
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            if copied == id { copied = nil }
+        }
+    }
+}
+
+private struct ItemEditor: View {
+    @State var item: VaultItem
+    let onSave: (VaultItem) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var titleFocused: Bool
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if item.kind != .login {
+                    labeled("Title") {
+                        TextField("Title", text: $item.title)
+                            .focused($titleFocused)
+                            .task { titleFocused = true }
+                    }
+                }
+                switch item.kind {
+                case .login:
+                    labeled("Website") {
+                        TextField("Website", text: $item.website, prompt: Text("example.com"))
+                            .focused($titleFocused)
+                            .task { titleFocused = item.website.isEmpty }
+                            #if os(iOS)
+                            .keyboardType(.URL)
+                            .textInputAutocapitalization(.never)
+                            #endif
+                            .autocorrectionDisabled()
+                    }
+                    labeled("Username") {
+                        TextField("Username", text: $item.account)
+                            #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                            #endif
+                            .autocorrectionDisabled()
+                    }
+                    labeled("Password") { SecureField("Password", text: $item.secret) }
+                    labeled("Name (optional)") {
+                        TextField("Name", text: $item.title, prompt: Text(verbatim: namePlaceholder))
+                    }
+                case .creditCard:
+                    labeled("Cardholder") { TextField("Cardholder", text: $item.account) }
+                    labeled("Card number") { SecureField("Card number", text: $item.secret) }
+                    labeled("Expiry") { TextField("Expiry", text: $item.expiry, prompt: Text("MM/YY")) }
+                case .secureNote:
+                    EmptyView()
+                case .keePassEntry:
+                    labeled("Protected value") { SecureField("Protected value", text: $item.secret) }
+                }
+                labeled("Notes") {
+                    TextField("Notes", text: $item.notes, axis: .vertical)
+                        .lineLimit(3...8)
+                }
+            }
+            .formStyle(.grouped)
+            .navigationTitle(item.kind.label)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { onSave(item) }
+                        .disabled(item.displayTitle == String(localized: "Untitled"))
+                }
+            }
+        }
+        .modifier(SheetSize())
+    }
+}
+
+extension ItemEditor {
+    /// A visible caption above each field, like the detail page, so a filled field never loses its name.
+    fileprivate func labeled<Content: View>(_ label: LocalizedStringKey, @ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.caption).foregroundStyle(.secondary)
+            content().labelsHidden()
+        }
+    }
+
+    fileprivate var namePlaceholder: String {
+        item.displayTitle == String(localized: "Untitled") ? String(localized: "Same as the website") : item.displayTitle
+    }
+}
+
+private struct SheetSize: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(macOS)
+        content.frame(minWidth: 450, minHeight: 360)
+        #else
+        content
+        #endif
+    }
+}
+
+/// Lets the File menu create an item in the focused window.
+struct NewItemKey: FocusedValueKey {
+    typealias Value = (ItemKind) -> Void
+}
+
+extension FocusedValues {
+    var newItem: ((ItemKind) -> Void)? {
+        get { self[NewItemKey.self] }
+        set { self[NewItemKey.self] = newValue }
+    }
+}

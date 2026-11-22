@@ -1,0 +1,14 @@
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Create account · Sample Site</title><link rel="stylesheet" href="style.css">
+<h1>Create account</h1>
+<form method="post" action="/welcome">
+  <label for="n">Name</label>
+  <input id="n" name="name" autocomplete="name">
+  <label for="u">Email</label>
+  <input id="u" name="username" type="email" autocomplete="username" autocapitalize="none">
+  <label for="p">Password</label>
+  <input id="p" name="password" type="password" autocomplete="new-password" minlength="8">
+  <label for="c">Confirm password</label>
+  <input id="c" name="confirm" type="password" autocomplete="new-password" minlength="8">
+  <button type="submit">Create account</button>
+</form>
