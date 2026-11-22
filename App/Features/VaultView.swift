@@ -427,6 +427,11 @@ struct VaultView: View {
             didFocusOnLaunch = true
             // An empty vault shows its actions, and the keyboard would cover them.
             if !items.isEmpty { searchFocused = true }
+            else {
+                // macOS may focus the search field by itself; with nothing to search, let go of it.
+                try? await Task.sleep(for: .milliseconds(150))
+                searchFocused = false
+            }
         }
         .navigationTitle(activeCategory.title)
         #if os(macOS)
@@ -450,14 +455,9 @@ struct VaultView: View {
                 }
                 ToolbarSpacer(.fixed, placement: .primaryAction)
                 ToolbarItem(placement: .primaryAction) {
-                    // Rarely needed, so it lives in the overflow menu, as in Notes.
-                    Menu {
-                        Button("Lock Now", systemImage: "lock") { gate.lock() }
-                        Divider()
-                        Button("Vault setup…") { showsSetup = true }
-                    } label: {
-                        Label("More", systemImage: "ellipsis")
-                    }
+                    // The same gear as on iPhone. Lock Now lives in Setup and in the Psss menu (⌘L).
+                    Button("Setup", systemImage: "gearshape") { showsSetup = true }
+                        .labelStyle(.iconOnly)
                 }
             }
         }
