@@ -186,7 +186,8 @@ struct VaultView: View {
             if phase == .active { reloadSaved() }
         }
         .sheet(item: $editor) { item in
-            ItemEditor(item: item, onSave: save)
+            ItemEditor(item: item, onSave: save,
+                       onDelete: items.contains { $0.id == item.id } ? { delete(item.id) } : nil)
         }
         .sheet(isPresented: $showsSetup) { setupSheet }
     }
@@ -577,6 +578,15 @@ struct VaultView: View {
         SharedVault.save(item)
     }
 
+    private func delete(_ id: VaultItem.ID) {
+        items.removeAll { $0.id == id }
+        SharedVault.delete(id)
+        SharedVault.registerIdentities(for: items)
+        selection = nil
+        compactPath = []
+        editor = nil
+    }
+
     private func save(_ item: VaultItem) {
         persist(item)
         if let index = items.firstIndex(where: { $0.id == item.id }) {
@@ -945,8 +955,11 @@ private struct ItemDetail: View {
 private struct ItemEditor: View {
     @State var item: VaultItem
     let onSave: (VaultItem) -> Void
+    /// Set only when editing an existing item.
+    var onDelete: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @FocusState private var titleFocused: Bool
+    @State private var confirmsDelete = false
 
     var body: some View {
         NavigationStack {
@@ -1006,8 +1019,18 @@ private struct ItemEditor: View {
                     TextField("Notes", text: $item.notes, prompt: Text(verbatim: ""), axis: .vertical)
                         .lineLimit(3...8)
                 }
+                if onDelete != nil {
+                    Section {
+                        Button("Delete Item…", role: .destructive) { confirmsDelete = true }
+                    }
+                }
             }
             .formStyle(.grouped)
+            .confirmationDialog("Delete this item?", isPresented: $confirmsDelete, titleVisibility: .visible) {
+                Button("Delete \(item.displayTitle)", role: .destructive) { onDelete?() }
+            } message: {
+                Text("It is removed from this device and cannot be recovered.")
+            }
             .navigationTitle(item.kind.label)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

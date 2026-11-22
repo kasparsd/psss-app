@@ -32,6 +32,12 @@ enum SharedVault {
         try? JSONEncoder().encode(saved).write(to: url, options: .atomic)
     }
 
+    static func delete(_ id: UUID) {
+        guard let url = savedURL else { return }
+        let remaining = loadSaved().filter { $0.id != id }
+        try? JSONEncoder().encode(remaining).write(to: url, options: .atomic)
+    }
+
     /// Removes the logins saved in the App Group, for starting over.
     static func eraseSaved() {
         if let url = savedURL { try? FileManager.default.removeItem(at: url) }
