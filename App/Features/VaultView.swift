@@ -280,7 +280,7 @@ struct VaultView: View {
             .navigationSplitViewColumnWidth(min: 180, ideal: 220)
         } content: {
             itemResults(visibleItems)
-                .navigationSplitViewColumnWidth(min: 360, ideal: 440)
+                .navigationSplitViewColumnWidth(min: 380, ideal: 460, max: 560)
         } detail: {
             if let item = visibleItems.first(where: { $0.id == selection }) {
                 ItemDetail(item: item, edit: { editor = item }, used: { markUsed(item.id) })
