@@ -76,6 +76,8 @@ private enum VaultCategory: Hashable {
 
 struct VaultView: View {
     @State var items: [VaultItem]
+    @Environment(UnlockGate.self) private var gate
+    @AppStorage("lockTiming") private var lockTiming = LockTiming.oneMinute.rawValue
     @State private var columns: NavigationSplitViewVisibility = .all
     @State private var compactColumn: NavigationSplitViewColumn = .content
     @State private var compactPath: [VaultItem.ID] = []
@@ -209,6 +211,19 @@ struct VaultView: View {
                         Label("Import from 1Password", systemImage: "square.and.arrow.down")
                         Label("Create a local or iCloud vault", systemImage: "plus")
                     }
+                    Section {
+                        Picker("Lock", selection: $lockTiming) {
+                            ForEach(LockTiming.allCases) { Text($0.title).tag($0.rawValue) }
+                        }
+                        Button("Lock Now", systemImage: "lock") {
+                            showsSetup = false
+                            gate.lock()
+                        }
+                    } header: {
+                        Text("Security")
+                    } footer: {
+                        Text("Psss unlocks with Face ID, Touch ID or your device passcode. AutoFill always asks.")
+                    }
                     Section("AutoFill") {
                         Label("Set up the credential provider", systemImage: "key")
                     }
@@ -230,13 +245,7 @@ struct VaultView: View {
         Group {
             if usesStack {
                 // A stack pushes through its links, so the list must not also track a selection.
-                List {
-                    pills
-                        .listRowInsets(EdgeInsets())
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                    ForEach(results) { row($0) }
-                }
+                List { ForEach(results) { row($0) } }
             } else {
                 List(selection: $selection) { ForEach(results) { row($0) } }
             }
@@ -324,6 +333,8 @@ struct VaultView: View {
                 ToolbarItem(placement: .primaryAction) {
                     // Rarely needed, so it lives in the overflow menu, as in Notes.
                     Menu {
+                        Button("Lock Now", systemImage: "lock") { gate.lock() }
+                        Divider()
                         Button("Vault setup…") { showsSetup = true }
                     } label: {
                         Label("More", systemImage: "ellipsis")
@@ -856,5 +867,16 @@ extension FocusedValues {
     var newItem: ((ItemKind) -> Void)? {
         get { self[NewItemKey.self] }
         set { self[NewItemKey.self] = newValue }
+    }
+}
+
+private struct LockVaultKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+extension FocusedValues {
+    var lockVault: (() -> Void)? {
+        get { self[LockVaultKey.self] }
+        set { self[LockVaultKey.self] = newValue }
     }
 }

@@ -5,29 +5,33 @@ import SwiftUI
 import UIKit
 
 /// Prototype provider. It shows real system-driven fill, save and generate requests against the sample
-/// vault. There is no unlock yet, so every request behaves as if the vault were already unlocked.
+/// vault. Every request that reads or writes the vault asks for Face ID, Touch ID or the passcode first.
 final class CredentialProviderViewController: ASCredentialProviderViewController {
     // MARK: Fill
 
     override func prepareCredentialList(for serviceIdentifiers: [ASCredentialServiceIdentifier]) {
+        unlocked { [self] in
         let host = serviceIdentifiers.first.map { SharedVault.host($0.identifier) } ?? ""
         present(FillList(host: host, items: SharedVault.allItems.filter { $0.kind == .login && !$0.secret.isEmpty },
                          choose: { [weak self] in self?.complete(with: $0) },
                          cancel: { [weak self] in self?.cancel(.userCanceled) }))
+        }
     }
 
     override func provideCredentialWithoutUserInteraction(for credentialIdentity: ASPasswordCredentialIdentity) {
-        // Until the vault can unlock itself, ask the system to show our interface.
+        // Biometrics need a visible prompt, so ask the system to show our interface, which unlocks first.
         cancel(.userInteractionRequired)
     }
 
     override func prepareInterfaceToProvideCredential(for credentialIdentity: ASPasswordCredentialIdentity) {
+        unlocked { [self] in
         guard let item = SharedVault.allItems.first(where: { $0.id.uuidString == credentialIdentity.recordIdentifier }) else {
             return cancel(.credentialIdentityNotFound)
         }
         present(FillConfirm(item: item,
                             fill: { [weak self] in self?.complete(with: item) },
                             cancel: { [weak self] in self?.cancel(.userCanceled) }))
+        }
     }
 
     // MARK: Save (iOS 26.2 and later)
@@ -37,6 +41,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     }
 
     override func prepareInterface(for savePasswordRequest: ASSavePasswordRequest) {
+        unlocked { [self] in
         let host = SharedVault.host(savePasswordRequest.serviceIdentifier.identifier)
         let credential = savePasswordRequest.credential
         let existing = SharedVault.allItems.first { SharedVault.matches($0, host: host) && $0.account == credential.user }
@@ -53,6 +58,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             SharedVault.save(item)
             self?.extensionContext.completeSavePasswordRequest { _ in }
         }, cancel: { [weak self] in self?.cancel(.userCanceled) }))
+        }
     }
 
     // MARK: Generate (iOS 26.2 and later)
@@ -67,6 +73,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     // MARK: Passkeys
 
     override func prepareInterface(forPasskeyRegistration registrationRequest: any ASCredentialRequest) {
+        unlocked { [self] in
         guard let request = registrationRequest as? ASPasskeyCredentialRequest,
               let identity = request.credentialIdentity as? ASPasskeyCredentialIdentity else {
             return cancel(.failed)
@@ -74,8 +81,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         guard request.supportedAlgorithms.isEmpty || request.supportedAlgorithms.contains(.ES256) else {
             return cancel(.failed)
         }
-        // The system sheet has already asked "Save a passkey?", so there is no second confirmation here.
-        // A real vault asks for Face ID or Touch ID at this point instead.
+        // The system sheet has already asked "Save a passkey?", so the only prompt here is Face ID or Touch ID.
         let rpID = identity.relyingPartyIdentifier
         let registration = Passkeys.register(rpID: rpID, userHandle: identity.userHandle,
                                              clientDataHash: request.clientDataHash)
@@ -88,10 +94,12 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             relyingParty: rpID, clientDataHash: request.clientDataHash,
             credentialID: registration.record.credentialID,
             attestationObject: registration.attestationObject))
+        }
     }
 
     override func prepareCredentialList(for serviceIdentifiers: [ASCredentialServiceIdentifier],
                                         requestParameters: ASPasskeyCredentialRequestParameters) {
+        unlocked { [self] in
         let rpID = requestParameters.relyingPartyIdentifier
         let allowed = requestParameters.allowedCredentials
         let items = SharedVault.allItems.filter { item in
@@ -104,6 +112,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         present(PasskeyPick(rpID: rpID, items: items,
                             choose: { [weak self] in self?.assert($0, clientDataHash: requestParameters.clientDataHash) },
                             cancel: { [weak self] in self?.cancel(.userCanceled) }))
+        }
     }
 
     override func provideCredentialWithoutUserInteraction(for credentialRequest: any ASCredentialRequest) {
@@ -111,6 +120,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     }
 
     override func prepareInterfaceToProvideCredential(for credentialRequest: any ASCredentialRequest) {
+        unlocked { [self] in
         if let request = credentialRequest as? ASPasskeyCredentialRequest,
            let identity = request.credentialIdentity as? ASPasskeyCredentialIdentity {
             guard let item = SharedVault.allItems.first(where: { $0.id.uuidString == identity.recordIdentifier }),
@@ -120,6 +130,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             prepareInterfaceToProvideCredential(for: identity)
         } else {
             cancel(.failed)
+        }
         }
     }
 
@@ -138,6 +149,20 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     }
 
     // MARK: Helpers
+
+    /// Runs `work` only after the person authenticates. Cancelling returns to the system sheet.
+    private func unlocked(_ work: @escaping () -> Void) {
+        Task { @MainActor in
+            do {
+                try await Unlock.authenticate(reason: String(localized: "Unlock your passwords to sign in."))
+                work()
+            } catch Unlock.Failure.cancelled {
+                cancel(.userCanceled)
+            } catch {
+                cancel(.failed)
+            }
+        }
+    }
 
     private func complete(with item: VaultItem) {
         extensionContext.completeRequest(withSelectedCredential: ASPasswordCredential(user: item.account, password: item.secret))

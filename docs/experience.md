@@ -76,7 +76,7 @@ Captured on an iPhone 17 simulator (iOS 26.5, built with a temporary 26.0 floor)
 
 ### What could be better, in priority order
 
-1. **No unlock, no real data.** Every screen assumes an unlocked sample vault. The first-launch, unlock and fill-sheet screens, which matter most, do not exist yet.
+1. **No real data behind the lock.** The app and the extension now unlock with Face ID, Touch ID or the passcode (see [autofill](autofill.md#unlock-prototype)), but the vault is still the unencrypted sample. The first-launch screens do not exist yet.
 2. **Density.** Two-line rows gave about eight items per screen. One-line rows with tighter insets give about fifteen, nearly double.
 3. **Repeated titles dominate All.** Seven “Acorn Fitness” logins in a row hide the rest of the alphabet. Group entries by site with a count and expand on tap, or sort recently used first within All.
 4. **Pills overflow.** Cards, Notes and Custom are off screen at launch and nothing hints they scroll. Consider a trailing fade, or hide empty types.
@@ -177,3 +177,4 @@ Compared the Mac build with Apple Notes. Changes, all in shared code so iPad fol
 - Editor sheets show a caption above every field (Website first, focused), on iPhone, iPad and Mac.
 - Mac list rows stack the name above the login (Notes title/preview), so logins no longer truncate in the narrow column. iPhone and iPad keep name and login side by side.
 - **Edit placement.** Checked against Apple Passwords: a labeled Edit (⌘E) sits in the detail column's toolbar, left of Search, and only appears once an item is selected. We keep that, and the Mac detail now leads with a centered icon and name like Passwords so Edit reads as belonging to that item. iPhone and iPad keep a labeled Edit at the trailing end of the navigation bar, as in Contacts.
+- **Lock screen.** A lock glyph, “Psss is locked” and one labeled, prominent Unlock button; the prompt also appears on its own at launch. The iPhone pill row was duplicated (one in the list, one pinned) and is now only the pinned one.

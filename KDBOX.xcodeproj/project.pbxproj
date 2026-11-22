@@ -489,6 +489,7 @@
 				"CODE_SIGN_STYLE" = "Automatic";
 				"INFOPLIST_KEY_CFBundleDisplayName" = "Psss";
 				"INFOPLIST_KEY_UILaunchScreen_Generation" = "YES";
+				"INFOPLIST_KEY_NSFaceIDUsageDescription" = "Psss uses Face ID to unlock your passwords.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation" = "YES";
 				"SWIFT_OPTIMIZATION_LEVEL" = "-Onone";
 				"SWIFT_ACTIVE_COMPILATION_CONDITIONS" = "DEBUG";
@@ -506,6 +507,7 @@
 				"CODE_SIGN_STYLE" = "Automatic";
 				"INFOPLIST_KEY_CFBundleDisplayName" = "Psss";
 				"INFOPLIST_KEY_UILaunchScreen_Generation" = "YES";
+				"INFOPLIST_KEY_NSFaceIDUsageDescription" = "Psss uses Face ID to unlock your passwords.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation" = "YES";
 			};
 			"baseConfigurationReference" = 000000000000000000000005;
