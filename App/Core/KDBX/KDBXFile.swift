@@ -242,6 +242,22 @@ enum KDBX {
     private static let blockSize = 1 << 20
     private static let maxHeader = 1 << 20
 
+    /// What unlocks a file: the combined credentials, or the key already stretched by the KDF.
+    enum KDBXKey {
+        case composite(Data)
+        case transformed(Data)
+
+        /// Empty when only the transformed key is known; changing credentials always starts from the real credentials.
+        var composite: Data { if case .composite(let data) = self { data } else { Data() } }
+
+        func transformed(using kdf: KDBXKDF) throws -> Data {
+            switch self {
+            case .composite(let data): try kdf.transform(data)
+            case .transformed(let data): data
+            }
+        }
+    }
+
     /// Opens a KDBX 4 file. Runs the KDF, so call it off the main actor.
     static func open(_ file: Data, credentials: KDBXCredentials) throws -> KDBXDocument {
         try open(file, compositeKey: try credentials.compositeKey())
@@ -249,10 +265,20 @@ enum KDBX {
 
     /// Opens with an already combined key, for reloading a vault that is open without asking for the password again.
     static func open(_ file: Data, compositeKey composite: Data) throws -> KDBXDocument {
+        try open(file, key: .composite(composite))
+    }
+
+    /// Opens with the key after the KDF, so no Argon2 or AES-KDF runs. Used by Face ID unlock and the AutoFill extension.
+    /// Fails with `wrongCredentials` when the file's KDF settings or password changed since the key was saved.
+    static func open(_ file: Data, transformedKey: Data) throws -> KDBXDocument {
+        try open(file, key: .transformed(transformedKey))
+    }
+
+    private static func open(_ file: Data, key: KDBXKey) throws -> KDBXDocument {
         var reader = ByteReader(file)
         guard file.count > 12, try reader.u32() == signature1, try reader.u32() == signature2 else { throw KDBXError.notAVault }
         let minor = try reader.u16(), major = try reader.u16()
-        if major == 3 { return try openV3(file, minor: minor, reader: reader, composite: composite) }
+        if major == 3 { return try openV3(file, minor: minor, reader: reader, key: key) }
         guard major == 4 else { throw KDBXError.unsupported("KDBX \(major).\(minor)") }
 
         var cipher: KDBXHeader.Cipher?, compressed = false
@@ -283,7 +309,8 @@ enum KDBX {
         let storedHash = try reader.bytes(32), storedMAC = try reader.bytes(32)
         guard KDBXCrypto.equal(KDBXCrypto.sha256(Data(headerBytes)), storedHash) else { throw KDBXError.corrupted("header") }
 
-        let transformed = try kdf.transform(composite)
+        let composite = key.composite
+        let transformed = try key.transformed(using: kdf)
         let hmacKey = KDBXCrypto.sha512(masterSeed + transformed + Data([1]))
         guard KDBXCrypto.equal(KDBXCrypto.hmacSHA256(key: blockKey(hmacKey, index: .max), Data(headerBytes)), storedMAC) else {
             throw KDBXError.wrongCredentials
@@ -341,7 +368,7 @@ enum KDBX {
 
     /// Reads KDBX 3.x (AES-256, AES-KDF, Salsa20 protected values). The document is held as KDBX 4, so the next save
     /// upgrades the file; `sourceVersion` tells the interface what was read.
-    private static func openV3(_ file: Data, minor: UInt16, reader start: ByteReader, composite: Data) throws -> KDBXDocument {
+    private static func openV3(_ file: Data, minor: UInt16, reader start: ByteReader, key: KDBXKey) throws -> KDBXDocument {
         var reader = start
         var cipherID = Data(), compressed = false, masterSeed = Data(), transformSeed = Data(), rounds: UInt64 = 0
         var iv = Data(), streamKey = Data(), startBytes = Data(), streamID: UInt32 = 0
@@ -375,7 +402,8 @@ enum KDBX {
         kdfDictionary.set("S", bytes: transformSeed)
         kdfDictionary.set("R", uint64: rounds)
         let kdf = KDBXKDF(dictionary: kdfDictionary)
-        let transformed = try kdf.transform(composite)
+        let composite = key.composite
+        let transformed = try key.transformed(using: kdf)
         let masterKey = KDBXCrypto.sha256(masterSeed + transformed)
 
         let ciphertext = reader.rest

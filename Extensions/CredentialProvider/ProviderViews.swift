@@ -1,6 +1,26 @@
 #if os(iOS)
 import SwiftUI
 
+/// Shown when AutoFill cannot open the vault: Face ID or Touch ID unlock is off, was reset, or the vault file is out of reach.
+struct NotReady: View {
+    let close: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                Text("Can’t open your vault here").font(.title2.bold()).multilineTextAlignment(.center)
+                Text("AutoFill opens your vault with Face ID or Touch ID, so you never type the vault password here. Open Psss, unlock with your vault password and turn on Face ID or Touch ID. Vaults you opened from Files must be moved into Psss first. Nothing was changed.")
+                    .foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Button("Close", action: close).buttonStyle(.borderedProminent).controlSize(.large)
+            }
+            .padding(24)
+            .frame(maxHeight: .infinity)
+            .navigationTitle("Psss")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
 /// Shown when the person taps the key in the keyboard bar or chooses Passwords from AutoFill.
 struct FillList: View {
     let host: String

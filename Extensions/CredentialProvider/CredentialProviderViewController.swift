@@ -4,15 +4,20 @@ import AuthenticationServices
 import SwiftUI
 import UIKit
 
-/// Prototype provider. It shows real system-driven fill, save and generate requests against the sample
-/// vault. Every request that reads or writes the vault asks for Face ID, Touch ID or the passcode first.
+/// AutoFill provider. Fill, save, generate and passkey requests run against the person's encrypted vault, opened with the key
+/// Face ID or Touch ID releases (no password typing, no KDF). Without a vault set up for Face ID it says so and offers
+/// nothing; the sample vault still works for the demo.
 final class CredentialProviderViewController: ASCredentialProviderViewController {
+    /// The vault opened for the current request.
+    private var vault: (any VaultStore)?
+    private var items: [VaultItem] { vault?.items() ?? [] }
+
     // MARK: Fill
 
     override func prepareCredentialList(for serviceIdentifiers: [ASCredentialServiceIdentifier]) {
         unlocked { [self] in
         let host = serviceIdentifiers.first.map { SharedVault.host($0.identifier) } ?? ""
-        present(FillList(host: host, items: SharedVault.allItems.filter { $0.kind == .login && !$0.secret.isEmpty },
+        present(FillList(host: host, items: items.filter { $0.kind == .login && !$0.secret.isEmpty },
                          choose: { [weak self] in self?.complete(with: $0) },
                          cancel: { [weak self] in self?.cancel(.userCanceled) }))
         }
@@ -25,7 +30,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 
     override func prepareInterfaceToProvideCredential(for credentialIdentity: ASPasswordCredentialIdentity) {
         unlocked { [self] in
-        guard let item = SharedVault.allItems.first(where: { $0.id.uuidString == credentialIdentity.recordIdentifier }) else {
+        guard let item = items.first(where: { $0.id.uuidString == credentialIdentity.recordIdentifier }) else {
             return cancel(.credentialIdentityNotFound)
         }
         present(FillConfirm(item: item,
@@ -44,7 +49,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         unlocked { [self] in
         let host = SharedVault.host(savePasswordRequest.serviceIdentifier.identifier)
         let credential = savePasswordRequest.credential
-        let existing = SharedVault.allItems.first { SharedVault.matches($0, host: host) && $0.account == credential.user }
+        let existing = items.first { SharedVault.matches($0, host: host) && $0.account == credential.user }
         present(SaveLogin(host: host, account: credential.user, password: credential.password,
                           title: "",
                           existing: existing,
@@ -55,7 +60,8 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             item.secret = credential.password
             if item.website.isEmpty { item.website = host }
             item.lastUsed = .now
-            SharedVault.save(item)
+            try? self?.vault?.save([item])
+            self?.registerIdentities()
             self?.extensionContext.completeSavePasswordRequest { _ in }
         }, cancel: { [weak self] in self?.cancel(.userCanceled) }))
         }
@@ -88,8 +94,8 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         var item = VaultItem(kind: .login, account: identity.userName, website: rpID)
         item.passkey = registration.record
         item.lastUsed = .now
-        SharedVault.save(item)
-        SharedVault.registerIdentities(for: SharedVault.allItems)
+        try? vault?.save([item])
+        registerIdentities()
         extensionContext.completeRegistrationRequest(using: ASPasskeyRegistrationCredential(
             relyingParty: rpID, clientDataHash: request.clientDataHash,
             credentialID: registration.record.credentialID,
@@ -102,7 +108,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         unlocked { [self] in
         let rpID = requestParameters.relyingPartyIdentifier
         let allowed = requestParameters.allowedCredentials
-        let items = SharedVault.allItems.filter { item in
+        let items = items.filter { item in
             guard let passkey = item.passkey, passkey.rpID == rpID else { return false }
             return allowed.isEmpty || allowed.contains(passkey.credentialID)
         }
@@ -123,7 +129,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         unlocked { [self] in
         if let request = credentialRequest as? ASPasskeyCredentialRequest,
            let identity = request.credentialIdentity as? ASPasskeyCredentialIdentity {
-            guard let item = SharedVault.allItems.first(where: { $0.id.uuidString == identity.recordIdentifier }),
+            guard let item = items.first(where: { $0.id.uuidString == identity.recordIdentifier }),
                   item.passkey != nil else { return cancel(.credentialIdentityNotFound) }
             assert(item, clientDataHash: request.clientDataHash)
         } else if let identity = credentialRequest.credentialIdentity as? ASPasswordCredentialIdentity {
@@ -138,10 +144,8 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         guard let passkey = item.passkey, let result = try? Passkeys.assert(passkey, clientDataHash: clientDataHash) else {
             return cancel(.failed)
         }
-        var used = item
-        used.lastUsed = .now
-        used.useCount += 1
-        SharedVault.save(used)
+        vault?.markUsed(item.id)
+        try? vault?.flush()
         extensionContext.completeAssertionRequest(using: ASPasskeyAssertionCredential(
             userHandle: passkey.userHandle, relyingParty: passkey.rpID, signature: result.signature,
             clientDataHash: clientDataHash, authenticatorData: result.authenticatorData,
@@ -154,14 +158,29 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     private func unlocked(_ work: @escaping () -> Void) {
         Task { @MainActor in
             do {
-                try await Unlock.authenticate(reason: String(localized: "Unlock your passwords to sign in."))
+                if VaultReference.load() == nil {
+                    // No vault of their own yet: the demo sample vault, behind the device passcode or biometrics.
+                    try await Unlock.authenticate(reason: String(localized: "Unlock your passwords to sign in."))
+                    vault = SampleVaultStore()
+                } else {
+                    let session = VaultSession()
+                    try await session.unlockWithBiometrics()
+                    vault = session.store
+                }
+                registerIdentities()
                 work()
             } catch Unlock.Failure.cancelled {
                 cancel(.userCanceled)
+            } catch BiometricKeyError.cancelled {
+                cancel(.userCanceled)
             } catch {
-                cancel(.failed)
+                present(NotReady(close: { [weak self] in self?.cancel(.userCanceled) }))
             }
         }
+    }
+
+    private func registerIdentities() {
+        SharedVault.registerIdentities(for: items)
     }
 
     private func complete(with item: VaultItem) {

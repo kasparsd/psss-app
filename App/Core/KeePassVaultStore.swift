@@ -10,7 +10,7 @@ struct VaultReference: Codable, Equatable, Sendable {
     /// Security-scoped bookmark of a file opened in place.
     var bookmark: Data?
     var fileName: String
-    /// The composite key is saved in the Keychain behind Face ID or Touch ID.
+    /// The vault's key is saved in the Keychain behind Face ID or Touch ID.
     var biometricUnlock = false
     /// The person said "Not Now" to the offer, so it is not repeated. Setup still has the switch.
     var biometricDeclined = false
@@ -32,8 +32,11 @@ struct VaultReference: Codable, Equatable, Sendable {
 
     private static let defaultsKey = "vaultReference"
 
+    /// Shared with the AutoFill extension through the App Group.
+    private static var defaults: UserDefaults { UserDefaults(suiteName: SharedVault.groupID) ?? .standard }
+
     static func load() -> VaultReference? {
-        UserDefaults.standard.data(forKey: defaultsKey).flatMap { try? JSONDecoder().decode(Self.self, from: $0) }
+        defaults.data(forKey: defaultsKey).flatMap { try? JSONDecoder().decode(Self.self, from: $0) }
     }
 
     /// "Personal.kdbx · iCloud Drive › Documents" for a file opened in place. Nothing for a vault Psss created: its location says nothing useful.
@@ -47,20 +50,25 @@ struct VaultReference: Codable, Equatable, Sendable {
         return folder.isEmpty ? url.lastPathComponent : "\(url.lastPathComponent) · \(folder)"
     }
 
-    func persist() { UserDefaults.standard.set(try? JSONEncoder().encode(self), forKey: Self.defaultsKey) }
-    static func clear() { UserDefaults.standard.removeObject(forKey: defaultsKey) }
+    func persist() { Self.defaults.set(try? JSONEncoder().encode(self), forKey: Self.defaultsKey) }
+    static func clear() { defaults.removeObject(forKey: defaultsKey) }
 }
 
 /// Vault files on disk: coordinated reads, atomic writes and a few encrypted rollback copies.
 enum VaultFiles {
-    static var managedDirectory: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return base.appendingPathComponent("Vaults", isDirectory: true)
+    /// The App Group container, so the AutoFill extension reads and writes the same files as the app. Falls back to the app's
+    /// own Application Support where the group is unavailable (unsigned builds and tests).
+    static var storageRoot: URL {
+        let own = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        guard let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: SharedVault.groupID) else { return own }
+        // macOS reports a group path even when this build may not write there.
+        return (try? FileManager.default.createDirectory(at: group, withIntermediateDirectories: true)) != nil ? group : own
     }
 
+    static var managedDirectory: URL { storageRoot.appendingPathComponent("Vaults", isDirectory: true) }
+
     private static func backupDirectory(for id: UUID) -> URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Backups", isDirectory: true).appendingPathComponent(id.uuidString, isDirectory: true)
+        storageRoot.appendingPathComponent("Backups", isDirectory: true).appendingPathComponent(id.uuidString, isDirectory: true)
     }
 
     static func managedURL(fileName: String) -> URL { managedDirectory.appendingPathComponent(fileName) }
@@ -144,8 +152,9 @@ final class KeePassVaultStore: VaultStore {
 
     deinit { if scoped { url.stopAccessingSecurityScopedResource() } }
 
-    /// The key Face ID or Touch ID will release. Kept in memory only while the vault is open.
-    var compositeKey: Data { document.compositeKey }
+    /// The key after the KDF, which Face ID or Touch ID releases. It opens this vault without running Argon2, so the AutoFill
+    /// extension can stay inside its memory limit. Kept in memory only while the vault is open.
+    var transformedKey: Data { document.transformedKey }
 
     func items() -> [VaultItem] { document.items() }
 
@@ -185,8 +194,8 @@ final class KeePassVaultStore: VaultStore {
     /// Replaces the open document with what is on disk now. Pending edits are lost. Runs the KDF, so it is async.
     func reload() async throws {
         let data = try VaultFiles.read(url)
-        let key = document.compositeKey
-        document = try await Task.detached { try KDBX.open(data, compositeKey: key) }.value
+        let key = document.transformedKey
+        document = try await Task.detached { try KDBX.open(data, transformedKey: key) }.value
         baseDigest = KDBXCrypto.sha256(data)
         pendingUse = false
     }
@@ -275,7 +284,7 @@ final class VaultSession {
             throw BiometricKeyError.invalidated
         }
         do {
-            try await unlock { data in try KDBX.open(data, compositeKey: key) }
+            try await unlock { data in try KDBX.open(data, transformedKey: key) }
         } catch KDBXError.wrongCredentials {
             setBiometric(false)
             throw BiometricKeyError.invalidated
@@ -329,7 +338,7 @@ final class VaultSession {
     /// Saves the open vault's key behind biometrics. Asks nothing now; the prompt comes at the next unlock.
     func enableBiometric() throws {
         guard var reference, let store else { return }
-        try BiometricKey.save(store.compositeKey, for: reference.id)
+        try BiometricKey.save(store.transformedKey, for: reference.id)
         reference.biometricUnlock = true
         reference.biometricDeclined = false
         reference.persist()

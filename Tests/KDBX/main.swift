@@ -215,11 +215,17 @@ do { try reopenedStore.save([note]); failures += 1; print("FAIL conflict not det
 try reopenedStore.commit(overwrite: true)
 try await reopenedStore.reload()
 check("overwrite wrote our change", "\(reopenedStore.items().count)", "3")
+// The transformed key opens the file without the KDF, saves keep it valid, and a wrong key is refused.
+let savedKey = reopenedStore.transformedKey
+let viaKey = try KDBX.open(Data(contentsOf: reopenedStore.url), transformedKey: savedKey)
+check("transformed key opens", "\(viaKey.items().count)", "3")
+expectError("wrong transformed key", .wrongCredentials) { _ = try KDBX.open(Data(contentsOf: reopenedStore.url), transformedKey: Data(repeating: 7, count: 32)) }
 try await reopenedStore.changeCredentials(to: .init(password: "n3w"))
+expectError("old transformed key refused after password change", .wrongCredentials) { _ = try KDBX.open(Data(contentsOf: reopenedStore.url), transformedKey: savedKey) }
 session.lock()
 try await session.unlock(credentials: .init(password: "n3w"))
 expect("new vault password unlocks", session.store != nil)
-let backups = (try? FileManager.default.contentsOfDirectory(atPath: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Backups/\(session.reference!.id.uuidString)").path)) ?? []
+let backups = (try? FileManager.default.contentsOfDirectory(atPath: VaultFiles.storageRoot.appendingPathComponent("Backups/\(session.reference!.id.uuidString)").path)) ?? []
 expect("rollback copies are kept", backups.count >= 2)
 session.forget()
 

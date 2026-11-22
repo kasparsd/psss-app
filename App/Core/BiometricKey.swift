@@ -45,7 +45,7 @@ enum BiometricKeyError: Error {
     case failed(OSStatus)
 }
 
-/// The vault's composite key, kept in the Keychain behind biometrics so the person does not retype the vault password.
+/// The vault's key (after the KDF), kept in the Keychain behind biometrics so the person does not retype the vault password.
 /// The item is readable only on this device, only with the same enrolled fingers or face, and is removed when they change.
 /// The vault password always still works.
 enum BiometricKey {
@@ -64,7 +64,10 @@ enum BiometricKey {
     // protected by this device and the signed app, and the app asks for Touch ID itself before it reads it.
     private static var dataProtection: [String: Any] { [:] }
     #else
-    private static var dataProtection: [String: Any] { [kSecUseDataProtectionKeychain as String: true] }
+    // The App Group doubles as the keychain access group, so the AutoFill extension can read the same item.
+    private static var dataProtection: [String: Any] {
+        [kSecUseDataProtectionKeychain as String: true, kSecAttrAccessGroup as String: SharedVault.groupID]
+    }
     #endif
 
     static func save(_ key: Data, for id: UUID) throws {
