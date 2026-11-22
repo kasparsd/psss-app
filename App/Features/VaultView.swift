@@ -171,7 +171,7 @@ struct VaultView: View {
 
     var body: some View {
         Group {
-            if items.isEmpty { emptyVault } else if usesStack { stackLayout } else { splitLayout }
+            if usesStack { stackLayout } else { splitLayout }
         }
         .passwordsImporter(isPresented: $importing, notice: $importNotice, problem: $importProblem)
         .alert("Imported", isPresented: Binding(get: { importNotice != nil }, set: { if !$0 { importNotice = nil } })) {
@@ -207,7 +207,6 @@ struct VaultView: View {
                     emptyChoice("Add a credit card", "creditcard") { editor = VaultItem(kind: .creditCard) }
                     emptyChoice("Add a secure note", "note.text") { editor = VaultItem(kind: .secureNote) }
                     emptyChoice("Import from Apple Passwords", "square.and.arrow.down") { importing = true }
-                    emptyChoice("Vault setup", "gearshape") { showsSetup = true }
                 }
                 Text("To save passwords and passkeys from your browser, turn on Psss in Settings, AutoFill & Passwords. Then sign in to a site and choose Save in Psss.")
                     .font(.footnote)
@@ -286,6 +285,9 @@ struct VaultView: View {
             if let item = visibleItems.first(where: { $0.id == selection }) {
                 ItemDetail(item: item, edit: { editor = item }, used: { markUsed(item.id) })
                     .id(item.id)
+            } else if items.isEmpty {
+                // Nothing exists to choose, so the detail column stays quiet.
+                Color.clear
             } else {
                 ContentUnavailableView("Choose an item", systemImage: "lock")
             }
@@ -377,14 +379,7 @@ struct VaultView: View {
             if results.isEmpty {
                 if search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     if items.isEmpty {
-                        ContentUnavailableView {
-                            Label("Your vault is empty", systemImage: "tray")
-                        } description: {
-                            Text("Add your first login to get started.")
-                        } actions: {
-                            Button("Add a login", systemImage: "plus") { editor = VaultItem(kind: .login) }
-                                .buttonStyle(.borderedProminent)
-                        }
+                        emptyVault
                     } else {
                         ContentUnavailableView("No items", systemImage: "tray")
                     }
