@@ -121,6 +121,7 @@ struct VaultView: View {
         _items = State(initialValue: store.items())
     }
     @State private var confirmsReset = false
+    @State private var offersBiometric = false
     @State private var importing = false
     @State private var importNotice: String?
     @State private var importProblem: String?
@@ -201,6 +202,15 @@ struct VaultView: View {
         } message: {
             Text("Another app or device saved this vault since you opened it. Reload to see its version and lose your last change, or overwrite it with yours. The overwritten file is kept as a backup.")
         }
+        .alert("Unlock \(store.title) with \(session.biometry?.label ?? "Face ID")?", isPresented: $offersBiometric) {
+            Button("Use \(session.biometry?.label ?? "Face ID")") {
+                do { try session.enableBiometric() } catch { storeProblem = String(localized: "\(session.biometry?.label ?? "Face ID") could not be turned on for this vault.") }
+            }
+            Button("Not Now", role: .cancel) { session.declineBiometricOffer() }
+        } message: {
+            Text("\(session.biometry?.label ?? "Face ID") opens this vault on this device only. Your vault password still works, and you need it if you change \(session.biometry?.label ?? "Face ID"). Turn it off any time in Setup.")
+        }
+        .task { if !store.isSample, session.shouldOfferBiometric { offersBiometric = true } }
         .sheet(isPresented: $changingPassword) {
             if let store = store as? KeePassVaultStore { ChangePasswordSheet(store: store) }
         }
@@ -342,6 +352,14 @@ struct VaultView: View {
                             LabeledContent("Items", value: items.count.formatted())
                             Button("Save a Copy…") { copyDocument = (try? VaultFiles.read(keePass.url)).map(VaultCopy.init) }
                             Button("Change Vault Password…") { showsSetup = false; changingPassword = true }
+                            if let biometry = session.biometry {
+                                Toggle("Unlock with \(biometry.label)", isOn: Binding(
+                                    get: { session.reference?.biometricUnlock == true },
+                                    set: { on in
+                                        if on { do { try session.enableBiometric() } catch { storeProblem = String(localized: "\(biometry.label) could not be turned on for this vault.") } }
+                                        else { session.disableBiometric() }
+                                    }))
+                            }
                         }
                     } else {
                         Section("Vaults") {
@@ -365,7 +383,7 @@ struct VaultView: View {
                     } footer: {
                         Text(store.isSample
                              ? "Psss unlocks with Face ID, Touch ID or your device passcode. AutoFill always asks."
-                             : "Psss asks for the vault password each time it unlocks.")
+                             : "Psss asks for the vault password each time it unlocks, or uses Face ID or Touch ID if you turn it on.")
                     }
                     Section {
                         Button("Start Over…", role: .destructive) {

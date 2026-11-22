@@ -56,3 +56,7 @@ Adapted from `macos-photo-db` at `71732c0`, principally `docs/development.md`, `
 2. Build for the simulator with ad-hoc signing and a temporary 26.2 floor (the simulator has no iOS 27 runtime): set `IPHONEOS_DEPLOYMENT_TARGET = 26.2`, build with `CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM=`, and restore 27.0.
 3. Install, then enable Psss under Settings, General, AutoFill & Passwords. If it is missing, check that the app and extension both have the AutoFill entitlement, then run `xcrun simctl spawn <udid> pluginkit -e use -i local.kdbox.prototype.credential-provider` and restart Settings.
 4. Open the sample login, signup and passkey pages in Safari with the software keyboard enabled. `passkey.html` creates a passkey, signs in with it and verifies the signature in the browser.
+
+## Keychain on the simulator and Mac
+
+Face ID unlock saves a key in the Keychain, which needs entitlements. Build the iOS simulator app ad-hoc signed: `xcodebuild ... CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO build`. An unsigned build (`CODE_SIGNING_ALLOWED=NO`) cannot save the key and Setup shows "Face ID could not be turned on". Enroll a face with `xcrun simctl spawn booted notifyutil -s com.apple.BiometricKit.enrollmentChanged 1 && xcrun simctl spawn booted notifyutil -p com.apple.BiometricKit.enrollmentChanged`. The Mac path uses the login keychain and works unsigned.

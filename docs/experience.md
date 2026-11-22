@@ -218,7 +218,7 @@ Steps affected, in build order, are listed in [vaults](vaults.md#steps-in-order)
 ## KeePass lock screen (2026-11-22)
 
 Built: "Unlock Vault:" with a bordered pop-up, Vault Password field, "Key file (optional)" with Choose…, a full-width Unlock button and one help block under it. One text size, 16 pt rhythm, same layout on iPhone, iPad and Mac.
-Not built: biometric unlock, a "What is this?" explainer for the password and key file, and lost-password help. These are specified in [vaults](vaults.md#lock-screen-gaps-2026-11-22-handoff).
+Also built: a Face ID or Touch ID button beside the password field (with an automatic prompt and a one-time offer after the first password unlock), a "What Is This?" explainer and a "Forgot Password?" help sheet. Not built: a recovery phrase. See [vaults](vaults.md#lock-screen-2026-11-22).
 Rules learned while building it: mock first, help text in one place, never shrink text to fit, and no unlabeled or text-looking actions.
 
 ## Lock policy: follow Apple Passwords (2026-11-22)

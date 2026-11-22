@@ -34,7 +34,7 @@ Goal: the owner moves their real day-to-day sign-ins into Psss.
 
 - [ ] Replace the flat `VaultItem` with the field-based domain model and a `VaultStore` boundary. KDBX is a codec behind it. Protected values use a dedicated secret type with limited lifetime, not plain `String` in view state.
 - [ ] Create vault with the S6 key-custody default, biometric unlock, auto-lock. Custom vault password stays available.
-- [ ] Lock screen: Face ID and Touch ID unlock behind the Keychain-wrapped key (S2, S6), a "What is this?" explainer for the vault password and key file, and lost-password help (checks after a failed try, recovery phrase where it exists, safe Forget This Vault). The password-only screen is built; details in [vaults](vaults.md#lock-screen-gaps-2026-11-22-handoff). Mock each state first.
+- [x] Lock screen: Face ID and Touch ID unlock behind a Keychain-saved key, a "What is this?" explainer and lost-password help (2026-11-22). Open: S2 extension budget and the transformed-key option, S6 recovery phrase and iCloud Keychain, Mac Touch ID on a real vault, Apple Watch. Details in [vaults](vaults.md#lock-screen-2026-11-22).
 - [ ] Screens 1, 2, 5 and 10 from [experience](experience.md#screens-and-goals): fill sheet, save prompt, unlock, search-first home, item detail, inline generator.
 - [x] Screens 6 and 7 (search-first home, copy-first detail with live verification code) in the native sample app; builds on both platforms, not yet checked visually or on an iOS 27 simulator.
 - [x] Pill overflow fade, Vault root screen removed on iPhone, copy-expiry notice, 44 pt rows, pinned New button (see [experience](experience.md)).

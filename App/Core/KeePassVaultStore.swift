@@ -10,6 +10,25 @@ struct VaultReference: Codable, Equatable, Sendable {
     /// Security-scoped bookmark of a file opened in place.
     var bookmark: Data?
     var fileName: String
+    /// The composite key is saved in the Keychain behind Face ID or Touch ID.
+    var biometricUnlock = false
+    /// The person said "Not Now" to the offer, so it is not repeated. Setup still has the switch.
+    var biometricDeclined = false
+
+    init(id: UUID = UUID(), name: String, managed: Bool, bookmark: Data?, fileName: String) {
+        self.id = id; self.name = name; self.managed = managed; self.bookmark = bookmark; self.fileName = fileName
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        managed = try c.decode(Bool.self, forKey: .managed)
+        bookmark = try c.decodeIfPresent(Data.self, forKey: .bookmark)
+        fileName = try c.decode(String.self, forKey: .fileName)
+        biometricUnlock = try c.decodeIfPresent(Bool.self, forKey: .biometricUnlock) ?? false
+        biometricDeclined = try c.decodeIfPresent(Bool.self, forKey: .biometricDeclined) ?? false
+    }
 
     private static let defaultsKey = "vaultReference"
 
@@ -125,6 +144,9 @@ final class KeePassVaultStore: VaultStore {
 
     deinit { if scoped { url.stopAccessingSecurityScopedResource() } }
 
+    /// The key Face ID or Touch ID will release. Kept in memory only while the vault is open.
+    var compositeKey: Data { document.compositeKey }
+
     func items() -> [VaultItem] { document.items() }
 
     func save(_ items: [VaultItem]) throws {
@@ -237,6 +259,30 @@ final class VaultSession {
 
     /// Opens the remembered vault after a lock or relaunch.
     func unlock(credentials: KDBXCredentials) async throws {
+        try await unlock { data in try KDBX.open(data, credentials: credentials) }
+    }
+
+    /// Unlocks with Face ID or Touch ID. Never throws for a cancelled prompt; the lock screen just stays.
+    /// If the saved key no longer fits (Face ID re-enrolled, or the vault password was changed elsewhere), biometric unlock is
+    /// switched off and the error says to use the password once.
+    func unlockWithBiometrics() async throws {
+        guard let reference, reference.biometricUnlock else { throw BiometricKeyError.invalidated }
+        let key: Data
+        do {
+            key = try await BiometricKey.load(for: reference.id, reason: String(localized: "Unlock \(reference.name)."))
+        } catch BiometricKeyError.invalidated {
+            setBiometric(false)
+            throw BiometricKeyError.invalidated
+        }
+        do {
+            try await unlock { data in try KDBX.open(data, compositeKey: key) }
+        } catch KDBXError.wrongCredentials {
+            setBiometric(false)
+            throw BiometricKeyError.invalidated
+        }
+    }
+
+    private func unlock(opening open: @escaping @Sendable (Data) throws -> KDBXDocument) async throws {
         guard var reference else { throw VaultStoreError.fileMissing }
         let url: URL, scoped: Bool
         if reference.managed {
@@ -251,7 +297,7 @@ final class VaultSession {
         do {
             guard FileManager.default.fileExists(atPath: url.path) || (try? VaultFiles.read(url)) != nil else { throw VaultStoreError.fileMissing }
             let data = try VaultFiles.read(url)
-            let document = try await Task.detached { try KDBX.open(data, credentials: credentials) }.value
+            let document = try await Task.detached { try open(data) }.value
             self.reference = reference
             store = KeePassVaultStore(reference: reference, url: url, scoped: scoped, document: document, fileData: data)
         } catch {
@@ -271,6 +317,48 @@ final class VaultSession {
         self.reference = reference
     }
 
+    /// Whether the device can offer biometric unlock at all.
+    var biometry: BiometryKind? { BiometryKind.current }
+
+    /// True when the open vault could use Face ID or Touch ID and the person has not decided yet.
+    var shouldOfferBiometric: Bool {
+        guard let reference, isOpen, biometry != nil else { return false }
+        return !reference.biometricUnlock && !reference.biometricDeclined
+    }
+
+    /// Saves the open vault's key behind biometrics. Asks nothing now; the prompt comes at the next unlock.
+    func enableBiometric() throws {
+        guard var reference, let store else { return }
+        try BiometricKey.save(store.compositeKey, for: reference.id)
+        reference.biometricUnlock = true
+        reference.biometricDeclined = false
+        reference.persist()
+        self.reference = reference
+    }
+
+    func disableBiometric() { setBiometric(false) }
+
+    func declineBiometricOffer() {
+        guard var reference else { return }
+        reference.biometricDeclined = true
+        reference.persist()
+        self.reference = reference
+    }
+
+    /// After the vault password changed, the saved key is stale. Replace it, or drop it if that fails.
+    func refreshBiometricKey() {
+        guard let reference, reference.biometricUnlock else { return }
+        do { try enableBiometric() } catch { setBiometric(false) }
+    }
+
+    private func setBiometric(_ on: Bool) {
+        guard var reference else { return }
+        if !on { BiometricKey.delete(for: reference.id) }
+        reference.biometricUnlock = on
+        reference.persist()
+        self.reference = reference
+    }
+
     /// Writes pending changes and drops the keys and the decrypted vault from memory.
     func lock() {
         try? store?.flush()
@@ -282,7 +370,7 @@ final class VaultSession {
         if let reference, reference.managed {
             try? FileManager.default.removeItem(at: VaultFiles.managedURL(fileName: reference.fileName))
         }
-        if let reference { VaultFiles.removeBackups(for: reference.id) }
+        if let reference { VaultFiles.removeBackups(for: reference.id); BiometricKey.delete(for: reference.id) }
         store = nil
         reference = nil
         VaultReference.clear()

@@ -217,7 +217,12 @@ struct VaultPasswordView: View {
     @State private var confirmingSwitch = false
     @State private var choosingOther = false
     @State private var otherFile: URL?
+    @State private var explaining = false
+    @State private var lost = false
+    @State private var triedBiometric = false
+    @State private var unlockingWithBiometrics = false
     @FocusState private var focused: Bool
+    @AppStorage("vaultSource") private var vaultSource = ""
 
     /// Input fields are darker than the grey rows around them, with a visible edge, so they read as places to type.
     private static var fieldFill: Color {
@@ -226,6 +231,11 @@ struct VaultPasswordView: View {
         #else
         Color(uiColor: .secondarySystemBackground)
         #endif
+    }
+
+    private var biometry: BiometryKind? {
+        guard session.reference?.biometricUnlock == true else { return nil }
+        return session.biometry
     }
 
     private var vaultName: String { session.reference?.name ?? "Psss" }
@@ -237,15 +247,25 @@ struct VaultPasswordView: View {
                 vaultSelector
 
                 VStack(spacing: 16) {
-                    SecureField("Vault Password", text: $password)
-                        .textFieldStyle(.plain)
-                        .focused($focused)
-                        .onSubmit(unlock)
-                        .disabled(missing || working)
-                        .padding(12)
-                        .background(Self.fieldFill, in: RoundedRectangle(cornerRadius: 8))
-                        .overlay(RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(focused ? Color.accentColor : Color.secondary.opacity(0.4), lineWidth: focused ? 2 : 1))
+                    HStack(spacing: 8) {
+                        SecureField("Vault Password", text: $password)
+                            .textFieldStyle(.plain)
+                            .focused($focused)
+                            .onSubmit(unlock)
+                            .disabled(missing || working)
+                            .padding(12)
+                            .background(Self.fieldFill, in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8)
+                                .strokeBorder(focused ? Color.accentColor : Color.secondary.opacity(0.4), lineWidth: focused ? 2 : 1))
+                        if let biometry, !missing {
+                            Button { Task { await unlockWithBiometrics() } } label: {
+                                Label(biometry.label, systemImage: biometry.symbol)
+                            }
+                            .controlSize(.large)
+                            .disabled(working)
+                            .help("Unlock \(vaultName) with \(biometry.label)")
+                        }
+                    }
                     if let problem {
                         Text(problem).foregroundStyle(.red)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -270,10 +290,16 @@ struct VaultPasswordView: View {
                 // One place for all help text. Progress takes its place while working, so nothing moves.
                 ZStack(alignment: .top) {
                     if working {
-                        WorkingNotice(text: "Checking your vault password…")
+                        WorkingNotice(text: unlockingWithBiometrics ? "Opening your vault…" : "Checking your vault password…")
                     } else {
                         VStack(spacing: 10) {
                             Text("Psss cannot reset or recover a vault password. A key file is only needed if you added one when you created this vault.")
+                            HStack(spacing: 8) {
+                                Button("What Is This?") { explaining = true }
+                                Button("Forgot Password?") { lost = true }
+                            }
+                            .buttonStyle(.bordered)
+                            .foregroundStyle(.primary)
                         }
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -289,6 +315,18 @@ struct VaultPasswordView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background)
         .onAppear { focused = true }
+        .task {
+            // Like Apple Passwords, ask for Face ID or Touch ID straight away; the button retries.
+            guard !triedBiometric, biometry != nil, !missing else { return }
+            triedBiometric = true
+            await unlockWithBiometrics()
+        }
+        .sheet(isPresented: $explaining) { PasswordExplainerSheet() }
+        .sheet(isPresented: $lost) {
+            LostPasswordSheet(session: session, vaultName: vaultName,
+                              onOpenAnother: { lost = false; if session.reference?.managed == true { confirmingSwitch = true } else { choosingOther = true } },
+                              onForgotten: { vaultSource = ""; gate.markUnlocked() })
+        }
         .fileImporter(isPresented: $relinking, allowedContentTypes: [.keePassVault, .data]) { result in
             guard let url = try? result.get() else { return }
             do { try session.relink(to: url); missing = false; problem = nil }
@@ -375,6 +413,27 @@ struct VaultPasswordView: View {
         .disabled(working)
     }
 
+    private func unlockWithBiometrics() async {
+        guard !working else { return }
+        working = true
+        unlockingWithBiometrics = true
+        problem = nil
+        defer { working = false; unlockingWithBiometrics = false }
+        do {
+            try await session.unlockWithBiometrics()
+            password = ""
+            gate.markUnlocked()
+        } catch BiometricKeyError.cancelled {
+            focused = true
+        } catch BiometricKeyError.invalidated {
+            problem = String(localized: "\(biometry?.label ?? "Face ID") no longer opens \(vaultName), for example because it changed. Enter the vault password once. You can turn it on again afterwards.")
+            focused = true
+        } catch {
+            if case VaultStoreError.fileMissing = error { missing = true }
+            problem = (error as? KDBXError)?.message ?? (error as? VaultStoreError)?.message ?? error.localizedDescription
+        }
+    }
+
     private func unlock() {
         guard !working, !(password.isEmpty && keyFile == nil) else { return }
         working = true
@@ -387,7 +446,7 @@ struct VaultPasswordView: View {
             } catch {
                 if case VaultStoreError.fileMissing = error { missing = true }
                 if case KDBXError.wrongCredentials = error {
-                    problem = String(localized: "That didn't open \(vaultName). Check the vault password. If you added a key file when you created this vault, choose it below.")
+                    problem = String(localized: "That didn't open \(vaultName). Check Caps Lock and your keyboard language. If you added a key file when you created this vault, choose it below.")
                 } else {
                     problem = (error as? KDBXError)?.message ?? (error as? VaultStoreError)?.message ?? error.localizedDescription
                 }
@@ -401,6 +460,7 @@ struct VaultPasswordView: View {
 
 /// New vault password or key file for the open vault.
 struct ChangePasswordSheet: View {
+    @Environment(VaultSession.self) private var session
     let store: KeePassVaultStore
     @Environment(\.dismiss) private var dismiss
     @State private var password = ""
@@ -439,6 +499,7 @@ struct ChangePasswordSheet: View {
         Task {
             do {
                 try await store.changeCredentials(to: .init(password: password, keyFile: keyFile))
+                session.refreshBiometricKey()
                 dismiss()
             } catch {
                 problem = (error as? KDBXError)?.message ?? (error as? VaultStoreError)?.message ?? error.localizedDescription
@@ -465,5 +526,82 @@ struct VaultSheetSize: ViewModifier {
         #else
         content
         #endif
+    }
+}
+
+/// What the lock screen's password is, for someone who forgot choosing it or opened a file made elsewhere.
+struct PasswordExplainerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("It is the password chosen when this vault was created. It is not your Apple Account password or your device passcode.")
+                    Text("If the file came from KeePassXC or Strongbox, use the password you set there.")
+                    Text("A key file is a separate file that some vaults need as well. Choose one only if you added it when you created the vault.")
+                } footer: {
+                    Text("Psss cannot see or reset this password.")
+                }
+            }
+            .formStyle(.grouped)
+            .navigationTitle("Your vault password")
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+        .modifier(VaultSheetSize())
+    }
+}
+
+/// Honest help for a lost vault password: what to try, how to use another vault, how to let go of this one.
+struct LostPasswordSheet: View {
+    let session: VaultSession
+    let vaultName: String
+    let onOpenAnother: () -> Void
+    let onForgotten: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var confirmsForget = false
+
+    private var managed: Bool { session.reference?.managed == true }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("Psss cannot recover or reset a vault password. Nobody else can either, because the vault is encrypted with it.")
+                } header: {
+                    Text("Nothing to reset")
+                }
+                Section("Try first") {
+                    Label("Caps Lock off, and the same keyboard language you used to create it", systemImage: "keyboard")
+                    Label("The key file, if you added one when you created this vault", systemImage: "key")
+                    Label("An older copy of the vault, on another device or in a backup, may have an older password", systemImage: "doc.on.doc")
+                }
+                Section {
+                    Button("Open Another Vault…") { onOpenAnother() }
+                    Button("Forget This Vault…", role: .destructive) { confirmsForget = true }
+                } header: {
+                    Text("Or move on")
+                } footer: {
+                    Text(managed
+                         ? "Forgetting deletes \(vaultName) and its data from this device. This cannot be undone."
+                         : "Forgetting removes \(vaultName) from Psss. Your file is not deleted.")
+                }
+            }
+            .formStyle(.grouped)
+            .navigationTitle("Forgot your password?")
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .confirmationDialog("Forget \(vaultName)?", isPresented: $confirmsForget, titleVisibility: .visible) {
+                Button(managed ? "Delete Vault from This Device" : "Forget Vault", role: .destructive) {
+                    SharedVault.eraseSaved()
+                    session.forget()
+                    dismiss()
+                    onForgotten()
+                }
+            } message: {
+                Text(managed ? "The vault and its passwords are deleted from this device and cannot be recovered."
+                             : "Psss stops using this file. The file stays where it is.")
+            }
+        }
+        .modifier(VaultSheetSize())
     }
 }
