@@ -9,7 +9,7 @@
 
   /* Varela Round is a single weight (400), which is the wordmark weight. */
   --psss-font-display: 'Varela Round', ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
-  --psss-font-body: 'Nunito', ui-rounded, system-ui, sans-serif;
+  --psss-font-body: ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
 
   /* Wordmark font size is this fraction of the mark's height. */
   --psss-wordmark-ratio: 0.64;

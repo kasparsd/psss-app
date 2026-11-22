@@ -33,10 +33,12 @@ Tokens are in `Design/Brand/tokens.css`. Butter belongs to the icon, website and
 
 - Wordmark: lowercase “psss”, Regular (400), with a font size of 0.64 of the mark's height. Light matches the master mark's line weight more exactly, but Regular reads best beside it and suits the small cut.
 - Native: SF Pro Rounded (`.font(.system(size:weight:design: .rounded))`). Apple's licence limits SF to Apple-platform interfaces, so do not use it for a logo file, the website or press material.
-- Web and logo files: Varela Round (single weight 400, SIL Open Font License, to verify), self-hosted. Nunito (400, 600, 700) for longer web text.
+- Web and logo files: Varela Round (single weight 400, SIL Open Font License 1.1), self-hosted from `Design/Fonts/VarelaRound/` with its `OFL.txt`. Body text on the web uses the system rounded font, so no second font is shipped.
 - Prose, titles and the App Store name stay “Psss” with a capital, because the name is hard enough to search for. The dots are a graphic, never a spelling.
 
 ## Lockup and clear space
+
+Outlined files, no font needed: `Design/Logo/Psss-lockup.svg` and `Psss-lockup-butter.svg` (mark plus wordmark), `Psss-wordmark.svg` and `Psss-wordmark-butter.svg` (wordmark only). The wordmark is Varela Round outlined at 0.64 of the mark's height, with its x-height centred on the pill's centre line.
 
 Mark on the left, wordmark on the right, centred on the pill's centre line with a small gap. Clear space on every side is the height of the p's bowl. On butter use charcoal, on charcoal use butter.
 
@@ -46,7 +48,6 @@ Mark on the left, wordmark on the right, centred on the pill's centre line with 
 
 ## Open points
 
-- Outline the wordmark in Varela Round (or confirm Apple's terms for SF) to produce a lockup SVG, and self-host the web fonts.
 - Wire the app icon into the asset catalog, with dark and tinted appearances, and check the small cut on a device.
 - Capture real screenshots for iPhone, iPad and Mac. This needs an iOS 27 simulator runtime, since the iOS app does not build for the installed 26.5 runtime.
 - Check “Psss” for trademark and App Store availability (see [product](product.md)).
