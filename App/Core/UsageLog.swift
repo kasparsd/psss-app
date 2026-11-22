@@ -43,6 +43,6 @@ enum UsageLog {
         let stored = Dictionary(uniqueKeysWithValues: all.map { ($0.key.uuidString, $0.value) })
         guard let data = try? JSONEncoder().encode(stored) else { return }
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try? data.write(to: fileURL(for: vault), options: [.atomic, .completeFileProtection])
+        try? data.write(to: fileURL(for: vault), options: VaultFiles.writeOptions)
     }
 }

@@ -1,0 +1,8 @@
+{"uuid":"00000000000000000000000000004001","typeName":"securenotes.SecureNote","title":"Multi-line","createdAt":1700000000,"updatedAt":1700500000,"securityLevel":"SL5","contentsHash":"00000000","txTimestamp":1700500000,"secureContents":{"notesPlain":"Line one\nLine two\n\nLine four after a blank line"},"openContents":{"tags":["some"]}}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"00000000000000000000000000004002","typeName":"securenotes.SecureNote","title":"Unicode","createdAt":1700000000,"updatedAt":1700500000,"securityLevel":"SL5","contentsHash":"00000000","txTimestamp":1700500000,"secureContents":{"notesPlain":"Zürich — 日本語 — café 🔐"}}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"00000000000000000000000000004003","typeName":"securenotes.SecureNote","title":"Markup","createdAt":1700000000,"updatedAt":1700500000,"securityLevel":"SL5","contentsHash":"00000000","txTimestamp":1700500000,"secureContents":{"notesPlain":"<b>bold</b> &amp; \"quotes\" 'single' ]]> <![CDATA[x]]> * # _ `code`"}}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"00000000000000000000000000004004","typeName":"securenotes.SecureNote","title":"Control characters","createdAt":1700000000,"updatedAt":1700500000,"secureContents":{"notesPlain":"tab	here and bell and more"}}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***

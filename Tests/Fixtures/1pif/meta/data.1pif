@@ -1,0 +1,30 @@
+{"uuid":"00000000000000000000000000008001","typeName":"webforms.WebForm","title":"Tagged","createdAt":1700000000,"updatedAt":1700500000,"securityLevel":"SL5","contentsHash":"00000000","txTimestamp":1700500000,"secureContents":{"fields":[{"value":"tagged","name":"email","type":"E","designation":"username"},{"value":"tag-pass","name":"pass","type":"P","designation":"password"}],"URLs":[{"label":"","url":"tagged.example.com"}]},"openContents":{"tags":["alpha","beta gamma"]},"location":"tagged.example.com"}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"00000000000000000000000000008002","typeName":"webforms.WebForm","title":"Favourite top","createdAt":1700000000,"updatedAt":1700500000,"securityLevel":"SL5","contentsHash":"00000000","txTimestamp":1700500000,"secureContents":{"fields":[{"value":"fav1","name":"email","type":"E","designation":"username"},{"value":"fav-pass-1","name":"pass","type":"P","designation":"password"}],"URLs":[{"label":"","url":"fav1.example.com"}]},"faveIndex":0,"location":"fav1.example.com"}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"00000000000000000000000000008003","typeName":"webforms.WebForm","title":"Favourite open","createdAt":1700000000,"updatedAt":1700500000,"securityLevel":"SL5","contentsHash":"00000000","txTimestamp":1700500000,"secureContents":{"fields":[{"value":"fav2","name":"email","type":"E","designation":"username"},{"value":"fav-pass-2","name":"pass","type":"P","designation":"password"}],"URLs":[{"label":"","url":"fav2.example.com"}]},"openContents":{"faveIndex":1,"tags":["alpha"]},"location":"fav2.example.com"}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"category":"001","uuid":"00000000000000000000000000008F03","created":1700000000,"updated":1700500000,"fave":2,"overview":{"title":"Windows favourite","URLs":[{"u":"win.example.com","l":""}],"tags":[]},"details":{"fields":[{"value":"winuser","name":"u","type":"T","designation":"username"},{"value":"win-pass","name":"p","type":"P","designation":"password"}]}}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"00000000000000000000000000008004","typeName":"webforms.WebForm","title":"In nested folder","createdAt":1700000000,"updatedAt":1700500000,"securityLevel":"SL5","contentsHash":"00000000","txTimestamp":1700500000,"secureContents":{"fields":[{"value":"nest","name":"email","type":"E","designation":"username"},{"value":"nest-pass","name":"pass","type":"P","designation":"password"}],"URLs":[{"label":"","url":"nest.example.com"}]},"folderUuid":"0000000000000000000000000000F002","location":"nest.example.com"}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"0000000000000000000000000000F001","typeName":"system.folder.Regular","title":"Work","createdAt":0,"updatedAt":1700000000,"securityLevel":"SL5"}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"0000000000000000000000000000F002","typeName":"system.folder.Regular","title":"Projects","createdAt":0,"updatedAt":1700000000,"securityLevel":"SL5","folderUuid":"0000000000000000000000000000F001"}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"0000000000000000000000000000F003","typeName":"system.folder.Regular","title":"Empty","createdAt":0,"updatedAt":1700000000,"securityLevel":"SL5"}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"00000000000000000000000000008005","typeName":"webforms.WebForm","title":"In top folder","createdAt":1700000000,"updatedAt":1700500000,"securityLevel":"SL5","contentsHash":"00000000","txTimestamp":1700500000,"secureContents":{"fields":[{"value":"top","name":"email","type":"E","designation":"username"},{"value":"top-pass","name":"pass","type":"P","designation":"password"}],"URLs":[{"label":"","url":"top.example.com"}]},"folderUuid":"0000000000000000000000000000F001","location":"top.example.com"}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"00000000000000000000000000008006","typeName":"webforms.WebForm","title":"Trashed login","createdAt":1700000000,"updatedAt":1700500000,"securityLevel":"SL5","contentsHash":"00000000","txTimestamp":1700500000,"secureContents":{"fields":[{"value":"trashed","name":"email","type":"E","designation":"username"},{"value":"trash-pass","name":"pass","type":"P","designation":"password"}],"URLs":[{"label":"","url":"trashed.example.com"}],"notesPlain":"full contents","sections":[{"title":"Extra","name":"Section_Extra","fields":[{"k":"string","n":"x","t":"extra","v":"kept in trash"}]}]},"trashed":true,"location":"trashed.example.com"}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"00000000000000000000000000008007","typeName":"system.Tombstone","updatedAt":1700500000,"createdAt":1700000000}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"00000000000000000000000000008008","typeName":"system.folder.SavedSearch","title":"Saved search","createdAt":0,"updatedAt":1700000000,"secureContents":{"query":"example"}}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"00000000000000000000000000008010","typeName":"webforms.WebForm","title":"Duplicate identifier","createdAt":1700000000,"updatedAt":1700500000,"securityLevel":"SL5","contentsHash":"00000000","txTimestamp":1700500000,"secureContents":{"fields":[{"value":"dup","name":"email","type":"E","designation":"username"},{"value":"dup-pass-1","name":"pass","type":"P","designation":"password"}],"URLs":[{"label":"","url":"dup.example.com"}]},"location":"dup.example.com"}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"00000000000000000000000000008010","typeName":"webforms.WebForm","title":"Duplicate identifier again","createdAt":1700000000,"updatedAt":1700500000,"securityLevel":"SL5","contentsHash":"00000000","txTimestamp":1700500000,"secureContents":{"fields":[{"value":"dup","name":"email","type":"E","designation":"username"},{"value":"dup-pass-2","name":"pass","type":"P","designation":"password"}],"URLs":[{"label":"","url":"dup2.example.com"}]},"location":"dup2.example.com"}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"abcdefghijklmnopqrstuvwxyz","typeName":"securenotes.SecureNote","title":"Synced identifier","createdAt":1700000000,"updatedAt":1700500000,"secureContents":{"notesPlain":"26 lower-case characters"}}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***

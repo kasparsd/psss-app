@@ -156,6 +156,25 @@ class HostTests(unittest.TestCase):
             _, (r,) = self.run_host([self.req("save", origin=origin, account="a@b.c", secret="x")])
             self.assertEqual((r["ok"], r["error"]), (False, "forbidden"), origin)
 
+    def test_origin_whose_host_normalizes_to_empty_is_never_fillable(self):
+        # `a+b.example.com` passes the URL parser but is not a plain host, so SiteMatch normalizes it to empty.
+        origin = "https://a+b.example.com"
+        _, (c,) = self.run_host([self.req("candidates", origin=origin)])
+        self.assertEqual((c["ok"], c["error"]), (False, "forbidden"))
+        _, (s,) = self.run_host([self.req("search", origin=origin, query="localhost")])
+        self.assertEqual((s["ok"], s["error"]), (False, "forbidden"))
+        _, (found,) = self.run_host([self.req("search", origin="http://localhost:8080", query="localhost")])
+        ref = found["results"][0]["ref"]
+        for manual in (False, True):
+            _, (r,) = self.run_host([self.req("credential", ref=ref, origin=origin, manual=manual)])
+            self.assertEqual((r["ok"], r["error"]), (False, "forbidden"), f"manual={manual}")
+            self.assertNotIn("secret", r)
+        before = (self.store / "saved-logins.json").read_bytes() if (self.store / "saved-logins.json").exists() else None
+        _, (r,) = self.run_host([self.req("save", origin=origin, account="a@b.c", secret="x")])
+        self.assertEqual((r["ok"], r["error"]), (False, "forbidden"))
+        after = (self.store / "saved-logins.json").read_bytes() if (self.store / "saved-logins.json").exists() else None
+        self.assertEqual(before, after, "a refused save writes nothing")
+
     def test_unknown_ref_and_type(self):
         _, (r,) = self.run_host([self.req("credential", ref="0000", origin="http://localhost")])
         self.assertEqual(r["error"], "not-found")

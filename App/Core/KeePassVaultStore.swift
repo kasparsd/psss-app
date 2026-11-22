@@ -65,6 +65,14 @@ enum VaultFiles {
         return (try? FileManager.default.createDirectory(at: group, withIntermediateDirectories: true)) != nil ? group : own
     }
 
+    /// Every file Psss writes is replaced in one step and unreadable while the device is locked. The hostless test scripts
+    /// compile with `HOSTLESS_TESTS`, which drops the protection class so they can run on a Mac whose screen is locked.
+    #if HOSTLESS_TESTS
+    static let writeOptions: Data.WritingOptions = [.atomic]
+    #else
+    static let writeOptions: Data.WritingOptions = [.atomic, .completeFileProtection]
+    #endif
+
     static var managedDirectory: URL { storageRoot.appendingPathComponent("Vaults", isDirectory: true) }
 
     private static func backupDirectory(for id: UUID) -> URL {
@@ -106,7 +114,7 @@ enum VaultFiles {
         var result: Result<Void, Error> = .success(())
         var coordinationError: NSError?
         NSFileCoordinator().coordinate(writingItemAt: url, options: .forReplacing, error: &coordinationError) { writeURL in
-            result = Result { try data.write(to: writeURL, options: [.atomic, .completeFileProtection]) }
+            result = Result { try data.write(to: writeURL, options: VaultFiles.writeOptions) }
         }
         if let coordinationError { throw VaultStoreError.writeFailed(coordinationError.localizedDescription) }
         do { try result.get() } catch { throw VaultStoreError.writeFailed(error.localizedDescription) }
@@ -120,7 +128,7 @@ enum VaultFiles {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions.insert(.withFractionalSeconds)
         let stamp = formatter.string(from: .now).replacingOccurrences(of: ":", with: "-")
-        try? previous.write(to: directory.appendingPathComponent("\(stamp).kdbx"), options: [.atomic, .completeFileProtection])
+        try? previous.write(to: directory.appendingPathComponent("\(stamp).kdbx"), options: VaultFiles.writeOptions)
         let all = ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).sorted()
         for old in all.dropLast(5) { try? FileManager.default.removeItem(at: directory.appendingPathComponent(old)) }
     }
@@ -178,6 +186,23 @@ final class KeePassVaultStore: VaultStore {
         document.remove(id)
         try commit()
         UsageLog.remove(id, in: reference.id)
+    }
+
+    /// What an import would add and skip, without changing the vault. Duplicates are judged against what is in the vault now.
+    func preview(_ plan: ImportPlan) -> ImportSummary { document.preview(plan) }
+
+    /// Adds the plan in one write. When the entries cannot be built or the write fails, the open document goes back to what
+    /// it was and the file is untouched, so nothing was added.
+    func apply(_ plan: ImportPlan) throws -> ImportSummary {
+        let before = document
+        do {
+            let summary = try document.apply(plan)
+            if summary.itemCount > 0 { try commit() }
+            return summary
+        } catch {
+            document = before
+            throw error
+        }
     }
 
     /// Records the use in the device-local usage log. The vault file is never written for it.

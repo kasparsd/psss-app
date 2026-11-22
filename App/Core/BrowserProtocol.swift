@@ -15,6 +15,8 @@ enum BrowserProtocol {
 
     static func fillableHost(_ origin: String) -> String? {
         guard let url = URL(string: origin), let host = url.host, url.user == nil, url.password == nil else { return nil }
+        // A host that normalizes to empty (see `SiteMatch`) is never a fillable origin: no match, no save, no release.
+        guard !SharedVault.host(host).isEmpty else { return nil }
         if url.scheme == "https" { return host }
         if url.scheme == "http", ["localhost", "127.0.0.1", "::1"].contains(host) { return host }
         return nil

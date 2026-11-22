@@ -1,0 +1,17 @@
+﻿{"category":"001","uuid":"0000000000000000000000000000A001","created":1700000000,"updated":1700500000,"folder":"0000000000000000000000000000AF01","fave":0,"trashed":false,"overview":{"title":"Windows login","URLs":[{"u":"winlogin.example.com","l":""},{"u":"https://alt.example.net","l":"alt"}],"url":"winlogin.example.com","tags":["win tag"]},"details":{"fields":[{"value":"winuser","name":"u","type":"T","designation":"username"},{"value":"win-login-pass","name":"p","type":"P","designation":"password"},{"value":"x","name":"hidden","type":"H"}],"notesPlain":"windows notes","sections":[{"title":"Extra","name":"Section_Extra","fields":[{"k":"string","n":"x1","t":"extra label","v":"extra value"}]}],"htmlForm":{"htmlMethod":"post","htmlAction":"/login"},"passwordHistory":[{"value":"win-old","time":1699000000}]}}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"category":"002","uuid":"0000000000000000000000000000A002","created":1700000000,"updated":1700500000,"overview":{"title":"Windows card","tags":[]},"details":{"ccnum":"4000000000000002","cardholder":"Win Holder","cvv":"321","expiry_mm":"5","expiry_yy":"2028","sections":[{"title":"","name":"Section_","fields":[{"k":"string","n":"cardholder","t":"cardholder name","v":"Win Holder"},{"k":"string","n":"ccnum","t":"number","v":"4000000000000002"},{"k":"monthYear","n":"expiry","t":"expiry date","v":202805}]}]}}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"category":"003","uuid":"0000000000000000000000000000A003","created":1700000000,"updated":1700500000,"overview":{"title":"Windows note","tags":["win tag"]},"details":{"notesPlain":"windows note body"}}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"category":"004","uuid":"0000000000000000000000000000A004","created":1700000000,"updated":1700500000,"overview":{"title":"Windows identity","tags":[]},"details":{"sections":[{"title":"Identification","name":"name","fields":[{"k":"string","n":"firstname","t":"first name","v":"Win"},{"k":"string","n":"lastname","t":"last name","v":"Example"}]}]}}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"category":"005","uuid":"0000000000000000000000000000A005","created":1700000000,"updated":1700500000,"overview":{"title":"Windows password","URLs":[{"u":"winpass.example.com","l":""}],"tags":[]},"details":{"password":"win-only-password","notesPlain":"pw notes"}}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"category":"109","uuid":"0000000000000000000000000000A006","created":1700000000,"updated":1700500000,"overview":{"title":"Windows router","tags":[]},"details":{"sections":[{"title":"","name":"Section_","fields":[{"k":"string","n":"server","t":"server","v":"192.0.2.9"},{"k":"concealed","n":"wireless_password","t":"wireless password","v":"win-wifi"}]}]}}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"category":"199","uuid":"0000000000000000000000000000A007","created":1700000000,"updated":1700500000,"overview":{"title":"Windows unknown","tags":[]},"details":{"sections":[{"title":"","name":"Section_","fields":[{"k":"string","n":"thing","t":"thing","v":"value"}]}]}}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"category":"099","uuid":"0000000000000000000000000000AF01","created":0,"updated":1700000000,"parent":"","overview":{"title":"Windows folder"}}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"0000000000000000000000000000A008","typeName":"securenotes.SecureNote","title":"Mac-shaped record from Windows","createdAt":1700000000,"updatedAt":1700500000,"securityLevel":"SL5","contentsHash":"00000000","txTimestamp":1700500000,"secureContents":{"notesPlain":"Windows can write this shape too"}}

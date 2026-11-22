@@ -48,6 +48,12 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     override func prepareInterface(for savePasswordRequest: ASSavePasswordRequest) {
         unlocked { [self] in
         let host = SharedVault.host(savePasswordRequest.serviceIdentifier.identifier)
+        guard !host.isEmpty else {
+            // Never save against an empty host: it could update an unrelated login or create one with no website.
+            present(SaveFailed(subject: .login, reason: String(localized: "This website’s address could not be read."),
+                               close: { [weak self] in self?.cancel(.failed) }))
+            return
+        }
         let credential = savePasswordRequest.credential
         let existing = items.first { SharedVault.matches($0, host: host) && $0.account == credential.user }
         present(SaveLogin(host: host, account: credential.user, password: credential.password,

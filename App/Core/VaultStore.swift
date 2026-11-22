@@ -15,6 +15,8 @@ protocol VaultStore: AnyObject {
     func markUsed(_ id: UUID)
     /// Writes anything still pending. Edits are written as they are made, so a KDBX vault has nothing pending; kept for stores that batch.
     func flush() throws
+    /// Adds an import plan in one write. All or nothing: when it throws, nothing was added.
+    func apply(_ plan: ImportPlan) throws -> ImportSummary
 }
 
 enum VaultStoreError: Error, Equatable {
@@ -44,4 +46,7 @@ final class SampleVaultStore: VaultStore {
 
     func markUsed(_ id: UUID) {}
     func flush() throws {}
+
+    /// The sample vault is not encrypted, so no imported secret may reach it.
+    func apply(_ plan: ImportPlan) throws -> ImportSummary { throw ImportError.sampleVault }
 }

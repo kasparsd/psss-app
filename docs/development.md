@@ -16,6 +16,10 @@ scripts/test-kdbx.sh
 
 Compiles `App/Core/KDBX`, the store and `Tests/KDBX/main.swift` with `swiftc` and runs them: RFC vectors for Blake2b, ChaCha20 and Argon2, round trips (AES and ChaCha20, key files, multi-block files, history, deletion), sessions (create, lock, unlock, conflict, overwrite, change password, backups) and interop with `keepassxc-cli` when installed. It is a stand-in until an Xcode test target exists. It writes only under `build/` and the app's Application Support folder, and cleans up its test vault.
 
+## Other hostless tests
+
+`scripts/test-matching.sh` checks site matching against the public suffix list, and `scripts/test-import.sh` checks the 1Password 7 importer against hand-written fixtures and, when present, a real export under `build/`. `scripts/build-public-suffix.py` downloads the list from publicsuffix.org and regenerates `App/Core/PublicSuffixList.swift`; commit the result. The codec and import scripts compile with `-D HOSTLESS_TESTS`, which drops the file-protection class from vault writes in those test builds only, because macOS refuses protected writes while the screen is locked. App builds keep complete file protection.
+
 ## Command-line verification
 
 ```sh

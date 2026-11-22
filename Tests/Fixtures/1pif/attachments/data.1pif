@@ -1,0 +1,12 @@
+{"uuid":"00000000000000000000000000009001","typeName":"webforms.WebForm","title":"Two files","createdAt":1700000000,"updatedAt":1700500000,"securityLevel":"SL5","contentsHash":"00000000","txTimestamp":1700500000,"secureContents":{"fields":[{"value":"att","name":"email","type":"E","designation":"username"},{"value":"att-pass","name":"pass","type":"P","designation":"password"}],"URLs":[{"label":"","url":"att.example.com"}]},"location":"att.example.com"}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"00000000000000000000000000009002","typeName":"webforms.WebForm","title":"Same name elsewhere","createdAt":1700000000,"updatedAt":1700500000,"securityLevel":"SL5","contentsHash":"00000000","txTimestamp":1700500000,"secureContents":{"fields":[{"value":"att2","name":"email","type":"E","designation":"username"},{"value":"att-pass-2","name":"pass","type":"P","designation":"password"}],"URLs":[{"label":"","url":"att2.example.com"}]},"location":"att2.example.com"}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"../outside-folder","typeName":"securenotes.SecureNote","title":"Escape attempt","createdAt":1700000000,"updatedAt":1700500000,"securityLevel":"SL5","contentsHash":"00000000","txTimestamp":1700500000,"secureContents":{"notesPlain":"uuid has a path"}}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"00000000000000000000000000009004","typeName":"securenotes.SecureNote","title":"Links","createdAt":1700000000,"updatedAt":1700500000,"securityLevel":"SL5","contentsHash":"00000000","txTimestamp":1700500000,"secureContents":{"notesPlain":"symlinks"}}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"00000000000000000000000000009005","typeName":"securenotes.SecureNote","title":"Too large","createdAt":1700000000,"updatedAt":1700500000,"securityLevel":"SL5","contentsHash":"00000000","txTimestamp":1700500000,"secureContents":{"notesPlain":"one file is over the limit"}}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"00000000000000000000000000009006","typeName":"securenotes.SecureNote","title":"No files","createdAt":1700000000,"updatedAt":1700500000,"securityLevel":"SL5","contentsHash":"00000000","txTimestamp":1700500000,"secureContents":{"notesPlain":"nothing attached"}}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***

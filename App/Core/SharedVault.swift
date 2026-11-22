@@ -57,18 +57,13 @@ enum SharedVault {
     }
 
     /// The host of a service identifier or a stored website, lowercased and without a leading `www.`.
-    static func host(_ text: String) -> String {
-        var value = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if let url = URL(string: value), let host = url.host { value = host }
-        else if let url = URL(string: "https://" + value), let host = url.host { value = host }
-        return value.hasPrefix("www.") ? String(value.dropFirst(4)) : value
-    }
+    static func host(_ text: String) -> String { SiteMatch.normalizedHost(text) }
 
-    /// Conservative matching: the same host, or one is a subdomain of the other.
+    /// A login is offered on its own host and on subdomains of it, never on its parent and never under a public suffix
+    /// (see `SiteMatch`).
     static func matches(_ item: VaultItem, host requested: String) -> Bool {
-        guard item.kind == .login, !item.website.isEmpty, !requested.isEmpty else { return false }
-        let stored = host(item.website)
-        return stored == requested || requested.hasSuffix("." + stored) || stored.hasSuffix("." + requested)
+        guard item.kind == .login, !item.website.isEmpty else { return false }
+        return SiteMatch.matches(stored: item.website, requested: requested)
     }
 
     /// Tells the system which sites have saved logins and passkeys, without secrets. Fire and forget; the AutoFill extension
@@ -110,8 +105,10 @@ enum SharedVault {
     private static func identities(for items: [VaultItem]) -> [any ASCredentialIdentity] {
         var identities: [any ASCredentialIdentity] = items.compactMap { item in
             guard item.kind == .login, !item.website.isEmpty, !item.account.isEmpty, !item.secret.isEmpty else { return nil }
+            let site = host(item.website)
+            guard !site.isEmpty else { return nil }  // malformed website: nothing to register
             return ASPasswordCredentialIdentity(
-                serviceIdentifier: ASCredentialServiceIdentifier(identifier: host(item.website), type: .domain),
+                serviceIdentifier: ASCredentialServiceIdentifier(identifier: site, type: .domain),
                 user: item.account,
                 recordIdentifier: item.id.uuidString)
         }

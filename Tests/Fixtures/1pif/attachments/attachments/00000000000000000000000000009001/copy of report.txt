@@ -1,0 +1,1 @@
+Fixture attachment: the same bytes under two names.

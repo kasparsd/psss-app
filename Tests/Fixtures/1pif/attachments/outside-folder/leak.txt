@@ -1,0 +1,1 @@
+This sits outside the attachments folder and must never be read.
