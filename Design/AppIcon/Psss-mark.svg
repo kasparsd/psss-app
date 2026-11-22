@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120" role="img" aria-label="Psss mark">
+<title>Psss mark</title>
+<rect x="6.5" y="34.5" width="107" height="51" rx="25.5" fill="none" stroke="#1F1F23" stroke-width="5"/>
+<path d="M23.5 50.5V84" fill="none" stroke="#1F1F23" stroke-width="5" stroke-linecap="round"/>
+<circle cx="33" cy="60" r="9.5" fill="none" stroke="#1F1F23" stroke-width="5"/>
+<circle cx="58" cy="60" r="6" fill="#1F1F23"/>
+<circle cx="77" cy="60" r="6" fill="#1F1F23"/>
+<circle cx="96" cy="60" r="6" fill="#1F1F23"/>
+</svg>
