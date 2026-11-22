@@ -97,6 +97,7 @@ Goal: five people outside the project fill, save and find a login without guidan
 | Date | Decision | Evidence |
 | --- | --- | --- |
 | 2026-11-22 | Product named Psss; psss.app planned. | Owner. |
+| 2026-11-22 | Visual identity: outline field with a typed p and three dots, butter and charcoal, lowercase rounded wordmark. Remaining brand work is listed under open points. | Owner, [brand](brand.md). |
 | 2026-11-22 | Product philosophy and commercial approach follow the sibling photo app. | [product](product.md). |
 | 2026-11-22 | Business model adopted: free single-device vault and Psss Pro for sync, as $49.99 lifetime or $19.99 per year, with Family Sharing. An annual option was added after owner input, and the photo app's copy changes to “no subscription required”. | [product](product.md#business-model). |
 | 2026-11-22 | Several vaults are supported. Local vaults on one device are free in any number; Psss Pro syncs them. One device-owner unlock opens every vault whose key is Keychain-held; a vault with its own password or key file asks separately. Proposal, confirm before M2. | [vaults](vaults.md#multiple-vaults). |

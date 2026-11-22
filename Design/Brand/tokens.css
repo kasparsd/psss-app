@@ -1,0 +1,16 @@
+/* Psss brand tokens. For the website and marketing only.
+   The app itself uses the system accent colour and standard controls. */
+:root {
+  --psss-butter: #FFD84D;
+  --psss-charcoal: #1F1F23;
+  --psss-cream: #FFF9E5;
+  --psss-stone: #8A8578;      /* rules and fills only, never small text */
+  --psss-ink-muted: #5C584D;  /* secondary text on cream or white, 6.8:1 */
+
+  /* Varela Round is a single weight (400), which is the wordmark weight. */
+  --psss-font-display: 'Varela Round', ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
+  --psss-font-body: 'Nunito', ui-rounded, system-ui, sans-serif;
+
+  /* Wordmark font size is this fraction of the mark's height. */
+  --psss-wordmark-ratio: 0.64;
+}

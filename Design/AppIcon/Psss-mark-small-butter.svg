@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120" role="img" aria-label="Psss mark, small-size cut">
+<title>Psss mark, small-size cut (below 48 px), butter</title>
+<rect x="7.5" y="35.5" width="105" height="49" rx="24.5" fill="none" stroke="#FFD84D" stroke-width="7"/>
+<path d="M24.5 51.5V83.3" fill="none" stroke="#FFD84D" stroke-width="7" stroke-linecap="round"/>
+<circle cx="33" cy="60" r="8.5" fill="none" stroke="#FFD84D" stroke-width="7"/>
+<circle cx="58" cy="60" r="6.8" fill="#FFD84D"/>
+<circle cx="77" cy="60" r="6.8" fill="#FFD84D"/>
+<circle cx="96" cy="60" r="6.8" fill="#FFD84D"/>
+</svg>

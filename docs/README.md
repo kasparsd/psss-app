@@ -6,7 +6,8 @@ See the [product contract](product.md) for positioning, principles and business 
 
 | Area | Document |
 | --- | --- |
-| Product | [Positioning, principles, business model, brand](product.md) |
+| Product | [Positioning, principles, business model](product.md) |
+| Brand | [Mark, colour, type and reuse rules](brand.md) |
 | Research | [Existing product flows](research.md) |
 | Experience | [User flows and prototype](experience.md) |
 | Platform | [AutoFill and browser coverage](autofill.md), [browser extension](browser-extension.md) |
