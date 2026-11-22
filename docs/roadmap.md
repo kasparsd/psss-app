@@ -56,7 +56,8 @@ Goal: five people outside the project fill, save and find a login without guidan
 
 - [ ] iCloud Drive vaults with the M0 sync decision implemented, encrypted rollback copies and a visible restore path.
 - [ ] Import: 1Password 1PUX and CSV with preview and loss report.
-- [ ] Optional site icons: off by default, fetched directly from the site, cached in the vault as KeePass custom icons.
+- [x] Bundled brand icons (top ~1000, offline, see experience.md).
+- [ ] Optional site icons for everything else: off by default, fetched directly from the site, cached in the vault as KeePass custom icons.
 - [ ] Screens 3, 4, 8, 9, 12, 13, 14 and 15 from [experience](experience.md#screens-and-goals): first launch, import, add by paste or scan, in-place edit, sync and Pro, conflict, recently deleted, settings.
 - [ ] Attachments, groups as folders, expiry. Entry history is stored but its interface is deferred. Recently deleted covers undo.
 - [ ] Setup: one screen to enable AutoFill. Fewer than ten settings in total.
