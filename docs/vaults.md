@@ -16,7 +16,7 @@ See [vault items](items.md) for the entry templates and preservation rules. Veri
 
 - KDBX is canonical only until the M0 gate. Keep it behind a `VaultStore` boundary so the app domain never depends on KeePass structures. Kill criteria: the AutoFill extension cannot unlock within its memory and time budget even with a biometric-wrapped key, or two-device edits produce conflicts that entry-level merge cannot resolve. Fallback is a private encrypted store with KDBX import and export.
 - Keep the Argon2 cost out of the extension. After the app unlocks, wrap the derived key in the Keychain behind biometrics so the provider only decrypts.
-- Default to one vault, created without asking about files. Offer file-level options only in advanced settings.
+- Default to one vault, created without asking about files. Offer file-level options only in advanced settings. More vaults are supported; see [Multiple vaults](#multiple-vaults).
 
 - Support local and iCloud Drive storage. No hosted account is required.
 - Keep independent encrypted backups of significant revisions and a visible restore path.
@@ -28,3 +28,38 @@ See [vault items](items.md) for the entry templates and preservation rules. Veri
 - [ ] Select a reviewed Swift KDBX implementation or evaluate feasibility and independent review of a new one.
 - [ ] Establish interoperability fixtures from KeePassXC and Strongbox and verify open, mutate, save and reopen in both directions.
 - [ ] Test concurrent changes from two devices, offline recovery and failed atomic replacement.
+
+## Multiple vaults
+
+Decided 2026-11-22: the app supports several vaults. People bring more than one KeePass file (personal and work, a shared family file), and a second vault is the cleanest way to keep a work login out of a personal list. It must cost single-vault people nothing: the first vault is still created without a question, and no vault control appears until a second one exists.
+
+### Model
+
+- A vault is a file or store, a key, a name, a color and a sync state. Items belong to exactly one vault. The same site in two vaults is two items, never merged silently.
+- A small **vault registry** in the App Group lists every vault: identifier, name, color, storage location, whether it is the default, and how it unlocks. The app and the AutoFill extension both read it. It holds no secrets.
+- **Unlock.** Vaults whose key is wrapped in the Keychain behind biometrics open together after one Face ID or Touch ID. A vault protected by its own password or key file stays locked until asked for, and the extension offers it only when its identities can be matched. Lock state is per vault, but the app-level lock covers all of them.
+- **Default vault.** Where new logins, saves from Safari, generated passwords and imports go. Always visible wherever it matters. Changing it is one tap.
+- **Storage and sync.** Each vault serializes its own writes and resolves its own conflicts, exactly as described above. Psss Pro syncs vaults independently, so a lapsed subscription never strands one.
+- **Deleting.** Removing a vault from the app never deletes its file. Deleting its contents is a separate, explicit, counted action. Recently Deleted is per vault and listed together.
+
+### Rules for the whole app
+
+1. Search, fill and filters look across every unlocked vault. A vault name appears only when two or more vaults exist, and only as a small secondary label.
+2. A result that exists in two vaults for the same site and username shows both, with the vault name leading the secondary line, and the default vault first. Never auto-pick across vaults.
+3. Saving never asks which vault. It uses the default, names it in the prompt when two or more vaults exist, and offers a one-tap change. This keeps the “one tap on Save” bar.
+4. Moving an item between vaults is a visible action, “Move to…”, on the detail page and in the context menu. Copy to another vault is a second option, not the default.
+5. Passkeys and verification codes move with their item. A passkey is registered in the default vault unless the person changed it in the sheet.
+6. Nothing about vault choice appears in the system fill sheet unless there is ambiguity.
+
+### Steps, in order
+
+1. **Domain.** `Vault` and `VaultRegistry` types. `VaultStore` becomes one instance per vault. `VaultItem` gains a vault identifier that is not stored inside the item.
+2. **Storage.** Per-vault file bookmarks, key wrapping and write serialization. The registry lives in the App Group.
+3. **Unlock.** One biometric unlock opens all Keychain-wrapped vaults. Own-password and key-file vaults unlock individually. Spike S7 proves this fits the extension budget.
+4. **AutoFill.** The credential identity store registers identities for every unlocked vault, with the vault identifier in `recordIdentifier`. Ranking prefers the default vault. The save prompt shows its destination.
+5. **Browser.** Sidebar sections, search scope, detail and editor changes from [experience](experience.md#multiple-vaults-screens-and-steps-affected).
+6. **Import and export.** Import chooses a destination vault, defaulting to the default one. Export is per vault, and the export-all option says how many files it writes.
+7. **Sync.** Per-vault sync status and conflicts. Free-tier people can still move vaults between their own devices by file.
+8. **Tests.** Fixtures with two vaults and a shared domain. Matching, ranking and move/copy round trips. Lock one vault while the other is open.
+
+Open question for later: shared vaults for Family Sharing (a vault two people hold keys to). That is a sharing feature, not multi-vault, and stays out of 1.0 as in the [roadmap](roadmap.md).

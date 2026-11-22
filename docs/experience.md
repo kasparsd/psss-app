@@ -36,7 +36,7 @@ Review of 2026-11-22. The native shell is a vault browser: sidebar of categories
 | 12 | Sync and Psss Pro | Use the vault on more than one device | One screen that shows both prices and Family Sharing. Buy, restore and “not now” are equally prominent. Free vault keeps working | Appears only when a second device exists or the person turns sync on. Never a modal at launch. After purchase, sync just starts |
 | 13 | Conflict | Never lose an edit | Usually invisible. The only visible case is the same field edited on two devices | A two-line comparison, “Edited on iPhone, 14:02” against “Edited on Mac, 14:05”, one tap to keep either. Never a conflicted copy file |
 | 14 | Recently Deleted and restore | Undo a mistake | Delete is always a move. Restore is one tap. Items purge after 30 days, with the date visible | Replaces confirmation dialogs for single items. A bulk delete asks once, with the count |
-| 15 | Settings | Change the few things that matter | Fewer than ten rows: Lock timing, Biometrics, AutoFill status, Sync, Import and Export, Recovery phrase, Appearance, Help, About, Pro | Every setting needs a defense. Anything with a safe default is not a setting |
+| 15 | Settings | Change the few things that matter | Fewer than ten rows: Lock timing, AutoFill status, Vaults, Sync, Import and Export, Recovery phrase, Appearance, Help, About, Pro | Every setting needs a defense. Anything with a safe default is not a setting |
 | 16 | Empty and error states | Know what to do next | One sentence and one button. A failure says what happened and keeps the person's data | The first-run empty vault shows the same Add and Import actions as the first launch. Offline and read-only states never block fill |
 
 ## Key custody: the largest design bet
@@ -180,3 +180,44 @@ Compared the Mac build with Apple Notes. Changes, all in shared code so iPad fol
 - **Lock screen.** A lock glyph, “Psss is locked” and one labeled, prominent Unlock button; the prompt also appears on its own at launch. The iPhone pill row was duplicated (one in the list, one pinned) and is now only the pinned one.
 - **Spacing review (Mac, 2026-11-22).** Measured every element in a Mac screenshot. Fixed: the Password row was about 6 pt taller than Username and Website because the reveal glyph carried a minimum height; the tap target now grows past the glyph (iPhone and iPad too, where the gap was larger) so all field rows share one height. Checked and fine: the detail card is centered under the icon and name, the footer aligns with the field text, row insets are 20 pt left and right, copy icons are centered in each row, and list rows are 48 pt. Left to the system: the toolbar title sits about 6 pt left of the row icons, list separators end slightly inside the selection capsule, the “Sample vault” header starts left of the sidebar icons, and Edit is placed by the toolbar next to Search. Overriding those would fight standard sidebar, list and toolbar metrics.
 - **Spacing review (iPhone, iPad, every sheet, 2026-11-22).** Measured the list, detail, editor, New menu, Setup and lock screens on iPhone 17 and iPad Pro 11-inch against the 16 pt content margin. Fixed: list separators started at three slightly different x positions, so they now start where the text starts on every row; the verification-code card put its copy icon (accent-colored, mid-row) away from the trailing column every other row uses, so the countdown moved left of a quiet secondary copy icon; the editor repeated each caption as its placeholder (“Username” over “Username”), so placeholders now appear only where they add information (`example.com`, “Same as the website”, `MM/YY`); the Setup “preview” sentence was a stray card and is now the footer of its section; the Lock setting had no icon and its label started 29 pt left of the icon rows, so it has one. Checked and fine: 16 pt margins for title, pills, rows and cards, 46 pt list rows, equal field-row heights, 8 pt pill gaps, the system New menu and floating search bar. Section gaps, nav-bar buttons and the search bar inset are system metrics.
+
+## Multiple vaults: screens and steps affected
+
+Principle: with one vault the app looks exactly as it does today. Every change below appears only once a second vault exists, except the Vaults row in Settings and the Add vault action. See [vaults](vaults.md#multiple-vaults) for the model and rules.
+
+| # | Screen | Change with two or more vaults | Single-vault behavior |
+| --- | --- | --- | --- |
+| 1 | Fill sheet | Same list across unlocked vaults. If one site and username exist in two vaults, both show, vault name first on the secondary line, default vault first. A vault that needs its own password shows one line, “Unlock Work”, instead of its items. | Unchanged |
+| 2 | Save and update prompt | Names the destination, “Saving to Personal”, with one tap to change. Update is still the default when the username matches in any unlocked vault, and says which vault it updates. | Unchanged |
+| 3 | First launch | Still one vault, created silently. “Open or add another vault” is a link on the last screen and in Settings, never a step. | Unchanged |
+| 4 | Import | Gains one line, “Import into Personal”, with a change control. Duplicates are checked against the destination vault, and a note appears if another vault already holds the site. | Unchanged |
+| 5 | Unlock | One Face ID opens every Keychain-wrapped vault. A vault with its own password or key file shows a locked row in the sidebar with a labeled Unlock button. The lock screen never lists vaults. | Unchanged |
+| 6 | Home: search and list | Search covers every unlocked vault. Rows gain a small vault name or color dot on the secondary line only when two or more vaults exist. The vault is also a filter, in the same bar as Passkeys and Codes. | Unchanged |
+| 7 | Item detail | A Vault row at the bottom of the card, “Personal”, with Move to… as a visible action. | Hidden |
+| 8 | Add item | New items go to the default vault. The editor shows the destination as a labeled row, changeable. | Hidden |
+| 9 | Edit | Same Vault row as Add. Moving an item saves it to the new vault and removes it from the old in one step, with Undo. | Hidden |
+| 10 | Generator | Unaffected. | Unaffected |
+| 11 | Mac quick access | Searches every unlocked vault. Result rows carry the vault name as in screen 6. | Unchanged |
+| 12 | Sync and Psss Pro | Per-vault sync state. The offer names the vaults it would sync. A lapsed Pro stops sync for all vaults and locks none. | Unchanged |
+| 13 | Conflict | Names the vault and the item. Conflicts are resolved per vault. | Unchanged |
+| 14 | Recently Deleted | One list, grouped by vault, each item says where Restore puts it. | Unchanged |
+| 15 | Settings | A Vaults row lists vaults with name, color, location, sync state, a default marker and per-vault lock rules. Add vault, Rename, Make default, Remove from this device, Delete contents. | A Vaults row with one entry and Add vault |
+| 16 | Empty and error states | “This vault is empty” names the vault. A vault whose file moved shows Relink as the one button. A locked vault is never an error. | Unchanged |
+
+Browser shell on every platform:
+
+- **Sidebar (Mac, iPad).** One section per vault, each with Recent, All items and its kinds, collapsible, and an **All vaults** row at the top that spans them. Filters (Passkeys, Codes, With notes) stay global at the bottom. With one vault, the current single section stays, titled by the vault's name.
+- **Pills (iPhone, and iPad with the sidebar hidden).** A vault pill leads the row only when two or more vaults exist. It opens a menu of vaults plus All vaults. Selecting one scopes the other pills.
+- **Toolbar.** New always creates in the default vault. The Mac File menu gains nothing; Make default lives in Settings and the sidebar context menu.
+- **Detail on Mac and iPad.** The vault name is a secondary line under the item name, not a header.
+- **Lock.** Lock Now locks the whole app. Per-vault lock exists only for vaults with their own password or key file.
+
+Steps affected, in build order, are listed in [vaults](vaults.md#steps-in-order). The roadmap carries spike S7 and the M1 item.
+
+## Lock policy: follow Apple Passwords (2026-11-22)
+
+Apple Passwords always asks for Face ID, Touch ID or the device password to open, offers no switch to turn that off, locks when the device or Mac locks or sleeps, and on Mac also after about a minute of inactivity. Psss follows that: authentication is not opt-in and not a setting. The only setting is how long the app may stay in the background (Immediately, 1, 5 or 15 minutes), because people hold different views on that and it never weakens the floor. Mac already locks on sleep, a sleeping display and a locked screen; inactivity locking is on the roadmap.
+
+## Row badges and filters (2026-11-22)
+
+Rows show one quiet glyph after the name for each characteristic: a passkey, a verification code, notes (not on secure notes, which always have them). Glyphs never truncate; the name does. Each badge has a matching filter, so a person who sees a glyph can find all items with it: Passkeys, Codes and With notes, in a Filters sidebar section on Mac and iPad and at the end of the pill row on iPhone. The verification code row now sits inside the credentials card, after the password, because it is used after the username and password, and so that on Mac the item's icon and name lead the page. Reused and weak passwords will join as a fourth characteristic once an audit exists.

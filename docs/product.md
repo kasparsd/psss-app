@@ -40,7 +40,7 @@ Every release must hold these. A change that breaks one needs an explicit entry 
 
 Adopted 2026-11-22. Family Sharing is decided and prices are the leading option. It adapts the photo app's model (free allowance, then a one-time purchase) to a product whose recurring cost to the maker is zero.
 
-- Free forever: one local vault on one device with unlimited items, fill, passkeys, verification codes, generator, import and export. Nothing the person already has is ever held back.
+- Free forever: local vaults on one device, in any number, with unlimited items, fill, passkeys, verification codes, generator, import and export. Nothing the person already has is ever held back.
 - Psss Pro unlocks iCloud Drive sync and use across devices, and other features that exist only because more than one device is involved. Two ways to buy it with the same entitlement: **$49.99 lifetime** (non-consumable) or **$19.99 per year** (auto-renewable). Both support Family Sharing (decided 2026-11-22). US prices; regional price points are set in App Store Connect. Prices are the leading option and are confirmed at M2. Purchase and restore never alter or delete data. Restore works on every shipping platform.
 - Never gate viewing, fill, export or data the person already stored. If a yearly subscription lapses, sync stops and the vault stays fully readable, editable on that device and exportable. Nothing is held hostage.
 - No trial clock, no weekly pricing, no early modal paywall. State the boundary during setup and at the moment sync is first offered, with both options shown together.

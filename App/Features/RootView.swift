@@ -20,6 +20,12 @@ struct RootView: View {
         .environment(gate)
         .focusedSceneValue(\.lockVault, gate.isUnlocked ? { gate.lock() } : nil)
         .task { await gate.didBecomeActive(after: timing) }
+        #if os(macOS)
+        // Like Apple Passwords, a sleeping display or a locked screen locks the vault.
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.screensDidSleepNotification)) { _ in gate.lock() }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)) { _ in gate.lock() }
+        .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("com.apple.screenIsLocked"))) { _ in gate.lock() }
+        #endif
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active: Task { await gate.didBecomeActive(after: timing) }

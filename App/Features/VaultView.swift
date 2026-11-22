@@ -20,13 +20,36 @@ private extension ItemKind {
     }
 }
 
+private extension ItemTrait {
+    var symbol: String {
+        switch self {
+        case .passkey: "person.badge.key"
+        case .code: "lock.badge.clock"
+        case .notes: "note.text"
+        }
+    }
+
+    var badgeLabel: LocalizedStringKey {
+        switch self {
+        case .passkey: "Has a passkey"
+        case .code: "Has a verification code"
+        case .notes: "Has notes"
+        }
+    }
+}
+
 private enum VaultCategory: Hashable {
     case recent
     case mostUsed
     case allItems
     case kind(ItemKind)
+    case trait(ItemTrait)
 
+    /// Where the item lives: usage views and kinds.
     static var choices: [Self] { [.recent, .mostUsed, .allItems] + ItemKind.allCases.map(Self.kind) }
+    /// What the item has. Every row badge has a matching filter.
+    static var traitChoices: [Self] { ItemTrait.allCases.map(Self.trait) }
+    static var everyChoice: [Self] { choices + traitChoices }
 
     /// Usage views are scopes of "what I need now". Searching always looks across everything.
     var isUsageView: Bool { self == .recent || self == .mostUsed }
@@ -40,6 +63,9 @@ private enum VaultCategory: Hashable {
         case .kind(.creditCard): "Credit cards"
         case .kind(.secureNote): "Secure notes"
         case .kind(.keePassEntry): "Custom items"
+        case .trait(.passkey): "Passkeys"
+        case .trait(.code): "Codes"
+        case .trait(.notes): "With notes"
         }
     }
 
@@ -52,6 +78,9 @@ private enum VaultCategory: Hashable {
         case .kind(.creditCard): "Cards"
         case .kind(.secureNote): "Notes"
         case .kind(.keePassEntry): "Custom"
+        case .trait(.passkey): "Passkeys"
+        case .trait(.code): "Codes"
+        case .trait(.notes): "With notes"
         }
     }
 
@@ -61,6 +90,7 @@ private enum VaultCategory: Hashable {
         case .mostUsed: "star"
         case .allItems: "tray.full"
         case .kind(let kind): kind.symbol
+        case .trait(let trait): trait.symbol
         }
     }
 
@@ -70,6 +100,7 @@ private enum VaultCategory: Hashable {
         case .mostUsed: item.useCount > 0
         case .allItems: true
         case .kind(let kind): item.kind == kind
+        case .trait(let trait): item.traits.contains(trait)
         }
     }
 }
@@ -172,18 +203,22 @@ struct VaultView: View {
         #endif
     }
 
+    private func sidebarRow(_ scope: VaultCategory) -> some View {
+        NavigationLink(value: scope) {
+            Label(scope.title, systemImage: scope.symbol)
+                .badge(items.count(where: scope.includes))
+        }
+    }
+
     private var splitLayout: some View {
         let visibleItems = results
         return NavigationSplitView(columnVisibility: $columns, preferredCompactColumn: $compactColumn) {
             List(selection: categorySelection) {
                 Section("Sample vault") {
-                    ForEach(VaultCategory.choices, id: \.self) { scope in
-                        NavigationLink(value: scope) {
-                            let count = items.count(where: scope.includes)
-                            Label(scope.title, systemImage: scope.symbol)
-                                .badge(count)
-                        }
-                    }
+                    ForEach(VaultCategory.choices, id: \.self, content: sidebarRow)
+                }
+                Section("Filters") {
+                    ForEach(VaultCategory.traitChoices, id: \.self, content: sidebarRow)
                 }
             }
             .listStyle(.sidebar)
@@ -354,7 +389,7 @@ struct VaultView: View {
         HStack(spacing: 0) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    ForEach(VaultCategory.choices, id: \.self) { scope in
+                    ForEach(VaultCategory.everyChoice, id: \.self) { scope in
                         pill(scope)
                     }
                 }
@@ -479,10 +514,21 @@ private struct ItemRow: View {
     }
 
     private var secondary: Text {
-        let base = item.account.isEmpty ? Text(item.kind.label) : Text(verbatim: item.account)
-        guard item.passkey != nil else { return base }
-        // A passkey glyph before the login tells apart rows that share a title.
-        return Text(Image(systemName: "person.badge.key")) + Text(verbatim: " ") + base
+        item.account.isEmpty ? Text(item.kind.label) : Text(verbatim: item.account)
+    }
+
+    /// The name, then one quiet glyph per characteristic. Glyphs never truncate; the name does.
+    private var titleLine: some View {
+        HStack(spacing: 6) {
+            Text(verbatim: item.displayTitle).lineLimit(1)
+            ForEach(item.traits, id: \.self) { trait in
+                Image(systemName: trait.symbol)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .layoutPriority(1)
+                    .accessibilityLabel(trait.badgeLabel)
+            }
+        }
     }
 
     var body: some View {
@@ -492,12 +538,12 @@ private struct ItemRow: View {
                 .alignmentGuide(.listRowSeparatorLeading) { $0[.trailing] + 12 }
             if typeSize.isAccessibilitySize || Self.stacked {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: item.displayTitle).lineLimit(1)
+                    titleLine
                     secondary.font(.subheadline).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 }
             } else {
                 TitleAndLogin {
-                    Text(verbatim: item.displayTitle).lineLimit(1)
+                    titleLine
                     secondary
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -589,7 +635,6 @@ private struct ItemDetail: View {
 
     var body: some View {
         Form {
-            if !item.otpSecret.isEmpty, item.kind == .login { codeSection }
             Section {
                 if !item.account.isEmpty {
                     field(.account, accountLabel, item.account)
@@ -597,6 +642,8 @@ private struct ItemDetail: View {
                 if !item.secret.isEmpty {
                     field(.secret, secretLabel, item.secret, hidden: true)
                 }
+                // In the order the fields are used: username, password, then the code, all in one card.
+                if !item.otpSecret.isEmpty, item.kind == .login { codeRow }
                 if !item.expiry.isEmpty { field(.expiry, "Expiry", item.expiry) }
                 if !item.website.isEmpty { field(.website, "Website", item.website) }
                 if !item.notes.isEmpty {
@@ -665,9 +712,8 @@ private struct ItemDetail: View {
         #endif
     }
 
-    private var codeSection: some View {
-        Section {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
+    private var codeRow: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
                 let remaining = TOTP.secondsRemaining(at: context.date)
                 let code = TOTP.code(secret: item.otpSecret, at: context.date) ?? "------"
                 Button {
@@ -702,7 +748,6 @@ private struct ItemDetail: View {
                 .accessibilityLabel("Verification code")
                 .accessibilityValue(Text("Expires in \(remaining) seconds"))
                 .accessibilityHint("Copies the code")
-            }
         }
     }
 

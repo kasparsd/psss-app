@@ -6,6 +6,11 @@ enum ItemKind: String, CaseIterable, Identifiable, Sendable, Codable {
     var id: Self { self }
 }
 
+/// A characteristic worth showing on a row and worth filtering by. Order is the order of the badges.
+enum ItemTrait: CaseIterable, Hashable, Sendable {
+    case passkey, code, notes
+}
+
 struct VaultItem: Identifiable, Sendable, Codable {
     let id: UUID
     let kind: ItemKind
@@ -21,6 +26,15 @@ struct VaultItem: Identifiable, Sendable, Codable {
     var useCount = 0
     /// Set when this login also holds a passkey.
     var passkey: PasskeyRecord?
+
+    /// What this item holds beyond a name and a secret. Secure notes always have notes, so they do not advertise it.
+    var traits: [ItemTrait] {
+        var found: [ItemTrait] = []
+        if passkey != nil { found.append(.passkey) }
+        if !otpSecret.isEmpty, kind == .login { found.append(.code) }
+        if !notes.isEmpty, kind != .secureNote { found.append(.notes) }
+        return found
+    }
 
     /// The name shown everywhere. Logins need no name: the site's host stands in for it.
     var displayTitle: String {

@@ -32,3 +32,7 @@ Across types, support nested groups, tags, item expiration, custom fields with p
 ## Names are optional for logins
 
 A login is identified by its website. The list, search, AutoFill and passkeys all use the host (for example `github.com`), and `VaultItem.displayTitle` falls back to it when the name is empty. The editor asks for the website first and offers an optional name for people who want “Work email”. Cards, notes and custom items have no domain and still require a title. Saves from AutoFill and passkeys leave the name empty. Trade-offs: several accounts on one site show identical titles, so the list shows the username beside the title, and long hosts truncate (the login keeps at least 40% of the row). Subdomains stay as written; grouping by registrable domain is a later refinement.
+
+## Characteristics and moving between vaults
+
+Each item reports its characteristics through `VaultItem.traits`: passkey, verification code, notes (see [experience](experience.md#row-badges-and-filters-2026-11-22)). Add a trait only together with its row glyph and its filter. With several vaults, an item can be moved or copied to another vault, and its passkey and verification code travel with it; see [vaults](vaults.md#multiple-vaults).

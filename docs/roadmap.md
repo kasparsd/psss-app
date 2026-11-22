@@ -25,6 +25,7 @@ Goal: decide, with evidence, whether KDBX stays the storage format, and prove on
 - [ ] **S4 Sync.** Two devices edit one iCloud Drive file offline and reconnect. Measure how often a conflict appears and whether entry-level merge using KeePass history and timestamps resolves it without asking.
 - [ ] **S5 Packaging.** Confirm one multiplatform target or two targets, embedded provider on both, Mac App Store sandbox.
 - [ ] **S6 Key custody.** Threat-model and prototype a generated recovery phrase with a Keychain-held vault key behind biometrics, with iCloud Keychain sync and device-only variants. Choose the default. See [experience](experience.md#key-custody-the-largest-design-bet).
+- [ ] **S7 Multiple vaults.** With two disposable vaults in one App Group, prove that one device-owner unlock opens every Keychain-wrapped vault inside the extension's memory and time budget, that the identity store can carry a vault identifier in `recordIdentifier`, and that a vault protected by its own password or key file stays locked until asked for. See [vaults](vaults.md#multiple-vaults).
 - [ ] **Decision gate.** Write the storage decision into [vaults](vaults.md). Fall back to a private store plus KDBX import and export if S2 or S4 fails and cannot be mitigated. Record dependencies, licenses and KDF budgets in [architecture](architecture.md).
 
 ## M1 · Daily driver (private alpha, owner dogfoods)
@@ -40,6 +41,9 @@ Goal: the owner moves their real day-to-day sign-ins into Psss.
 - [x] Passkey create and sign-in prototyped and verified in the simulator (see [autofill](autofill.md#prototype-status-2026-11-22)).
 - [ ] Mac: add File, New Login (⌘N) and the other kinds as menu commands, and re-verify the toolbar, inset list and sidebar-first layout in the running Mac app (the last pass was reviewed from a screenshot and built, not driven).
 - [ ] AutoFill: ask for the username in the save sheet, test save-on-submit with a typed username, tidy host-derived titles, and verify on a physical device (needs a provisioning profile with the AutoFill entitlement).
+- [ ] Multiple vaults, in the order listed in [vaults](vaults.md#multiple-vaults): vault registry and per-vault store, one unlock for all device-key vaults, default vault, vault-aware AutoFill, then the screens in [experience](experience.md#multiple-vaults-screens-and-steps-affected). Single-vault people never see a vault control.
+- [ ] Mac: lock after inactivity (Apple Passwords locks after about a minute without use). Locking on sleep, a sleeping display and a locked screen is done; inactivity is not.
+- [ ] Characteristics: row badges and filters exist for passkey, verification code and notes. Add “Needs attention” (reused, weak, found in a breach) once the audit exists, with the same badge and filter pair.
 - [ ] Mac menu bar quick access with a global shortcut.
 - [ ] Items: login with verification code, passkey, card, note, custom item. Generator. Fill on selection. Save new and update changed passwords.
 - [ ] Import: Apple Passwords export (CSV and, if available, Credential Exchange), then Strongbox open-in-place.
@@ -93,6 +97,8 @@ Goal: five people outside the project fill, save and find a login without guidan
 | 2026-11-22 | Product named Psss; psss.app planned. | Owner. |
 | 2026-11-22 | Product philosophy and commercial approach follow the sibling photo app. | [product](product.md). |
 | 2026-11-22 | Business model adopted: free single-device vault and Psss Pro for sync, as $49.99 lifetime or $19.99 per year, with Family Sharing. An annual option was added after owner input, and the photo app's copy changes to “no subscription required”. | [product](product.md#business-model). |
+| 2026-11-22 | Several vaults are supported. Local vaults on one device are free in any number; Psss Pro syncs them. One device-owner unlock opens every vault whose key is Keychain-held; a vault with its own password or key file asks separately. Proposal, confirm before M2. | [vaults](vaults.md#multiple-vaults). |
+| 2026-11-22 | The app always asks for device-owner authentication (Face ID, Touch ID or passcode), with no switch to turn it off, as Apple Passwords does. | [autofill](autofill.md#unlock-prototype). |
 
 ## Platform gaps
 

@@ -1,6 +1,15 @@
 import Foundation
 
 enum SampleVault {
+    /// A login that holds only a passkey, so the Passkeys filter and badge have something to show.
+    private static var samplePasskeyLogin: VaultItem {
+        var item = VaultItem(kind: .login, account: "alex@example.net", website: "passkeys.example",
+                             lastUsed: .now.addingTimeInterval(-900), useCount: 3)
+        item.passkey = Passkeys.register(rpID: "passkeys.example", userHandle: Data("alex".utf8),
+                                         clientDataHash: Data(repeating: 0, count: 32)).record
+        return item
+    }
+
     static let items: [VaultItem] =
         [
             VaultItem(kind: .login, account: "alex@example.net", website: "localhost",
@@ -9,7 +18,8 @@ enum SampleVault {
                       website: "studio.example", secret: "Demo-only-Maple7!",
                       otpSecret: "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", lastUsed: .now.addingTimeInterval(-300), useCount: 14),
             VaultItem(kind: .login, title: "Studio North (work)", account: "alex@studio.example",
-                      website: "studio.example", secret: "Demo-only-River3!"),
+                      website: "studio.example", secret: "Demo-only-River3!", notes: "Shared with the design team."),
+            samplePasskeyLogin,
             VaultItem(kind: .creditCard, title: "Everyday card", account: "Alex Example",
                       secret: "4242424242424242", expiry: "08/30"),
             VaultItem(kind: .secureNote, title: "Travel checklist", notes: "Sample locker instructions."),
