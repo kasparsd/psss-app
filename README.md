@@ -1,11 +1,10 @@
 # Psss
 
-Product design for an Apple-native password manager that is as easy as Apple Passwords and also holds cards, notes and custom items in a KeePass-compatible file you own. Migration from Apple Passwords, 1Password and Strongbox is part of onboarding.
+An Apple-native password manager that is as easy as Apple Passwords and also holds cards, notes and custom items in a KeePass-compatible file you own. Migration from Apple Passwords, 1Password and Strongbox is part of onboarding.
 
 - [Product and engineering documentation](docs/README.md)
-- [Interactive HTML prototype](prototype/index.html)
-
-Open the prototype in a browser and use the scenario menu to switch between filling, signing up, changing a password, filling a card at checkout, managing a vault, and starting a migration. All entries are fictional and changes disappear on reload. In **Manage the vault → New item**, select a Login, Credit card, Secure note or KeePass entry. Attachment names and checkout are simulated. Use fictional input in the demo.
+- [Roadmap and current status](docs/roadmap.md): the encrypted vault and the lock screen work, and AutoFill does not read the real vault yet. Use disposable vaults and fictional data only.
+- [Frozen HTML prototype](prototype/index.html) of the early flows, kept for reference.
 
 ## Run the native prototype
 

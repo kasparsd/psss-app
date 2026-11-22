@@ -29,12 +29,18 @@ AuthenticationServices documents a user-selected text insertion path. Verify it 
 - Prefer Apple’s integration anywhere it supports the intended action.
 - Use a thin JavaScript adapter for WebExtension page interaction and Swift for native targets.
 - Match conservatively across schemes, hosts, ports and frames. Keep manual selections explicit and revalidate on navigation.
+- Matching rule (decided 2026-11-22, not built yet): a saved login is offered when its host equals the requested host, or the requested host is a subdomain of it and the saved host is not a public suffix. A login saved for a subdomain is never offered on its parent, and IP addresses and `localhost` match exactly. This needs the public suffix list, generated into Swift source so the hostless tests can compile it. Today `SharedVault.matches` accepts parent and child hosts in both directions with no suffix list.
+- Logins for other sites sit behind one labeled step in the fill list, and choosing one asks for a confirmation that names both the login's site and the current site. Today they are one tap away.
+- Order of work is set by the [roadmap](roadmap.md#course-correction-review-of-2026-11-22): the real vault in the provider on a signed device first, then the Mac provider and verification codes. Interface polish waits for the M0 gate on 2026-12-20.
 
 ## Roadmap
 
 - [x] Add embedded Credential Provider targets with request-cancellation stubs.
 - [x] Add matching entitlements, an App Group vault file, identity registration, and a provider that fills, saves and generates (iOS code complete, compiles).
 - [ ] Prove fill, save, generate and passkey callbacks on a physical device (see “Prototype status”).
+- [ ] Mac provider: the macOS branch cancels every request. Share the iOS implementation (password fill, passkey list, sign-in and registration; macOS has no save or generate requests) and give the Mac app and provider the AutoFill entitlement, App Group and a Keychain path both can read.
+- [ ] Verification codes: add `ProvidesOneTimeCodes`, register a one-time code identity for each login with a code, and answer one-time code requests on both platforms.
+- [ ] Matching and the fill list as decided above, with hostless tests for subdomains, parents, public suffixes, lookalike hosts, IP addresses and `localhost`.
 - [ ] Passkeys: merge a passkey into the existing login for the same site and user, handle excluded credentials, and test cross-device sync once a vault syncs.
 
 - [ ] Verify checkout frames, hosted payment forms, and individual card fields before publishing payment coverage.

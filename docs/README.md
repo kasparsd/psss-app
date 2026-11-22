@@ -24,8 +24,8 @@ See the [product contract](product.md) for positioning, principles and business 
 - Challenge the format. KDBX stays canonical only if the M0 spikes show it fits the AutoFill extension budget and sync; otherwise a private store with KDBX import and export replaces it.
 - Scope 1.0 to Safari (the system AutoFill provider plus the bundled Safari extension). Other browsers come later, through the same WebExtension and a native host that are prototyped.
 - The native app is the prototype. The HTML prototype is frozen.
+- Until the M0 gate on 2026-12-20, work goes to filling from the real encrypted vault on a signed device and to the remaining spikes. Interface, brand and browser-extension work is frozen. See the [roadmap](roadmap.md#course-correction-review-of-2026-11-22).
 - Native software is written in Swift. A browser content adapter uses WebExtension JavaScript where necessary.
-- Use an HTML prototype to validate the interaction before committing to native layouts.
 
 ## Roadmap
 
