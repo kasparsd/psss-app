@@ -19,7 +19,7 @@ This is the single sequencing document. Concern documents keep decisions and the
 
 Goal: decide, with evidence, whether KDBX stays the storage format, and prove one real fill on a device. Time-box to four weeks. Use disposable vaults only.
 
-- [ ] **S1 Codec.** Read and write KDBX 4.x with Argon2d/id and AES-KDF, ChaCha20 and AES, password and key file. Open fixtures made by KeePassXC and Strongbox, mutate, save, reopen in both. Choose between an audited existing library and a new Swift implementation, and record licenses.
+- [x] **S1 Codec (first pass, 2026-11-22).** First-party KDBX 3.1 read and 4.x read/write checked against KeePassXC 2.8; Strongbox fixtures, unsupported-feature detection for Twofish and the audit remain. Original text: Read and write KDBX 4.x with Argon2d/id and AES-KDF, ChaCha20 and AES, password and key file. Open fixtures made by KeePassXC and Strongbox, mutate, save, reopen in both. Choose between an audited existing library and a new Swift implementation, and record licenses.
 - [ ] **S2 Extension budget.** Measure unlock time and peak memory inside the AutoFill extension on the oldest supported iPhone. Prototype wrapping the derived vault key in the Keychain behind biometrics, so the extension decrypts without running the KDF. This is the preferred design if the KDF does not fit.
 - [ ] **S3 Signed fill.** Signed app and provider with matching entitlements. Register identities, fill a password, a passkey and a verification code in Safari and one native app on iPhone and Mac. Record whether save and update requests are available on the floor OS.
 - [ ] **S4 Sync.** Two devices edit one iCloud Drive file offline and reconnect. Measure how often a conflict appears and whether entry-level merge using KeePass history and timestamps resolves it without asking.
@@ -33,7 +33,7 @@ Goal: decide, with evidence, whether KDBX stays the storage format, and prove on
 Goal: the owner moves their real day-to-day sign-ins into Psss.
 
 - [ ] Replace the flat `VaultItem` with the field-based domain model and a `VaultStore` boundary. KDBX is a codec behind it. Protected values use a dedicated secret type with limited lifetime, not plain `String` in view state.
-- [ ] Create vault with the S6 key-custody default, biometric unlock, auto-lock. Custom master password stays available.
+- [ ] Create vault with the S6 key-custody default, biometric unlock, auto-lock. Custom vault password stays available.
 - [ ] Screens 1, 2, 5 and 10 from [experience](experience.md#screens-and-goals): fill sheet, save prompt, unlock, search-first home, item detail, inline generator.
 - [x] Screens 6 and 7 (search-first home, copy-first detail with live verification code) in the native sample app; builds on both platforms, not yet checked visually or on an iOS 27 simulator.
 - [x] Pill overflow fade, Vault root screen removed on iPhone, copy-expiry notice, 44 pt rows, pinned New button (see [experience](experience.md)).
@@ -60,11 +60,11 @@ Goal: five people outside the project fill, save and find a login without guidan
 - [ ] Optional site icons for everything else: off by default, fetched directly from the site, cached in the vault as KeePass custom icons.
 - [ ] Screens 3, 4, 8, 9, 12, 13, 14 and 15 from [experience](experience.md#screens-and-goals): first launch, import, add by paste or scan, in-place edit, sync and Pro, conflict, recently deleted, settings.
 - [ ] Attachments, groups as folders, expiry. Entry history is stored but its interface is deferred. Recently deleted covers undo.
-- [ ] Setup: one screen to enable AutoFill. Fewer than ten settings in total.
+- [ ] Setup: one screen to enable AutoFill, and on Mac, iPhone and iPad a step to enable the Safari extension. Fewer than ten settings in total.
 - [ ] Accessibility and keyboard pass. String Catalog. iPad regular width.
 - [ ] Observe five people on TestFlight builds: two from Apple Passwords, two from 1Password, one from Strongbox. Record time to first fill, first wrong turn and wording they look for.
 - [ ] Internal security review of origin policy, secret lifecycle and importers.
-- [ ] Safari Web Extension only for gaps the system provider cannot cover, as proven in S3.
+- [x] Safari Web Extension bundled with both apps (builds unsigned). Remaining: run it in Safari with a signed build, add the enable-it onboarding step, and decide whether iPhone and iPad keep it before 1.0, since it adds little there today. See [browser extension](browser-extension.md#safari-bundled-with-the-app).
 
 ## M3 · 1.0 on the App Store
 
@@ -76,7 +76,7 @@ Goal: five people outside the project fill, save and find a login without guidan
 
 ## Later, in priority order
 
-1. Chrome, Edge and Firefox through the system provider if it works, else adapters.
+1. Chrome, Edge, Firefox and other Mac browsers through the extension and native host prototyped in [browser extension](browser-extension.md). On iPhone and iPad the system provider is the only route, so test it per browser.
 2. Credit card checkout fill beyond single fields, per verified surface.
 3. Breach and weak-password checks computed on device.
 4. Entry history interface, Apple Watch, 1PIF import.
@@ -88,7 +88,7 @@ Goal: five people outside the project fill, save and find a login without guidan
 | --- | --- | --- |
 | Final prices | Leading option is $19.99 per year or $49.99 lifetime with Family Sharing. Confirm at M2 and set regional price points. | Yes. Gate: before M2 so beta testers see the real offer. |
 | Domain, marks and brand architecture | Register psss.app. Decide whether Psss is the collection name (passwords.psss.app, photos.psss.app) and how the photo app's working name fits. Choose bundle identifiers once for both apps. | Yes. Gate: before bundle identifiers are registered for distribution. |
-| Mac distribution | Mac App Store only, or also notarized direct download. Direct download unlocks native messaging for other browsers. | Revisit after S5. |
+| Mac distribution | Mac App Store only, or also notarized direct download. Direct download unlocks native messaging for other browsers. The extension prototype ([browser extension](browser-extension.md#distribution-formats)) is ready for either, and the sandbox question is part of S5. | Revisit after S5. |
 | Storage format | KDBX canonical or private store with KDBX import and export. | Decided at the M0 gate. |
 
 ## Decisions log
@@ -99,11 +99,15 @@ Goal: five people outside the project fill, save and find a login without guidan
 | 2026-11-22 | Product philosophy and commercial approach follow the sibling photo app. | [product](product.md). |
 | 2026-11-22 | Business model adopted: free single-device vault and Psss Pro for sync, as $49.99 lifetime or $19.99 per year, with Family Sharing. An annual option was added after owner input, and the photo app's copy changes to “no subscription required”. | [product](product.md#business-model). |
 | 2026-11-22 | Several vaults are supported. Local vaults on one device are free in any number; Psss Pro syncs them. One device-owner unlock opens every vault whose key is Keychain-held; a vault with its own password or key file asks separately. Proposal, confirm before M2. | [vaults](vaults.md#multiple-vaults). |
+| 2026-11-22 | The Safari web extension is bundled with the Mac, iPhone and iPad apps. It adds Mac generate and save on sign-up forms, a toolbar button and shortcut; the system provider keeps fill, passkeys and codes. | [browser extension](browser-extension.md#safari-bundled-with-the-app). |
+| 2026-11-22 | Other Mac browsers are served by one shared WebExtension (popup, no content script, no host permission) with a native host, packaged per store. Prototype, outside 1.0. | [browser extension](browser-extension.md). |
 | 2026-11-22 | The app always asks for device-owner authentication (Face ID, Touch ID or passcode), with no switch to turn it off, as Apple Passwords does. | [autofill](autofill.md#unlock-prototype). |
 
 ## Platform gaps
 
-- Save and generate password requests from the system (Safari signup prompts) exist for third-party providers on iOS 26.2+ only. macOS has no equivalent API, so on Mac the app offers Add login and the generator inside the app. Revisit each macOS release.
+- Mac browsers other than Safari: system AutoFill is not expected to reach Chrome or Firefox, so they depend on the extension prototype and are outside 1.0. Confirm the negative result once and record it in the coverage grid.
 
-- [ ] Onboarding gaps: open a .kdbx from Files or iCloud Drive, 1Password .1pux import, Credential Exchange import, and a real encrypted new vault (today Create makes an empty prototype vault).
+- Save and generate password requests from the system (Safari signup prompts) exist for third-party providers on iOS 26.2+ only. macOS has no equivalent API, so on Mac the app offers Add login and the generator inside the app, and the bundled Safari extension offers generate and save on sign-up forms in the page. Revisit each macOS release.
+
+- [x] Create a real encrypted vault and open a .kdbx from Files in place (2026-11-22). Remaining onboarding gaps: 1Password .1pux import, Credential Exchange import, AutoFill extension access to the real vault (it still reads the prototype store), Keychain-wrapped biometric unlock, entry-level merge for files changed elsewhere, groups, attachments and the Recycle Bin.
 - [ ] Recently Deleted: deleting is permanent in the prototype. The real vault keeps deleted items for 30 days with restore, as Apple Passwords and KeePass do.

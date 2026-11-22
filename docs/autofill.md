@@ -3,14 +3,14 @@
 | Surface | First route | Verification required |
 | --- | --- | --- |
 | iOS Safari and apps | AuthenticationServices Credential Provider Extension | Test inline suggestions, picker, locked continuation and save/update on chosen OS versions. |
-| iOS Chrome, Firefox, Edge | System provider where invoked by each browser | Record fill and save independently on physical devices. |
-| macOS Safari and apps | System provider and system AutoFill menu where exposed | Compare inline, menu and picker. Evaluate Safari Web Extension for gaps in signup and update. |
-| macOS Chrome, Edge, Firefox | Test system provider and context menu first. Prototype a browser adapter for gaps. | Record real inline support, save requests, locked behavior and signed installation for each browser. |
+| iOS Chrome, Firefox, Edge | System provider. These browsers use WebKit and iOS AutoFill, and extensions do not exist outside Safari. | Record fill and save independently on physical devices. Chrome offers its own manager first. |
+| macOS Safari and apps | System provider and system AutoFill menu where exposed, plus the bundled Safari extension for generate and save on sign-up forms (macOS has no system API for them) | Compare inline, menu and picker. Run the extension in a signed build. What it adds is in [browser extension](browser-extension.md#safari-bundled-with-the-app). |
+| macOS Chrome, Edge, Firefox, Brave, Arc, Vivaldi | Shared WebExtension plus native host, prototyped and tested in Chrome, Firefox and Zen in [browser extension](browser-extension.md). The system provider is expected not to reach them: confirm once with the provider enabled, and test passkeys, which these browsers may route through the system. | Record real fill, locked behavior and signed installation for each browser. |
 | Other macOS browsers | Document tested system surfaces and manual copy fallback. | Test by browser, version and form type before advertising coverage. |
 
 System integration uses `ASCredentialProviderViewController`, credential identity registration and save capability flags as supported by the deployment OS. Index minimal service metadata and stable opaque record references. Resolve a reference and recheck the request origin before releasing the credential. Refresh identities after edits, external changes, removal and access revocation.
 
-A Safari extension uses Xcode packaging and native messaging. Chrome and Firefox use browser-specific host registration and distribution; test sandbox compatibility with an archive-installed build before committing to the delivery path. The extension mediates the active page and asks native Swift code for the selected credential or a proposed save. Verify connection identity, tab and frame origin at request and delivery, enforce user intent, and keep secrets out of extension storage. Browsers may call different paths for filling and saving. Treat them as separate capabilities.
+The Safari extension is an app extension target embedded in each app, with its own native handler. Chrome and Firefox use browser-specific host registration and distribution; test sandbox compatibility with an archive-installed build before committing to the delivery path. The extension mediates the active page and asks native Swift code for the selected credential or a proposed save. Verify connection identity, tab and frame origin at request and delivery, enforce user intent, and keep secrets out of extension storage. Browsers may call different paths for filling and saving. Treat them as separate capabilities.
 
 [Apple Credential Provider API](https://developer.apple.com/documentation/authenticationservices/ascredentialproviderviewcontroller), [Apple provider capabilities](https://developer.apple.com/documentation/bundleresources/information-property-list/nsextension/nsextensionattributes/ascredentialproviderextensioncapabilities), [Safari Web Extensions](https://developer.apple.com/documentation/SafariServices/safari-web-extensions), [Chrome native messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging), [Firefox native messaging](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Native_messaging).
 
@@ -22,8 +22,8 @@ AuthenticationServices documents a user-selected text insertion path. Verify it 
 
 ## Decisions
 
-- 1.0 covers Safari and apps through the system provider on iPhone, iPad and Mac. Chrome, Edge and Firefox move to “later” and will be tried through the system provider before any adapter is built.
-- Build a Safari Web Extension only for gaps proven in spike S3.
+- 1.0 covers Safari and apps through the system provider on iPhone, iPad and Mac. Other browsers on iPhone and iPad ride the system provider. Chrome, Edge, Firefox and other Mac browsers need the extension and native host in [browser extension](browser-extension.md), which is a prototype and stays out of 1.0 until its roadmap items are done.
+- Bundle a Safari Web Extension with the apps on Mac, iPhone and iPad. Its reason to exist is Mac generate and save on sign-up forms, and it shares one source folder and one protocol implementation with the Chrome and Firefox prototype. On iPhone and iPad it duplicates the system prompts for now. See the comparison in [browser extension](browser-extension.md#safari-bundled-with-the-app).
 - Passkeys and verification codes ride the same provider and are required for TestFlight.
 
 - Prefer Apple’s integration anywhere it supports the intended action.
@@ -38,6 +38,7 @@ AuthenticationServices documents a user-selected text insertion path. Verify it 
 - [ ] Passkeys: merge a passkey into the existing login for the same site and user, handle excluded credentials, and test cross-device sync once a vault syncs.
 
 - [ ] Verify checkout frames, hosted payment forms, and individual card fields before publishing payment coverage.
+- [x] Prototype the shared WebExtension, native host and per-store packaging (see [browser extension](browser-extension.md)).
 - [ ] Pick minimum OS versions after testing API availability and coverage.
 - [ ] Publish a tested grid for fill, generate, save and update by OS/browser/version, unlock state, field layout and iframe.
 - [ ] Validate Mac App Store host setup and browser-store distribution. Keep unsupported combinations visible in the grid.

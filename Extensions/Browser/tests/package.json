@@ -1,0 +1,13 @@
+{
+  "name": "psss-extension-tests",
+  "private": true,
+  "description": "Browser automation for the Psss extension. Kept apart from the Xcode project; nothing here ships.",
+  "type": "module",
+  "scripts": {
+    "test:playwright": "playwright test",
+    "unit": "node --test origin.test.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.1"
+  }
+}

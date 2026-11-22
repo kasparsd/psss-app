@@ -22,10 +22,18 @@ See [vault items](items.md) for the entry templates and preservation rules. Veri
 - Keep independent encrypted backups of significant revisions and a visible restore path.
 - Use audited, standards-compatible primitives and independently generated fixtures. Treat parse limits, malformed input and extension memory budgets as release requirements.
 
+## Implementation status (2026-11-22)
+
+- **Library decision (S1, first pass).** First-party Swift codec in `App/Core/KDBX`, no package dependencies. Apple frameworks provide SHA-2, HMAC, AES (CommonCrypto) and zlib. Blake2b, Argon2d/i/id, ChaCha20 and Salsa20 are written in the project and checked against the RFC 8439 and RFC 9106 vectors. This knowingly reverses the preference for a reviewed library: no maintained, audited Swift KDBX library was adopted, and the primitives are small. They must go into the external audit before 1.0, which can also replace them with a reviewed library behind the same types.
+- **Supported matrix.** Read: KDBX 3.1 and 4.0/4.1, AES-256 or ChaCha20, AES-KDF, Argon2d, Argon2id, password and/or key file (XML v1 and v2, 32 bytes, hex, any file), gzip or none, inner header attachments and the KDBX 3 binary pool. Write: always KDBX 4.1, so a 3.x file is upgraded on its first save (the Setup sheet shows “KDBX 3.1, saved as KDBX 4.1”). Not supported and refused before anything is written: Twofish, Argon2 versions other than 0x13, Salsa20 inner stream in KDBX 4.
+- **Round trips.** The document is an XML tree edited in place, so unknown elements, icons, auto-type, custom data, attachments and history survive. Changing an entry pushes the old version into its history (limit from `HistoryMaxItems`). Deleting removes the entry and records a `DeletedObject` (the Recycle Bin is not used yet). `scripts/test-kdbx.sh` opens and edits files made by KeePassXC 2.8 and checks KeePassXC reads the result. Strongbox fixtures are not checked yet.
+- **Storage.** A new vault lives in Application Support (`Vaults/`). An opened file stays where it is, reached through a security-scoped bookmark, with a Locate Vault File flow when it moved. Writes are coordinated and atomic. Before each write the app compares the file with what it opened and refuses if it changed, offering Reload or Overwrite. The previous file is kept as one of five encrypted rollback copies. Entry-level merge is not built.
+- **Unlock.** Vault password and optional key file, derived in the app on a background task (Argon2id 64 MiB, three passes, two lanes for new vaults). The derived key is kept in memory while the vault is open and reused for saves, so saving never repeats the KDF. Locking writes pending use counts and drops the document. No biometric unlock yet: that is the Keychain-wrapped key work (S2, S6).
+
 ## Roadmap
 
 - [ ] Run spikes S1, S2 and S4 from the [roadmap](roadmap.md) and record the storage decision here.
-- [ ] Select a reviewed Swift KDBX implementation or evaluate feasibility and independent review of a new one.
+- [x] Decide on the codec: first-party for now, audit before 1.0 (see Implementation status).
 - [ ] Establish interoperability fixtures from KeePassXC and Strongbox and verify open, mutate, save and reopen in both directions.
 - [ ] Test concurrent changes from two devices, offline recovery and failed atomic replacement.
 

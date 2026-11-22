@@ -1,0 +1,7 @@
+{
+  "comment": "Chromium extension IDs the native host must accept. The dev ID is derived from build/browser/dev-key.pem. Chrome Web Store and Edge Add-ons each assign their own ID on first upload; fill them in then. Brave, Arc, Vivaldi and Opera install from the Chrome Web Store and share its ID. Firefox and its forks use the add-on ID in targets/firefox.json.",
+  "chromium": {
+    "chrome-web-store": null,
+    "edge-add-ons": null
+  }
+}

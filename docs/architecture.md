@@ -26,6 +26,10 @@ Use [item templates](items.md) in the app layer and preserve underlying KeePass 
 - No custom crypto protocol. Preserve the KeePass document as an interoperable format.
 - Begin with local vaults and an AutoFill spike. Verify the trust boundary before expanding browser access.
 
+## Dependencies and licenses (2026-11-22)
+
+No package dependencies. `App/Core/KDBX` holds the KDBX container, a small XML tree, and first-party Blake2b, Argon2, ChaCha20 and Salsa20, with SHA-2, HMAC, AES and zlib from Apple frameworks. `App/Core/VaultStore.swift` is the boundary the interface uses, `KeePassVaultStore.swift` the file-backed KDBX implementation and `VaultSession` the owner of the open vault. Argon2 runs only in the app, never the extension. The primitives need the external audit before 1.0. KDF budget: Argon2id 64 MiB, three passes takes about 0.2 s on an M-series Mac in a release build; measure on the oldest iPhone (S2).
+
 ## Roadmap
 
 - [ ] Verify multiplatform target packaging, extension embedding and signing on both platforms. [Apple’s Xcode multiplatform guidance](https://developer.apple.com/documentation/xcode/configuring-a-multiplatform-app-target).

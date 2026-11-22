@@ -7,8 +7,12 @@ import Foundation
 enum SharedVault {
     static let groupID = "group.local.kdbox.prototype"
 
+    /// Where saved logins live for the unsigned browser host, which cannot use the App Group
+    /// (macOS still returns a container path for it, but writing there fails). Always nil in the apps.
+    nonisolated(unsafe) static var overrideDirectory: URL?
+
     private static var savedURL: URL? {
-        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupID)?
+        (overrideDirectory ?? FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupID))?
             .appendingPathComponent("saved-logins.json")
     }
 

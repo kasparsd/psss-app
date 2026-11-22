@@ -1,0 +1,29 @@
+:root { color-scheme: light dark; font: 13px/1.4 system-ui, -apple-system, sans-serif; }
+body { margin: 0; width: 320px; padding: 12px; box-sizing: border-box; }
+h1 { font-size: 15px; margin: 0; }
+.secondary { color: GrayText; margin: 2px 0 0; overflow-wrap: anywhere; }
+header { margin-bottom: 8px; }
+#status:empty { display: none; }
+#status { margin: 8px 0; }
+ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+li { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+     padding: 8px; border: 1px solid color-mix(in srgb, CanvasText 18%, transparent); border-radius: 8px; }
+li strong { display: block; font-weight: 600; overflow-wrap: anywhere; }
+button { font: inherit; padding: 4px 12px; border-radius: 6px; cursor: pointer;
+         border: 1px solid color-mix(in srgb, CanvasText 30%, transparent);
+         background: ButtonFace; color: ButtonText; }
+button:focus-visible { outline: 2px solid AccentColor; outline-offset: 2px; }
+section { margin-top: 12px; }
+label { display: block; font-weight: 600; margin-bottom: 4px; }
+input[type=search], input[type=text] { font: inherit; width: 100%; box-sizing: border-box; padding: 5px 8px; border-radius: 6px;
+                     border: 1px solid color-mix(in srgb, CanvasText 30%, transparent); background: Field; color: FieldText; }
+input[type=search]:focus-visible, input[type=text]:focus-visible { outline: 2px solid AccentColor; outline-offset: 1px; }
+#results { margin-top: 6px; }
+.warning { color: CanvasText; flex-basis: 100%; margin: 0; }
+li.confirm { flex-wrap: wrap; border-color: color-mix(in srgb, CanvasText 45%, transparent); }
+.actions { display: flex; gap: 6px; margin-left: auto; }
+.footer { margin: 12px 0 0; text-align: right; }
+h2 { font-size: 13px; margin: 0 0 6px; }
+#generate { margin-top: 8px; width: 100%; }
+#created:empty { display: none; }
+#created { margin: 6px 0 0; }

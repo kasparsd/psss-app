@@ -4,9 +4,9 @@ Milestones, exit criteria and cuts live in the [roadmap](roadmap.md). This docum
 
 ## Decisions
 
-- Use Xcode targets for macOS, iOS and their credential provider extensions. Add a Safari extension to the containing app if the capability spike warrants it.
+- Use Xcode targets for macOS, iOS and their credential provider extensions. The Safari web extension is an embedded app extension (`SafariExtension-macOS`, `SafariExtension-iOS`), signed and reviewed with the app. Its web files are `Extensions/Browser/src`.
 - Plan App Sandbox, provisioning, signing, Keychain access groups, App Groups and iCloud capabilities from the first signed spike.
-- Chrome and Firefox are out of 1.0. If added later, treat their store listings as separate artifacts and confirm sandbox-compatible native host onboarding first. Notarized direct distribution is an alternative if the Mac App Store blocks it.
+- Chrome and Firefox are out of 1.0. Their store listings (Chrome Web Store and Edge Add-ons share one archive, Firefox AMO is another) are separate artifacts built by `Extensions/Browser/build.py`, and the Safari extension ships inside the app. Confirm sandbox-compatible native host onboarding first. Notarized direct distribution is the alternative if the Mac App Store blocks it. Requirements and formats: [browser extension](browser-extension.md#distribution-formats).
 
 [Preparing an Xcode app for distribution](https://developer.apple.com/documentation/Xcode/preparing-your-app-for-distribution), [App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/), [Encryption export compliance](https://developer.apple.com/documentation/security/complying-with-encryption-export-regulations).
 

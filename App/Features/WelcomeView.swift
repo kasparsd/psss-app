@@ -4,12 +4,17 @@ import UniformTypeIdentifiers
 /// First launch, before anything is locked or shown: start a vault, open one, or bring passwords from another app.
 /// Every action is a visible, labeled button. Sources that are not built yet say so instead of pretending.
 struct WelcomeView: View {
-    /// Called with the vault source to open: "mine" (own items only) or "sample".
+    let session: VaultSession
+    /// Called with the vault source to open: "kdbx" (a real encrypted vault) or "sample".
     let onFinish: (String) -> Void
 
     @State private var importing = false
     @State private var notice: String?
     @State private var comingSoon: String?
+    @State private var creating = false
+    @State private var pendingImport: [VaultItem] = []
+    @State private var openingFile = false
+    @State private var fileToOpen: URL?
 
     @ViewBuilder
     private func choice(_ title: LocalizedStringKey, _ symbol: String, prominent: Bool = false,
@@ -39,10 +44,8 @@ struct WelcomeView: View {
                 .padding(.top, 24)
 
                 VStack(spacing: 10) {
-                    choice("Create a vault", "plus", prominent: true) { onFinish("mine") }
-                    choice("Open a vault file", "folder") {
-                        comingSoon = String(localized: "Opening a .kdbx vault from Files or iCloud Drive is not built yet.")
-                    }
+                    choice("Create a vault", "plus", prominent: true) { pendingImport = []; creating = true }
+                    choice("Open a vault file", "folder") { openingFile = true }
                     choice("Import from Apple Passwords", "square.and.arrow.down") { importing = true }
                     choice("Import from 1Password", "square.and.arrow.down") {
                         comingSoon = String(localized: "Importing a 1Password .1pux export is not built yet.")
@@ -60,10 +63,22 @@ struct WelcomeView: View {
             .frame(maxWidth: .infinity)
         }
         .background(.background)
-        .passwordsImporter(isPresented: $importing, notice: $notice, problem: $comingSoon)
-        .alert("Imported", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
-            Button("Open vault") { notice = nil; onFinish("mine") }
-        } message: { Text(notice ?? "") }
+        .passwordsImporter(isPresented: $importing, notice: $notice, problem: $comingSoon) { items in
+            pendingImport = items
+        }
+        .alert("Ready to import", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
+            Button("Create Vault…") { notice = nil; creating = true }
+            Button("Cancel", role: .cancel) { notice = nil; pendingImport = [] }
+        } message: { Text((notice ?? "") + " " + String(localized: "Choose a vault password to create the vault that will hold them.")) }
+        .sheet(isPresented: $creating) {
+            NewVaultSheet(session: session, importing: pendingImport) { onFinish(RootView.keePassSource) }
+        }
+        .fileImporter(isPresented: $openingFile, allowedContentTypes: [.keePassVault, .data]) { result in
+            if let url = try? result.get() { fileToOpen = url }
+        }
+        .sheet(item: $fileToOpen) { url in
+            OpenVaultSheet(session: session, file: url) { onFinish(RootView.keePassSource) }
+        }
         .alert("Not available yet", isPresented: Binding(get: { comingSoon != nil }, set: { if !$0 { comingSoon = nil } })) {
             Button("OK") { comingSoon = nil }
         } message: { Text(comingSoon ?? "") }
@@ -73,23 +88,29 @@ struct WelcomeView: View {
 
 extension View {
     /// Reads an Apple Passwords (or browser) CSV export into saved logins. Reports through `notice` or `problem`.
-    func passwordsImporter(isPresented: Binding<Bool>, notice: Binding<String?>, problem: Binding<String?>) -> some View {
+    func passwordsImporter(isPresented: Binding<Bool>, notice: Binding<String?>, problem: Binding<String?>,
+                           add: @escaping ([VaultItem]) throws -> Void) -> some View {
         fileImporter(isPresented: isPresented, allowedContentTypes: [.commaSeparatedText, .plainText]) { result in
             do {
                 let url = try result.get()
                 let scoped = url.startAccessingSecurityScopedResource()
                 defer { if scoped { url.stopAccessingSecurityScopedResource() } }
                 let parsed = try CSVImport.items(from: String(contentsOf: url, encoding: .utf8))
-                for item in parsed.items { SharedVault.save(item) }
-                SharedVault.registerIdentities(for: parsed.items)
+                try add(parsed.items)
                 notice.wrappedValue = parsed.skipped == 0
-                    ? String(localized: "Imported \(parsed.items.count) logins.")
-                    : String(localized: "Imported \(parsed.items.count) logins. Skipped \(parsed.skipped) empty rows.")
+                    ? String(localized: "Read \(parsed.items.count) logins from the file.")
+                    : String(localized: "Read \(parsed.items.count) logins from the file. Skipped \(parsed.skipped) empty rows.")
             } catch let failure as CSVImport.Failure {
+                problem.wrappedValue = failure.message
+            } catch let failure as VaultStoreError {
                 problem.wrappedValue = failure.message
             } catch {
                 problem.wrappedValue = error.localizedDescription
             }
         }
     }
+}
+
+extension URL: @retroactive Identifiable {
+    public var id: String { absoluteString }
 }

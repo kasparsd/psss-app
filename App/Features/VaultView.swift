@@ -107,8 +107,19 @@ private enum VaultCategory: Hashable {
 }
 
 struct VaultView: View {
-    @State var items: [VaultItem]
+    let store: any VaultStore
+    @State private var items: [VaultItem]
     @AppStorage("vaultSource") private var vaultSource = ""
+    @Environment(VaultSession.self) private var session
+    @State private var storeProblem: String?
+    @State private var conflict = false
+    @State private var changingPassword = false
+    @State private var copyDocument: VaultCopy?
+
+    init(store: any VaultStore) {
+        self.store = store
+        _items = State(initialValue: store.items())
+    }
     @State private var confirmsReset = false
     @State private var importing = false
     @State private var importNotice: String?
@@ -173,15 +184,31 @@ struct VaultView: View {
         Group {
             if usesStack { stackLayout } else { splitLayout }
         }
-        .passwordsImporter(isPresented: $importing, notice: $importNotice, problem: $importProblem)
+        .passwordsImporter(isPresented: $importing, notice: $importNotice, problem: $importProblem) { added in
+            try store.save(added)
+            items = store.items()
+        }
         .alert("Imported", isPresented: Binding(get: { importNotice != nil }, set: { if !$0 { importNotice = nil } })) {
-            Button("Open vault") { importNotice = nil; items = SharedVault.items(source: vaultSource) }
+            Button("Open vault") { importNotice = nil; items = store.items() }
         } message: { Text(importNotice ?? "") }
+        .alert("Could not save", isPresented: Binding(get: { storeProblem != nil }, set: { if !$0 { storeProblem = nil } })) {
+            Button("OK") { storeProblem = nil }
+        } message: { Text(storeProblem ?? "") }
+        .alert("The vault changed elsewhere", isPresented: $conflict) {
+            Button("Reload Vault") { reloadFromDisk() }
+            Button("Overwrite with My Version", role: .destructive) { overwrite() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Another app or device saved this vault since you opened it. Reload to see its version and lose your last change, or overwrite it with yours. The overwritten file is kept as a backup.")
+        }
+        .sheet(isPresented: $changingPassword) {
+            if let store = store as? KeePassVaultStore { ChangePasswordSheet(store: store) }
+        }
         .alert("Could not import", isPresented: Binding(get: { importProblem != nil }, set: { if !$0 { importProblem = nil } })) {
             Button("OK") { importProblem = nil }
         } message: { Text(importProblem ?? "") }
         .focusedSceneValue(\.newItem, { kind in editor = VaultItem(kind: kind) })
-        .task { SharedVault.registerIdentities(for: items) }
+        .task { if store.isSample { SharedVault.registerIdentities(for: items) } }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { reloadSaved() }
         }
@@ -190,6 +217,9 @@ struct VaultView: View {
                        onDelete: items.contains { $0.id == item.id } ? { delete(item.id) } : nil)
         }
         .sheet(isPresented: $showsSetup) { setupSheet }
+        .fileExporter(isPresented: Binding(get: { copyDocument != nil }, set: { if !$0 { copyDocument = nil } }),
+                      document: copyDocument, contentType: .keePassVault,
+                      defaultFilename: store.title) { _ in copyDocument = nil }
     }
 
     /// A new vault has nothing to select, so there is no list, no detail pane and no search: just the ways to fill it.
@@ -269,7 +299,7 @@ struct VaultView: View {
         let visibleItems = results
         return NavigationSplitView(columnVisibility: $columns, preferredCompactColumn: $compactColumn) {
             List(selection: categorySelection) {
-                Section(vaultSource == "sample" ? "Sample vault" : "My vault") {
+                Section(store.title) {
                     ForEach(VaultCategory.choices, id: \.self, content: sidebarRow)
                 }
                 Section("Filters") {
@@ -299,37 +329,58 @@ struct VaultView: View {
     private var setupSheet: some View {
             NavigationStack {
                 Form {
-                    Section("Vaults") {
-                        Label("Open a KeePass vault", systemImage: "folder")
-                        Label("Import from 1Password", systemImage: "square.and.arrow.down")
-                        Label("Create a local or iCloud vault", systemImage: "plus")
+                    if let keePass = store as? KeePassVaultStore {
+                        Section("Vault") {
+                            LabeledContent("Name", value: keePass.title)
+                            LabeledContent("Location", value: keePass.reference.managed
+                                ? String(localized: "On this device") : keePass.reference.fileName)
+                            LabeledContent("Format", value: keePass.formatLabel)
+                            LabeledContent("Encryption", value: keePass.kdfSummary)
+                            if let modified = keePass.lastModified {
+                                LabeledContent("Modified", value: modified.formatted(date: .abbreviated, time: .shortened))
+                            }
+                            LabeledContent("Items", value: items.count.formatted())
+                            Button("Save a Copy…") { copyDocument = (try? VaultFiles.read(keePass.url)).map(VaultCopy.init) }
+                            Button("Change Vault Password…") { showsSetup = false; changingPassword = true }
+                        }
+                    } else {
+                        Section("Vaults") {
+                            Text("Open a KeePass vault")
+                            Text("Import from 1Password")
+                            Text("Create a local or iCloud vault")
+                        }
                     }
                     Section {
                         Picker(selection: $lockTiming) {
                             ForEach(LockTiming.allCases) { Text($0.title).tag($0.rawValue) }
                         } label: {
-                            Label("Lock", systemImage: "timer")
+                            Text("Lock")
                         }
-                        Button("Lock Now", systemImage: "lock") {
+                        Button("Lock Now") {
                             showsSetup = false
                             gate.lock()
                         }
                     } header: {
                         Text("Security")
                     } footer: {
-                        Text("Psss unlocks with Face ID, Touch ID or your device passcode. AutoFill always asks.")
+                        Text(store.isSample
+                             ? "Psss unlocks with Face ID, Touch ID or your device passcode. AutoFill always asks."
+                             : "Psss asks for the vault password each time it unlocks.")
                     }
                     Section {
-                        Button("Start Over…", systemImage: "arrow.counterclockwise", role: .destructive) {
+                        Button("Start Over…", role: .destructive) {
                             confirmsReset = true
                         }
                     } header: {
                         Text("Reset")
                     } footer: {
-                        Text("Removes logins you added or imported and shows the welcome screen again.")
+                        Text(store.isSample ? "Removes logins you added or imported and shows the welcome screen again."
+                             : (store as? KeePassVaultStore)?.reference.managed == true
+                             ? "Deletes this vault from this device and shows the welcome screen again."
+                             : "Forgets this vault and shows the welcome screen again. The file stays where it is.")
                     }
                     Section {
-                        Label("Set up the credential provider", systemImage: "key")
+                        Text("Set up the credential provider")
                     } header: {
                         Text("AutoFill")
                     } footer: {
@@ -338,13 +389,14 @@ struct VaultView: View {
                 }
                 .formStyle(.grouped)
                 .confirmationDialog("Start over?", isPresented: $confirmsReset, titleVisibility: .visible) {
-                    Button("Remove My Logins and Start Over", role: .destructive) {
+                    Button(resetButtonTitle, role: .destructive) {
                         SharedVault.eraseSaved()
+                        session.forget()
                         showsSetup = false
                         vaultSource = ""
                     }
                 } message: {
-                    Text("Logins you added or imported are deleted from this device. This cannot be undone.")
+                    Text(resetMessage)
                 }
                 .navigationTitle("Vault setup")
                 .toolbar {
@@ -354,6 +406,19 @@ struct VaultView: View {
                 }
             }
             .modifier(SheetSize())
+    }
+
+    private var resetButtonTitle: LocalizedStringKey {
+        if store.isSample { "Remove My Logins and Start Over" }
+        else if (store as? KeePassVaultStore)?.reference.managed == true { "Delete Vault and Start Over" }
+        else { "Forget Vault and Start Over" }
+    }
+
+    private var resetMessage: LocalizedStringKey {
+        if store.isSample { "Logins you added or imported are deleted from this device. This cannot be undone." }
+        else if (store as? KeePassVaultStore)?.reference.managed == true {
+            "The vault and its backups are deleted from this device. Without another copy of the file, your logins are gone. This cannot be undone."
+        } else { "Psss stops using this vault. The file is not deleted and you can open it again." }
     }
 
     private func itemResults(_ results: [VaultItem]) -> some View {
@@ -555,8 +620,10 @@ struct VaultView: View {
         #endif
     }
 
-    /// Picks up logins that the AutoFill extension saved while the app was in the background.
+    /// Picks up logins that the AutoFill extension saved while the app was in the background (sample vault only
+    /// until the extension opens the real vault).
     private func reloadSaved() {
+        guard store.isSample else { return }
         for saved in SharedVault.loadSaved() {
             if let index = items.firstIndex(where: { $0.id == saved.id }) { items[index] = saved } else { items.append(saved) }
         }
@@ -567,28 +634,41 @@ struct VaultView: View {
         if let index = items.firstIndex(where: { $0.id == id }) {
             items[index].lastUsed = .now
             items[index].useCount += 1
+            store.markUsed(id)
         }
     }
 
-    /// The prototype's stand-in for the vault file: your own items persist in the App Group, which the AutoFill
-    /// extension reads too. Sample items are never written.
-    private func persist(_ item: VaultItem) {
-        let isSample = SampleVault.items.contains { $0.id == item.id }
-        guard !isSample else { return }
-        SharedVault.save(item)
+    private func attempt(_ write: () throws -> Void) {
+        do { try write() } catch VaultStoreError.changedOnDisk {
+            conflict = true
+        } catch {
+            storeProblem = (error as? VaultStoreError)?.message ?? (error as? KDBXError)?.message ?? error.localizedDescription
+        }
+    }
+
+    private func reloadFromDisk() {
+        guard let store = store as? KeePassVaultStore else { return }
+        Task {
+            do { try await store.reload(); items = store.items() }
+            catch { storeProblem = (error as? KDBXError)?.message ?? error.localizedDescription }
+        }
+    }
+
+    private func overwrite() {
+        guard let store = store as? KeePassVaultStore else { return }
+        attempt { try store.commit(overwrite: true) }
     }
 
     private func delete(_ id: VaultItem.ID) {
-        items.removeAll { $0.id == id }
-        SharedVault.delete(id)
-        SharedVault.registerIdentities(for: items)
+        attempt { try store.delete(id) }
+        items = store.items()
         selection = nil
         compactPath = []
         editor = nil
     }
 
     private func save(_ item: VaultItem) {
-        persist(item)
+        attempt { try store.save([item]) }
         if let index = items.firstIndex(where: { $0.id == item.id }) {
             items[index] = item
         } else {

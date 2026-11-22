@@ -23,6 +23,10 @@ Honor the system accent color and default control styling. Do not introduce an a
 
 Keep iPhone, iPad and Mac behavior in sync. Review semantics (what queues, keeps, protects or deletes), copy and safety rules live in shared code (`App/Core`, `App/Features`) and apply to every platform; each platform keeps its own native idiom for presenting them (toolbar vs. menu bar, tap vs. click, sidebar on iPad and Mac). When a change touches one platform's UI, make the matching change on the others in the same task, including Help text and `docs/`. If that isn't possible, record the gap in `docs/roadmap.md` and say so in the final summary. Build both schemes before calling the work done, and check iPad (regular width) when changing iOS layouts.
 
+## Interface clarity
+
+Whenever you propose, build, suggest or review an interface or its copy, apply the `ui-clarity` skill (`.claude/skills/ui-clarity/SKILL.md`): say what is being created, where it is stored, who holds the key, how to get out and what happens next, in plain words, before polishing visuals. For a new or unclear screen, show a quick visual mock of the normal and error states and get approval before building (step 0 of the skill). Use at most two type sizes on a screen (title and body); never shrink text to footnote or caption to fit more.
+
 ## Greenfield project
 
 This is a greenfield project. Do not spend effort on data migrations, backward compatibility, or preserving behavior for hypothetical existing users. Earlier implementation choices are not constraints: prefer a clean design and change it when a better approach serves the task.

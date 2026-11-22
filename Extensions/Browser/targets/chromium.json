@@ -1,0 +1,6 @@
+{
+  "minimum_chrome_version": "116",
+  "optional_permissions": [
+    "privacy"
+  ]
+}

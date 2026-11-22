@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Psss</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <h1>Psss</h1>
+    <p id="site" class="secondary" aria-live="polite"></p>
+  </header>
+  <main>
+    <p id="status" role="status"></p>
+    <ul id="logins"></ul>
+    <section id="create" hidden>
+      <h2>Create a login</h2>
+      <label for="account">Username or email</label>
+      <input id="account" type="text" autocomplete="off" autocapitalize="none" spellcheck="false">
+      <button id="generate" type="button">Generate password, fill and save</button>
+      <p id="created" role="status"></p>
+    </section>
+    <section id="search" hidden>
+      <label for="q">Search all logins</label>
+      <input id="q" type="search" autocomplete="off" autocapitalize="none" spellcheck="false">
+      <ul id="results" aria-live="polite"></ul>
+    </section>
+    <p class="footer"><button id="settings" type="button">Settings</button></p>
+  </main>
+  <script src="protocol.js"></script>
+  <script src="origin.js"></script>
+  <script src="host.js"></script>
+  <script src="page-fill.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

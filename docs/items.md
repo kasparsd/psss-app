@@ -29,6 +29,21 @@ Across types, support nested groups, tags, item expiration, custom fields with p
 - [ ] Build group navigation, attachment add/extract and expiration. Keep history stored and defer its interface; “Recently deleted” covers undo.
 - [ ] Validate assisted checkout fills and show tested browser coverage per field and surface.
 
+## KeePass field mapping (implemented 2026-11-22)
+
+`EntryMapping` in `App/Core/KDBX/KeePassEntries.swift` maps entries to `VaultItem`:
+
+| Item data | KeePass field |
+| --- | --- |
+| Name, username, password, website, notes | `Title`, `UserName`, `Password` (protected), `URL`, `Notes` |
+| Verification code | `otp` (protected `otpauth://` link, KeePassXC). Reads `TimeOtp-Secret-Base32` and `TOTP Seed` too. Rewritten only when the secret changes, so period, digits and issuer set elsewhere survive |
+| Passkey | KeePassXC fields `KPEX_PASSKEY_CREDENTIAL_ID`, `KPEX_PASSKEY_PRIVATE_KEY_PEM` (protected PKCS#8), `KPEX_PASSKEY_RELYING_PARTY`, `KPEX_PASSKEY_USERNAME`, `KPEX_PASSKEY_USER_HANDLE`. Credential ID and user handle are base64url |
+| Card | cardholder in `UserName`, number in `Password`, expiry in `Expiry`, plus `PSSS_TYPE=card` |
+| Secure note, custom item | `PSSS_TYPE=note` or `custom` |
+| Usage | `UsageCount`, `LastAccessTime` |
+
+Without `PSSS_TYPE`, an entry with a website, username, code or passkey is a login, notes alone make a secure note, and anything else opens as a custom item. Every other string, attachment and element is left untouched. Not mapped yet: groups (new items go to the root group), tags, expiry, attachments in the interface, custom fields in the interface, and the Recycle Bin.
+
 ## Names are optional for logins
 
 A login is identified by its website. The list, search, AutoFill and passkeys all use the host (for example `github.com`), and `VaultItem.displayTitle` falls back to it when the name is empty. The editor asks for the website first and offers an optional name for people who want “Work email”. Cards, notes and custom items have no domain and still require a title. Saves from AutoFill and passkeys leave the name empty. Trade-offs: several accounts on one site show identical titles, so the list shows the username beside the title, and long hosts truncate (the login keeps at least 40% of the row). Subdomains stay as written; grouping by registrable domain is a later refinement.

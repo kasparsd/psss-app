@@ -100,13 +100,14 @@ final class UnlockGate {
         if isUnlocked, leftAt == nil { leftAt = .now }
     }
 
-    /// Call when the scene becomes active. Locks if it was away longer than the chosen timing, then prompts.
-    func didBecomeActive(after timing: LockTiming) async {
+    /// Call when the scene becomes active. Locks if it was away longer than the chosen timing, then prompts
+    /// (unless `prompt` is false: a KeePass vault asks for its vault password instead).
+    func didBecomeActive(after timing: LockTiming, prompt: Bool = true) async {
         if let leftAt, isUnlocked, Date.now.timeIntervalSince(leftAt) >= TimeInterval(timing.rawValue) {
             state = .locked
         }
         leftAt = nil
-        await unlock()
+        if prompt { await unlock() }
     }
 }
 

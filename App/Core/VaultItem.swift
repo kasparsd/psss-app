@@ -50,10 +50,10 @@ struct VaultItem: Identifiable, Sendable, Codable {
         return host.isEmpty ? String(localized: "Untitled") : host
     }
 
-    init(kind: ItemKind, title: String = "", account: String = "", website: String = "",
+    init(id: UUID = UUID(), kind: ItemKind, title: String = "", account: String = "", website: String = "",
          secret: String = "", expiry: String = "", notes: String = "",
          otpSecret: String = "", lastUsed: Date? = nil, useCount: Int = 0) {
-        id = UUID()
+        self.id = id
         self.kind = kind
         self.title = title
         self.account = account
