@@ -728,12 +728,15 @@ private struct ItemDetail: View {
                         // A high-priority tap so it wins over the row's copy gesture.
                         Image(systemName: revealed.contains(id) ? "eye.slash" : "eye")
                             .foregroundStyle(Color.accentColor)
+                            // The tap target grows past the glyph without growing the row, so a row with an eye
+                            // is the same height as one without.
                             #if os(iOS)
-                            .frame(minWidth: 44, minHeight: 32, alignment: .leading)
+                            .frame(minWidth: 44, alignment: .leading)
+                            .contentShape(.rect.inset(by: -12))
                             #else
-                            .frame(minWidth: 28, minHeight: 18, alignment: .leading)
+                            .frame(minWidth: 28, alignment: .leading)
+                            .contentShape(.rect.inset(by: -6))
                             #endif
-                            .contentShape(Rectangle())
                             .highPriorityGesture(TapGesture().onEnded {
                                 if revealed.contains(id) { revealed.remove(id) } else { revealed.insert(id) }
                             })
