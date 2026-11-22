@@ -752,21 +752,18 @@ private struct ItemDetail: View {
                     field(.notes, "Notes", item.notes)
                 }
             } header: {
-                #if os(macOS)
-                // Mac has no large title, so the name leads the page as plain text, as in Notes.
-                // Mac has no large title, so the item leads the page with its icon and name, as in Passwords.
+                // Every platform leads with the icon and name, as Apple Passwords does.
                 VStack(spacing: 8) {
                     ItemIcon(item: item, size: 64)
                     Text(item.displayTitle)
                         .font(.title.weight(.semibold))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(Color.primary)
                         .lineLimit(2)
                         .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
                 .textCase(nil)
                 .padding(.vertical, 8)
-                #endif
             } footer: {
                 #if os(macOS)
                 Text("Click a row to copy it. Copied values leave the clipboard after 60 seconds.")
@@ -804,7 +801,13 @@ private struct ItemDetail: View {
         .sheet(isPresented: $showsQR) {
             if let url = item.totpSetupURL { TOTPQRSheet(url: url, title: item.displayTitle) }
         }
+        #if os(macOS)
         .navigationTitle(item.displayTitle)
+        #else
+        // The header already carries the name, so the bar stays quiet instead of repeating it.
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
         // A labeled Edit in the toolbar of the detail column, as in Passwords (Mac) and Contacts (iOS).
         .toolbar {
             // Text, not a Label: iOS toolbars would reduce a Label to an icon-only circle.
