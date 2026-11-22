@@ -13,7 +13,10 @@ struct RootView: View {
     var body: some View {
         Group {
             if vaultSource.isEmpty {
-                WelcomeView { vaultSource = $0 }
+                WelcomeView { source in
+                    gate.markUnlocked()
+                    vaultSource = source
+                }
             } else if gate.isUnlocked {
                 VaultView(items: SharedVault.items(source: vaultSource))
             } else {
@@ -22,7 +25,7 @@ struct RootView: View {
         }
         .environment(gate)
         .focusedSceneValue(\.lockVault, gate.isUnlocked ? { gate.lock() } : nil)
-        .task { await gate.didBecomeActive(after: timing) }
+        .task { if !vaultSource.isEmpty { await gate.didBecomeActive(after: timing) } }
         #if os(macOS)
         // Like Apple Passwords, a sleeping display or a locked screen locks the vault.
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.screensDidSleepNotification)) { _ in gate.lock() }
@@ -31,7 +34,7 @@ struct RootView: View {
         #endif
         .onChange(of: scenePhase) { _, phase in
             switch phase {
-            case .active: Task { await gate.didBecomeActive(after: timing) }
+            case .active: if !vaultSource.isEmpty { Task { await gate.didBecomeActive(after: timing) } }
             case .inactive, .background: gate.didResignActive()
             @unknown default: break
             }

@@ -86,6 +86,11 @@ final class UnlockGate {
         }
     }
 
+    /// For a vault the person just created or imported: they are already here, so no prompt.
+    func markUnlocked() {
+        state = .unlocked
+    }
+
     func lock() {
         state = .locked
     }

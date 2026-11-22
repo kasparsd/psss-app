@@ -221,14 +221,15 @@ struct VaultView: View {
         .background(.background)
     }
 
+    @ViewBuilder
     private func emptyChoice(_ title: LocalizedStringKey, _ symbol: String, prominent: Bool = false,
                              action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: symbol).frame(maxWidth: .infinity, alignment: .leading)
+        let label = Label(title, systemImage: symbol).frame(maxWidth: .infinity, alignment: .leading)
+        if prominent {
+            Button(action: action) { label }.buttonStyle(.borderedProminent).controlSize(.large)
+        } else {
+            Button(action: action) { label }.buttonStyle(.bordered).controlSize(.large)
         }
-        .buttonStyle(.bordered)
-        .controlSize(.large)
-        .modifier(EmptyProminent(on: prominent))
     }
 
     /// iPhone: the pills already switch categories, so there is no separate Vault screen to go back to.
@@ -796,8 +797,10 @@ private struct ItemDetail: View {
         .navigationTitle(item.displayTitle)
         // A labeled Edit in the toolbar of the detail column, as in Passwords (Mac) and Contacts (iOS).
         .toolbar {
-            Button("Edit", action: edit)
-                .keyboardShortcut("e", modifiers: .command)
+            // Text, not a Label: iOS toolbars would reduce a Label to an icon-only circle.
+            Button(action: edit) { Text("Edit") }
+                .buttonStyle(.borderedProminent)
+            .keyboardShortcut("e", modifiers: .command)
         }
         .overlay(alignment: .bottom) {
             if copied != nil {
@@ -1111,9 +1114,3 @@ private struct TOTPQRSheet: View {
     }
 }
 
-private struct EmptyProminent: ViewModifier {
-    let on: Bool
-    func body(content: Content) -> some View {
-        if on { content.buttonStyle(.borderedProminent) } else { content }
-    }
-}

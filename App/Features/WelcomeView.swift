@@ -11,15 +11,15 @@ struct WelcomeView: View {
     @State private var notice: String?
     @State private var comingSoon: String?
 
+    @ViewBuilder
     private func choice(_ title: LocalizedStringKey, _ symbol: String, prominent: Bool = false,
                         action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: symbol)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        let label = Label(title, systemImage: symbol).frame(maxWidth: .infinity, alignment: .leading)
+        if prominent {
+            Button(action: action) { label }.buttonStyle(.borderedProminent).controlSize(.large)
+        } else {
+            Button(action: action) { label }.buttonStyle(.bordered).controlSize(.large)
         }
-        .buttonStyle(.bordered)
-        .controlSize(.large)
-        .modifier(Prominent(on: prominent))
     }
 
     var body: some View {
@@ -70,12 +70,6 @@ struct WelcomeView: View {
     }
 }
 
-private struct Prominent: ViewModifier {
-    let on: Bool
-    func body(content: Content) -> some View {
-        if on { content.buttonStyle(.borderedProminent) } else { content }
-    }
-}
 
 extension View {
     /// Reads an Apple Passwords (or browser) CSV export into saved logins. Reports through `notice` or `problem`.
