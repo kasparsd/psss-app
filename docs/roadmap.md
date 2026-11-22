@@ -103,3 +103,5 @@ Goal: five people outside the project fill, save and find a login without guidan
 ## Platform gaps
 
 - Save and generate password requests from the system (Safari signup prompts) exist for third-party providers on iOS 26.2+ only. macOS has no equivalent API, so on Mac the app offers Add login and the generator inside the app. Revisit each macOS release.
+
+- [ ] Onboarding gaps: open a .kdbx from Files or iCloud Drive, 1Password .1pux import, Credential Exchange import, and a real encrypted new vault (today Create makes an empty prototype vault).

@@ -18,6 +18,39 @@ enum TOTP {
         return String(repeating: "0", count: digits - number.count) + number
     }
 
+    /// Accepts what people actually paste: a bare Base32 secret (spaces and dashes allowed) or an `otpauth://totp/...`
+    /// link. Returns the clean upper-case secret, or nil when it is not a usable TOTP secret.
+    static func normalizedSecret(_ input: String) -> String? {
+        var text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.lowercased().hasPrefix("otpauth://") {
+            guard let components = URLComponents(string: text),
+                  components.host?.lowercased() == "totp",
+                  let value = components.queryItems?.first(where: { $0.name.lowercased() == "secret" })?.value
+            else { return nil }
+            text = value
+        }
+        let cleaned = text.uppercased().filter { !" -=".contains($0) }
+        guard !cleaned.isEmpty, let key = base32Decode(cleaned), key.count >= 10 else { return nil }
+        return cleaned
+    }
+
+    /// The `otpauth://` link authenticator apps scan or import. Defaults (SHA-1, 6 digits, 30 s) are spelled out.
+    static func setupURL(secret: String, issuer: String, account: String) -> String {
+        var components = URLComponents()
+        components.scheme = "otpauth"
+        components.host = "totp"
+        let label = account.isEmpty ? issuer : "\(issuer):\(account)"
+        components.path = "/" + label
+        components.queryItems = [
+            URLQueryItem(name: "secret", value: secret),
+            URLQueryItem(name: "issuer", value: issuer),
+            URLQueryItem(name: "algorithm", value: "SHA1"),
+            URLQueryItem(name: "digits", value: "6"),
+            URLQueryItem(name: "period", value: "30")
+        ]
+        return components.string ?? ""
+    }
+
     static func secondsRemaining(at date: Date = .now) -> Int {
         Int(period - date.timeIntervalSince1970.truncatingRemainder(dividingBy: period))
     }

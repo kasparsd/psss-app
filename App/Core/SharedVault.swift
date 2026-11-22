@@ -19,12 +19,23 @@ enum SharedVault {
 
     static var allItems: [VaultItem] { SampleVault.items + loadSaved() }
 
+    /// Items for the vault the person chose on first launch: the sample vault, or only their own.
+    static func items(source: String) -> [VaultItem] {
+        source == "sample" ? allItems : loadSaved()
+    }
+
     static func save(_ item: VaultItem) {
         guard let url = savedURL else { return }
         var saved = loadSaved()
         saved.removeAll { $0.id == item.id }
         saved.append(item)
         try? JSONEncoder().encode(saved).write(to: url, options: .atomic)
+    }
+
+    /// Removes the logins saved in the App Group, for starting over.
+    static func eraseSaved() {
+        if let url = savedURL { try? FileManager.default.removeItem(at: url) }
+        ASCredentialIdentityStore.shared.removeAllCredentialIdentities { _, _ in }
     }
 
     /// The host of a service identifier or a stored website, lowercased and without a leading `www.`.

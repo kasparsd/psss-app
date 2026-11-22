@@ -4,6 +4,7 @@ import SwiftUI
 /// or search text stays in memory behind the lock screen, and unlocking opens fresh with search focused.
 struct RootView: View {
     @State private var gate = UnlockGate()
+    @AppStorage("vaultSource") private var vaultSource = ""
     @AppStorage("lockTiming") private var lockTiming = LockTiming.oneMinute.rawValue
     @Environment(\.scenePhase) private var scenePhase
 
@@ -11,8 +12,10 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if gate.isUnlocked {
-                VaultView(items: SharedVault.allItems)
+            if vaultSource.isEmpty {
+                WelcomeView { vaultSource = $0 }
+            } else if gate.isUnlocked {
+                VaultView(items: SharedVault.items(source: vaultSource))
             } else {
                 LockScreen(gate: gate)
             }

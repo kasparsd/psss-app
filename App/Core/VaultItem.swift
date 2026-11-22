@@ -20,12 +20,18 @@ struct VaultItem: Identifiable, Sendable, Codable {
     var secret = ""
     var expiry = ""
     var notes = ""
-    /// Base32 seed for the verification code, logins only.
+    /// TOTP (RFC 6238) secret as Base32, logins only. The codes it makes are shown as the item's one-time code.
     var otpSecret = ""
     var lastUsed: Date?
     var useCount = 0
     /// Set when this login also holds a passkey.
     var passkey: PasskeyRecord?
+
+    /// The `otpauth://` link that moves this TOTP secret to another authenticator.
+    var totpSetupURL: String? {
+        guard kind == .login, let secret = TOTP.normalizedSecret(otpSecret) else { return nil }
+        return TOTP.setupURL(secret: secret, issuer: displayTitle, account: account)
+    }
 
     /// What this item holds beyond a name and a secret. Secure notes always have notes, so they do not advertise it.
     var traits: [ItemTrait] {

@@ -1,3 +1,4 @@
+import CoreImage.CIFilterBuiltins
 import SwiftUI
 
 private extension ItemKind {
@@ -32,7 +33,7 @@ private extension ItemTrait {
     var badgeLabel: LocalizedStringKey {
         switch self {
         case .passkey: "Has a passkey"
-        case .code: "Has a verification code"
+        case .code: "Has a TOTP code"
         case .notes: "Has notes"
         }
     }
@@ -107,6 +108,8 @@ private enum VaultCategory: Hashable {
 
 struct VaultView: View {
     @State var items: [VaultItem]
+    @AppStorage("vaultSource") private var vaultSource = ""
+    @State private var confirmsReset = false
     @Environment(UnlockGate.self) private var gate
     @AppStorage("lockTiming") private var lockTiming = LockTiming.oneMinute.rawValue
     @State private var columns: NavigationSplitViewVisibility = .all
@@ -214,7 +217,7 @@ struct VaultView: View {
         let visibleItems = results
         return NavigationSplitView(columnVisibility: $columns, preferredCompactColumn: $compactColumn) {
             List(selection: categorySelection) {
-                Section("Sample vault") {
+                Section(vaultSource == "sample" ? "Sample vault" : "My vault") {
                     ForEach(VaultCategory.choices, id: \.self, content: sidebarRow)
                 }
                 Section("Filters") {
@@ -262,6 +265,15 @@ struct VaultView: View {
                         Text("Psss unlocks with Face ID, Touch ID or your device passcode. AutoFill always asks.")
                     }
                     Section {
+                        Button("Start Over…", systemImage: "arrow.counterclockwise", role: .destructive) {
+                            confirmsReset = true
+                        }
+                    } header: {
+                        Text("Reset")
+                    } footer: {
+                        Text("Removes logins you added or imported and shows the welcome screen again.")
+                    }
+                    Section {
                         Label("Set up the credential provider", systemImage: "key")
                     } header: {
                         Text("AutoFill")
@@ -270,6 +282,15 @@ struct VaultView: View {
                     }
                 }
                 .formStyle(.grouped)
+                .confirmationDialog("Start over?", isPresented: $confirmsReset, titleVisibility: .visible) {
+                    Button("Remove My Logins and Start Over", role: .destructive) {
+                        SharedVault.eraseSaved()
+                        showsSetup = false
+                        vaultSource = ""
+                    }
+                } message: {
+                    Text("Logins you added or imported are deleted from this device. This cannot be undone.")
+                }
                 .navigationTitle("Vault setup")
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
@@ -303,7 +324,18 @@ struct VaultView: View {
         .overlay {
             if results.isEmpty {
                 if search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    ContentUnavailableView("No items", systemImage: "tray")
+                    if items.isEmpty {
+                        ContentUnavailableView {
+                            Label("Your vault is empty", systemImage: "tray")
+                        } description: {
+                            Text("Add your first login to get started.")
+                        } actions: {
+                            Button("Add a login", systemImage: "plus") { editor = VaultItem(kind: .login) }
+                                .buttonStyle(.borderedProminent)
+                        }
+                    } else {
+                        ContentUnavailableView("No items", systemImage: "tray")
+                    }
                 } else {
                     ContentUnavailableView {
                         Label("No results for “\(search)”", systemImage: "magnifyingglass")
@@ -467,7 +499,9 @@ struct VaultView: View {
         NavigationLink(value: item.id) {
             ItemRow(item: item)
         }
+        #if os(iOS)
         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+        #endif
     }
 
     /// Picks up logins that the AutoFill extension saved while the app was in the background.
@@ -597,10 +631,20 @@ private struct ItemIcon: View {
         return Color(hue: Double(seed % 360) / 360, saturation: 0.5, brightness: 0.72)
     }
 
+    private var brand: BrandIcons.Brand? {
+        item.kind == .login ? BrandIcons.brand(forWebsite: item.website) : nil
+    }
+
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: size * 0.27, style: .continuous).fill(tint)
-            if item.kind == .login, let letter = item.displayTitle.first {
+            RoundedRectangle(cornerRadius: size * 0.27, style: .continuous).fill(brand?.color ?? tint)
+            if let brand {
+                Image(brand.asset)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: size * 0.56, height: size * 0.56)
+                    .foregroundStyle(brand.glyph)
+            } else if item.kind == .login, let letter = item.displayTitle.first {
                 Text(String(letter).uppercased())
                     .font(.system(size: size * 0.53, weight: .semibold, design: .rounded))
             } else {
@@ -619,8 +663,9 @@ private struct ItemDetail: View {
     let used: () -> Void
     @State private var revealed: Set<FieldID> = []
     @State private var copied: FieldID?
+    @State private var showsQR = false
 
-    private enum FieldID: Hashable { case website, account, expiry, secret, code, notes }
+    private enum FieldID: Hashable { case website, account, expiry, secret, code, notes, totpSecret, totpLink }
 
     private var secretLabel: LocalizedStringKey {
         switch item.kind {
@@ -672,6 +717,17 @@ private struct ItemDetail: View {
                 Text("Tap a row to copy it. Copied values leave the clipboard after 60 seconds.")
                 #endif
             }
+            if let url = item.totpSetupURL {
+                Section {
+                    field(.totpSecret, "TOTP secret", item.otpSecret, hidden: true)
+                    Button("Copy setup link", systemImage: "link") { copy(url, as: .totpLink) }
+                    Button("Show QR code", systemImage: "qrcode") { showsQR = true }
+                } header: {
+                    Text("TOTP setup")
+                } footer: {
+                    Text("Move this TOTP secret to another authenticator with the secret, the link or the QR code. Anyone who has it can make your codes, so treat it like a password.")
+                }
+            }
             if let passkey = item.passkey {
                 Section {
                     Label {
@@ -688,6 +744,9 @@ private struct ItemDetail: View {
             }
         }
         .formStyle(.grouped)
+        .sheet(isPresented: $showsQR) {
+            if let url = item.totpSetupURL { TOTPQRSheet(url: url, title: item.displayTitle) }
+        }
         .navigationTitle(item.displayTitle)
         // A labeled Edit in the toolbar of the detail column, as in Passwords (Mac) and Contacts (iOS).
         .toolbar {
@@ -721,7 +780,7 @@ private struct ItemDetail: View {
                 } label: {
                     HStack(spacing: 8) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Verification code").font(.caption).foregroundStyle(.secondary)
+                            Text("One-time code (TOTP)").font(.caption).foregroundStyle(.secondary)
                             Text(grouped(code))
                                 .font(.system(.largeTitle, design: .monospaced).weight(.medium))
                                 .contentTransition(.numericText())
@@ -745,7 +804,7 @@ private struct ItemDetail: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Verification code")
+                .accessibilityLabel("One-time code, TOTP")
                 .accessibilityValue(Text("Expires in \(remaining) seconds"))
                 .accessibilityHint("Copies the code")
         }
@@ -857,6 +916,18 @@ private struct ItemEditor: View {
                             .autocorrectionDisabled()
                     }
                     labeled("Password") { SecureField("Password", text: $item.secret, prompt: Text(verbatim: "")) }
+                    labeled("TOTP secret (optional)") {
+                        SecureField("TOTP secret", text: $item.otpSecret, prompt: Text("Secret or otpauth:// link"))
+                            .autocorrectionDisabled()
+                        #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                        #endif
+                        if totpInvalid {
+                            Text("That is not a valid TOTP secret.")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                    }
                     labeled("Name (optional)") {
                         TextField("Name", text: $item.title, prompt: Text(verbatim: namePlaceholder))
                     }
@@ -881,8 +952,8 @@ private struct ItemEditor: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { onSave(item) }
-                        .disabled(item.displayTitle == String(localized: "Untitled"))
+                    Button("Save") { onSave(saved) }
+                        .disabled(item.displayTitle == String(localized: "Untitled") || totpInvalid)
                 }
             }
         }
@@ -897,6 +968,17 @@ extension ItemEditor {
             Text(label).font(.caption).foregroundStyle(.secondary)
             content().labelsHidden()
         }
+    }
+
+    fileprivate var totpInvalid: Bool {
+        !item.otpSecret.isEmpty && TOTP.normalizedSecret(item.otpSecret) == nil
+    }
+
+    /// The item with its TOTP secret reduced to the clean Base32 form, whatever was pasted.
+    fileprivate var saved: VaultItem {
+        var clean = item
+        clean.otpSecret = TOTP.normalizedSecret(item.otpSecret) ?? ""
+        return clean
     }
 
     fileprivate var namePlaceholder: String {
@@ -934,5 +1016,51 @@ extension FocusedValues {
     var lockVault: (() -> Void)? {
         get { self[LockVaultKey.self] }
         set { self[LockVaultKey.self] = newValue }
+    }
+}
+
+/// A QR code of the `otpauth://` link, for scanning into another authenticator.
+private struct TOTPQRSheet: View {
+    let url: String
+    let title: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                if let image = Self.qr(url) {
+                    image
+                        .interpolation(.none)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 240, height: 240)
+                        .padding(12)
+                        .background(.white, in: RoundedRectangle(cornerRadius: 12))
+                        .accessibilityLabel("QR code for the TOTP secret of \(title)")
+                }
+                Text("Scan this with an authenticator app. Anyone who sees it can make your codes.")
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 300)
+            }
+            .padding()
+            .navigationTitle("TOTP QR code")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+        }
+        .modifier(SheetSize())
+    }
+
+    private static func qr(_ text: String) -> Image? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(text.utf8)
+        filter.correctionLevel = "M"
+        guard let output = filter.outputImage,
+              let cg = CIContext().createCGImage(output, from: output.extent) else { return nil }
+        return Image(decorative: cg, scale: 1)
     }
 }
