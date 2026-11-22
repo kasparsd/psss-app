@@ -212,8 +212,10 @@ struct VaultView: View {
                         Label("Create a local or iCloud vault", systemImage: "plus")
                     }
                     Section {
-                        Picker("Lock", selection: $lockTiming) {
+                        Picker(selection: $lockTiming) {
                             ForEach(LockTiming.allCases) { Text($0.title).tag($0.rawValue) }
+                        } label: {
+                            Label("Lock", systemImage: "timer")
                         }
                         Button("Lock Now", systemImage: "lock") {
                             showsSetup = false
@@ -224,11 +226,13 @@ struct VaultView: View {
                     } footer: {
                         Text("Psss unlocks with Face ID, Touch ID or your device passcode. AutoFill always asks.")
                     }
-                    Section("AutoFill") {
+                    Section {
                         Label("Set up the credential provider", systemImage: "key")
+                    } header: {
+                        Text("AutoFill")
+                    } footer: {
+                        Text("Setup is a preview. These options will be enabled in a future build.")
                     }
-                    Text("Setup is a preview. These options will be enabled in a future build.")
-                        .foregroundStyle(.secondary)
                 }
                 .formStyle(.grouped)
                 .navigationTitle("Vault setup")
@@ -484,6 +488,8 @@ private struct ItemRow: View {
     var body: some View {
         HStack(spacing: 12) {
             ItemIcon(item: item)
+                // The separator starts where the text starts, the same on every row and every platform.
+                .alignmentGuide(.listRowSeparatorLeading) { $0[.trailing] + 12 }
             if typeSize.isAccessibilitySize || Self.stacked {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(verbatim: item.displayTitle).lineLimit(1)
@@ -667,7 +673,7 @@ private struct ItemDetail: View {
                 Button {
                     copy(code, as: .code)
                 } label: {
-                    HStack {
+                    HStack(spacing: 8) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Verification code").font(.caption).foregroundStyle(.secondary)
                             Text(grouped(code))
@@ -675,9 +681,7 @@ private struct ItemDetail: View {
                                 .contentTransition(.numericText())
                         }
                         Spacer()
-                        Image(systemName: "doc.on.doc")
-                            .foregroundStyle(Color.accentColor)
-                            .accessibilityHidden(true)
+                        // Countdown first, so the copy icon lands in the same trailing column as every other row.
                         Gauge(value: Double(remaining), in: 0...TOTP.period) {
                             Text("Seconds left")
                         } currentValueLabel: {
@@ -685,8 +689,12 @@ private struct ItemDetail: View {
                         }
                         .gaugeStyle(.accessoryCircularCapacity)
                         .tint(remaining <= 5 ? .red : .accentColor)
-                        .scaleEffect(0.8)
+                        .scaleEffect(0.7)
+                        .frame(width: 40, height: 40)
                         .accessibilityHidden(true)
+                        Image(systemName: "doc.on.doc")
+                            .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
                     }
                     .contentShape(Rectangle())
                 }
@@ -779,7 +787,7 @@ private struct ItemEditor: View {
             Form {
                 if item.kind != .login {
                     labeled("Title") {
-                        TextField("Title", text: $item.title)
+                        TextField("Title", text: $item.title, prompt: Text(verbatim: ""))
                             .focused($titleFocused)
                             .task { titleFocused = true }
                     }
@@ -797,27 +805,27 @@ private struct ItemEditor: View {
                             .autocorrectionDisabled()
                     }
                     labeled("Username") {
-                        TextField("Username", text: $item.account)
+                        TextField("Username", text: $item.account, prompt: Text(verbatim: ""))
                             #if os(iOS)
                             .textInputAutocapitalization(.never)
                             #endif
                             .autocorrectionDisabled()
                     }
-                    labeled("Password") { SecureField("Password", text: $item.secret) }
+                    labeled("Password") { SecureField("Password", text: $item.secret, prompt: Text(verbatim: "")) }
                     labeled("Name (optional)") {
                         TextField("Name", text: $item.title, prompt: Text(verbatim: namePlaceholder))
                     }
                 case .creditCard:
-                    labeled("Cardholder") { TextField("Cardholder", text: $item.account) }
-                    labeled("Card number") { SecureField("Card number", text: $item.secret) }
+                    labeled("Cardholder") { TextField("Cardholder", text: $item.account, prompt: Text(verbatim: "")) }
+                    labeled("Card number") { SecureField("Card number", text: $item.secret, prompt: Text(verbatim: "")) }
                     labeled("Expiry") { TextField("Expiry", text: $item.expiry, prompt: Text("MM/YY")) }
                 case .secureNote:
                     EmptyView()
                 case .keePassEntry:
-                    labeled("Protected value") { SecureField("Protected value", text: $item.secret) }
+                    labeled("Protected value") { SecureField("Protected value", text: $item.secret, prompt: Text(verbatim: "")) }
                 }
                 labeled("Notes") {
-                    TextField("Notes", text: $item.notes, axis: .vertical)
+                    TextField("Notes", text: $item.notes, prompt: Text(verbatim: ""), axis: .vertical)
                         .lineLimit(3...8)
                 }
             }
