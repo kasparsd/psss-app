@@ -552,7 +552,7 @@ struct VaultView: View {
         #if os(iOS)
         .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
         #else
-        .listRowInsets(EdgeInsets(top: 8, leading: 4, bottom: 8, trailing: 8))
+        .listRowInsets(EdgeInsets(top: 11, leading: 4, bottom: 11, trailing: 8))
         #endif
     }
 
