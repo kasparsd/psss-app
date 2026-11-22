@@ -35,9 +35,9 @@ private struct CredentialFields: View {
 
     var body: some View {
         Group {
-            SecureField("Vault password", text: $password)
+            SecureField("Vault Password", text: $password)
             if confirms {
-                SecureField("Repeat vault password", text: $confirmation)
+                SecureField("Repeat Vault Password", text: $confirmation)
             }
             DisclosureGroup("Key file (optional)") {
                 VStack(alignment: .leading, spacing: 8) {
@@ -105,7 +105,7 @@ struct NewVaultSheet: View {
                 Section {
                     CredentialFields(password: $password, confirmation: $confirmation, keyFile: $keyFile, confirms: true)
                 } header: {
-                    Text("Vault password")
+                    Text("Vault Password")
                 } footer: {
                     Text("You enter it each time the vault unlocks. Psss cannot reset it, so keep a copy somewhere safe.")
                 }
@@ -219,32 +219,33 @@ struct VaultPasswordView: View {
     @State private var otherFile: URL?
     @FocusState private var focused: Bool
 
+    /// Input fields are darker than the grey rows around them, with a visible edge, so they read as places to type.
+    private static var fieldFill: Color {
+        #if os(macOS)
+        Color(nsColor: .textBackgroundColor)
+        #else
+        Color(uiColor: .secondarySystemBackground)
+        #endif
+    }
+
     private var vaultName: String { session.reference?.name ?? "Psss" }
 
     var body: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 24)
-            VStack(spacing: 20) {
-                VStack(spacing: 6) {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 36))
-                        .foregroundStyle(.secondary)
-                        .accessibilityHidden(true)
-                    Text(vaultName).font(.title2.weight(.semibold))
-                    if let reference = session.reference {
-                        Label(reference.locationDescription, systemImage: "doc")
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                }
+            VStack(spacing: 16) {
+                vaultSelector
 
-                VStack(spacing: 12) {
-                    SecureField("Vault password", text: $password)
-                        .textFieldStyle(.roundedBorder)
-                        .controlSize(.large)
+                VStack(spacing: 16) {
+                    SecureField("Vault Password", text: $password)
+                        .textFieldStyle(.plain)
                         .focused($focused)
                         .onSubmit(unlock)
                         .disabled(missing || working)
+                        .padding(12)
+                        .background(Self.fieldFill, in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(focused ? Color.accentColor : Color.secondary.opacity(0.4), lineWidth: focused ? 2 : 1))
                     if let problem {
                         Text(problem).foregroundStyle(.red)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -264,31 +265,26 @@ struct VaultPasswordView: View {
                         .disabled(working || (password.isEmpty && keyFile == nil))
                         .keyboardShortcut(.defaultAction)
                     }
-                    // Reserved height: progress appears here without moving the form.
-                    ZStack(alignment: .top) {
-                        if working { WorkingNotice(text: "Checking your vault password…") }
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 64, alignment: .top)
                 }
 
-                HStack(spacing: 4) {
-                    Text("Not this vault?").foregroundStyle(.secondary)
-                    Button("Open a different vault…") {
-                        if session.reference?.managed == true { confirmingSwitch = true } else { choosingOther = true }
+                // One place for all help text. Progress takes its place while working, so nothing moves.
+                ZStack(alignment: .top) {
+                    if working {
+                        WorkingNotice(text: "Checking your vault password…")
+                    } else {
+                        VStack(spacing: 10) {
+                            Text("Psss cannot reset or recover a vault password. A key file is only needed if you added one when you created this vault.")
+                        }
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                     }
-                    .buttonStyle(.borderless)
                 }
-                .disabled(working)
+                .frame(maxWidth: .infinity, minHeight: 100, alignment: .top)
             }
             .frame(maxWidth: 340)
             .padding(.horizontal, 24)
             Spacer(minLength: 24)
-            Text("Psss cannot reset or recover a vault password. Locking clears your passwords from memory.")
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 340)
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background)
@@ -326,23 +322,56 @@ struct VaultPasswordView: View {
         }
     }
 
+    /// Which vault is being unlocked: a label on the left and a standard bordered pop-up on the right, like the key file row.
+    /// The current vault is checked; the other choice is one click away.
+    private var vaultSelector: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Text("Unlock Vault:")
+                Spacer(minLength: 0)
+                Menu {
+                    Button { } label: { Label(vaultName, systemImage: "checkmark") }
+                    Divider()
+                    Button("Open Another Vault…") {
+                        if session.reference?.managed == true { confirmingSwitch = true } else { choosingOther = true }
+                    }
+                } label: {
+                    #if os(iOS)
+                    Label(vaultName, systemImage: "chevron.up.chevron.down").labelStyle(.titleAndIcon).lineLimit(1)
+                    #else
+                    Text(vaultName).lineLimit(1)
+                    #endif
+                }
+                #if os(iOS)
+                .buttonStyle(.bordered)
+                #endif
+                .fixedSize()
+                .disabled(working)
+                .accessibilityLabel("Unlock vault: \(vaultName). Choose another vault.")
+            }
+            if let location = session.reference?.locationDescription {
+                Text(location).foregroundStyle(.secondary).lineLimit(2)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     /// The key file is rare, so it starts empty, but it is always visible and says when it is needed.
     private var keyFileRow: some View {
         HStack(spacing: 10) {
-            Image(systemName: "key").foregroundStyle(.secondary).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Key file")
-                Text(keyFileName ?? String(localized: "None. Only needed if you added one."))
-                    .foregroundStyle(.secondary).lineLimit(1)
+                Text("Key file (optional)")
+                if let keyFileName { Text(keyFileName).foregroundStyle(.secondary).lineLimit(1) }
             }
             Spacer(minLength: 0)
             if keyFile != nil {
                 Button("Remove") { keyFile = nil; keyFileName = nil }.buttonStyle(.borderless)
             }
             Button(keyFile == nil ? "Choose…" : "Change…") { choosingKeyFile = true }
+                #if os(iOS)
+                .buttonStyle(.bordered)
+                #endif
         }
-        .padding(10)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
         .disabled(working)
     }
 

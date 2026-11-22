@@ -18,6 +18,8 @@ Then draw a quick visual mock (the visualize tool, a small HTML card per state: 
 
 **Type: two sizes at most.** One title size (the object's name) and the default body size for everything else; separate supporting text by secondary color, not by shrinking it. Never use footnote, caption or callout sizes to fit more in. If it doesn't fit at body size, cut words.
 
+**Help text lives in one place.** One block, directly under the primary action, centered; progress replaces it in the same slot. Never scatter hints inside rows, between sections and at the window edge. Truncated text is a bug: shorten the words.
+
 ## Checklist
 
 A regular person has never read this repository. Before you propose, build or approve any interface, answer each question below from the point of view of someone seeing the screen for the first time. If the screen does not answer one, add the missing words or control, or say in your review that it is missing. Do this for every screen you touch, including sheets, alerts, empty states and errors, and on every platform.

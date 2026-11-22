@@ -17,9 +17,9 @@ struct VaultReference: Codable, Equatable, Sendable {
         UserDefaults.standard.data(forKey: defaultsKey).flatMap { try? JSONDecoder().decode(Self.self, from: $0) }
     }
 
-    /// "Personal.kdbx · iCloud Drive › Documents" for a file opened in place, or where Psss keeps a vault it created.
-    var locationDescription: String {
-        guard !managed else { return String(localized: "Kept by Psss on this device") }
+    /// "Personal.kdbx · iCloud Drive › Documents" for a file opened in place. Nothing for a vault Psss created: its location says nothing useful.
+    var locationDescription: String? {
+        guard !managed else { return nil }
         guard let bookmark, let url = try? VaultFiles.resolve(bookmark).url else { return fileName }
         let folder = url.deletingLastPathComponent().pathComponents
             .filter { $0 != "/" }
