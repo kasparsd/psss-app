@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>psss palette exploration on the landing page</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Varela+Round&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.kick{font:700 12px/1 'DM Sans',system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase}
+.vr{font-family:'Varela Round',ui-rounded,system-ui,sans-serif}
+.card{background:#fff;border:1px solid #E6E1D2;border-radius:28px;overflow:hidden;display:flex;flex-direction:column;height:530px;box-sizing:border-box}
+.fr{height:400px;flex:none;background:var(--bg);color:var(--ink);display:flex;flex-direction:column;align-items:center;gap:14px;padding:28px 20px 0;overflow:hidden;box-sizing:border-box}
+.lock{display:flex;align-items:center;gap:4px}
+.lock span{font-size:36px;line-height:1;transform:translateY(-.06em);letter-spacing:-.01em}
+.slog{font-size:25px;line-height:1.12;text-align:center;max-width:380px}
+.bdg{background:var(--bd);color:var(--bdt);border-radius:9px;padding:6px 16px;display:flex;flex-direction:column;line-height:1.1;font-family:system-ui,-apple-system,sans-serif;box-shadow:0 0 0 1px var(--bdl) inset}
+.bdg small{font-size:8px}
+.bdg b{font-size:17px;font-weight:600}
+.ph{width:150px;height:300px;flex:none;background:var(--bz);border-radius:28px;padding:6px;box-sizing:border-box}
+.sc{height:100%;border-radius:22px;background:#fff;position:relative;overflow:hidden;padding:36px 10px 0;box-sizing:border-box;font-family:system-ui,sans-serif}
+.sc i{position:absolute;top:8px;left:50%;margin-left:-22px;width:44px;height:12px;border-radius:6px;background:#000}
+.sc h4{margin:0 0 8px;font-size:15px;color:#111}
+.r{display:flex;align-items:center;gap:7px;padding:6px 0;border-bottom:1px solid #EEE}
+.r em{width:20px;height:20px;border-radius:50%;flex:none}
+.r s{display:block;height:6px;border-radius:3px;background:#222;text-decoration:none}
+.r s+s{height:5px;background:#BBB;margin-top:4px}
+.cap{padding:18px 24px 20px;display:flex;flex-direction:column;gap:8px;font-family:'DM Sans',system-ui,sans-serif;font-size:14px;line-height:1.45;color:#34322D;flex-grow:1}
+.cap b.n{font-size:20px;color:#1F1F23;font-family:'Varela Round',sans-serif;font-weight:400}
+.sw{display:flex;gap:6px;align-items:center;font-size:12px;color:#5C584D}
+.sw i{width:18px;height:18px;border-radius:50%;box-shadow:0 0 0 1px rgba(0,0,0,.18) inset;display:inline-block}
+</style>
+</helmet>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="m" viewBox="0 0 120 120">
+      <rect x="6.5" y="34.5" width="107" height="51" rx="25.5" fill="none" stroke="currentColor" stroke-width="5"/>
+      <path d="M23.5 50.5V84" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>
+      <circle cx="33" cy="60" r="9.5" fill="none" stroke="currentColor" stroke-width="5"/>
+      <circle cx="58" cy="60" r="6" fill="currentColor"/>
+      <circle cx="77" cy="60" r="6" fill="currentColor"/>
+      <circle cx="96" cy="60" r="6" fill="currentColor"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div style="width:1680px;height:1420px;box-sizing:border-box;padding:72px;background:#F4F1E8;color:#1F1F23;font-family:'DM Sans',system-ui,sans-serif;display:flex;flex-direction:column;gap:32px">
+
+  <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:48px;height:130px">
+    <div style="display:flex;flex-direction:column;gap:18px">
+      <div class="kick" style="color:#5C584D">psss · Palettes · On the landing page</div>
+      <h1 class="vr" style="margin:0;font-weight:400;font-size:64px;line-height:1;letter-spacing:-.01em">Same page, six moods.</h1>
+    </div>
+    <p style="margin:0;max-width:640px;font-size:18px;line-height:1.5;color:#5C584D">The landing page again, miniature, in butter and five alternatives. Same lockup, same slogan, same layout, so only colour changes. Each one keeps the ink dark enough for plain reading.</p>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px">
+
+    <!-- Butter -->
+    <div class="card">
+      <div class="fr" style="--bg:#FFD84D;--ink:#1F1F23;--bd:#000;--bdt:#fff;--bdl:#3a3a3a;--bz:#1F1F23">
+        <div class="lock"><svg width="56" height="56" aria-hidden="true"><use href="#m"/></svg><span class="vr">psss</span></div>
+        <div class="slog vr">Secure passwords for the rest of us.</div>
+        <div class="bdg"><small>Download on the</small><b>App Store</b></div>
+        <div style="display:flex;gap:16px;margin-top:6px">
+          <div class="ph"><div class="sc"><i></i><h4>Passwords</h4><div class="r"><em style="background:#FFE3A8"></em><div><s style="width:70px"></s><s style="width:90px"></s></div></div><div class="r"><em style="background:#CDE8FF"></em><div><s style="width:60px"></s><s style="width:80px"></s></div></div><div class="r"><em style="background:#F6D4E8"></em><div><s style="width:76px"></s><s style="width:70px"></s></div></div></div></div>
+          <div class="ph"><div class="sc"><i></i><h4>Passwords</h4><div class="r"><em style="background:#D9F2D0"></em><div><s style="width:66px"></s><s style="width:86px"></s></div></div><div class="r"><em style="background:#E3DCFF"></em><div><s style="width:74px"></s><s style="width:72px"></s></div></div><div class="r"><em style="background:#FFD9CC"></em><div><s style="width:58px"></s><s style="width:84px"></s></div></div></div></div>
+        </div>
+      </div>
+      <div class="cap">
+        <b class="n">Butter · current</b>
+        <div class="sw"><i style="background:#FFD84D"></i><i style="background:#1F1F23"></i><i style="background:#FFF9E5"></i>&nbsp;#FFD84D · #1F1F23 · #FFF9E5</div>
+        <div>Cheerful, generous and unmistakable on a Home Screen. The benchmark for everything below.</div>
+      </div>
+    </div>
+
+    <!-- Tangerine -->
+    <div class="card">
+      <div class="fr" style="--bg:#FF9A4D;--ink:#2B1503;--bd:#000;--bdt:#fff;--bdl:#3a3a3a;--bz:#2B1503">
+        <div class="lock"><svg width="56" height="56" aria-hidden="true"><use href="#m"/></svg><span class="vr">psss</span></div>
+        <div class="slog vr">Secure passwords for the rest of us.</div>
+        <div class="bdg"><small>Download on the</small><b>App Store</b></div>
+        <div style="display:flex;gap:16px;margin-top:6px">
+          <div class="ph"><div class="sc"><i></i><h4>Passwords</h4><div class="r"><em style="background:#FFE3A8"></em><div><s style="width:70px"></s><s style="width:90px"></s></div></div><div class="r"><em style="background:#CDE8FF"></em><div><s style="width:60px"></s><s style="width:80px"></s></div></div><div class="r"><em style="background:#F6D4E8"></em><div><s style="width:76px"></s><s style="width:70px"></s></div></div></div></div>
+          <div class="ph"><div class="sc"><i></i><h4>Passwords</h4><div class="r"><em style="background:#D9F2D0"></em><div><s style="width:66px"></s><s style="width:86px"></s></div></div><div class="r"><em style="background:#E3DCFF"></em><div><s style="width:74px"></s><s style="width:72px"></s></div></div><div class="r"><em style="background:#FFD9CC"></em><div><s style="width:58px"></s><s style="width:84px"></s></div></div></div></div>
+        </div>
+      </div>
+      <div class="cap">
+        <b class="n">Tangerine</b>
+        <div class="sw"><i style="background:#FF9A4D"></i><i style="background:#2B1503"></i><i style="background:#FFF1E3"></i>&nbsp;#FF9A4D · #2B1503 · #FFF1E3</div>
+        <div>Warmer and louder than butter, more appetite than whisper. Risk: orange is crowded by shopping and food apps.</div>
+      </div>
+    </div>
+
+    <!-- Bubblegum -->
+    <div class="card">
+      <div class="fr" style="--bg:#FFBFD6;--ink:#3B0F2E;--bd:#000;--bdt:#fff;--bdl:#3a3a3a;--bz:#3B0F2E">
+        <div class="lock"><svg width="56" height="56" aria-hidden="true"><use href="#m"/></svg><span class="vr">psss</span></div>
+        <div class="slog vr">Secure passwords for the rest of us.</div>
+        <div class="bdg"><small>Download on the</small><b>App Store</b></div>
+        <div style="display:flex;gap:16px;margin-top:6px">
+          <div class="ph"><div class="sc"><i></i><h4>Passwords</h4><div class="r"><em style="background:#FFE3A8"></em><div><s style="width:70px"></s><s style="width:90px"></s></div></div><div class="r"><em style="background:#CDE8FF"></em><div><s style="width:60px"></s><s style="width:80px"></s></div></div><div class="r"><em style="background:#F6D4E8"></em><div><s style="width:76px"></s><s style="width:70px"></s></div></div></div></div>
+          <div class="ph"><div class="sc"><i></i><h4>Passwords</h4><div class="r"><em style="background:#D9F2D0"></em><div><s style="width:66px"></s><s style="width:86px"></s></div></div><div class="r"><em style="background:#E3DCFF"></em><div><s style="width:74px"></s><s style="width:72px"></s></div></div><div class="r"><em style="background:#FFD9CC"></em><div><s style="width:58px"></s><s style="width:84px"></s></div></div></div></div>
+        </div>
+      </div>
+      <div class="cap">
+        <b class="n">Bubblegum</b>
+        <div class="sw"><i style="background:#FFBFD6"></i><i style="background:#3B0F2E"></i><i style="background:#FFF0F6"></i>&nbsp;#FFBFD6 · #3B0F2E · #FFF0F6</div>
+        <div>Playful and personal, with a deep berry ink instead of black. The least expected for a password app. Risk: reads younger and softer.</div>
+      </div>
+    </div>
+
+    <!-- Cornflower -->
+    <div class="card">
+      <div class="fr" style="--bg:#A9C7FF;--ink:#0E1B3F;--bd:#000;--bdt:#fff;--bdl:#3a3a3a;--bz:#0E1B3F">
+        <div class="lock"><svg width="56" height="56" aria-hidden="true"><use href="#m"/></svg><span class="vr">psss</span></div>
+        <div class="slog vr">Secure passwords for the rest of us.</div>
+        <div class="bdg"><small>Download on the</small><b>App Store</b></div>
+        <div style="display:flex;gap:16px;margin-top:6px">
+          <div class="ph"><div class="sc"><i></i><h4>Passwords</h4><div class="r"><em style="background:#FFE3A8"></em><div><s style="width:70px"></s><s style="width:90px"></s></div></div><div class="r"><em style="background:#CDE8FF"></em><div><s style="width:60px"></s><s style="width:80px"></s></div></div><div class="r"><em style="background:#F6D4E8"></em><div><s style="width:76px"></s><s style="width:70px"></s></div></div></div></div>
+          <div class="ph"><div class="sc"><i></i><h4>Passwords</h4><div class="r"><em style="background:#D9F2D0"></em><div><s style="width:66px"></s><s style="width:86px"></s></div></div><div class="r"><em style="background:#E3DCFF"></em><div><s style="width:74px"></s><s style="width:72px"></s></div></div><div class="r"><em style="background:#FFD9CC"></em><div><s style="width:58px"></s><s style="width:84px"></s></div></div></div></div>
+        </div>
+      </div>
+      <div class="cap">
+        <b class="n">Cornflower</b>
+        <div class="sw"><i style="background:#A9C7FF"></i><i style="background:#0E1B3F"></i><i style="background:#EEF4FF"></i>&nbsp;#A9C7FF · #0E1B3F · #EEF4FF</div>
+        <div>Open sky and trust, softer than the usual security blue. Calm and safe. Risk: blue is where most password managers already live.</div>
+      </div>
+    </div>
+
+    <!-- Night + butter -->
+    <div class="card">
+      <div class="fr" style="--bg:#1F1F23;--ink:#FFD84D;--bd:#fff;--bdt:#000;--bdl:#d0d0d0;--bz:#3A3A40">
+        <div class="lock"><svg width="56" height="56" aria-hidden="true"><use href="#m"/></svg><span class="vr">psss</span></div>
+        <div class="slog vr" style="color:#FFF9E5">Secure passwords for the rest of us.</div>
+        <div class="bdg"><small>Download on the</small><b>App Store</b></div>
+        <div style="display:flex;gap:16px;margin-top:6px">
+          <div class="ph"><div class="sc"><i></i><h4>Passwords</h4><div class="r"><em style="background:#FFE3A8"></em><div><s style="width:70px"></s><s style="width:90px"></s></div></div><div class="r"><em style="background:#CDE8FF"></em><div><s style="width:60px"></s><s style="width:80px"></s></div></div><div class="r"><em style="background:#F6D4E8"></em><div><s style="width:76px"></s><s style="width:70px"></s></div></div></div></div>
+          <div class="ph"><div class="sc"><i></i><h4>Passwords</h4><div class="r"><em style="background:#D9F2D0"></em><div><s style="width:66px"></s><s style="width:86px"></s></div></div><div class="r"><em style="background:#E3DCFF"></em><div><s style="width:74px"></s><s style="width:72px"></s></div></div><div class="r"><em style="background:#FFD9CC"></em><div><s style="width:58px"></s><s style="width:84px"></s></div></div></div></div>
+        </div>
+      </div>
+      <div class="cap">
+        <b class="n">Night and butter</b>
+        <div class="sw"><i style="background:#1F1F23"></i><i style="background:#FFD84D"></i><i style="background:#FFF9E5"></i>&nbsp;#1F1F23 · #FFD84D · #FFF9E5</div>
+        <div>The butter palette turned inside out: quiet and private like a locked room, with butter as the only light. Suits a dark-mode site.</div>
+      </div>
+    </div>
+
+    <!-- Cream + butter -->
+    <div class="card">
+      <div class="fr" style="--bg:#FFF9E5;--ink:#1F1F23;--bd:#000;--bdt:#fff;--bdl:#3a3a3a;--bz:#1F1F23">
+        <div class="lock"><span style="width:56px;height:56px;border-radius:22.4%;background:#FFD84D;display:flex;align-items:center;justify-content:center;transform:none"><svg width="48" height="48" aria-hidden="true"><use href="#m"/></svg></span><span class="vr">psss</span></div>
+        <div class="slog vr">Secure passwords for the rest of us.</div>
+        <div class="bdg"><small>Download on the</small><b>App Store</b></div>
+        <div style="display:flex;gap:16px;margin-top:6px">
+          <div class="ph"><div class="sc"><i></i><h4>Passwords</h4><div class="r"><em style="background:#FFE3A8"></em><div><s style="width:70px"></s><s style="width:90px"></s></div></div><div class="r"><em style="background:#CDE8FF"></em><div><s style="width:60px"></s><s style="width:80px"></s></div></div><div class="r"><em style="background:#F6D4E8"></em><div><s style="width:76px"></s><s style="width:70px"></s></div></div></div></div>
+          <div class="ph"><div class="sc"><i></i><h4>Passwords</h4><div class="r"><em style="background:#D9F2D0"></em><div><s style="width:66px"></s><s style="width:86px"></s></div></div><div class="r"><em style="background:#E3DCFF"></em><div><s style="width:74px"></s><s style="width:72px"></s></div></div><div class="r"><em style="background:#FFD9CC"></em><div><s style="width:58px"></s><s style="width:84px"></s></div></div></div></div>
+        </div>
+      </div>
+      <div class="cap">
+        <b class="n">Cream, butter icon</b>
+        <div class="sw"><i style="background:#FFF9E5"></i><i style="background:#FFD84D"></i><i style="background:#1F1F23"></i>&nbsp;#FFF9E5 · #FFD84D · #1F1F23</div>
+        <div>A calm paper page where butter appears only as the app icon. The quietest, easiest to read, and the most tranquil of the six.</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1680,"height":1420}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

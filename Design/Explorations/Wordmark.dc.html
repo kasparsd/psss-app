@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>psss wordmark in SF Pro Rounded</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.kick{font:700 12px/1 'DM Sans',system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase}
+.sf{font-family:ui-rounded,'SF Pro Rounded','SF Rounded',system-ui,sans-serif;letter-spacing:-.01em}
+.card{background:#fff;border:1px solid #EADFB8;border-radius:28px;overflow:hidden;display:flex;flex-direction:column;height:300px;box-sizing:border-box}
+.top{background:#FFF9E5;height:150px;flex:none;display:flex;align-items:center;justify-content:center;gap:6px;color:#1F1F23}
+.body{padding:18px 22px 20px;display:flex;flex-direction:column;gap:6px;flex-grow:1;font-size:14px;line-height:1.45;color:#34322D}
+.body b{font-size:16px;color:#1F1F23}
+.wmk{line-height:1;transform:translateY(-.09em)}
+</style>
+</helmet>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="m" viewBox="0 0 120 120">
+      <rect x="6.5" y="34.5" width="107" height="51" rx="25.5" fill="none" stroke="currentColor" stroke-width="5"/>
+      <path d="M23.5 50.5V84" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>
+      <circle cx="33" cy="60" r="9.5" fill="none" stroke="currentColor" stroke-width="5"/>
+      <circle cx="58" cy="60" r="6" fill="currentColor"/>
+      <circle cx="77" cy="60" r="6" fill="currentColor"/>
+      <circle cx="96" cy="60" r="6" fill="currentColor"/>
+    </symbol>
+    <symbol id="s" viewBox="0 0 120 120">
+      <rect x="7.5" y="35.5" width="105" height="49" rx="24.5" fill="none" stroke="currentColor" stroke-width="7"/>
+      <path d="M24.5 51.5V83.3" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round"/>
+      <circle cx="33" cy="60" r="8.5" fill="none" stroke="currentColor" stroke-width="7"/>
+      <circle cx="58" cy="60" r="6.8" fill="currentColor"/>
+      <circle cx="77" cy="60" r="6.8" fill="currentColor"/>
+      <circle cx="96" cy="60" r="6.8" fill="currentColor"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div style="width:1680px;height:1160px;box-sizing:border-box;padding:72px;background:#FFF9E5;color:#1F1F23;font-family:'DM Sans',system-ui,sans-serif;display:flex;flex-direction:column;gap:32px">
+
+  <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:48px;height:130px">
+    <div style="display:flex;flex-direction:column;gap:18px">
+      <div class="kick" style="color:#5C584D">psss · Wordmark · SF Pro Rounded</div>
+      <h1 class="sf" style="margin:0;font-weight:300;font-size:68px;line-height:1;letter-spacing:-.02em">psss, weighed to match.</h1>
+    </div>
+    <p style="margin:0;max-width:640px;font-size:18px;line-height:1.5;color:#5C584D">Lowercase, in SF Pro Rounded. The mark is drawn with a thin, even line, so the letters have to be as light as the line, or the mark looks weak next to them. Here are five weights at one size, with the mark beside each.</p>
+  </div>
+
+  <div class="kick" style="color:#5C584D">A · Which weight matches the mark’s line</div>
+  <div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:24px">
+
+    <div class="card">
+      <div class="top"><svg width="84" height="84" aria-hidden="true"><use href="#m"/></svg><span class="sf wmk" style="font-size:60px;font-weight:200">psss</span></div>
+      <div class="body"><b>Ultralight · 200</b><span>Letter stems thinner than the mark’s line (about 2.4 against 3.5 px). Elegant, but it disappears on butter at small sizes.</span></div>
+    </div>
+
+    <div class="card" style="box-shadow:0 0 0 3px #1F1F23">
+      <div class="top"><svg width="84" height="84" aria-hidden="true"><use href="#m"/></svg><span class="sf wmk" style="font-size:60px;font-weight:300">psss</span></div>
+      <div class="body"><b>Light · 300 · match</b><span>Letter stems about 3.9 px against the mark’s 3.5 px. The mark and the letters read as one drawing. Use with the master mark.</span></div>
+    </div>
+
+    <div class="card">
+      <div class="top"><svg width="84" height="84" aria-hidden="true"><use href="#m"/></svg><span class="sf wmk" style="font-size:60px;font-weight:400">psss</span></div>
+      <div class="body"><b>Regular · 400</b><span>About 5 px stems: slightly heavier than the master mark, but the right weight for the small-size cut with its thicker line.</span></div>
+    </div>
+
+    <div class="card">
+      <div class="top"><svg width="84" height="84" aria-hidden="true"><use href="#m"/></svg><span class="sf wmk" style="font-size:60px;font-weight:500">psss</span></div>
+      <div class="body"><b>Medium · 500</b><span>About 6 px. The letters now outweigh the mark, which starts to look like a thin outline beside bold type.</span></div>
+    </div>
+
+    <div class="card">
+      <div class="top"><svg width="84" height="84" aria-hidden="true"><use href="#m"/></svg><span class="sf wmk" style="font-size:60px;font-weight:600">psss</span></div>
+      <div class="body"><b>Semibold · 600</b><span>About 7 px. Strong, but twice the line weight of the mark. The two no longer belong together.</span></div>
+    </div>
+  </div>
+
+  <div class="kick" style="color:#5C584D">B · The lockup, set to the rule</div>
+  <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:24px;height:360px">
+
+    <div style="grid-column:span 2;display:flex;flex-direction:column">
+      <div style="flex:1;background:#FFD84D;border-radius:28px 28px 0 0;display:flex;align-items:center;justify-content:center;gap:10px;color:#1F1F23">
+        <svg width="140" height="140" role="img" aria-label="psss mark"><use href="#m"/></svg>
+        <span class="sf wmk" style="font-size:90px;font-weight:300">psss</span>
+      </div>
+      <div style="flex:1;background:#1F1F23;border-radius:0 0 28px 28px;display:flex;align-items:center;justify-content:center;gap:10px;color:#FFD84D">
+        <svg width="140" height="140" role="img" aria-label="psss mark, inverse"><use href="#m"/></svg>
+        <span class="sf wmk" style="font-size:90px;font-weight:300">psss</span>
+      </div>
+    </div>
+
+    <div style="grid-column:span 2;background:#fff;border:1px solid #EADFB8;border-radius:28px;padding:26px 32px;display:flex;flex-direction:column;justify-content:space-between;box-sizing:border-box">
+      <div class="kick" style="color:#5C584D">The rule</div>
+      <div style="display:flex;flex-direction:column;gap:10px;font-size:15px;line-height:1.45">
+        <div><b>Master mark, Light weight.</b> Wordmark size is 0.64 of the mark’s height. At 140 pt the mark’s line is about 5.8 and the letters about 5.9.</div>
+        <div><b>Small cut, Regular weight.</b> Below 48 pt use the heavier mark with Regular letters, so the pair thickens together.</div>
+        <div style="display:flex;align-items:center;gap:6px;color:#1F1F23;padding:4px 0">
+          <svg width="40" height="40" aria-hidden="true"><use href="#s"/></svg><span class="sf wmk" style="font-size:25.6px;font-weight:400">psss</span>
+        </div>
+      </div>
+      <div style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px;line-height:1.5;background:#F6F1DD;border-radius:12px;padding:10px 14px">.font(.system(size: 90, weight: .light, design: .rounded))</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1680,"height":1160}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

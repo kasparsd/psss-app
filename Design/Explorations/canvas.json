@@ -1,0 +1,58 @@
+{
+  "v": 3,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-11-22T12:00:00Z"
+  },
+  "title": "Psss — final type, wordmark, landing and palettes",
+  "launch": {
+    "view": "canvas"
+  },
+  "pages": [],
+  "boards": {
+    "Type.dc.html": {
+      "x": 0,
+      "y": 14380,
+      "w": 1680,
+      "h": 1560,
+      "title": "12 · Rounded type exploration"
+    },
+    "Wordmark.dc.html": {
+      "x": 0,
+      "y": 16060,
+      "w": 1680,
+      "h": 1160,
+      "title": "13 · psss wordmark, SF Pro Rounded"
+    },
+    "Landing.dc.html": {
+      "x": 0,
+      "y": 17380,
+      "w": 1440,
+      "h": 1040,
+      "expand": "fill",
+      "title": "14 · Landing page mock"
+    },
+    "Palettes.dc.html": {
+      "x": 0,
+      "y": 18540,
+      "w": 1680,
+      "h": 1420,
+      "title": "15 · Palettes on the landing page"
+    }
+  },
+  "order": [
+    "Type.dc.html",
+    "Wordmark.dc.html",
+    "Landing.dc.html",
+    "Palettes.dc.html"
+  ],
+  "notes": {
+    "landing": {
+      "x": 1520,
+      "y": 17380,
+      "w": 380,
+      "text": "Landing mock: the phone screens are drawn stand-ins, to be replaced with real screenshots. The App Store button is a placeholder for Apple’s official badge. Fonts: Varela Round, self-hosted in production."
+    }
+  },
+  "designSystems": []
+}

@@ -46,6 +46,10 @@ Mark on the left, wordmark on the right, centred on the pill's centre line with 
 
 `Design/Landing/index.html` is the structural starting point: lockup, slogan “Secure passwords for the rest of us.”, App Store badge and device screenshots, nothing else. Screenshots and Apple's official badge are still to add. Sync copy follows the rules in [product](product.md): “Pay once, or yearly” and “No subscription required”.
 
+## Explorations
+
+`Design/Explorations/` holds the final design canvas boards (type, wordmark, landing mock and palettes) as `.dc.html` files with a `canvas.json` index. Earlier logo rounds were dropped. The final marks are in `Design/AppIcon/` and `Design/Logo/`.
+
 ## Open points
 
 - Wire the app icon into the asset catalog, with dark and tinted appearances, and check the small cut on a device.
