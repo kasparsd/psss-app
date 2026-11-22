@@ -1,5 +1,7 @@
 # Adding a verification code
 
+Status: built. Mac, iOS and AutoFill extension builds and the codec tests pass, and QR decoding was checked on generated images. The sheet has not been run by hand on a device. The camera needs a second screen, so it was checked only for compile and availability handling.
+
 How a person gets a website's TOTP secret into a login. Companion to [items](items.md) (the field) and [experience](experience.md) (screen 8, add item).
 
 ## First principle
@@ -29,7 +31,7 @@ Everything is decoded on the device. Nothing is uploaded and the image is never 
 
 ## Copy
 
-- Row: “Verification code (optional)”, button “Add code”, then “Replace” and “Remove”.
+- Row: “Verification code (optional)”, button “Add code”, then “Replace code” and “Remove code”.
 - Sheet title “Add verification code”. Text: “Copy the setup key or QR code from the site. Psss reads it on this device. Nothing is uploaded.”
 - Same-device hint: “On this phone? On the site, tap “Can’t scan?”, copy the key, then tap Paste. Or take a screenshot, tap it, choose Copy and Delete, then tap Paste.”
 - Confirm: “Type this code into the site to finish turning on two-step verification.” Buttons “Save code”, “Cancel”.
@@ -42,3 +44,8 @@ Everything is decoded on the device. Nothing is uploaded and the image is never 
 3. A Share extension for images and text (new target, second writer to the vault file).
 4. Google Authenticator `otpauth-migration://` batches.
 5. AutoFill extension saving a seed after sign-up. No known iOS API; verify before promising.
+
+## Known gaps
+
+- Typing a different bare setup key over a login that has non-default digits or period keeps the old parameters. Paste the full link to change them.
+- Cancelling the editor after “Save code” keeps a new login that was stored early.

@@ -21,6 +21,37 @@ struct NotReady: View {
     }
 }
 
+/// Shown when a login or passkey could not be written to the vault, so nothing is reported to the system as saved.
+struct SaveFailed: View {
+    enum Subject { case login, passkey }
+
+    var subject: Subject = .login
+    let reason: String
+    let close: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                switch subject {
+                case .login:
+                    Text("Can’t save this login").font(.title2.bold()).multilineTextAlignment(.center)
+                    Text("The login was not saved. \(reason) Your vault was not changed.")
+                        .foregroundStyle(.secondary).multilineTextAlignment(.center)
+                case .passkey:
+                    Text("Can’t save this passkey").font(.title2.bold()).multilineTextAlignment(.center)
+                    Text("The passkey was not saved. \(reason) Nothing was changed.")
+                        .foregroundStyle(.secondary).multilineTextAlignment(.center)
+                }
+                Button("Close", action: close).buttonStyle(.borderedProminent).controlSize(.large)
+            }
+            .padding(24)
+            .frame(maxHeight: .infinity)
+            .navigationTitle("Psss")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
 /// Shown when the person taps the key in the keyboard bar or chooses Passwords from AutoFill.
 struct FillList: View {
     let host: String

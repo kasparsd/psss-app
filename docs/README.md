@@ -12,6 +12,7 @@ See the [product contract](product.md) for positioning, principles and business 
 | Experience | [User flows and prototype](experience.md) |
 | Platform | [AutoFill and browser coverage](autofill.md), [browser extension](browser-extension.md) |
 | Items | [Cards, notes and KeePass entries](items.md) |
+| Verification codes | [Adding a TOTP code by paste, image or camera](verification-codes.md) |
 | Storage | [KeePass and vault lifecycle](vaults.md) |
 | Migration | [Strongbox and 1Password](migration.md) |
 | Engineering | [Swift architecture and security](architecture.md) |
@@ -21,7 +22,7 @@ See the [product contract](product.md) for positioning, principles and business 
 ## Decisions
 
 - Prioritize sign-in and password capture, including passkeys and verification codes. Support cards, secure notes and custom items in the same vault.
-- Challenge the format. KDBX stays canonical only if the M0 spikes show it fits the AutoFill extension budget and sync; otherwise a private store with KDBX import and export replaces it.
+- KDBX is the storage format (decided by the owner, 2026-11-23). Psss does not build its own store. The M0 spikes find how to make the AutoFill extension and sync work within KDBX, not whether to keep it. Revisit only if an existing, proven alternative clearly beats it.
 - Scope 1.0 to Safari (the system AutoFill provider plus the bundled Safari extension). Other browsers come later, through the same WebExtension and a native host that are prototyped.
 - The native app is the prototype. The HTML prototype is frozen.
 - Until the M0 gate on 2026-12-20, work goes to filling from the real encrypted vault on a signed device and to the remaining spikes. Interface, brand and browser-extension work is frozen. See the [roadmap](roadmap.md#course-correction-review-of-2026-11-22).

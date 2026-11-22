@@ -45,7 +45,7 @@ AuthenticationServices documents a user-selected text insertion path. Verify it 
 
 - [ ] Verify checkout frames, hosted payment forms, and individual card fields before publishing payment coverage.
 - [x] Prototype the shared WebExtension, native host and per-store packaging (see [browser extension](browser-extension.md)).
-- [ ] Pick minimum OS versions after testing API availability and coverage.
+- [ ] Confirm the shipping floor at the M0 gate. Availability is settled from the SDK headers (see the table below): iOS 26.2 and macOS 15 are recommended. What remains is behaviour on a device.
 - [ ] Publish a tested grid for fill, generate, save and update by OS/browser/version, unlock state, field layout and iframe.
 - [ ] Validate Mac App Store host setup and browser-store distribution. Keep unsupported combinations visible in the grid.
 
@@ -67,5 +67,40 @@ AuthenticationServices documents a user-selected text insertion path. Verify it 
 - The app opens on a lock screen and prompts at launch and when it returns from the background. **Settings → Security → Lock** chooses Immediately, After 1, 5 or 15 minutes. **Lock Now** is in Setup on every platform, in the Mac and iPad “…” menu, and on ⌘L (Psss menu).
 - Locking removes the vault view from the tree, so selection and search text do not survive behind the lock screen. Unlocking opens fresh with search focused.
 - Policy follows Apple Passwords: authentication is always required and cannot be turned off; only the background timing is a setting. On Mac the vault also locks when the Mac sleeps, the display sleeps or the screen locks. See [experience](experience.md#lock-policy-follow-apple-passwords-2026-11-22).
-- This is a user-interface gate. The sample vault is not encrypted, so it does not protect data at rest. Real protection arrives with the Keychain-held vault key behind biometrics (roadmap S2 and S6).
+- For the sample vault this is a user-interface gate only: it is not encrypted. A real vault is encrypted and opens with its vault password or, when switched on, with the Keychain key that Face ID or Touch ID releases, which has no passcode fallback. The always-on device-owner prompt described above applies to the sample vault.
 - Simulator test: enroll Face ID with `xcrun simctl spawn booted notifyutil -s com.apple.BiometricKit.enrollmentChanged 1` and `-p` it, then send a match with `-p com.apple.BiometricKit_Sim.fingerTouch.match`.
+
+## Platform facts checked 2026-11-23
+
+From the iOS 27.2 and macOS 27.2 SDK headers on the development machine, and Apple's capability tables and developer forum answers where noted.
+
+| Feature | iOS and iPadOS | macOS | Provider key |
+| --- | --- | --- | --- |
+| Password fill | 12 | 11 | `ProvidesPasswords` |
+| Passkey sign-in and registration | 17 | 14 | `ProvidesPasskeys` |
+| Verification codes | 18 | 15 | `ProvidesOneTimeCodes` |
+| Automatic passkey upgrade | 18 | 15 | `SupportsConditionalPasskeyRegistration` |
+| Text insertion (single fields, such as a card number) | 18 | Not available | `ProvidesTextToInsert` |
+| Save password request | 26.2 | Not available | `SupportsSavePasswordCredentials` |
+| Generate passwords request | 26.2 | Not available | `SupportsGeneratePasswordCredentials` |
+| Credential exchange import and export | 26 | 26 | `ASCredentialImportManager`, `ASCredentialExportManager` |
+
+- The AutoFill credential provider capability needs the paid Apple Developer Program on both platforms. App Groups and Keychain sharing alone do not.
+- An App Group name works as a Keychain access group on iOS. On Mac it works only when a provisioning profile validates the entitlements, and `kSecAttrAccessGroup` is ignored outside the data protection keychain. So the Mac app and provider can share the Face ID or Touch ID key only in a provisioned build, and the unsigned Mac build proves the app alone.
+- On macOS 15 and later an extension is denied the App Group container, with no prompt, unless the group ID is prefixed with the team ID, a profile authorises it, or the app comes from the Mac App Store.
+- The identity store has password (iOS 12), passkey (17) and one-time code (18) identities, replace and incremental calls, and belongs to the system, so suggestions stay while the app is locked.
+- A security-scoped bookmark made by the app does not resolve in the extension.
+- Apple publishes no memory limit for the provider. Other KeePass apps report 64 to 120 MB. Budget 64 MB until S2 measures it.
+- Chrome on iPhone and iPad documents using system providers; Edge and Firefox there are untested. No primary source shows Chrome, Edge or Firefox on Mac offering a third-party provider.
+
+### What only a signed device can settle
+
+1. That the provider appears under AutoFill & Passwords with the paid team's profile, on iPhone, iPad and Mac.
+2. Peak memory and unlock time in the extension on the oldest supported iPhone, for a small vault and one of a few thousand entries, on a cold start.
+3. That the extension can read the biometry-protected Keychain item the app created, on iOS and in the Mac data protection keychain.
+4. That the Mac provider can open the App Group container, with a `group.` identifier and with a team-prefixed one.
+5. A document-scoped bookmark to an iCloud Drive file resolved from the extension, including after a restart.
+6. The identity store when the provider is switched off, after a restart before first unlock, and when the app registers against when the extension does.
+7. Whether Chrome, Firefox and Edge on Mac offer the provider, and Edge and Firefox on iPhone.
+8. Passkeys on Mac in Safari and a native app, including automatic upgrade.
+9. The Safari extension's handler reading the shared Keychain group, and how long a message through it takes.

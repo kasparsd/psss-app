@@ -22,6 +22,8 @@ struct VaultItem: Identifiable, Sendable, Codable {
     var notes = ""
     /// TOTP (RFC 6238) secret as Base32, logins only. The codes it makes are shown as the item's one-time code.
     var otpSecret = ""
+    /// Digits, period and algorithm of the TOTP secret. Most sites use the defaults.
+    var otpSettings = TOTPSettings.standard
     var lastUsed: Date?
     var useCount = 0
     /// Set when this login also holds a passkey.
@@ -30,7 +32,7 @@ struct VaultItem: Identifiable, Sendable, Codable {
     /// The `otpauth://` link that moves this TOTP secret to another authenticator.
     var totpSetupURL: String? {
         guard kind == .login, let secret = TOTP.normalizedSecret(otpSecret) else { return nil }
-        return TOTP.setupURL(secret: secret, issuer: displayTitle, account: account)
+        return TOTP.setupURL(secret: secret, issuer: displayTitle, account: account, settings: otpSettings)
     }
 
     /// What this item holds beyond a name and a secret. Secure notes always have notes, so they do not advertise it.
@@ -52,7 +54,7 @@ struct VaultItem: Identifiable, Sendable, Codable {
 
     init(id: UUID = UUID(), kind: ItemKind, title: String = "", account: String = "", website: String = "",
          secret: String = "", expiry: String = "", notes: String = "",
-         otpSecret: String = "", lastUsed: Date? = nil, useCount: Int = 0) {
+         otpSecret: String = "", otpSettings: TOTPSettings = .standard, lastUsed: Date? = nil, useCount: Int = 0) {
         self.id = id
         self.kind = kind
         self.title = title
@@ -62,6 +64,7 @@ struct VaultItem: Identifiable, Sendable, Codable {
         self.expiry = expiry
         self.notes = notes
         self.otpSecret = otpSecret
+        self.otpSettings = otpSettings
         self.lastUsed = lastUsed
         self.useCount = useCount
     }

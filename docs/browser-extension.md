@@ -141,7 +141,7 @@ Ideas not built yet: HTTPS pages with a local certificate authority (the secure 
 Frozen on 2026-11-22 until the M0 gate on 2026-12-20, Safari included: bug fixes only. See the [roadmap](roadmap.md#course-correction-review-of-2026-11-22). The host and the Safari handler still answer from the sample vault and the plain-JSON prototype file, not from the encrypted vault.
 
 - [x] Shared extension, three targets, reproducible Chromium and Firefox archives, requirement checks in `build.py check`.
-- [x] Native host with framing, caller check, origin rules and search; 14 protocol tests pass.
+- [x] Native host with framing, caller check, origin rules and search; 17 protocol tests.
 - [x] Search over all logins with an explicit confirmation for a login saved for another site (found by hand-testing in Chrome).
 - [x] Safari extension bundled in both apps (`SafariExtension-macOS`, `SafariExtension-iOS`), built unsigned with each scheme, sharing `BrowserProtocol` with the host.
 - [x] Host registered for Chrome, Firefox and the other browsers with a profile directory (`build.py doctor`).

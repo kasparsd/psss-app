@@ -36,23 +36,19 @@ Every release must hold these. A change that breaks one needs an explicit entry 
 - No write that cannot be undone.
 - No analytics or telemetry.
 
+## Purpose
+
+Decided by the owner, 2026-11-23: the goal is to give people the most secure and least frustrating way to keep and use their passwords, starting with the owner's own family. Every plan is judged against that first. Making money from it is a later question.
+
 ## Business model
 
-Adopted 2026-11-22. Family Sharing is decided and prices are the leading option. It adapts the photo app's model (free allowance, then a one-time purchase) to a product whose recurring cost to the maker is zero.
+Undecided, and deliberately deferred (owner, 2026-11-23). It replaces the model adopted on 2026-11-22, which sold iCloud sync as “Psss Pro” for $49.99 once or $19.99 a year.
 
-- Free forever: local vaults on one device, in any number, with unlimited items, fill, passkeys, verification codes, generator, import and export. Nothing the person already has is ever held back.
-- Psss Pro unlocks iCloud Drive sync and use across devices, and other features that exist only because more than one device is involved. Two ways to buy it with the same entitlement: **$49.99 lifetime** (non-consumable) or **$19.99 per year** (auto-renewable). Both support Family Sharing (decided 2026-11-22). US prices; regional price points are set in App Store Connect. Prices are the leading option and are confirmed at M2. Purchase and restore never alter or delete data. Restore works on every shipping platform.
-- Open question (2026-11-22): a `.kdbx` opened in place from iCloud Drive already works on several devices for free, so the exact Pro boundary needs a decision. The recommendation and the alternative are in the [roadmap](roadmap.md#open-decisions).
-- Never gate viewing, fill, export or data the person already stored. If a yearly subscription lapses, sync stops and the vault stays fully readable, editable on that device and exportable. Nothing is held hostage.
-- No trial clock, no weekly pricing, no early modal paywall. State the boundary during setup and at the moment sync is first offered, with both options shown together.
-- Market position, from public listings checked 2026-11-22 (verify before using in marketing): Strongbox Pro lifetime is listed at $69.99 to $99.99 and its standalone Lifetime Edition at $124.99, with yearly at $24.99 to $34.99. 1Password Individual is $47.88 per year after the March 2026 increase. $49.99 lifetime equals about one year of 1Password.
-- Copy says “Pay once, or yearly” and “No subscription required”, never “No subscription”.
-
-Why not a free item cap like the photo app's 100 deletions: a cap bites during migration, when the person has just moved everything in, which feels like being held hostage. Sync is the natural value boundary and costs nothing to demonstrate.
-
-### Shared offer with the photo app
-
-Both apps offer an annual and a lifetime purchase: the photo app at $29.99 and $49.99, this app at $19.99 and $49.99. The photo app's brand copy says “No subscription”, which contradicts that offer. Change the copy, not the offer, to “One-time purchase available, no subscription required” before either app launches, so the family promise stays honest.
+- Sync through iCloud is free, and so is everything else today: any number of vaults and items, fill, passkeys, verification codes, the generator, import and export.
+- How Psss earns money is worked out later, once people use it. It stays an open decision in the [roadmap](roadmap.md#open-decisions).
+- Whatever is chosen keeps these rules. Never gate viewing, fill, sync, export or anything the person already stored. Nothing is held hostage, and a purchase or its lapse never alters or deletes data. No trial clock, no weekly pricing, no early modal paywall. Terms are stated up front.
+- No interface, copy or landing page mentions Pro, a price or a paid tier until this is decided.
+- Kept for when the question is taken up, from public listings checked 2026-11-22 (verify before use): Strongbox Pro lifetime is listed at $69.99 to $99.99 and its standalone Lifetime Edition at $124.99, with yearly at $24.99 to $34.99. 1Password Individual is $47.88 per year after the March 2026 increase. The sibling photo app offers $29.99 a year and $49.99 lifetime, and its copy should say “no subscription required”, not “no subscription”.
 
 ## Collection and brand
 

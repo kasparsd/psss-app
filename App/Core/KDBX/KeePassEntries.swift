@@ -51,12 +51,8 @@ extension KDBXDocument {
         return true
     }
 
-    /// Records use without a history entry: only the last-access time and the usage count change.
-    func markUsed(_ id: UUID) {
-        guard let (entry, _) = liveEntries().first(where: { EntryMapping.uuid(of: $0.entry) == id }), let times = entry.child("Times") else { return }
-        times.setChildText("LastAccessTime", KeePassTime.string(.now))
-        times.setChildText("UsageCount", String((Int(times.child("UsageCount")?.text ?? "0") ?? 0) + 1))
-    }
+    /// Stamps the database as modified, so its "Modified" date follows every write.
+    func touchModified() { rootGroup?.child("Times")?.setChildText("LastModificationTime", KeePassTime.string(.now)) }
 
     /// Removes the entry for good and records the deletion so another device does not bring it back.
     func remove(_ id: UUID) {
@@ -144,7 +140,7 @@ enum EntryMapping {
         guard let id = uuid(of: entry) else { return nil }
         var title = string(entry, "Title") ?? "", account = string(entry, "UserName") ?? ""
         let website = string(entry, "URL") ?? "", secret = string(entry, "Password") ?? "", notes = string(entry, "Notes") ?? ""
-        let otp = otpSecret(entry)
+        let otp = otpSetup(entry)
         let passkey = passkey(entry)
 
         // A login without a name is stored under its host so other KeePass apps show something; read it back as empty.
@@ -157,33 +153,35 @@ enum EntryMapping {
         case "custom": kind = .keePassEntry
         case "login": kind = .login
         default:
-            if !website.isEmpty || !account.isEmpty || !otp.isEmpty || passkey != nil { kind = .login }
+            if !website.isEmpty || !account.isEmpty || !otp.secret.isEmpty || passkey != nil { kind = .login }
             else if secret.isEmpty && !notes.isEmpty { kind = .secureNote }
             else { kind = .keePassEntry }
         }
-        let times = entry.child("Times")
-        let count = Int(times?.child("UsageCount")?.text ?? "") ?? 0
-        let accessed = KeePassTime.date(times?.child("LastAccessTime")?.text ?? "")
         var item = VaultItem(id: id, kind: kind, title: title, account: account, website: website, secret: secret,
                              expiry: kind == .creditCard ? string(entry, cardExpiryKey) ?? "" : "", notes: notes,
-                             otpSecret: kind == .login ? otp : "", lastUsed: count > 0 ? accessed : nil, useCount: count)
+                             otpSecret: kind == .login ? otp.secret : "", otpSettings: kind == .login ? otp.settings : .standard)
         item.passkey = passkey
         return item
     }
 
-    /// The TOTP secret as Base32, from KeePassXC's `otp` (an otpauth link or a bare secret) or the older KeeOtp fields.
-    private static func otpSecret(_ entry: XNode) -> String {
+    /// The TOTP secret as Base32 with its digits, period and algorithm, from KeePassXC's `otp` (an otpauth link or a bare
+    /// secret) or the older KeeOtp fields.
+    private static func otpSetup(_ entry: XNode) -> (secret: String, settings: TOTPSettings) {
         if let value = string(entry, "otp"), !value.isEmpty {
-            if let components = URLComponents(string: value), components.scheme == "otpauth",
-               let secret = components.queryItems?.first(where: { $0.name.lowercased() == "secret" })?.value {
-                return TOTP.normalizedSecret(secret) ?? ""
-            }
-            return TOTP.normalizedSecret(value) ?? ""
+            if case .setup(let setup) = TOTP.parse(value) { return (setup.secret, setup.settings) }
+            return ("", .standard)
         }
         for key in ["TimeOtp-Secret-Base32", "TOTP Seed"] {
-            if let value = string(entry, key), let secret = TOTP.normalizedSecret(value) { return secret }
+            if let value = string(entry, key), let secret = TOTP.normalizedSecret(value) {
+                var settings = TOTPSettings.standard
+                if let digits = string(entry, "TimeOtp-Length").flatMap(Int.init), (6...8).contains(digits) { settings.digits = digits }
+                if let period = string(entry, "TimeOtp-Period").flatMap(Int.init), period > 0 { settings.period = period }
+                if let name = string(entry, "TimeOtp-Algorithm")?.uppercased().replacingOccurrences(of: "HMAC-", with: "").replacingOccurrences(of: "-", with: ""),
+                   let algorithm = TOTPSettings.Algorithm(rawValue: name) { settings.algorithm = algorithm }
+                return (secret, settings)
+            }
         }
-        return ""
+        return ("", .standard)
     }
 
     private static func passkey(_ entry: XNode) -> PasskeyRecord? {
@@ -228,11 +226,13 @@ enum EntryMapping {
         }
         set(cardExpiryKey, item.kind == .creditCard ? item.expiry : nil)
 
-        // Rewrite the TOTP field only when the secret changed, so period, digits and issuer set elsewhere survive.
+        // Rewrite the TOTP field only when the secret or its parameters changed, so the issuer set elsewhere survives.
         let secret = item.kind == .login ? TOTP.normalizedSecret(item.otpSecret) ?? "" : ""
-        if secret != otpSecret(entry) {
+        let settings = secret.isEmpty ? TOTPSettings.standard : item.otpSettings
+        let stored = otpSetup(entry)
+        if secret != stored.secret || (!secret.isEmpty && settings != stored.settings) {
             for legacy in ["TimeOtp-Secret-Base32", "TOTP Seed", "TimeOtp-Length", "TimeOtp-Period", "TimeOtp-Algorithm"] { set(legacy, nil) }
-            set("otp", secret.isEmpty ? nil : TOTP.setupURL(secret: secret, issuer: item.displayTitle, account: item.account))
+            set("otp", secret.isEmpty ? nil : TOTP.setupURL(secret: secret, issuer: item.displayTitle, account: item.account, settings: settings))
         }
 
         if let passkey = item.passkey, let key = try? P256.Signing.PrivateKey(rawRepresentation: passkey.privateKey) {
@@ -244,17 +244,12 @@ enum EntryMapping {
         } else if item.passkey == nil, passkey(entry) != nil {
             for key in passkeyKeys { set(key, nil) }
         }
-
-        if let times = entry.child("Times") {
-            times.setChildText("LastAccessTime", KeePassTime.string(item.lastUsed ?? .now))
-            times.setChildText("UsageCount", String(item.useCount))
-        }
     }
 
-    /// Whether two items hold the same stored content. Usage counters are ignored: use alone makes no history.
+    /// Whether two items hold the same stored content. Usage is ignored: it lives in the device-local `UsageLog`, never in the entry.
     static func sameContent(_ a: VaultItem, _ b: VaultItem) -> Bool {
         a.kind == b.kind && a.title == b.title && a.account == b.account && a.website == b.website && a.secret == b.secret
-            && a.notes == b.notes && a.expiry == b.expiry && (TOTP.normalizedSecret(a.otpSecret) ?? "") == (TOTP.normalizedSecret(b.otpSecret) ?? "")
+            && a.notes == b.notes && a.expiry == b.expiry && (TOTP.normalizedSecret(a.otpSecret) ?? "") == (TOTP.normalizedSecret(b.otpSecret) ?? "") && a.otpSettings == b.otpSettings
             && a.passkey?.credentialID == b.passkey?.credentialID
     }
 

@@ -116,7 +116,10 @@ enum VaultFiles {
     static func keepBackup(of previous: Data, id: UUID) {
         let directory = backupDirectory(for: id)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let stamp = ISO8601DateFormatter().string(from: .now).replacingOccurrences(of: ":", with: "-")
+        // Milliseconds, so two writes within one second keep two copies.
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions.insert(.withFractionalSeconds)
+        let stamp = formatter.string(from: .now).replacingOccurrences(of: ":", with: "-")
         try? previous.write(to: directory.appendingPathComponent("\(stamp).kdbx"), options: [.atomic, .completeFileProtection])
         let all = ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).sorted()
         for old in all.dropLast(5) { try? FileManager.default.removeItem(at: directory.appendingPathComponent(old)) }
@@ -132,7 +135,6 @@ final class KeePassVaultStore: VaultStore {
     let url: URL
     private var document: KDBXDocument
     private var baseDigest: Data
-    private var pendingUse = false
     private let scoped: Bool
 
     var title: String { reference.name }
@@ -156,7 +158,15 @@ final class KeePassVaultStore: VaultStore {
     /// extension can stay inside its memory limit. Kept in memory only while the vault is open.
     var transformedKey: Data { document.transformedKey }
 
-    func items() -> [VaultItem] { document.items() }
+    /// The items, with last-used dates and counts from this device's usage log. The vault file's own usage fields are ignored.
+    func items() -> [VaultItem] {
+        let usage = UsageLog.load(for: reference.id)
+        return document.items().map { item in
+            var item = item
+            if let used = usage[item.id] { item.lastUsed = used.lastUsed; item.useCount = used.useCount }
+            return item
+        }
+    }
 
     func save(_ items: [VaultItem]) throws {
         var changed = false
@@ -167,28 +177,27 @@ final class KeePassVaultStore: VaultStore {
     func delete(_ id: UUID) throws {
         document.remove(id)
         try commit()
+        UsageLog.remove(id, in: reference.id)
     }
 
-    func markUsed(_ id: UUID) {
-        document.markUsed(id)
-        pendingUse = true
-    }
+    /// Records the use in the device-local usage log. The vault file is never written for it.
+    func markUsed(_ id: UUID) { UsageLog.record(id, in: reference.id) }
 
-    func flush() throws {
-        if pendingUse { try commit() }
-    }
+    /// Nothing is held back: edits are written as they are made and use goes straight to the usage log.
+    func flush() throws {}
 
     /// Writes the vault. Refuses when the file changed since it was read, unless told to overwrite.
     func commit(overwrite: Bool = false) throws {
+        document.touchModified()
         let data = try KDBX.save(document)
         let previous = try? VaultFiles.read(url)
         if let previous {
             guard overwrite || KDBXCrypto.equal(KDBXCrypto.sha256(previous), baseDigest) else { throw VaultStoreError.changedOnDisk }
-            VaultFiles.keepBackup(of: previous, id: reference.id)
         }
         try VaultFiles.write(data, to: url)
+        // A rollback copy is kept only for a write that succeeded, so a failed write never pushes good older copies out.
+        if let previous { VaultFiles.keepBackup(of: previous, id: reference.id) }
         baseDigest = KDBXCrypto.sha256(data)
-        pendingUse = false
     }
 
     /// Replaces the open document with what is on disk now. Pending edits are lost. Runs the KDF, so it is async.
@@ -197,7 +206,22 @@ final class KeePassVaultStore: VaultStore {
         let key = document.transformedKey
         document = try await Task.detached { try KDBX.open(data, transformedKey: key) }.value
         baseDigest = KDBXCrypto.sha256(data)
-        pendingUse = false
+    }
+
+    /// Reloads when another app, the AutoFill extension or a sync wrote the file since this store last read or wrote it.
+    /// Returns whether it did. Uses the key held in memory, so it never asks for the password; throws
+    /// `KDBXError.wrongCredentials` when the password or KDF seed was changed elsewhere.
+    func reloadIfChanged() async throws -> Bool {
+        let data = try VaultFiles.read(url)
+        let seen = baseDigest
+        guard !KDBXCrypto.equal(KDBXCrypto.sha256(data), seen) else { return false }
+        let key = document.transformedKey
+        let fresh = try await Task.detached { try KDBX.open(data, transformedKey: key) }.value
+        // Our own write finished while the file was being opened: what we hold is newer, so keep it.
+        guard KDBXCrypto.equal(baseDigest, seen) else { return false }
+        document = fresh
+        baseDigest = KDBXCrypto.sha256(data)
+        return true
     }
 
     func rename(_ name: String) throws {
@@ -236,7 +260,7 @@ final class VaultSession {
     /// Creates the vault in the app's own storage with the recommended KDF and cipher, then opens it.
     func create(name: String, credentials: KDBXCredentials, items: [VaultItem] = []) async throws {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? String(localized: "Passwords") : name
-        var document = try await Task.detached { try KDBX.create(name: name, credentials: credentials) }.value
+        let document = try await Task.detached { try KDBX.create(name: name, credentials: credentials) }.value
         for item in items { document.upsert(item) }
         let reference = VaultReference(name: name, managed: true, bookmark: nil, fileName: "\(UUID().uuidString).kdbx")
         try FileManager.default.createDirectory(at: VaultFiles.managedDirectory, withIntermediateDirectories: true)
@@ -379,7 +403,12 @@ final class VaultSession {
         if let reference, reference.managed {
             try? FileManager.default.removeItem(at: VaultFiles.managedURL(fileName: reference.fileName))
         }
-        if let reference { VaultFiles.removeBackups(for: reference.id); BiometricKey.delete(for: reference.id) }
+        if let reference {
+            VaultFiles.removeBackups(for: reference.id)
+            UsageLog.erase(for: reference.id)
+            BiometricKey.delete(for: reference.id)
+            SharedVault.removeIdentities()
+        }
         store = nil
         reference = nil
         VaultReference.clear()

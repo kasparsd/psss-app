@@ -14,7 +14,7 @@ See [vault items](items.md) for the entry templates and preservation rules. Veri
 
 - Cached site icons live in the vault as KeePass custom icons, so they sync, work offline and stay portable. Fetch only when the person opts in. See [experience](experience.md#one-line-rows-and-site-icons).
 
-- KDBX is canonical only until the M0 gate. Keep it behind a `VaultStore` boundary so the app domain never depends on KeePass structures. Kill criteria: the AutoFill extension cannot unlock within its memory and time budget even with a biometric-wrapped key, or two-device edits produce conflicts that entry-level merge cannot resolve. Fallback is a private encrypted store with KDBX import and export.
+- KDBX is canonical (decided by the owner, 2026-11-23). Psss does not build a private store, and the earlier fallback is dropped; reopen only for an existing, proven alternative that is clearly better. Keep KDBX behind the `VaultStore` boundary so the app domain does not depend on KeePass structures. What used to be kill criteria are now problems to solve inside the format: the AutoFill extension must unlock within its memory and time budget (the Keychain-held transformed key is the answer so far, to be measured in S2), and two-device edits must merge at entry level without losing an edit (S4).
 - Keep the Argon2 cost out of the extension. After the app unlocks, wrap the derived key in the Keychain behind biometrics so the provider only decrypts.
 - Use counts and last-used dates are device-local and never written to the vault file (decided 2026-11-22, not built yet). Today `markUsed` edits the entry and the next lock rewrites the whole file, which makes devices that only read conflict with each other and rotates out the five rollback copies. The plan: a small per-vault usage file in the App Group container, read by `items()`, removed with the vault; a rollback copy is kept only for writes that change content. KDBX `LastAccessTime` and `UsageCount` are left as found.
 - The app reloads the vault when the file changed while it was in the background (the AutoFill extension writes to the same file), using the key it already holds, and locks if that key no longer opens it. Not built yet.
@@ -37,7 +37,8 @@ See [vault items](items.md) for the entry templates and preservation rules. Veri
 Built and verified on the iPhone simulator; Mac builds and the Keychain path is untested on a real Mac vault.
 
 - **Face ID and Touch ID.** After a password unlock, or after creating a vault, an alert offers "Unlock Passwords with Face ID?" ("Not Now" is remembered per vault; Setup has an "Unlock with Face ID" switch). Accepting saves the vault's transformed key (the password after the KDF) in the Keychain (`BiometricKey`). On iOS and iPadOS the item uses `kSecAttrAccessControl` with `.biometryCurrentSet` on this device only, so it disappears when the enrolled face or fingers change. On macOS the item sits in the login keychain, readable only on this device, and the app asks for Touch ID itself before reading it, because the data protection keychain with a biometric access control needs a provisioned build. The lock screen asks for biometry on appearance and has a labeled "Face ID" or "Touch ID" button beside the password field to retry. The password always still works. Changing the vault password refreshes the saved key; a key that no longer opens the file (biometry changed, password changed elsewhere) switches the feature off and asks for the password once. Forgetting a vault deletes its key.
-- **Not yet done for biometrics.** The saved transformed key skips the KDF but is tied to the file's KDF seed and password: changing either (including another app rewriting the seed) makes it fail once, and the app asks for the password. The extension's memory and time are not yet measured on a device (S2). The Mac Keychain path, Apple Watch unlock and iCloud Keychain sync (S6) are untested or undecided. Simulator testing needs an ad-hoc signed build (`CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES`), because an unsigned build cannot use the Keychain.
+- **Saved key and other apps (observed 2026-11-23).** The saved transformed key is tied to the file's KDF seed and password. Psss keeps the seed on save, and opening a KDBX 3.1 file and saving it as 4.1 keeps it too. KeePassXC 2.8 changes the seed on every save, so any save by KeePassXC invalidates the key and the next unlock needs the password; KeePass 2 and Strongbox are unverified. Today that turns Face ID off until the person switches it on again, and the saved key is not refreshed by a password unlock: both are to fix (roadmap S2). KeePassXC also rewrites a 4.1 file as 4.0; entries read back correctly.
+- **Not yet done for biometrics.** The extension's memory and time are not yet measured on a device (S2). The Mac Keychain path, Apple Watch unlock and iCloud Keychain sync (S6) are untested or undecided. Simulator testing needs an ad-hoc signed build (`CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES`), because an unsigned build cannot use the Keychain.
 - **What is this?** A labeled button under the password opens a short explainer: the password chosen when the vault was created, not the Apple Account or device passcode, the password set in KeePassXC or Strongbox for files made there, what a key file is, and that Psss cannot see or reset it.
 - **Forgot Password?** A second labeled button opens plain help: nothing to reset, three things to try (Caps Lock and keyboard language, the key file, an older copy), then "Open Another Vault…" and "Forget This Vault…". Forgetting a vault Psss created deletes it from the device after a confirmation; forgetting an opened file only removes Psss's reference.
 - **Still open.** A recovery phrase (S6) is not built, so the help does not promise one. A device-local password hint was considered and not built; decide before adding. The selector lists one vault; it becomes a real list with the multi-vault work.
@@ -49,6 +50,63 @@ Built and verified on the iPhone simulator; Mac builds and the Keychain path is 
 - [ ] Establish interoperability fixtures from KeePassXC and Strongbox and verify open, mutate, save and reopen in both directions.
 - [ ] Test concurrent changes from two devices, offline recovery and failed atomic replacement.
 
+## Sync and merge design (2026-11-23)
+
+An evaluation of how sync should work inside KDBX. It replaces the one-sentence S4 spike; the test protocol is in the [roadmap](roadmap.md). Nothing here is built except where it says so.
+
+### What happens today
+
+The app notices an outside change only when it next writes, by comparing the file's hash with the one it opened. Then it offers Reload (the edit just made is discarded), Overwrite (the other writer's change survives only as a rollback copy) or Cancel (the list shows an edit the file does not hold, and it is gone at the next lock). Reloading when the app becomes active is being added now.
+
+Defects that matter for sync:
+
+- [ ] The check and the write are two separate coordinated steps, so another writer can land between them. Make it one coordinated read, compare and write.
+- [ ] When the read before a write fails (file not downloaded, offline), the check is skipped and the write goes ahead blind. Fail instead.
+- [ ] Coordinated reads run on the main actor and block while iCloud downloads a file.
+- [ ] Two saves of one entry within a second make two history items with the same time, which merge cannot tell apart. Entry times must always move forward.
+- [ ] A saved file never has the same bytes twice, since seeds and IVs are fresh each time. “Nothing to merge” has to compare decrypted content, never file hashes.
+- [ ] Deleting is permanent, so a delete that wins a merge cannot be undone. The Recycle Bin comes first (see [items](items.md#revisions)).
+
+### How iCloud Drive presents two edits
+
+From Apple's technical note on version conflicts and the iCloud design guide: two devices editing one file produce versions of that file, not extra files, read with `NSFileVersion.unresolvedConflictVersionsOfItem(at:)`. The app resolves them itself and must then remove the other versions, or they keep syncing to every device and using storage. An app that is not document-based implements `NSFilePresenter` to hear about new versions and coordinates every access. A file that was evicted keeps its metadata and downloads on a coordinated read. Visible duplicates named “file 2” come from two devices creating a file of the same name, not from editing.
+
+Reported on Apple's forums and to be tested, not relied on: the current version can differ between devices after a simultaneous edit; a write made before the metadata query has gathered can overwrite the cloud version without a conflict; atomic replacement of an iCloud file fails now and then. Unverified: whether a file opened from iCloud Drive through the Files picker gets the same hidden versions as a file in the app's own container, whether complete file protection delays upload while the device is locked, and whether KeePassXC's save pattern produces visible copies.
+
+A vault in Psss's own iCloud container needs the iCloud entitlement on the app and the provider, so a paid developer account. A file the person picked needs no entitlement, but any app can rewrite it in any way, and the AutoFill extension cannot reach it today.
+
+### The merge
+
+KeePass and KeePassXC merge at entry level: entries match by identifier, the one modified later becomes current and the other goes into history, histories are combined, and a deletion wins only over an entry not modified after it. KeePass states it will not merge at field level. Psss needs one step more, because the experience asks only when the same field changed on both sides.
+
+1. Match entries by identifier. An entry only one side has is added, subject to the delete rule.
+2. Find the newest revision both sides share, current or in history. If one side's current version is in the other's history, the newer side simply wins.
+3. Otherwise merge field by field against that shared revision. A field changed on one side takes that change.
+4. Ask only when one field changed to different values on both sides, or an edit meets a delete: “Edited on iPhone, 14:02” against “Edited on Mac, 14:05”, keep either. The later one is the default, the other stays in history, and when the two times are within two minutes Psss asks instead of defaulting.
+5. Combine the histories and trim to the limit.
+6. Treat these as one unit each, never half-merged: the one-time code, the passkey's five fields, and a card's number with its expiry.
+
+When history was trimmed and no shared revision remains, fall back to KeePass's rule: the later entry wins whole and the other goes to history. A copy of the last agreed state, kept encrypted on the device, is the later improvement that makes deletes and moves exact.
+
+The merge must give the same content whichever side runs it and change nothing when run twice. A delete never removes a later edit, and what it does remove goes to the Recycle Bin. The AutoFill extension is one more writer and uses the same path. Psss's saves keep the KDF seed, so the other device's Face ID key keeps working after a merge. Passkeys have no counter and one-time codes no state, so neither needs merging beyond the unit rule.
+
+To never lose an edit: write this device's change as a revision first, then merge, then replace the file; keep the file from before the merge as a rollback copy until the upload is confirmed; and remove iCloud's other versions only after the merged file was written and read back.
+
+### Order of work
+
+1. Usage out of the file and rollback copies for content writes only (built, being validated).
+2. Entry times that always move forward, history without collisions, a comparison of decrypted content.
+3. Recycle Bin on delete, with restore.
+4. The merge as a pure function in `App/Core/KDBX`, with tests that merge in both orders and compare with `keepassxc-cli merge`.
+5. One coordinated read, compare and write, off the main actor, with merge in place of Overwrite.
+6. The extension on the same path.
+7. A file presenter, version listing and cleanup, and sync status.
+8. The conflict and sync screens, after the gate.
+9. A scripted writer for the device runs.
+10. The iCloud container, its entitlements and AutoFill on the synced vault. Needs the paid account.
+
+Steps 1 to 6 need no signing and can start now.
+
 ## Multiple vaults
 
 Decided 2026-11-22: the app supports several vaults. People bring more than one KeePass file (personal and work, a shared family file), and a second vault is the cleanest way to keep a work login out of a personal list. It must cost single-vault people nothing: the first vault is still created without a question, and no vault control appears until a second one exists.
@@ -59,7 +117,7 @@ Decided 2026-11-22: the app supports several vaults. People bring more than one 
 - A small **vault registry** in the App Group lists every vault: identifier, name, color, storage location, whether it is the default, and how it unlocks. The app and the AutoFill extension both read it. It holds no secrets.
 - **Unlock.** Vaults whose key is wrapped in the Keychain behind biometrics open together after one Face ID or Touch ID. A vault protected by its own password or key file stays locked until asked for, and the extension offers it only when its identities can be matched. Lock state is per vault, but the app-level lock covers all of them.
 - **Default vault.** Where new logins, saves from Safari, generated passwords and imports go. Always visible wherever it matters. Changing it is one tap.
-- **Storage and sync.** Each vault serializes its own writes and resolves its own conflicts, exactly as described above. Psss Pro syncs vaults independently, so a lapsed subscription never strands one.
+- **Storage and sync.** Each vault serializes its own writes and resolves its own conflicts, exactly as described above. Vaults sync independently, and sync is free.
 - **Deleting.** Removing a vault from the app never deletes its file. Deleting its contents is a separate, explicit, counted action. Recently Deleted is per vault and listed together.
 
 ### Rules for the whole app
@@ -79,7 +137,7 @@ Decided 2026-11-22: the app supports several vaults. People bring more than one 
 4. **AutoFill.** The credential identity store registers identities for every unlocked vault, with the vault identifier in `recordIdentifier`. Ranking prefers the default vault. The save prompt shows its destination.
 5. **Browser.** Sidebar sections, search scope, detail and editor changes from [experience](experience.md#multiple-vaults-screens-and-steps-affected).
 6. **Import and export.** Import chooses a destination vault, defaulting to the default one. Export is per vault, and the export-all option says how many files it writes.
-7. **Sync.** Per-vault sync status and conflicts. Free-tier people can still move vaults between their own devices by file.
+7. **Sync.** Per-vault sync status and conflicts. People who keep sync off can still move a vault between their own devices by file.
 8. **Tests.** Fixtures with two vaults and a shared domain. Matching, ranking and move/copy round trips. Lock one vault while the other is open.
 
 Shared vaults for a family are a sharing feature, not multi-vault, and stay out of 1.0 as in the [roadmap](roadmap.md). The design is below.

@@ -10,21 +10,29 @@ First-class source and the largest cohort. Accept the CSV export and, where the 
 
 ## 1Password
 
-Start with a Mac file-based 1Password 8 migration. Prefer 1PUX for richer data and accept CSV for basic logins. Map source vaults to named KeePass vaults or groups through an explicit preview. Map 1PUX logins, credit cards and secure notes to their matching templates. Map other categories to a general KeePass entry when every source field can be represented. Preserve URLs, notes, tags, custom fields, OTP, attachments and history where mappings have been tested. Surface unsupported or partial items individually before commit. Treat passkeys as a separate migration path that requires research and testing. 1Password 7’s 1PIF is a follow-up compatibility item.
+1Password 7 comes first (decided 2026-11-23). The first real person to move is on it, and it is being retired in early 2027. Version 7 exports only 1PIF, CSV and tab-delimited text, from the Mac or Windows app, one vault at a time; its iPhone app has no export. 1PUX exists only in 1Password 8, which needs a membership that standalone-licence owners do not have, so asking them to subscribe to export is the wrong request.
 
-Parse the selected export on-device under bounded archive and attachment handling. Create a plan before writing, distinguish exact duplicates from apparent matches, and default to skipping exact duplicates and keeping separate ambiguous items pending review. Commit per vault atomically and report successes and failures by destination. Make retries idempotent with stable source identifiers where available. Remind users that file exports are readable and should be removed when they have verified the encrypted import.
+Read the 1PIF export folder, `data.1pif` with its attachments folder, and keep the 1Password 7 CSV as a fallback for logins only. Map logins, cards and secure notes to their templates and every other category (identity, bank account, router, server, licence, passport, membership and unknown types) to a custom item whose fields carry the section title in their label. Keep every website, notes, tags, custom fields, one-time codes, attachments, password history as KDBX history, and the created and edited dates. Folders become groups, favourites a tag, and deleted items are skipped and counted. Each entry records the 1Password identifier it came from, so importing twice adds nothing.
 
-[1Password export formats](https://support.1password.com/export/), [1PUX schema](https://support.1password.com/1pux-format/), [Strongbox getting started](https://strongboxsafe.com/getting-started/).
+The importer writes KDBX entries directly, below today's flat `VaultItem`, so it does not wait for the field model and nothing is lost in the file. Until the detail page shows custom fields and attachments, though, the person cannot see them in Psss, so a first usable version includes a read-only “Other fields” section and an attachments list.
+
+Parse on the device under size, line and path limits. Build a plan, show one line of counts and a short list of exceptions, write nothing until Import, then commit once so a failure leaves the vault unchanged. Skip exact duplicates (the same 1Password identifier, or the same site, username and password) and add similar ones separately, listing them. Say plainly that the export is not encrypted and offer to delete it afterwards.
+
+1PIF has no official specification. The mapping comes from the owner's own 1Password 7 export of a fictional vault (note, password item, login, card) and from open-source importers and their sample exports, which cover every category, attachments, folders, favourites, deleted items and password history. Published fixtures are GPL or AGPL and are not copied; the tests use hand-written fictional ones. Still to confirm on a real 1Password 7 export: attachments and password history. The working plan, with the mapping tables, limits, copy and fixtures, is `docs/plans/1password-7-import.md`. 1Password 8's 1PUX comes next and shares the plan type and the mapping; reading an OPVault folder directly is a later option that avoids the unencrypted export at the cost of a good deal of sensitive code. Passkeys are a separate path.
+
+[1Password export formats](https://support.1password.com/export/), [import and 1PIF](https://support.1password.com/import/), [1PUX schema](https://support.1password.com/1pux-format/), [OPVault design](https://support.1password.com/cs/opvault-design/), [Strongbox getting started](https://strongboxsafe.com/getting-started/).
 
 ## Decisions
 
-- Order of work: Apple Passwords, Strongbox open-in-place, then 1Password. Migration is an onboarding step, not the product identity.
+- Order of work: Apple Passwords CSV and Strongbox open-in-place are built; 1Password 7 (1PIF) is next, then 1Password 8 (1PUX). Migration is an onboarding step, not the product identity.
 - Make the preview and data-loss report central to migration.
 - Prototype file selection and review with synthetic fixtures. Retain the source files untouched.
 
 ## Roadmap
 
-- [ ] Build Apple Passwords CSV and Credential Exchange import for M1.
+- [x] Apple Passwords CSV import.
+- [ ] Credential Exchange import (iOS and macOS 26).
+- [ ] 1Password 7 import per `docs/plans/1password-7-import.md`: the importer, the direct KDBX writer and fixtures first, then the screens after an approved mock.
 - [ ] Build a representative mapping and fixture inventory for both sources.
 - [ ] Test counts and field fidelity after reopening the resulting KDBX with an independent client.
-- [ ] Evaluate mobile direct transfer, passkeys, 1PIF and category-specific templates beyond cards, notes and logins after the general entry mapping is verified.
+- [ ] After 1PIF: 1Password 8 (1PUX), OPVault, Windows export variants, mobile direct transfer and passkeys.

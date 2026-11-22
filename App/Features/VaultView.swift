@@ -188,9 +188,10 @@ struct VaultView: View {
         .passwordsImporter(isPresented: $importing, notice: $importNotice, problem: $importProblem) { added in
             try store.save(added)
             items = store.items()
+            SharedVault.registerIdentities(for: items)
         }
         .alert("Imported", isPresented: Binding(get: { importNotice != nil }, set: { if !$0 { importNotice = nil } })) {
-            Button("Open vault") { importNotice = nil; items = store.items() }
+            Button("Open vault") { importNotice = nil; items = store.items(); SharedVault.registerIdentities(for: items) }
         } message: { Text(importNotice ?? "") }
         .alert("Could not save", isPresented: Binding(get: { storeProblem != nil }, set: { if !$0 { storeProblem = nil } })) {
             Button("OK") { storeProblem = nil }
@@ -218,12 +219,12 @@ struct VaultView: View {
             Button("OK") { importProblem = nil }
         } message: { Text(importProblem ?? "") }
         .focusedSceneValue(\.newItem, { kind in editor = VaultItem(kind: kind) })
-        .task { if store.isSample { SharedVault.registerIdentities(for: items) } }
+        .task { SharedVault.registerIdentities(for: items) }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { reloadSaved() }
+            if phase == .active { reloadSaved(); reloadIfChangedOnDisk() }
         }
         .sheet(item: $editor) { item in
-            ItemEditor(item: item, onSave: save,
+            ItemEditor(item: item, onSave: save, onKeepDraft: keepDraft,
                        onDelete: items.contains { $0.id == item.id } ? { delete(item.id) } : nil)
         }
         .sheet(isPresented: $showsSetup) { setupSheet }
@@ -648,6 +649,24 @@ struct VaultView: View {
         SharedVault.registerIdentities(for: items)
     }
 
+    /// Picks up what the AutoFill extension or another app wrote to the vault file while this view was in the background.
+    /// If the password changed elsewhere, the kept key no longer opens the file, so the vault locks and asks again.
+    private func reloadIfChangedOnDisk() {
+        guard let store = store as? KeePassVaultStore else { return }
+        Task {
+            do {
+                if try await store.reloadIfChanged() {
+                    items = store.items()
+                    SharedVault.registerIdentities(for: items)
+                }
+            } catch KDBXError.wrongCredentials {
+                gate.lock()
+            } catch {
+                // The file is missing or unreadable for now. Keep what is open; the next save reports the problem.
+            }
+        }
+    }
+
     private func markUsed(_ id: VaultItem.ID) {
         if let index = items.firstIndex(where: { $0.id == id }) {
             items[index].lastUsed = .now
@@ -667,7 +686,7 @@ struct VaultView: View {
     private func reloadFromDisk() {
         guard let store = store as? KeePassVaultStore else { return }
         Task {
-            do { try await store.reload(); items = store.items() }
+            do { try await store.reload(); items = store.items(); SharedVault.registerIdentities(for: items) }
             catch { storeProblem = (error as? KDBXError)?.message ?? error.localizedDescription }
         }
     }
@@ -680,9 +699,21 @@ struct VaultView: View {
     private func delete(_ id: VaultItem.ID) {
         attempt { try store.delete(id) }
         items = store.items()
+        SharedVault.registerIdentities(for: items)
         selection = nil
         compactPath = []
         editor = nil
+    }
+
+    /// Stores an item as it is while its editor stays open.
+    private func keepDraft(_ item: VaultItem) {
+        attempt { try store.save([item]) }
+        if let index = items.firstIndex(where: { $0.id == item.id }) {
+            items[index] = item
+        } else {
+            items.append(item)
+        }
+        SharedVault.registerIdentities(for: items)
     }
 
     private func save(_ item: VaultItem) {
@@ -692,6 +723,7 @@ struct VaultView: View {
         } else {
             items.append(item)
         }
+        SharedVault.registerIdentities(for: items)
         search = ""
         if !activeCategory.includes(item) { category = .kind(item.kind) }
         selection = item.id
@@ -943,21 +975,21 @@ private struct ItemDetail: View {
 
     private var codeRow: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-                let remaining = TOTP.secondsRemaining(at: context.date)
-                let code = TOTP.code(secret: item.otpSecret, at: context.date) ?? "------"
+                let remaining = TOTP.secondsRemaining(period: item.otpSettings.period, at: context.date)
+                let code = TOTP.code(secret: item.otpSecret, settings: item.otpSettings, at: context.date) ?? "------"
                 Button {
                     copy(code, as: .code)
                 } label: {
                     HStack(spacing: 8) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("One-time code (TOTP)").font(.caption).foregroundStyle(.secondary)
-                            Text(grouped(code))
+                            Text(TOTP.grouped(code))
                                 .font(.system(.largeTitle, design: .monospaced).weight(.medium))
                                 .contentTransition(.numericText())
                         }
                         Spacer()
                         // Countdown first, so the copy icon lands in the same trailing column as every other row.
-                        Gauge(value: Double(remaining), in: 0...TOTP.period) {
+                        Gauge(value: Double(remaining), in: 0...Double(item.otpSettings.period)) {
                             Text("Seconds left")
                         } currentValueLabel: {
                             Text("\(remaining)")
@@ -978,11 +1010,6 @@ private struct ItemDetail: View {
                 .accessibilityValue(Text("Expires in \(remaining) seconds"))
                 .accessibilityHint("Copies the code")
         }
-    }
-
-    private func grouped(_ code: String) -> String {
-        guard code.count == 6 else { return code }
-        return code.prefix(3) + " " + code.suffix(3)
     }
 
     private func masked(_ id: FieldID) -> String {
@@ -1053,11 +1080,14 @@ private struct ItemDetail: View {
 private struct ItemEditor: View {
     @State var item: VaultItem
     let onSave: (VaultItem) -> Void
+    /// Stores the login without closing the editor, so a code survives leaving the app to type it into the site.
+    let onKeepDraft: (VaultItem) -> Void
     /// Set only when editing an existing item.
     var onDelete: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @FocusState private var titleFocused: Bool
     @State private var confirmsDelete = false
+    @State private var addingCode = false
 
     var body: some View {
         NavigationStack {
@@ -1089,17 +1119,27 @@ private struct ItemEditor: View {
                             .autocorrectionDisabled()
                     }
                     labeled("Password") { SecureField("Password", text: $item.secret, prompt: Text(verbatim: "")) }
-                    labeled("TOTP secret (optional)") {
-                        SecureField("TOTP secret", text: $item.otpSecret, prompt: Text("Secret or otpauth:// link"))
+                    labeled("Verification code (optional)") {
+                        SecureField("Setup key", text: $item.otpSecret, prompt: Text("Setup key or otpauth:// link"))
                             .autocorrectionDisabled()
                         #if os(iOS)
                             .textInputAutocapitalization(.never)
                         #endif
                         if totpInvalid {
-                            Text("That is not a valid TOTP secret.")
-                                .font(.caption)
-                                .foregroundStyle(.red)
+                            Label("That is not a valid setup key.", systemImage: "exclamationmark.triangle")
                         }
+                        HStack {
+                            Button(item.otpSecret.isEmpty ? "Add code" : "Replace code", systemImage: "qrcode.viewfinder") {
+                                addingCode = true
+                            }
+                            if !item.otpSecret.isEmpty {
+                                Button("Remove code", role: .destructive) {
+                                    item.otpSecret = ""
+                                    item.otpSettings = .standard
+                                }
+                            }
+                        }
+                        .buttonStyle(.bordered)
                     }
                     labeled("Name (optional)") {
                         TextField("Name", text: $item.title, prompt: Text(verbatim: namePlaceholder))
@@ -1141,6 +1181,14 @@ private struct ItemEditor: View {
             }
         }
         .modifier(SheetSize())
+        .sheet(isPresented: $addingCode) {
+            VerificationCodeSheet(loginName: item.displayTitle, hasExistingCode: totpUsable) { setup in
+                item.otpSecret = setup.secret
+                item.otpSettings = setup.settings
+                // A login with no name or website cannot be stored yet; it is kept when the person taps Save.
+                if item.displayTitle != String(localized: "Untitled") { onKeepDraft(saved) }
+            }
+        }
     }
 }
 
@@ -1153,14 +1201,24 @@ extension ItemEditor {
         }
     }
 
-    fileprivate var totpInvalid: Bool {
-        !item.otpSecret.isEmpty && TOTP.normalizedSecret(item.otpSecret) == nil
+    fileprivate var totpUsable: Bool {
+        if case .setup = TOTP.parse(item.otpSecret) { return true }
+        return false
     }
 
-    /// The item with its TOTP secret reduced to the clean Base32 form, whatever was pasted.
+    fileprivate var totpInvalid: Bool { !item.otpSecret.isEmpty && !totpUsable }
+
+    /// The item with its code reduced to the clean Base32 secret and its parameters, whatever was typed or pasted.
+    /// A bare key keeps the parameters the login already has; a link brings its own.
     fileprivate var saved: VaultItem {
         var clean = item
-        clean.otpSecret = TOTP.normalizedSecret(item.otpSecret) ?? ""
+        if case .setup(let setup) = TOTP.parse(item.otpSecret) {
+            clean.otpSecret = setup.secret
+            if item.otpSecret.lowercased().contains("otpauth://") { clean.otpSettings = setup.settings }
+        } else {
+            clean.otpSecret = ""
+            clean.otpSettings = .standard
+        }
         return clean
     }
 

@@ -102,8 +102,7 @@ let again = reopened.rootGroup!.children(named: "Entry").first { EntryMapping.uu
 check("unknown field survives", again.child("ForegroundColor")?.text ?? "", "#ff0000")
 check("history survives", "\(again.child("History")?.children.count ?? 0)", "1")
 check("history keeps old secret", EntryMapping.string(again.child("History")!.children[0], "Password") ?? "", login.secret)
-reopened.markUsed(login.id)
-check("usage count", "\(reopened.items().first { $0.id == login.id }!.useCount)", "1")
+check("document items carry no usage", "\(reopened.items().first { $0.id == login.id }!.useCount)", "0")
 reopened.remove(card.id)
 check("delete removes the item", "\(reopened.items().count)", "4")
 check("delete is recorded", "\(reopened.root.child("Root")!.child("DeletedObjects")!.children.count)", "1")
@@ -227,7 +226,126 @@ try await session.unlock(credentials: .init(password: "n3w"))
 expect("new vault password unlocks", session.store != nil)
 let backups = (try? FileManager.default.contentsOfDirectory(atPath: VaultFiles.storageRoot.appendingPathComponent("Backups/\(session.reference!.id.uuidString)").path)) ?? []
 expect("rollback copies are kept", backups.count >= 2)
+
+// MARK: Usage log (device-local, never written to the vault file)
+
+let usageStore = session.store!
+let vaultId = session.reference!.id
+let backupDirectory = VaultFiles.storageRoot.appendingPathComponent("Backups/\(vaultId.uuidString)")
+func backupNames() -> [String] { ((try? FileManager.default.contentsOfDirectory(atPath: backupDirectory.path)) ?? []).sorted() }
+let usageBefore = usageStore.items().first { $0.id == login.id }!.useCount
+let bytesBefore = try Data(contentsOf: usageStore.url)
+let backupsBefore = backupNames()
+usageStore.markUsed(login.id)
+usageStore.markUsed(login.id)
+try usageStore.flush()
+expect("marking used leaves the vault file bytes unchanged", try Data(contentsOf: usageStore.url) == bytesBefore)
+expect("marking used makes no rollback copy", backupNames() == backupsBefore)
+let usedItem = usageStore.items().first { $0.id == login.id }!
+check("use count shows in items", "\(usedItem.useCount)", "\(usageBefore + 2)")
+expect("last used shows in items", usedItem.lastUsed != nil)
+session.lock()
+try await session.unlock(credentials: .init(password: "n3w"))
+check("usage survives lock and unlock", "\(session.store!.items().first { $0.id == login.id }!.useCount)", "\(usageBefore + 2)")
+expect("usage file exists", FileManager.default.fileExists(atPath: UsageLog.fileURL(for: vaultId).path))
+expect("usage file holds no secrets", !String(decoding: (try? Data(contentsOf: UsageLog.fileURL(for: vaultId))) ?? Data(), as: UTF8.self).contains(login.secret))
+let usageStore2 = session.store!
+usageStore2.markUsed(custom.id)
+expect("custom item has usage", UsageLog.load(for: vaultId)[custom.id]?.useCount == 1)
+try usageStore2.delete(custom.id)
+expect("deleted item drops its usage", UsageLog.load(for: vaultId)[custom.id] == nil)
+expect("other usage stays", UsageLog.load(for: vaultId)[login.id]?.useCount == usageBefore + 2)
+
+// Reload when another writer (the AutoFill extension, a sync) changed the file.
+let storeA = session.store!
+let fileNow = try Data(contentsOf: storeA.url)
+let storeB = KeePassVaultStore(reference: session.reference!, url: storeA.url, scoped: false,
+                               document: try KDBX.open(fileNow, credentials: .init(password: "n3w")), fileData: fileNow)
+let unchanged = try await storeA.reloadIfChanged()
+expect("reloadIfChanged is false when nothing changed", !unchanged)
+let fromElsewhere = VaultItem(kind: .login, title: "From the extension", account: "ext", website: "ext.example", secret: "ext-secret")
+try storeB.save([fromElsewhere])
+let didReload = try await storeA.reloadIfChanged()
+expect("reloadIfChanged is true after another writer", didReload)
+expect("reloaded items show the new item", storeA.items().contains { $0.id == fromElsewhere.id })
+try storeA.save([VaultItem(kind: .secureNote, title: "After reload", notes: "text")])
+print("ok   save after reloadIfChanged does not hit changedOnDisk")
+let again2 = try await storeA.reloadIfChanged()
+expect("reloadIfChanged is false after our own save", !again2)
+
+// A failed write keeps no rollback copy and leaves the vault and the backups folder as they were.
+do {
+    let failing = session.store!
+    let directory = failing.url.deletingLastPathComponent()
+    let backupsBeforeFailure = backupNames()
+    let bytesBeforeFailure = try Data(contentsOf: failing.url)
+    func setWritable(_ writable: Bool) {
+        let mode = NSNumber(value: writable ? 0o755 : 0o555)
+        try? FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: directory.path)
+        try? FileManager.default.setAttributes([.posixPermissions: NSNumber(value: writable ? 0o644 : 0o444)], ofItemAtPath: failing.url.path)
+    }
+    setWritable(false)
+    var failedWrite = false
+    do { try failing.save([VaultItem(kind: .secureNote, title: "Will not be written", notes: "x")]) } catch { failedWrite = true }
+    setWritable(true)
+    expect("a write to a read-only vault throws", failedWrite)
+    expect("a failed write leaves the vault bytes unchanged", try Data(contentsOf: failing.url) == bytesBeforeFailure)
+    expect("a failed write keeps no rollback copy", backupNames() == backupsBeforeFailure)
+}
+
+
+// TOTP: RFC 6238 vectors (8 digits, t = 59) for each algorithm, then the setup parser.
+func base32(_ data: Data) -> String {
+    let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567")
+    var out = "", buffer = 0, bits = 0
+    for byte in data {
+        buffer = (buffer << 8) | Int(byte); bits += 8
+        while bits >= 5 { bits -= 5; out.append(alphabet[(buffer >> bits) & 31]) }
+    }
+    if bits > 0 { out.append(alphabet[(buffer << (5 - bits)) & 31]) }
+    return out
+}
+do {
+    let at59 = Date(timeIntervalSince1970: 59)
+    func vector(_ algorithm: TOTPSettings.Algorithm, _ key: String) -> String? {
+        TOTP.code(secret: base32(Data(key.utf8)), settings: TOTPSettings(digits: 8, period: 30, algorithm: algorithm), at: at59)
+    }
+    check("RFC 6238 SHA-1", vector(.sha1, "12345678901234567890") ?? "", "94287082")
+    check("RFC 6238 SHA-256", vector(.sha256, "12345678901234567890123456789012") ?? "", "46119246")
+    check("RFC 6238 SHA-512", vector(.sha512, "1234567890123456789012345678901234567890123456789012345678901234") ?? "", "90693936")
+    check("60-second period changes the counter", TOTP.code(secret: "JBSWY3DPEHPK3PXP", settings: TOTPSettings(digits: 6, period: 60, algorithm: .sha1), at: Date(timeIntervalSince1970: 59)) ?? "",
+          TOTP.code(secret: "JBSWY3DPEHPK3PXP", settings: TOTPSettings(digits: 6, period: 60, algorithm: .sha1), at: Date(timeIntervalSince1970: 0)) ?? "x")
+    check("grouped 6", TOTP.grouped("482913"), "482 913")
+    check("grouped 8", TOTP.grouped("12345678"), "1234 5678")
+
+    func parsed(_ text: String) -> TOTPSetup? { if case .setup(let s) = TOTP.parse(text) { s } else { nil } }
+    check("bare key with spaces", parsed("jbsw y3dp ehpk 3pxp")?.secret ?? "", "JBSWY3DPEHPK3PXP")
+    let link = parsed("otpauth://totp/Acme:alex%40example.net?secret=JBSWY3DPEHPK3PXP&issuer=Acme&digits=8&period=60&algorithm=SHA256")
+    check("link issuer", link?.issuer ?? "", "Acme")
+    check("link account", link?.account ?? "", "alex@example.net")
+    check("link settings", "\(link?.settings.digits ?? 0) \(link?.settings.period ?? 0) \(link?.settings.algorithm.rawValue ?? "")", "8 60 SHA256")
+    expect("web link", TOTP.parse("https://example.com/2fa") == .webLink)
+    expect("migration batch", TOTP.parse("otpauth-migration://offline?data=abc") == .migration)
+    expect("hotp unsupported", TOTP.parse("otpauth://hotp/A?secret=JBSWY3DPEHPK3PXP&counter=1") == .unsupported)
+    expect("odd digits unsupported", TOTP.parse("otpauth://totp/A?secret=JBSWY3DPEHPK3PXP&digits=5") == .unsupported)
+    expect("unknown algorithm unsupported", TOTP.parse("otpauth://totp/A?secret=JBSWY3DPEHPK3PXP&algorithm=MD5") == .unsupported)
+    expect("bad key", TOTP.parse("not a key!") == .invalidKey)
+    expect("empty", TOTP.parse("  \n") == .empty)
+
+    // The parameters survive a round trip through an entry.
+    var eight = VaultItem(kind: .login, title: "Acme", otpSecret: "JBSWY3DPEHPK3PXP", otpSettings: TOTPSettings(digits: 8, period: 60, algorithm: .sha256))
+    var otpDocument = try KDBX.create(name: "Otp", credentials: .init(password: "pw"), kdf: light)
+    otpDocument.upsert(eight)
+    var otpBack = try KDBX.open(try KDBX.save(otpDocument), credentials: .init(password: "pw")).items().first { $0.id == eight.id }!
+    check("otp parameters survive a save", "\(otpBack.otpSettings.digits) \(otpBack.otpSettings.period) \(otpBack.otpSettings.algorithm.rawValue)", "8 60 SHA256")
+    eight.otpSettings = .standard
+    otpDocument.upsert(eight)
+    otpBack = try KDBX.open(try KDBX.save(otpDocument), credentials: .init(password: "pw")).items().first { $0.id == eight.id }!
+    check("changing only the parameters rewrites the link", "\(otpBack.otpSettings.digits) \(otpBack.otpSettings.period)", "6 30")
+}
+
 session.forget()
+expect("forgetting deletes the usage file", !FileManager.default.fileExists(atPath: UsageLog.fileURL(for: vaultId).path))
 
 print(failures == 0 ? "all passed" : "\(failures) failed")
 exit(failures == 0 ? 0 : 1)

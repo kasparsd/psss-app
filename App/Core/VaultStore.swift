@@ -11,9 +11,9 @@ protocol VaultStore: AnyObject {
     /// Adds or updates items, then persists once.
     func save(_ items: [VaultItem]) throws
     func delete(_ id: UUID) throws
-    /// Records a copy or fill. Held in memory until the next write or `flush`.
+    /// Records a copy or fill in this device's usage log. Never writes the vault file.
     func markUsed(_ id: UUID)
-    /// Writes anything still pending. Called when the vault locks or the app leaves the foreground.
+    /// Writes anything still pending. Edits are written as they are made, so a KDBX vault has nothing pending; kept for stores that batch.
     func flush() throws
 }
 

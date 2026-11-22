@@ -60,9 +60,22 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             item.secret = credential.password
             if item.website.isEmpty { item.website = host }
             item.lastUsed = .now
-            try? self?.vault?.save([item])
-            self?.registerIdentities()
-            self?.extensionContext.completeSavePasswordRequest { _ in }
+            let saved = item
+            guard let self else { return }
+            let closeFailed = { [weak self] in self?.cancel(.failed) }
+            Task { @MainActor in
+                // Only a vault file that was really written counts as saved.
+                do {
+                    guard let vault = self.vault else { throw VaultStoreError.fileMissing }
+                    try vault.save([saved])
+                    await SharedVault.registerSavedAndWait([saved], all: vault.items())
+                } catch {
+                    self.present(SaveFailed(subject: .login, reason: Self.reason(for: error),
+                                            close: { closeFailed() }))
+                    return
+                }
+                self.extensionContext.completeSavePasswordRequest { _ in }
+            }
         }, cancel: { [weak self] in self?.cancel(.userCanceled) }))
         }
     }
@@ -80,12 +93,16 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 
     override func prepareInterface(forPasskeyRegistration registrationRequest: any ASCredentialRequest) {
         unlocked { [self] in
+        let failed = { [weak self] (reason: String) -> Void in
+            guard let self else { return }
+            self.present(SaveFailed(subject: .passkey, reason: reason, close: { [weak self] in self?.cancel(.failed) }))
+        }
         guard let request = registrationRequest as? ASPasskeyCredentialRequest,
               let identity = request.credentialIdentity as? ASPasskeyCredentialIdentity else {
-            return cancel(.failed)
+            return failed(String(localized: "Psss could not read the request."))
         }
         guard request.supportedAlgorithms.isEmpty || request.supportedAlgorithms.contains(.ES256) else {
-            return cancel(.failed)
+            return failed(String(localized: "This site asks for a kind of passkey Psss cannot make yet."))
         }
         // The system sheet has already asked "Save a passkey?", so the only prompt here is Face ID or Touch ID.
         let rpID = identity.relyingPartyIdentifier
@@ -94,12 +111,21 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         var item = VaultItem(kind: .login, account: identity.userName, website: rpID)
         item.passkey = registration.record
         item.lastUsed = .now
-        try? vault?.save([item])
-        registerIdentities()
-        extensionContext.completeRegistrationRequest(using: ASPasskeyRegistrationCredential(
-            relyingParty: rpID, clientDataHash: request.clientDataHash,
-            credentialID: registration.record.credentialID,
-            attestationObject: registration.attestationObject))
+        let saved = item
+        Task { @MainActor in
+            // The site only gets the passkey once the vault file really holds it.
+            do {
+                guard let vault = self.vault else { throw VaultStoreError.fileMissing }
+                try vault.save([saved])
+                await SharedVault.registerSavedAndWait([saved], all: vault.items())
+            } catch {
+                return failed(Self.reason(for: error))
+            }
+            self.extensionContext.completeRegistrationRequest(using: ASPasskeyRegistrationCredential(
+                relyingParty: rpID, clientDataHash: request.clientDataHash,
+                credentialID: registration.record.credentialID,
+                attestationObject: registration.attestationObject)) { _ in }
+        }
         }
     }
 
@@ -145,7 +171,6 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             return cancel(.failed)
         }
         vault?.markUsed(item.id)
-        try? vault?.flush()
         extensionContext.completeAssertionRequest(using: ASPasskeyAssertionCredential(
             userHandle: passkey.userHandle, relyingParty: passkey.rpID, signature: result.signature,
             clientDataHash: clientDataHash, authenticatorData: result.authenticatorData,
@@ -167,23 +192,23 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
                     try await session.unlockWithBiometrics()
                     vault = session.store
                 }
-                registerIdentities()
                 work()
             } catch Unlock.Failure.cancelled {
                 cancel(.userCanceled)
             } catch BiometricKeyError.cancelled {
                 cancel(.userCanceled)
             } catch {
-                present(NotReady(close: { [weak self] in self?.cancel(.userCanceled) }))
+                present(NotReady(close: { self.cancel(.userCanceled) }))
             }
         }
     }
 
-    private func registerIdentities() {
-        SharedVault.registerIdentities(for: items)
+    private static func reason(for error: Error) -> String {
+        (error as? VaultStoreError)?.message ?? (error as? KDBXError)?.message ?? error.localizedDescription
     }
 
     private func complete(with item: VaultItem) {
+        vault?.markUsed(item.id)
         extensionContext.completeRequest(withSelectedCredential: ASPasswordCredential(user: item.account, password: item.secret))
     }
 

@@ -290,6 +290,7 @@
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"INFOPLIST_KEY_CFBundleDisplayName" = "Psss";
+				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"SWIFT_OPTIMIZATION_LEVEL" = "-Onone";
 				"SWIFT_ACTIVE_COMPILATION_CONDITIONS" = "DEBUG";
 			};
@@ -304,6 +305,7 @@
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"INFOPLIST_KEY_CFBundleDisplayName" = "Psss";
+				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 			};
 			"baseConfigurationReference" = 000000000000000000000004;
 		};
@@ -498,7 +500,9 @@
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"INFOPLIST_KEY_CFBundleDisplayName" = "Psss";
+				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"INFOPLIST_KEY_UILaunchScreen_Generation" = "YES";
+				"INFOPLIST_KEY_NSCameraUsageDescription" = "Psss uses the camera only when you tap Scan, to read the QR code of a verification code. Nothing is saved or uploaded.";
 				"INFOPLIST_KEY_NSFaceIDUsageDescription" = "Psss uses Face ID to unlock your passwords.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation" = "YES";
 				"SWIFT_OPTIMIZATION_LEVEL" = "-Onone";
@@ -516,7 +520,9 @@
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"INFOPLIST_KEY_CFBundleDisplayName" = "Psss";
+				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"INFOPLIST_KEY_UILaunchScreen_Generation" = "YES";
+				"INFOPLIST_KEY_NSCameraUsageDescription" = "Psss uses the camera only when you tap Scan, to read the QR code of a verification code. Nothing is saved or uploaded.";
 				"INFOPLIST_KEY_NSFaceIDUsageDescription" = "Psss uses Face ID to unlock your passwords.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation" = "YES";
 			};

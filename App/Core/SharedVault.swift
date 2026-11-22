@@ -1,9 +1,12 @@
 import AuthenticationServices
+import os
 import Foundation
 
 /// The prototype's shared storage between the app and its AutoFill extension.
 /// Sample items are compiled into both. Logins saved from a web form travel through a small
 /// file in the App Group container. A real vault replaces this with the encrypted document.
+private let identityLog = Logger(subsystem: "local.kdbox.prototype", category: "identities")
+
 enum SharedVault {
     static let groupID = "group.local.kdbox.prototype"
 
@@ -45,6 +48,11 @@ enum SharedVault {
     /// Removes the logins saved in the App Group, for starting over.
     static func eraseSaved() {
         if let url = savedURL { try? FileManager.default.removeItem(at: url) }
+        removeIdentities()
+    }
+
+    /// Clears every suggestion from the system's credential identity store.
+    static func removeIdentities() {
         ASCredentialIdentityStore.shared.removeAllCredentialIdentities { _, _ in }
     }
 
@@ -63,8 +71,43 @@ enum SharedVault {
         return stored == requested || requested.hasSuffix("." + stored) || stored.hasSuffix("." + requested)
     }
 
-    /// Tells the system which sites have saved logins and passkeys, without secrets.
+    /// Tells the system which sites have saved logins and passkeys, without secrets. Fire and forget; the AutoFill extension
+    /// uses `registerSavedAndWait` so the system finishes before the extension is torn down.
     static func registerIdentities(for items: [VaultItem]) {
+        ASCredentialIdentityStore.shared.getState { state in
+            guard state.isEnabled else { return }
+            ASCredentialIdentityStore.shared.replaceCredentialIdentities(identities(for: items)) { _, _ in }
+        }
+    }
+
+    /// For the AutoFill extension: tells the system about the item it just saved and returns once the system has accepted it,
+    /// so the request is not completed (and the extension torn down) before the suggestion exists. Adds only `changed` when the
+    /// store supports incremental updates, and replaces everything with `all` when it does not. Retries once when the store is
+    /// busy. Does nothing when AutoFill is not enabled for Psss. A failure is logged with its error code only.
+    static func registerSavedAndWait(_ changed: [VaultItem], all: [VaultItem]) async {
+        let store = ASCredentialIdentityStore.shared
+        let state = await store.state()
+        guard state.isEnabled else { return }
+        for attempt in 0..<2 {
+            do {
+                if state.supportsIncrementalUpdates {
+                    try await store.saveCredentialIdentities(identities(for: changed))
+                } else {
+                    try await store.replaceCredentialIdentities(identities(for: all))
+                }
+                return
+            } catch {
+                let error = error as NSError
+                identityLog.error("Identity registration failed, domain \(error.domain, privacy: .public), code \(error.code)")
+                let busy = error.domain == ASCredentialIdentityStoreErrorDomain
+                    && error.code == ASCredentialIdentityStoreError.Code.storeBusy.rawValue
+                guard busy, attempt == 0 else { return }
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
+    }
+
+    private static func identities(for items: [VaultItem]) -> [any ASCredentialIdentity] {
         var identities: [any ASCredentialIdentity] = items.compactMap { item in
             guard item.kind == .login, !item.website.isEmpty, !item.account.isEmpty, !item.secret.isEmpty else { return nil }
             return ASPasswordCredentialIdentity(
@@ -81,9 +124,6 @@ enum SharedVault {
                 userHandle: passkey.userHandle,
                 recordIdentifier: item.id.uuidString)
         }
-        ASCredentialIdentityStore.shared.getState { state in
-            guard state.isEnabled else { return }
-            ASCredentialIdentityStore.shared.replaceCredentialIdentities(identities) { _, _ in }
-        }
+        return identities
     }
 }
