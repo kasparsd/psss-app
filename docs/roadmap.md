@@ -128,7 +128,8 @@ Goal: five people outside the project fill, save and find a login without guidan
 2. Credit card checkout fill beyond single fields, per verified surface.
 3. Breach and weak-password checks computed on device.
 4. Entry history interface, Apple Watch, 1PIF import.
-5. Sharing and teams, SSH keys, Windows, Android, web, hosted sync. Not planned. Revisit only with evidence of demand.
+5. Family sharing (shared vaults, split-key recovery) and remote storage over WebDAV or S3-compatible endpoints, designed in [vaults](vaults.md#family-sharing-and-remote-storage-design-2026-11-23). Needs S4, S6 and S7 first.
+6. Teams, SSH keys, Windows, Android, web, hosted sync. Not planned. Revisit only with evidence of demand.
 
 ## Open decisions
 

@@ -82,7 +82,20 @@ Decided 2026-11-22: the app supports several vaults. People bring more than one 
 7. **Sync.** Per-vault sync status and conflicts. Free-tier people can still move vaults between their own devices by file.
 8. **Tests.** Fixtures with two vaults and a shared domain. Matching, ranking and move/copy round trips. Lock one vault while the other is open.
 
-Open question for later: shared vaults for Family Sharing (a vault two people hold keys to). That is a sharing feature, not multi-vault, and stays out of 1.0 as in the [roadmap](roadmap.md).
+Shared vaults for a family are a sharing feature, not multi-vault, and stay out of 1.0 as in the [roadmap](roadmap.md). The design is below.
+
+## Family sharing and remote storage (design, 2026-11-23)
+
+Proposal, not built, after the 2026-12-20 gate. Built for a household such as two adults and two children, with no Psss server.
+
+- **Per vault, not per item.** Each person keeps a personal vault and the family shares one Family vault. Per-item sharing would mean copies that drift or references KDBX cannot express.
+- **Key wrapping.** The vault has a random key, wrapped to each member's device-held public key with HPKE and stored in a sidecar next to the `.kdbx`. The file stays plain KDBX, so KeePassXC opens it with the key. Whether a person's key is synced through iCloud Keychain or bound to each device is decided in S6.
+- **Invite in person.** A QR code and a short fingerprint both people confirm. The code can carry the remote endpoint and credential, encrypted to the recipient.
+- **Recovery.** Shamir splitting only where no one person should recover alone: Family vault 2 of 3 (two adults and a printed card), an adult's vault 2 of 3 (partner, trusted person, printed card). A child's vault is wrapped to both parents, and either can recover it. Needs an audited implementation or published test vectors.
+- **Stated limits.** There is no read-only role: anyone with the key can write, and an app-side switch could be bypassed in another KeePass app, so separate vaults are the answer. Removing a member rotates the key and lists the passwords that person saw. Four writers make entry-level merge (S4) a prerequisite.
+- **Transport.** KDBX stays. Storage sits behind one transport interface: local and iCloud Drive, then WebDAV, then S3-compatible, with an optional own HTTP endpoint (`GET`, conditional `PUT`) that Psss defines and never hosts. A conditional write with `If-Match` on the ETag is an atomic compare-and-swap, so S4 tests it against iCloud coordination. The server holds ciphertext and the sidecar only. The AutoFill extension reads a local cached copy and the app syncs. A version counter in the sidecar warns when a fetched version is older than the last one seen. Large attachments make whole-file transfer slow and need measuring.
+- **Not chosen.** A per-entry record format (private, breaks KeePassXC), MLS (no Apple API, too heavy), CRDT documents, git-based stores, Dropbox and Google Drive SDKs. If entry-level merge proves too weak, add an internal per-entry revision layer beside the KDBX instead of a new format.
+- **Open spike.** Shared iCloud Drive folder or CloudKit share, and whether child Apple Accounts can use either.
 
 ## AutoFill extension (2026-11-22)
 
