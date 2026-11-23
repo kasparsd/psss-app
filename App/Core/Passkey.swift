@@ -11,6 +11,11 @@ struct PasskeyRecord: Codable, Sendable, Hashable {
     var signCount: UInt32 = 0
 }
 
+enum PasskeyError: Error {
+    /// The request's relying party is not the one the passkey was made for.
+    case relyingPartyMismatch
+}
+
 /// WebAuthn "packed-less" passkeys: ES256 keys, `none` attestation, flags that mark a synced, user-verified credential.
 enum Passkeys {
     struct Registration {
@@ -58,7 +63,9 @@ enum Passkeys {
         return Registration(record: record, attestationObject: attestation.encoded)
     }
 
-    static func assert(_ record: PasskeyRecord, clientDataHash: Data) throws -> Assertion {
+    /// Signs for `relyingParty`, the one the request names. It must equal the stored passkey's own, or nothing is signed.
+    static func assert(_ record: PasskeyRecord, relyingParty: String, clientDataHash: Data) throws -> Assertion {
+        guard relyingParty == record.rpID else { throw PasskeyError.relyingPartyMismatch }
         let key = try P256.Signing.PrivateKey(rawRepresentation: record.privateKey)
         var authData = rpIDHash(record.rpID)
         authData.append(assertionFlags)

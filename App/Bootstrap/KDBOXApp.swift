@@ -5,6 +5,11 @@ struct KDBOXApp: App {
     @FocusedValue(\.newItem) private var newItem
     @FocusedValue(\.lockVault) private var lockVault
 
+    init() {
+        // Earlier builds may have left real logins in a plain-text file in the App Group. Delete it.
+        SharedVault.removeLegacyPlainTextFile()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()

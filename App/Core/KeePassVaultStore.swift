@@ -14,6 +14,9 @@ struct VaultReference: Codable, Equatable, Sendable {
     var biometricUnlock = false
     /// The person said "Not Now" to the offer, so it is not repeated. Setup still has the switch.
     var biometricDeclined = false
+    /// Biometric unlock was switched off because the saved key no longer opened the vault, not because the person chose to.
+    /// The next password unlock saves a fresh key and switches it back on.
+    var biometricStale = false
 
     init(id: UUID = UUID(), name: String, managed: Bool, bookmark: Data?, fileName: String) {
         self.id = id; self.name = name; self.managed = managed; self.bookmark = bookmark; self.fileName = fileName
@@ -28,15 +31,32 @@ struct VaultReference: Codable, Equatable, Sendable {
         fileName = try c.decode(String.self, forKey: .fileName)
         biometricUnlock = try c.decodeIfPresent(Bool.self, forKey: .biometricUnlock) ?? false
         biometricDeclined = try c.decodeIfPresent(Bool.self, forKey: .biometricDeclined) ?? false
+        biometricStale = try c.decodeIfPresent(Bool.self, forKey: .biometricStale) ?? false
     }
 
     private static let defaultsKey = "vaultReference"
 
-    /// Shared with the AutoFill extension through the App Group.
-    private static var defaults: UserDefaults { UserDefaults(suiteName: SharedVault.groupID) ?? .standard }
+    /// Shared with the AutoFill extension through the App Group. Nil when the group cannot be opened.
+    private static var defaults: UserDefaults? {
+        #if HOSTLESS_TESTS
+        if VaultFiles.testRoot != nil { return nil }  // the reference lives in a file under the test root
+        #endif
+        return UserDefaults(suiteName: SharedVault.groupID)
+    }
+
+    /// Where the reference lives when the App Group defaults cannot be opened: the app's own Application Support, which the
+    /// same process reads back after a relaunch and the AutoFill extension (a different container) never sees, so the
+    /// extension shows its not-ready screen instead of opening anything.
+    private static var fallbackURL: URL {
+        #if HOSTLESS_TESTS
+        if let root = VaultFiles.testRoot { return root.appendingPathComponent("vault-reference.json") }
+        #endif
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("vault-reference.json")
+    }
 
     static func load() -> VaultReference? {
-        defaults.data(forKey: defaultsKey).flatMap { try? JSONDecoder().decode(Self.self, from: $0) }
+        let data = defaults.map { $0.data(forKey: defaultsKey) } ?? (try? Data(contentsOf: fallbackURL))
+        return data.flatMap { try? JSONDecoder().decode(Self.self, from: $0) }
     }
 
     /// "Personal.kdbx · iCloud Drive › Documents" for a file opened in place. Nothing for a vault Psss created: its location says nothing useful.
@@ -50,8 +70,18 @@ struct VaultReference: Codable, Equatable, Sendable {
         return folder.isEmpty ? url.lastPathComponent : "\(url.lastPathComponent) · \(folder)"
     }
 
-    func persist() { Self.defaults.set(try? JSONEncoder().encode(self), forKey: Self.defaultsKey) }
-    static func clear() { defaults.removeObject(forKey: defaultsKey) }
+    func persist() {
+        let data = try? JSONEncoder().encode(self)
+        if let defaults = Self.defaults { defaults.set(data, forKey: Self.defaultsKey) }
+        else if let data {
+            try? FileManager.default.createDirectory(at: Self.fallbackURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? data.write(to: Self.fallbackURL, options: VaultFiles.writeOptions)
+        }
+    }
+
+    static func clear() {
+        if let defaults { defaults.removeObject(forKey: defaultsKey) } else { try? FileManager.default.removeItem(at: fallbackURL) }
+    }
 }
 
 /// Vault files on disk: coordinated reads, atomic writes and a few encrypted rollback copies.
@@ -59,11 +89,24 @@ enum VaultFiles {
     /// The App Group container, so the AutoFill extension reads and writes the same files as the app. Falls back to the app's
     /// own Application Support where the group is unavailable (unsigned builds and tests).
     static var storageRoot: URL {
+        #if HOSTLESS_TESTS
+        // The test scripts point the tests at a folder under build/, so they never touch real app data.
+        if let root = testRoot { return root }
+        #endif
         let own = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         guard let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: SharedVault.groupID) else { return own }
         // macOS reports a group path even when this build may not write there.
         return (try? FileManager.default.createDirectory(at: group, withIntermediateDirectories: true)) != nil ? group : own
     }
+
+    #if HOSTLESS_TESTS
+    static var testRoot: URL? {
+        guard let path = ProcessInfo.processInfo.environment["PSSS_TEST_ROOT"], !path.isEmpty else { return nil }
+        let url = URL(fileURLWithPath: path, isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+    #endif
 
     /// Every file Psss writes is replaced in one step and unreadable while the device is locked. The hostless test scripts
     /// compile with `HOSTLESS_TESTS`, which drops the protection class so they can run on a Mac whose screen is locked.
@@ -120,6 +163,36 @@ enum VaultFiles {
         do { try result.get() } catch { throw VaultStoreError.writeFailed(error.localizedDescription) }
     }
 
+    /// The conflict-checked write, in one coordinated block so the app and the AutoFill extension cannot interleave between the
+    /// read, the comparison and the write. Reads the current bytes through the URL the coordinator hands over; refuses with
+    /// `unreadable` when the file exists but cannot be read (not downloaded, no permission, a folder in its place) and writes
+    /// nothing. Refuses with `changedOnDisk` when the bytes differ from the ones the caller based its edit on, unless
+    /// `overwrite`, which skips only that comparison. `baseDigest` is nil only for a new vault that was never read from disk:
+    /// its first write may create the file. For any other store a missing file is `fileMissing` and nothing is written, with or
+    /// without `overwrite`. Returns the bytes that were replaced, for the rollback copy.
+    static func replace(at url: URL, with data: Data, basedOn baseDigest: Data?, overwrite: Bool) throws -> Data? {
+        var result: Result<Data?, Error> = .failure(VaultStoreError.unreadable)
+        var coordinationError: NSError?
+        NSFileCoordinator().coordinate(writingItemAt: url, options: .forReplacing, error: &coordinationError) { writeURL in
+            result = Result {
+                var previous: Data?
+                if FileManager.default.fileExists(atPath: writeURL.path) {
+                    do { previous = try Data(contentsOf: writeURL) } catch { throw VaultStoreError.unreadable }
+                } else if baseDigest != nil {
+                    throw VaultStoreError.fileMissing
+                }
+                if let previous, !overwrite {
+                    guard let baseDigest, KDBXCrypto.equal(KDBXCrypto.sha256(previous), baseDigest) else { throw VaultStoreError.changedOnDisk }
+                }
+                do { try data.write(to: writeURL, options: VaultFiles.writeOptions) }
+                catch { throw VaultStoreError.writeFailed(error.localizedDescription) }
+                return previous
+            }
+        }
+        if let coordinationError { throw VaultStoreError.writeFailed(coordinationError.localizedDescription) }
+        return try result.get()
+    }
+
     /// Keeps the file as it was before this write. The copy is as encrypted as the vault itself. The newest five stay.
     static func keepBackup(of previous: Data, id: UUID) {
         let directory = backupDirectory(for: id)
@@ -142,8 +215,12 @@ final class KeePassVaultStore: VaultStore {
     private(set) var reference: VaultReference
     let url: URL
     private var document: KDBXDocument
-    private var baseDigest: Data
+    /// Digest of the file as last read or written. Nil only for a new vault whose file does not exist yet.
+    private var baseDigest: Data?
     private let scoped: Bool
+    /// Set by `changeCredentials` until the file with the new credentials is written, even if that first attempt is refused and
+    /// the person overwrites afterwards.
+    private var credentialsChangePending = false
 
     var title: String { reference.name }
     var isSample: Bool { false }
@@ -152,12 +229,12 @@ final class KeePassVaultStore: VaultStore {
     var lastModified: Date? { document.lastModified }
     var isLegacyFormat: Bool { document.sourceVersion != nil }
 
-    init(reference: VaultReference, url: URL, scoped: Bool, document: KDBXDocument, fileData: Data) {
+    init(reference: VaultReference, url: URL, scoped: Bool, document: KDBXDocument, fileData: Data?) {
         self.reference = reference
         self.url = url
         self.scoped = scoped
         self.document = document
-        baseDigest = KDBXCrypto.sha256(fileData)
+        baseDigest = fileData.map(KDBXCrypto.sha256)
     }
 
     deinit { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -211,18 +288,21 @@ final class KeePassVaultStore: VaultStore {
     /// Nothing is held back: edits are written as they are made and use goes straight to the usage log.
     func flush() throws {}
 
-    /// Writes the vault. Refuses when the file changed since it was read, unless told to overwrite.
+    /// Writes the vault. Refuses when the file changed since it was read, unless told to overwrite, and always refuses when the
+    /// file exists but cannot be read (so Overwrite cannot write blind either). Read, check and write are one coordinated step.
     func commit(overwrite: Bool = false) throws {
         document.touchModified()
         let data = try KDBX.save(document)
-        let previous = try? VaultFiles.read(url)
-        if let previous {
-            guard overwrite || KDBXCrypto.equal(KDBXCrypto.sha256(previous), baseDigest) else { throw VaultStoreError.changedOnDisk }
-        }
-        try VaultFiles.write(data, to: url)
-        // A rollback copy is kept only for a write that succeeded, so a failed write never pushes good older copies out.
-        if let previous { VaultFiles.keepBackup(of: previous, id: reference.id) }
+        let previous = try VaultFiles.replace(at: url, with: data, basedOn: baseDigest, overwrite: overwrite)
         baseDigest = KDBXCrypto.sha256(data)
+        if credentialsChangePending {
+            // Copies made before a password change are encrypted with the old password, so none is kept, including this one.
+            VaultFiles.removeBackups(for: reference.id)
+            credentialsChangePending = false
+        } else if let previous {
+            // A rollback copy is kept only for a write that succeeded, so a failed write never pushes good older copies out.
+            VaultFiles.keepBackup(of: previous, id: reference.id)
+        }
     }
 
     /// Replaces the open document with what is on disk now. Pending edits are lost. Runs the KDF, so it is async.
@@ -231,6 +311,7 @@ final class KeePassVaultStore: VaultStore {
         let key = document.transformedKey
         document = try await Task.detached { try KDBX.open(data, transformedKey: key) }.value
         baseDigest = KDBXCrypto.sha256(data)
+        credentialsChangePending = false  // the document is what is on disk now, so no password change is pending
     }
 
     /// Reloads when another app, the AutoFill extension or a sync wrote the file since this store last read or wrote it.
@@ -239,11 +320,11 @@ final class KeePassVaultStore: VaultStore {
     func reloadIfChanged() async throws -> Bool {
         let data = try VaultFiles.read(url)
         let seen = baseDigest
-        guard !KDBXCrypto.equal(KDBXCrypto.sha256(data), seen) else { return false }
+        guard let seen, !KDBXCrypto.equal(KDBXCrypto.sha256(data), seen) else { return false }
         let key = document.transformedKey
         let fresh = try await Task.detached { try KDBX.open(data, transformedKey: key) }.value
         // Our own write finished while the file was being opened: what we hold is newer, so keep it.
-        guard KDBXCrypto.equal(baseDigest, seen) else { return false }
+        guard let current = baseDigest, KDBXCrypto.equal(current, seen) else { return false }
         document = fresh
         baseDigest = KDBXCrypto.sha256(data)
         return true
@@ -258,9 +339,17 @@ final class KeePassVaultStore: VaultStore {
 
     /// Changes the vault password or key file. Runs the KDF again, so it is async.
     func changeCredentials(to credentials: KDBXCredentials) async throws {
+        // All or nothing, like `apply`: when the write is refused or fails, the store goes back to the old credentials.
         let source = document
-        document = try await Task.detached { try source.withCredentials(credentials) }.value
-        try commit()
+        let wasPending = credentialsChangePending
+        let changed = try await Task.detached { try source.withCredentials(credentials) }.value
+        document = changed
+        credentialsChangePending = true
+        do { try commit() } catch {
+            document = source
+            credentialsChangePending = wasPending
+            throw error
+        }
     }
 }
 
@@ -318,12 +407,32 @@ final class VaultSession {
     /// Opens the remembered vault after a lock or relaunch.
     func unlock(credentials: KDBXCredentials) async throws {
         try await unlock { data in try KDBX.open(data, credentials: credentials) }
+        syncReference()  // the AutoFill extension may have marked the saved key stale while the vault was opening
+        // Biometric unlock went off because its key went stale, not because the person turned it off: save a fresh key.
+        if reference?.biometricStale == true {
+            do { try enableBiometric() } catch { clearStale() }
+        }
+    }
+
+    /// Adopts the persisted reference when it is the same vault. Every change is persisted as it is made, so what is stored is
+    /// the newest, including a mark another process (the AutoFill extension) wrote since this session read it.
+    private func syncReference() {
+        guard let stored = VaultReference.load(), stored.id == reference?.id else { return }
+        reference = stored
+    }
+
+    private func clearStale() {
+        guard var reference else { return }
+        reference.biometricStale = false
+        reference.persist()
+        self.reference = reference
     }
 
     /// Unlocks with Face ID or Touch ID. Never throws for a cancelled prompt; the lock screen just stays.
     /// If the saved key no longer fits (Face ID re-enrolled, or the vault password was changed elsewhere), biometric unlock is
     /// switched off and the error says to use the password once.
     func unlockWithBiometrics() async throws {
+        syncReference()
         guard let reference, reference.biometricUnlock else { throw BiometricKeyError.invalidated }
         let key: Data
         do {
@@ -332,15 +441,18 @@ final class VaultSession {
             setBiometric(false)
             throw BiometricKeyError.invalidated
         }
+        // Any other error from `load` (lockout, biometry unavailable, a failed read) leaves the key and the setting alone.
         do {
             try await unlock { data in try KDBX.open(data, transformedKey: key) }
         } catch KDBXError.wrongCredentials {
-            setBiometric(false)
+            // The key really is stale. Off for now; the next password unlock saves a fresh one and turns it back on.
+            setBiometric(false, stale: true)
             throw BiometricKeyError.invalidated
         }
     }
 
     private func unlock(opening open: @escaping @Sendable (Data) throws -> KDBXDocument) async throws {
+        syncReference()
         guard var reference else { throw VaultStoreError.fileMissing }
         let url: URL, scoped: Bool
         if reference.managed {
@@ -390,6 +502,7 @@ final class VaultSession {
         try BiometricKey.save(store.transformedKey, for: reference.id)
         reference.biometricUnlock = true
         reference.biometricDeclined = false
+        reference.biometricStale = false
         reference.persist()
         self.reference = reference
     }
@@ -409,10 +522,11 @@ final class VaultSession {
         do { try enableBiometric() } catch { setBiometric(false) }
     }
 
-    private func setBiometric(_ on: Bool) {
+    private func setBiometric(_ on: Bool, stale: Bool = false) {
         guard var reference else { return }
         if !on { BiometricKey.delete(for: reference.id) }
         reference.biometricUnlock = on
+        reference.biometricStale = !on && stale
         reference.persist()
         self.reference = reference
     }
@@ -460,6 +574,7 @@ extension VaultStoreError {
         case .changedOnDisk: String(localized: "The vault file was changed by another app or device since you opened it.")
         case .fileMissing: String(localized: "Psss cannot find the vault file. It may have moved or be unavailable.")
         case .writeFailed(let reason): String(localized: "The vault could not be saved. \(reason)")
+        case .unreadable: String(localized: "Psss cannot read the vault file right now, so nothing was saved. It may still be downloading from iCloud. Try again in a moment.")
         }
     }
 }

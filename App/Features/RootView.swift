@@ -5,6 +5,8 @@ import SwiftUI
 struct RootView: View {
     @State private var gate = UnlockGate()
     @State private var session = VaultSession()
+    /// The sample vault lives in memory only. A fresh one starts whenever the app locks, so nothing typed into it is kept.
+    @State private var sample = SampleVaultStore()
     @AppStorage("vaultSource") private var vaultSource = ""
     @AppStorage("lockTiming") private var lockTiming = LockTiming.oneMinute.rawValue
     @Environment(\.scenePhase) private var scenePhase
@@ -28,15 +30,17 @@ struct RootView: View {
                     VaultPasswordView(session: session, gate: gate)
                 }
             } else if gate.isUnlocked {
-                VaultView(store: SampleVaultStore())
+                VaultView(store: sample)
             } else {
                 LockScreen(gate: gate)
             }
         }
+        // Entering or leaving the sample vault (Welcome, Start Over) starts it fresh, so nothing typed into it comes back.
+        .onChange(of: vaultSource) { sample = SampleVaultStore() }
         .environment(gate)
         .environment(session)
         // Locking drops the keys and the decrypted vault, after writing anything pending.
-        .onChange(of: gate.isUnlocked) { _, unlocked in if !unlocked { session.lock() } }
+        .onChange(of: gate.isUnlocked) { _, unlocked in if !unlocked { session.lock(); sample = SampleVaultStore() } }
         .focusedSceneValue(\.lockVault, gate.isUnlocked ? { gate.lock() } : nil)
         .task { if !vaultSource.isEmpty { await gate.didBecomeActive(after: timing, prompt: usesDeviceAuth) } }
         #if os(macOS)

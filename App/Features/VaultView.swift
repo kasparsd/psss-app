@@ -188,10 +188,10 @@ struct VaultView: View {
         .passwordsImporter(isPresented: $importing, notice: $importNotice, problem: $importProblem) { added in
             try store.save(added)
             items = store.items()
-            SharedVault.registerIdentities(for: items)
+            registerIdentities()
         }
         .alert("Imported", isPresented: Binding(get: { importNotice != nil }, set: { if !$0 { importNotice = nil } })) {
-            Button("Open vault") { importNotice = nil; items = store.items(); SharedVault.registerIdentities(for: items) }
+            Button("Open vault") { importNotice = nil; items = store.items(); registerIdentities() }
         } message: { Text(importNotice ?? "") }
         .alert("Could not save", isPresented: Binding(get: { storeProblem != nil }, set: { if !$0 { storeProblem = nil } })) {
             Button("OK") { storeProblem = nil }
@@ -219,9 +219,9 @@ struct VaultView: View {
             Button("OK") { importProblem = nil }
         } message: { Text(importProblem ?? "") }
         .focusedSceneValue(\.newItem, { kind in editor = VaultItem(kind: kind) })
-        .task { SharedVault.registerIdentities(for: items) }
+        .task { if store.isSample { SharedVault.removeIdentities() } else { registerIdentities() } }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { reloadSaved(); reloadIfChangedOnDisk() }
+            if phase == .active { reloadIfChangedOnDisk() }
         }
         .sheet(item: $editor) { item in
             ItemEditor(item: item, onSave: save, onKeepDraft: keepDraft,
@@ -393,7 +393,7 @@ struct VaultView: View {
                     } header: {
                         Text("Reset")
                     } footer: {
-                        Text(store.isSample ? "Removes logins you added or imported and shows the welcome screen again."
+                        Text(store.isSample ? "Shows the welcome screen again. Changes you make in the sample vault are not saved: they are gone when Psss locks or quits."
                              : (store as? KeePassVaultStore)?.reference.managed == true
                              ? "Deletes this vault from this device and shows the welcome screen again."
                              : "Forgets this vault and shows the welcome screen again. The file stays where it is.")
@@ -409,7 +409,7 @@ struct VaultView: View {
                 .formStyle(.grouped)
                 .confirmationDialog("Start over?", isPresented: $confirmsReset, titleVisibility: .visible) {
                     Button(resetButtonTitle, role: .destructive) {
-                        SharedVault.eraseSaved()
+                        SharedVault.removeIdentities()
                         session.forget()
                         showsSetup = false
                         vaultSource = ""
@@ -428,13 +428,13 @@ struct VaultView: View {
     }
 
     private var resetButtonTitle: LocalizedStringKey {
-        if store.isSample { "Remove My Logins and Start Over" }
+        if store.isSample { "Start Over" }
         else if (store as? KeePassVaultStore)?.reference.managed == true { "Delete Vault and Start Over" }
         else { "Forget Vault and Start Over" }
     }
 
     private var resetMessage: LocalizedStringKey {
-        if store.isSample { "Logins you added or imported are deleted from this device. This cannot be undone." }
+        if store.isSample { "The sample vault closes and the welcome screen shows again. Nothing from it was saved on this device." }
         else if (store as? KeePassVaultStore)?.reference.managed == true {
             "The vault and its backups are deleted from this device. Without another copy of the file, your logins are gone. This cannot be undone."
         } else { "Psss stops using this vault. The file is not deleted and you can open it again." }
@@ -639,13 +639,9 @@ struct VaultView: View {
         #endif
     }
 
-    /// Picks up logins that the AutoFill extension saved while the app was in the background (sample vault only
-    /// until the extension opens the real vault).
-    private func reloadSaved() {
-        guard store.isSample else { return }
-        for saved in SharedVault.loadSaved() {
-            if let index = items.firstIndex(where: { $0.id == saved.id }) { items[index] = saved } else { items.append(saved) }
-        }
+    /// Tells the system which sites have logins. The sample vault registers none: nothing in it may ever be offered by AutoFill.
+    private func registerIdentities() {
+        guard !store.isSample else { return }
         SharedVault.registerIdentities(for: items)
     }
 
@@ -657,7 +653,7 @@ struct VaultView: View {
             do {
                 if try await store.reloadIfChanged() {
                     items = store.items()
-                    SharedVault.registerIdentities(for: items)
+                    registerIdentities()
                 }
             } catch KDBXError.wrongCredentials {
                 gate.lock()
@@ -686,7 +682,7 @@ struct VaultView: View {
     private func reloadFromDisk() {
         guard let store = store as? KeePassVaultStore else { return }
         Task {
-            do { try await store.reload(); items = store.items(); SharedVault.registerIdentities(for: items) }
+            do { try await store.reload(); items = store.items(); registerIdentities() }
             catch { storeProblem = (error as? KDBXError)?.message ?? error.localizedDescription }
         }
     }
@@ -699,7 +695,7 @@ struct VaultView: View {
     private func delete(_ id: VaultItem.ID) {
         attempt { try store.delete(id) }
         items = store.items()
-        SharedVault.registerIdentities(for: items)
+        registerIdentities()
         selection = nil
         compactPath = []
         editor = nil
@@ -713,7 +709,7 @@ struct VaultView: View {
         } else {
             items.append(item)
         }
-        SharedVault.registerIdentities(for: items)
+        registerIdentities()
     }
 
     private func save(_ item: VaultItem) {
@@ -723,7 +719,7 @@ struct VaultView: View {
         } else {
             items.append(item)
         }
-        SharedVault.registerIdentities(for: items)
+        registerIdentities()
         search = ""
         if !activeCategory.includes(item) { category = .kind(item.kind) }
         selection = item.id
@@ -1128,18 +1124,7 @@ private struct ItemEditor: View {
                         if totpInvalid {
                             Label("That is not a valid setup key.", systemImage: "exclamationmark.triangle")
                         }
-                        HStack {
-                            Button(item.otpSecret.isEmpty ? "Add code" : "Replace code", systemImage: "qrcode.viewfinder") {
-                                addingCode = true
-                            }
-                            if !item.otpSecret.isEmpty {
-                                Button("Remove code", role: .destructive) {
-                                    item.otpSecret = ""
-                                    item.otpSettings = .standard
-                                }
-                            }
-                        }
-                        .buttonStyle(.bordered)
+                        codeButtons
                     }
                     labeled("Name (optional)") {
                         TextField("Name", text: $item.title, prompt: Text(verbatim: namePlaceholder))
@@ -1199,6 +1184,20 @@ extension ItemEditor {
             Text(label).font(.caption).foregroundStyle(.secondary)
             content().labelsHidden()
         }
+    }
+
+    /// Add, replace and remove for the code, stacked so no label is ever squeezed or clipped in a form row.
+    fileprivate var codeButtons: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button(item.otpSecret.isEmpty ? "Add code" : "Replace code", systemImage: "qrcode.viewfinder") { addingCode = true }
+            if !item.otpSecret.isEmpty {
+                Button("Remove code", role: .destructive) {
+                    item.otpSecret = ""
+                    item.otpSettings = .standard
+                }
+            }
+        }
+        .buttonStyle(.bordered)
     }
 
     fileprivate var totpUsable: Bool {

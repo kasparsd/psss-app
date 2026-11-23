@@ -18,17 +18,17 @@ struct KDBXDocument: @unchecked Sendable {
     /// Attachments from the inner header, kept byte for byte (first byte is the protection flag).
     var binaries: [Data]
     var root: XNode
-    /// Both keys stay in memory only while the vault is open. The transformed key lets saves skip the KDF.
-    fileprivate(set) var compositeKey: Data
+    /// Stays in memory only while the vault is open. The transformed key lets saves skip the KDF. The composite key (the password
+    /// and key file combined) is not kept: it is equivalent to the password and nothing needs it after the KDF.
     fileprivate(set) var transformedKey: Data
     /// "KDBX 3.1" when the file was read from an older format. Saving writes KDBX 4.
     fileprivate(set) var sourceVersion: String?
 
     /// Replaces the vault password or key file. Runs the KDF, so call it off the main actor.
     mutating func changeCredentials(to credentials: KDBXCredentials) throws {
-        compositeKey = try credentials.compositeKey()
+        let composite = try credentials.compositeKey()
         header.kdf.regenerateSeed()
-        transformedKey = try header.kdf.transform(compositeKey)
+        transformedKey = try header.kdf.transform(composite)
     }
 }
 
@@ -247,9 +247,6 @@ enum KDBX {
         case composite(Data)
         case transformed(Data)
 
-        /// Empty when only the transformed key is known; changing credentials always starts from the real credentials.
-        var composite: Data { if case .composite(let data) = self { data } else { Data() } }
-
         func transformed(using kdf: KDBXKDF) throws -> Data {
             switch self {
             case .composite(let data): try kdf.transform(data)
@@ -309,7 +306,6 @@ enum KDBX {
         let storedHash = try reader.bytes(32), storedMAC = try reader.bytes(32)
         guard KDBXCrypto.equal(KDBXCrypto.sha256(Data(headerBytes)), storedHash) else { throw KDBXError.corrupted("header") }
 
-        let composite = key.composite
         let transformed = try key.transformed(using: kdf)
         let hmacKey = KDBXCrypto.sha512(masterSeed + transformed + Data([1]))
         guard KDBXCrypto.equal(KDBXCrypto.hmacSHA256(key: blockKey(hmacKey, index: .max), Data(headerBytes)), storedMAC) else {
@@ -362,7 +358,7 @@ enum KDBX {
         decryptProtected(root, &stream)
         return KDBXDocument(header: KDBXHeader(minorVersion: minor, cipher: cipher, compressed: compressed, masterSeed: masterSeed,
                                                encryptionIV: iv, kdf: kdf, publicCustomData: publicData),
-                            binaries: binaries, root: root, compositeKey: composite, transformedKey: transformed)
+                            binaries: binaries, root: root, transformedKey: transformed)
     }
 
 
@@ -402,7 +398,6 @@ enum KDBX {
         kdfDictionary.set("S", bytes: transformSeed)
         kdfDictionary.set("R", uint64: rounds)
         let kdf = KDBXKDF(dictionary: kdfDictionary)
-        let composite = key.composite
         let transformed = try key.transformed(using: kdf)
         let masterKey = KDBXCrypto.sha256(masterSeed + transformed)
 
@@ -439,7 +434,7 @@ enum KDBX {
         let binaries = convertBinaryPool(root)
         var document = KDBXDocument(header: KDBXHeader(minorVersion: 1, cipher: .aes256, compressed: true, masterSeed: Data(),
                                                        encryptionIV: Data(), kdf: kdf, publicCustomData: nil),
-                                    binaries: binaries, root: root, compositeKey: composite, transformedKey: transformed)
+                                    binaries: binaries, root: root, transformedKey: transformed)
         document.sourceVersion = "KDBX 3.\(minor)"
         return document
     }
@@ -564,7 +559,7 @@ enum KDBX {
         let root = XNode("KeePassFile", children: [meta, XNode("Root", children: [group, XNode("DeletedObjects")])])
         return KDBXDocument(header: KDBXHeader(minorVersion: 1, cipher: .aes256, compressed: true,
                                                masterSeed: Data(), encryptionIV: Data(), kdf: kdf, publicCustomData: nil),
-                            binaries: [], root: root, compositeKey: composite, transformedKey: transformed)
+                            binaries: [], root: root, transformedKey: transformed)
     }
 
     // MARK: Helpers

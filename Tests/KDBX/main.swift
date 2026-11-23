@@ -225,7 +225,7 @@ session.lock()
 try await session.unlock(credentials: .init(password: "n3w"))
 expect("new vault password unlocks", session.store != nil)
 let backups = (try? FileManager.default.contentsOfDirectory(atPath: VaultFiles.storageRoot.appendingPathComponent("Backups/\(session.reference!.id.uuidString)").path)) ?? []
-expect("rollback copies are kept", backups.count >= 2)
+expect("a password change removes every rollback copy (they hold the old password)", backups.isEmpty)
 
 // MARK: Usage log (device-local, never written to the vault file)
 
@@ -346,6 +346,386 @@ do {
 
 session.forget()
 expect("forgetting deletes the usage file", !FileManager.default.fileExists(atPath: UsageLog.fileURL(for: vaultId).path))
+
+// MARK: Security fixes 2026-11-23: atomic conflict check, backups after a password change, sample vault, browser prototype, passkeys
+
+do {
+    let fm = FileManager.default
+    let dir = fm.temporaryDirectory.appendingPathComponent("psss-sec-\(UUID().uuidString)")
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    func backups(of id: UUID) -> [String] {
+        ((try? fm.contentsOfDirectory(atPath: VaultFiles.storageRoot.appendingPathComponent("Backups/\(id.uuidString)").path)) ?? []).sorted()
+    }
+    func openStore(_ url: URL, _ id: UUID, password: String) throws -> KeePassVaultStore {
+        let data = try Data(contentsOf: url)
+        let document = try KDBX.open(data, credentials: .init(password: password))
+        return KeePassVaultStore(reference: VaultReference(id: id, name: "Sec", managed: true, bookmark: nil, fileName: url.lastPathComponent),
+                                 url: url, scoped: false, document: document, fileData: data)
+    }
+    func makeVault(_ name: String, password: String) throws -> (url: URL, id: UUID) {
+        let url = dir.appendingPathComponent("\(name).kdbx")
+        try KDBX.save(try KDBX.create(name: name, credentials: .init(password: password), kdf: light)).write(to: url)
+        return (url, UUID())
+    }
+    let first = VaultItem(kind: .login, account: "one@example.net", website: "one.example", secret: "Demo-only-One1!")
+    let second = VaultItem(kind: .login, account: "two@example.net", website: "two.example", secret: "Demo-only-Two2!")
+
+    // Two stores on one file interleave: the second writer is refused, and Overwrite then wins.
+    let shared = try makeVault("shared", password: "pw")
+    let writerA = try openStore(shared.url, shared.id, password: "pw")
+    let writerB = try openStore(shared.url, shared.id, password: "pw")
+    try writerA.save([first])
+    do { try writerB.save([second]); failures += 1; print("FAIL second writer not refused") }
+    catch VaultStoreError.changedOnDisk { print("ok   second writer is refused with changedOnDisk") }
+    let afterA = try Data(contentsOf: shared.url)
+    expect("a refused write leaves the file as the first writer wrote it", (try? KDBX.open(afterA, credentials: .init(password: "pw")))?.items().contains { $0.id == first.id } == true)
+    try writerB.commit(overwrite: true)
+    expect("overwrite writes when the file is readable", try Data(contentsOf: shared.url) != afterA)
+
+    // A file that exists but cannot be read: refuse, with and without overwrite, and write nothing.
+    if getuid() != 0 {
+        let locked = try makeVault("locked", password: "pw")
+        let lockedStore = try openStore(locked.url, locked.id, password: "pw")
+        let before = try Data(contentsOf: locked.url)
+        try fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.url.path)
+        for overwrite in [false, true] {
+            do { try lockedStore.commit(overwrite: overwrite); failures += 1; print("FAIL unreadable file written (overwrite \(overwrite))") }
+            catch VaultStoreError.unreadable { print("ok   unreadable file refused (overwrite \(overwrite))") }
+        }
+        try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: locked.url.path)
+        expect("unreadable file left unchanged", try Data(contentsOf: locked.url) == before)
+        expect("unreadable file made no rollback copy", backups(of: locked.id).isEmpty)
+    } else { print("skip unreadable-file test: running as root") }
+
+    // The first write of a new vault (no file yet) works and keeps no rollback copy.
+    let fresh = dir.appendingPathComponent("fresh.kdbx")
+    let freshId = UUID()
+    let freshDocument = try KDBX.create(name: "Fresh", credentials: .init(password: "pw"), kdf: light)
+    let freshStore = KeePassVaultStore(reference: VaultReference(id: freshId, name: "Fresh", managed: true, bookmark: nil, fileName: "fresh.kdbx"),
+                                       url: fresh, scoped: false, document: freshDocument, fileData: nil)
+    try freshStore.save([first])
+    expect("first write of a new vault creates the file", (try? KDBX.open(Data(contentsOf: fresh), credentials: .init(password: "pw")))?.items().count == 1)
+    expect("first write keeps no rollback copy", backups(of: freshId).isEmpty)
+
+    // Rollback copies never survive a password change, and none opens with the old password.
+    let changing = try makeVault("changing", password: "old-pw")
+    let changeStore = try openStore(changing.url, changing.id, password: "old-pw")
+    try changeStore.save([first]); try changeStore.save([second])
+    expect("rollback copies exist before the password change", backups(of: changing.id).count >= 2)
+    try await changeStore.changeCredentials(to: .init(password: "new-pw"))
+    expect("no rollback copy after a password change", backups(of: changing.id).isEmpty)
+    expect("the vault file opens with the new password", (try? KDBX.open(Data(contentsOf: changing.url), credentials: .init(password: "new-pw"))) != nil)
+    expectError("the vault file no longer opens with the old password", .wrongCredentials) { _ = try KDBX.open(Data(contentsOf: changing.url), credentials: .init(password: "old-pw")) }
+    try changeStore.save([VaultItem(kind: .login, account: "three@example.net", website: "three.example", secret: "Demo-only-Three3!")])
+    for name in backups(of: changing.id) {
+        let copy = try Data(contentsOf: VaultFiles.storageRoot.appendingPathComponent("Backups/\(changing.id.uuidString)/\(name)"))
+        expectError("a later rollback copy does not open with the old password", .wrongCredentials) { _ = try KDBX.open(copy, credentials: .init(password: "old-pw")) }
+    }
+    // A refused password change leaves the store on the old password, so overwriting afterwards does not change it.
+    let conflicted = try makeVault("conflicted", password: "old-pw")
+    let conflictStore = try openStore(conflicted.url, conflicted.id, password: "old-pw")
+    let conflictOther = try openStore(conflicted.url, conflicted.id, password: "old-pw")
+    try conflictStore.save([first]); try conflictStore.save([second])
+    do { try await conflictOther.changeCredentials(to: .init(password: "new-pw")); failures += 1; print("FAIL change over a conflict not refused") }
+    catch VaultStoreError.changedOnDisk { print("ok   password change refused on a conflict") }
+    try conflictOther.commit(overwrite: true)
+    expect("overwriting after a refused password change keeps the old password", (try? KDBX.open(Data(contentsOf: conflicted.url), credentials: .init(password: "old-pw"))) != nil
+       && (try? KDBX.open(Data(contentsOf: conflicted.url), credentials: .init(password: "new-pw"))) == nil)
+    for id in [shared.id, changing.id, conflicted.id, freshId] { VaultFiles.removeBackups(for: id) }
+    try? fm.removeItem(at: dir)
+}
+
+// The sample vault is in memory: edits stay in the instance, and a new one starts from the compiled-in items.
+do {
+    let sample = SampleVaultStore()
+    check("sample items are the compiled-in ones", "\(sample.items().count)", "\(SampleVault.items.count)")
+    let typed = VaultItem(kind: .login, account: "typed@example.net", website: "typed.example", secret: "Demo-only-Typed1!")
+    try sample.save([typed])
+    expect("sample edits work for the session", sample.items().contains { $0.id == typed.id })
+    expect("a new sample store forgets them", !SampleVaultStore().items().contains { $0.id == typed.id })
+    try sample.delete(typed.id)
+    expect("sample delete works for the session", !sample.items().contains { $0.id == typed.id })
+}
+
+// Without the native host's prototype directory, the browser protocol serves and stores no credential and touches no file.
+do {
+    expect("no prototype directory in the test process", BrowserPrototypeStore.directory == nil)
+    for type in ["save", "credential", "candidates", "search"] {
+        let reply = BrowserProtocol.handle(["v": 1, "id": "t", "type": type, "origin": "https://one.example", "ref": "x",
+                                            "account": "a@example.net", "secret": "Demo-only-Browser1!", "query": "example"])
+        check("browser \(type) without a prototype directory", "\(reply["ok"] as? Bool ?? true) \(reply["error"] as? String ?? "")", "false unsupported")
+    }
+    expect("browser ping still answers", BrowserProtocol.handle(["v": 1, "id": "t", "type": "ping"])["ok"] as? Bool == true)
+}
+
+// A passkey signs only for its own relying party.
+do {
+    let registration = Passkeys.register(rpID: "example.com", userHandle: Data("u".utf8), clientDataHash: Data(count: 32))
+    expect("assertion for the stored relying party signs", (try? Passkeys.assert(registration.record, relyingParty: "example.com", clientDataHash: Data(count: 32))) != nil)
+    expect("assertion for another relying party fails", (try? Passkeys.assert(registration.record, relyingParty: "evil.example", clientDataHash: Data(count: 32))) == nil)
+}
+
+// Characters XML 1.0 cannot hold (U+FFFE, U+FFFF and the C0 controls other than tab, line feed and carriage return) never reach the
+// file: they are dropped as it is written, in element text, in a name and in an attribute, so the file opens. A protected value is encrypted first and not XML text.
+do {
+    let hostile = "a\u{FFFE}b\u{FFFF}c\u{0}d\u{1}e\u{8}f\u{B}g\u{C}h\u{E}i\u{1F}j\tk"
+    check("the storable text drops what XML 1.0 cannot hold", XMLTree.storable(hostile), "abcdefghij\tk")
+    check("and keeps a supplementary character", XMLTree.storable("x\u{1F510}y"), "x\u{1F510}y")
+    let document = try KDBX.create(name: "Name\u{FFFE}", credentials: .init(password: "pw"), kdf: light)
+    let plain = XNode("Value", text: hostile)
+    let secret = XNode("Value", text: hostile, attributes: [("Protected", "True"), ("note", hostile)])
+    let entry = XNode("Entry", children: [XNode("UUID", text: UUID().kdbxBase64),
+                                          XNode("String", children: [XNode("Key", text: "Title"), plain]),
+                                          XNode("String", children: [XNode("Key", text: "Password"), secret]),
+                                          XNode("String", children: [XNode("Key", text: "Ke\u{FFFE}y"), XNode("Value", text: "v")])])
+    document.rootGroup!.children.append(entry)
+    let reread = try KDBX.open(try KDBX.save(document), credentials: .init(password: "pw"))
+    let node = reread.rootGroup!.children(named: "Entry").first!
+    // A protected value is encrypted before it is written, so it is not XML text and the file opens whatever it holds.
+    check("an entry with such characters saves and opens, with the storable text in its title", EntryMapping.string(node, "Title") ?? "-", "abcdefghij\tk")
+    expect("and its protected value is there", node.children(named: "String").contains { $0.child("Key")?.text == "Password" && $0.child("Value")?.attribute("Protected") == "True" })
+    check("a name with such a character is stored without it", "\(node.children(named: "String").compactMap { $0.child("Key")?.text }.sorted())", "[\"Key\", \"Password\", \"Title\"]")
+    let xml = try XMLTree.parse(XMLTree.serialize(XNode("R", children: [XNode("A", text: hostile, attributes: [("p", hostile)])])))
+    check("the same text in an attribute and in element text parses back", "\(xml.child("A")?.attribute("p") ?? "-") \(xml.child("A")?.text ?? "-")", "abcdefghij\tk abcdefghij\tk")
+}
+
+// MARK: Security fixes, second round: failed password change, missing and odd files, stale-key lifecycle, concurrency, release checks
+
+do {
+    let fm = FileManager.default
+    let dir = fm.temporaryDirectory.appendingPathComponent("psss-sec2-\(UUID().uuidString)")
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    func backupNames(_ id: UUID) -> [String] {
+        ((try? fm.contentsOfDirectory(atPath: VaultFiles.storageRoot.appendingPathComponent("Backups/\(id.uuidString)").path)) ?? []).sorted()
+    }
+    func makeStore(_ name: String, password: String = "old-pw") throws -> (store: KeePassVaultStore, url: URL, id: UUID) {
+        let url = dir.appendingPathComponent("\(name).kdbx")
+        let data = try KDBX.save(try KDBX.create(name: name, credentials: .init(password: password), kdf: light))
+        try data.write(to: url)
+        let id = UUID()
+        let store = KeePassVaultStore(reference: VaultReference(id: id, name: name, managed: true, bookmark: nil, fileName: url.lastPathComponent),
+                                      url: url, scoped: false, document: try KDBX.open(data, credentials: .init(password: password)), fileData: data)
+        return (store, url, id)
+    }
+    func opensWith(_ url: URL, _ password: String) -> Bool { (try? KDBX.open(Data(contentsOf: url), credentials: .init(password: password))) != nil }
+    let extra = VaultItem(kind: .login, account: "extra@example.net", website: "extra.example", secret: "Demo-only-Extra1!")
+    let more = VaultItem(kind: .login, account: "more@example.net", website: "more.example", secret: "Demo-only-More2!")
+
+    // A refused password change on a conflicting file: the store keeps the old credentials, backups stay, a normal save and Reload work.
+    do {
+        let v = try makeStore("conflict-change")
+        try v.store.save([extra]); try v.store.save([more])
+        let backupsBefore = backupNames(v.id)
+        expect("backups exist before the failed change", backupsBefore.count >= 2)
+        // Another writer changes the file (a different item), so ours is stale.
+        let other = try KDBX.open(Data(contentsOf: v.url), credentials: .init(password: "old-pw"))
+        other.upsert(VaultItem(kind: .login, account: "elsewhere@example.net", website: "elsewhere.example", secret: "Demo-only-Else3!"))
+        try KDBX.save(other).write(to: v.url)
+        let bytesOnDisk = try Data(contentsOf: v.url)
+        let key = v.store.transformedKey
+        do { try await v.store.changeCredentials(to: .init(password: "new-pw")); failures += 1; print("FAIL change over a conflict succeeded") }
+        catch VaultStoreError.changedOnDisk { print("ok   change refused on a conflicting file") }
+        expect("conflict: file untouched", try Data(contentsOf: v.url) == bytesOnDisk)
+        expect("conflict: file opens only with the old password", opensWith(v.url, "old-pw") && !opensWith(v.url, "new-pw"))
+        expect("conflict: backups unchanged", backupNames(v.id) == backupsBefore)
+        check("conflict: store still holds the old key", hex(v.store.transformedKey), hex(key))
+        try await v.store.reload()
+        try v.store.save([VaultItem(kind: .login, account: "after@example.net", website: "after.example", secret: "Demo-only-After4!")])
+        expect("conflict: save after Reload writes with the old password", opensWith(v.url, "old-pw") && !opensWith(v.url, "new-pw"))
+        expect("conflict: backups kept after the later save", backupNames(v.id).count >= backupsBefore.count)
+        VaultFiles.removeBackups(for: v.id)
+    }
+
+    // The same on an unreadable file, and in a read-only folder.
+    if getuid() != 0 {
+        let v = try makeStore("unreadable-change")
+        try v.store.save([extra])
+        let backupsBefore = backupNames(v.id)
+        let before = try Data(contentsOf: v.url)
+        let key = v.store.transformedKey
+        try fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: v.url.path)
+        do { try await v.store.changeCredentials(to: .init(password: "new-pw")); failures += 1; print("FAIL change on unreadable file succeeded") }
+        catch VaultStoreError.unreadable { print("ok   change refused on an unreadable file") }
+        try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: v.url.path)
+        expect("unreadable: file untouched, old password only", try Data(contentsOf: v.url) == before && opensWith(v.url, "old-pw") && !opensWith(v.url, "new-pw"))
+        expect("unreadable: backups unchanged", backupNames(v.id) == backupsBefore)
+        check("unreadable: store still holds the old key", hex(v.store.transformedKey), hex(key))
+        try v.store.save([more])
+        expect("unreadable: later save succeeds with the old password", opensWith(v.url, "old-pw") && !opensWith(v.url, "new-pw"))
+        try await v.store.reload()
+        VaultFiles.removeBackups(for: v.id)
+
+        let ro = try makeStore("read-only-folder")
+        let folder = dir.appendingPathComponent("ro", isDirectory: true)
+        try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        let roURL = folder.appendingPathComponent("vault.kdbx")
+        try Data(contentsOf: ro.url).write(to: roURL)
+        let roStore = KeePassVaultStore(reference: ro.store.reference, url: roURL, scoped: false,
+                                        document: try KDBX.open(Data(contentsOf: roURL), credentials: .init(password: "old-pw")), fileData: try Data(contentsOf: roURL))
+        let roBytes = try Data(contentsOf: roURL)
+        try fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
+        do { try await roStore.changeCredentials(to: .init(password: "new-pw")); failures += 1; print("FAIL change in read-only folder succeeded") }
+        catch VaultStoreError.writeFailed { print("ok   change refused in a read-only folder") }
+        do { try roStore.save([extra]); failures += 1; print("FAIL save in read-only folder succeeded") }
+        catch VaultStoreError.writeFailed { print("ok   save refused in a read-only folder") }
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
+        expect("read-only folder: file unchanged", try Data(contentsOf: roURL) == roBytes)
+        try roStore.save([extra])
+        expect("read-only folder: save works once writable, old password", opensWith(roURL, "old-pw") && !opensWith(roURL, "new-pw"))
+        VaultFiles.removeBackups(for: ro.store.reference.id)
+    }
+
+    // A missing file under an open store is `fileMissing` and is not recreated, with or without overwrite. A folder in its place is unreadable.
+    do {
+        let v = try makeStore("deleted")
+        try fm.removeItem(at: v.url)
+        for overwrite in [false, true] {
+            do { try v.store.save([extra]); try v.store.commit(overwrite: overwrite); failures += 1; print("FAIL missing file written") }
+            catch VaultStoreError.fileMissing { print("ok   missing file refused (overwrite \(overwrite))") }
+        }
+        expect("missing file is not recreated", !fm.fileExists(atPath: v.url.path))
+        try fm.createDirectory(at: v.url, withIntermediateDirectories: true)
+        for overwrite in [false, true] {
+            do { try v.store.commit(overwrite: overwrite); failures += 1; print("FAIL folder in place of the file written over") }
+            catch VaultStoreError.unreadable { print("ok   folder in place of the file refused (overwrite \(overwrite))") }
+        }
+        var isFolder: ObjCBool = false
+        expect("the folder is still there", fm.fileExists(atPath: v.url.path, isDirectory: &isFolder) && isFolder.boolValue)
+        VaultFiles.removeBackups(for: v.id)
+    }
+
+    // Writers on two threads against one file, a couple of seconds: every reported save is present, every observed state opens.
+    do {
+        final class Shared: @unchecked Sendable {
+            let lock = NSLock()
+            var saved: [UUID] = []
+            var observed = 0, unreadableStates = 0, errors = 0, finished = 0
+            func with(_ body: () -> Void) { lock.lock(); body(); lock.unlock() }
+            var finishedCount: Int { lock.lock(); defer { lock.unlock() }; return finished }
+        }
+        let shared = Shared()
+        let v = try makeStore("concurrent", password: "pw")
+        let url = v.url
+        let deadline = Date().addingTimeInterval(2.5)
+        for writer in 0..<2 {
+            Thread.detachNewThread {
+                var n = 0
+                while Date() < deadline {
+                    do {
+                        let data = try VaultFiles.read(url)
+                        let document = try KDBX.open(data, credentials: .init(password: "pw"))
+                        let item = VaultItem(kind: .login, account: "w\(writer)-\(n)@example.net", website: "w\(writer).example", secret: "Demo-only-W\(n)!")
+                        document.upsert(item)
+                        _ = try VaultFiles.replace(at: url, with: try KDBX.save(document), basedOn: KDBXCrypto.sha256(data), overwrite: false)
+                        shared.with { shared.saved.append(item.id) }
+                        n += 1
+                    } catch VaultStoreError.changedOnDisk {
+                        continue
+                    } catch { shared.with { shared.errors += 1 } }
+                }
+                shared.with { shared.finished += 1 }
+            }
+        }
+        Thread.detachNewThread {
+            while Date() < deadline {
+                if let data = try? VaultFiles.read(url), (try? KDBX.open(data, credentials: .init(password: "pw"))) != nil {
+                    shared.with { shared.observed += 1 }
+                } else { shared.with { shared.unreadableStates += 1 } }
+            }
+            shared.with { shared.finished += 1 }
+        }
+        while shared.finishedCount < 3 { try await Task.sleep(for: .milliseconds(50)) }
+        let final = try KDBX.open(Data(contentsOf: url), credentials: .init(password: "pw")).items().map(\.id)
+        expect("concurrent writers saved something from both threads", shared.saved.count > 10)
+        check("every reported concurrent save is present", "\(shared.saved.filter { !final.contains($0) }.count)", "0")
+        check("every observed file state opened", "\(shared.unreadableStates)", "0")
+        check("no unexpected writer errors", "\(shared.errors)", "0")
+        print("     concurrent: \(shared.saved.count) saves, \(shared.observed) reads")
+        VaultFiles.removeBackups(for: v.id)
+    }
+    try? fm.removeItem(at: dir)
+}
+
+// The stale-key lifecycle, with the Keychain replaced by a table: no prompt, nothing real touched.
+do {
+    let lifecycle = VaultSession()
+    lifecycle.forget()
+    try await lifecycle.create(name: "Stale test", credentials: .init(password: "pw1"), items: [])
+    let id = lifecycle.reference!.id
+    try lifecycle.enableBiometric()
+    expect("key saved and setting on", lifecycle.reference?.biometricUnlock == true && BiometricKey.memory[id] != nil)
+    lifecycle.lock()
+
+    // Lockout or unavailable: key and setting stay, nothing is marked stale.
+    BiometricKey.failure = .unavailable
+    do { try await lifecycle.unlockWithBiometrics(); failures += 1; print("FAIL unavailable unlocked") } catch BiometricKeyError.unavailable { print("ok   unavailable is reported") }
+    BiometricKey.failure = nil
+    expect("unavailable leaves the key and the setting alone", lifecycle.reference?.biometricUnlock == true && BiometricKey.memory[id] != nil && lifecycle.reference?.biometricStale == false)
+
+    // A stale key: off and marked; the password unlock saves a fresh key and turns it on again.
+    BiometricKey.memory[id] = Data(repeating: 9, count: 32)
+    do { try await lifecycle.unlockWithBiometrics(); failures += 1; print("FAIL stale key unlocked") } catch BiometricKeyError.invalidated { print("ok   stale key reported") }
+    expect("stale key: off, marked stale, key deleted", lifecycle.reference?.biometricUnlock == false && lifecycle.reference?.biometricStale == true && BiometricKey.memory[id] == nil)
+    expect("stale mark is persisted", VaultReference.load()?.biometricStale == true)
+    try await lifecycle.unlock(credentials: .init(password: "pw1"))
+    expect("password unlock turns it back on", lifecycle.reference?.biometricUnlock == true && lifecycle.reference?.biometricStale == false)
+    check("the fresh key is the vault's current key", hex(BiometricKey.memory[id] ?? Data()), hex(lifecycle.store!.transformedKey))
+    lifecycle.lock()
+    try await lifecycle.unlockWithBiometrics()
+    expect("the fresh key opens the vault", lifecycle.isOpen)
+    lifecycle.lock()
+
+    // Switched off by the person: a password unlock leaves it off.
+    lifecycle.disableBiometric()
+    expect("manual off is not stale", lifecycle.reference?.biometricStale == false)
+    try await lifecycle.unlock(credentials: .init(password: "pw1"))
+    expect("manual off stays off after a password unlock", lifecycle.reference?.biometricUnlock == false && BiometricKey.memory[id] == nil)
+    lifecycle.lock()
+
+    // Another process (the AutoFill extension) marks the key stale: this session's older in-memory copy must not hide it.
+    try lifecycle.enableBiometric()
+    lifecycle.lock()
+    var elsewhere = VaultReference.load()!
+    elsewhere.biometricUnlock = false
+    elsewhere.biometricStale = true
+    elsewhere.persist()
+    try await lifecycle.unlock(credentials: .init(password: "pw1"))
+    expect("a stale mark written elsewhere is honoured", lifecycle.reference?.biometricUnlock == true && lifecycle.reference?.biometricStale == false)
+
+    // The setting persisted elsewhere is read before deciding: off elsewhere means biometrics are not tried.
+    lifecycle.lock()
+    var turnedOff = VaultReference.load()!
+    turnedOff.biometricUnlock = false
+    turnedOff.persist()
+    do { try await lifecycle.unlockWithBiometrics(); failures += 1; print("FAIL biometrics used after being turned off elsewhere") } catch BiometricKeyError.invalidated { print("ok   setting changed elsewhere is read") }
+    lifecycle.forget()
+}
+
+// The release decision for the AutoFill provider.
+do {
+    let login = VaultItem(kind: .login, account: "a@example.net", website: "login.example.com", secret: "Demo-only-Rel1!")
+    expect("password: same site", ReleaseCheck.password(item: login, serviceIdentifier: "login.example.com"))
+    expect("password: subdomain of the stored site", ReleaseCheck.password(item: login, serviceIdentifier: "deep.login.example.com"))
+    expect("password: scheme and path in the identifier", ReleaseCheck.password(item: login, serviceIdentifier: "https://login.example.com/path"))
+    expect("password: wrong site refused", !ReleaseCheck.password(item: login, serviceIdentifier: "evil.example"))
+    expect("password: parent site refused", !ReleaseCheck.password(item: login, serviceIdentifier: "example.com"))
+    expect("password: lookalike refused", !ReleaseCheck.password(item: login, serviceIdentifier: "login.example.com.evil.example"))
+    expect("password: empty site refused", !ReleaseCheck.password(item: login, serviceIdentifier: ""))
+    var empty = login; empty.secret = ""
+    expect("password: empty secret refused", !ReleaseCheck.password(item: empty, serviceIdentifier: "login.example.com"))
+    let card = VaultItem(kind: .creditCard, account: "Alex", website: "login.example.com", secret: "4242424242424242")
+    let note = VaultItem(kind: .secureNote, website: "login.example.com", secret: "text")
+    expect("password: credit card refused", !ReleaseCheck.password(item: card, serviceIdentifier: "login.example.com"))
+    expect("password: secure note refused", !ReleaseCheck.password(item: note, serviceIdentifier: "login.example.com"))
+
+    let record = Passkeys.register(rpID: "example.com", userHandle: Data("u".utf8), clientDataHash: Data(count: 32)).record
+    expect("passkey: same party and credential", ReleaseCheck.passkey(record: record, relyingParty: "example.com", credentialID: record.credentialID))
+    expect("passkey: other party refused", !ReleaseCheck.passkey(record: record, relyingParty: "evil.example", credentialID: record.credentialID))
+    expect("passkey: different case refused", !ReleaseCheck.passkey(record: record, relyingParty: "Example.com", credentialID: record.credentialID))
+    expect("passkey: trailing dot refused", !ReleaseCheck.passkey(record: record, relyingParty: "example.com.", credentialID: record.credentialID))
+    expect("passkey: subdomain refused", !ReleaseCheck.passkey(record: record, relyingParty: "login.example.com", credentialID: record.credentialID))
+    expect("passkey: wrong credential ID refused", !ReleaseCheck.passkey(record: record, relyingParty: "example.com", credentialID: Data(repeating: 1, count: 16)))
+}
 
 print(failures == 0 ? "all passed" : "\(failures) failed")
 exit(failures == 0 ? 0 : 1)

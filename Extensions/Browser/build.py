@@ -258,7 +258,7 @@ def safari_project() -> None:
 # MARK: Native host ------------------------------------------------------------------------
 
 HOST_SOURCES = [HERE / "host" / "main.swift"] + [
-    ROOT / "App" / "Core" / name for name in ("VaultItem.swift", "SampleVault.swift", "SharedVault.swift", "SiteMatch.swift", "PublicSuffixList.swift", "Passkey.swift", "TOTP.swift", "PasswordGenerator.swift", "BrowserProtocol.swift")
+    ROOT / "App" / "Core" / name for name in ("VaultItem.swift", "SampleVault.swift", "SharedVault.swift", "SiteMatch.swift", "PublicSuffixList.swift", "Passkey.swift", "TOTP.swift", "PasswordGenerator.swift", "BrowserPrototypeStore.swift", "BrowserProtocol.swift")
 ]
 HOST_BINARY = OUT / "host" / "psss-native-host"
 

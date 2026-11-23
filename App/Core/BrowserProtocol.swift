@@ -5,8 +5,9 @@ import Foundation
 /// Safari app extension, so every browser gets the same answers and the same origin rules.
 /// Messages are JSON objects: see `Extensions/Browser/src/lib/protocol.js` and docs/browser-extension.md.
 ///
-/// PROTOTYPE LIMITS. This reads the sample vault and the saved-login file directly and answers
-/// without asking the app. The shipping design keeps the vault key out of the host: it relays each
+/// PROTOTYPE LIMITS. In the native host this reads the sample vault and the prototype's saved-login file (`BrowserPrototypeStore`)
+/// directly and answers without asking the app. Anywhere else (the apps and the Safari extension) there is no such file, and
+/// every request that would read or write a credential is answered `unsupported`. The shipping design keeps the vault key out of the host: it relays each
 /// request to the running app, which verifies the peer, unlocks and approves release.
 enum BrowserProtocol {
     static let version = 1
@@ -38,14 +39,18 @@ enum BrowserProtocol {
 
         guard request["v"] as? Int == version else { return fail("unsupported") }
 
-        switch request["type"] as? String {
+        let type = request["type"] as? String
+        // No credential is served or stored unless the native host enabled the prototype file.
+        if ["candidates", "search", "save", "credential"].contains(type), !BrowserPrototypeStore.isAvailable { return fail("unsupported") }
+
+        switch type {
         case "ping":
             return ok(["host": "psss", "protocol": version])
 
         case "candidates":
             guard let origin = request["origin"] as? String, let host = fillableHost(origin) else { return fail("forbidden") }
             let requested = SharedVault.host(host)
-            let matches = SharedVault.allItems.filter { SharedVault.matches($0, host: requested) }
+            let matches = BrowserPrototypeStore.allItems.filter { SharedVault.matches($0, host: requested) }
             return ok(["candidates": matches.map { ["ref": reference($0), "title": $0.displayTitle, "account": $0.account] }])
 
         case "search":
@@ -54,7 +59,7 @@ enum BrowserProtocol {
             let query = (request["query"] as? String ?? "").lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
             guard !query.isEmpty, query.count <= 100 else { return ok(["results": [Any]()]) }
             let requested = SharedVault.host(host)
-            let hits = SharedVault.allItems
+            let hits = BrowserPrototypeStore.allItems
                 .filter { $0.kind == .login && !$0.secret.isEmpty
                     && [$0.displayTitle, $0.account, $0.website].contains { $0.lowercased().contains(query) } }
                 .prefix(20)
@@ -73,20 +78,20 @@ enum BrowserProtocol {
                   !account.isEmpty, account.count <= 320,
                   let secret = request["secret"] as? String, !secret.isEmpty, secret.count <= 1024 else { return fail("unsupported") }
             let website = SharedVault.host(host)
-            if var existing = SharedVault.loadSaved().first(where: {
+            if var existing = BrowserPrototypeStore.loadSaved().first(where: {
                 $0.kind == .login && SharedVault.host($0.website) == website && $0.account == account
             }) {
                 existing.secret = secret
-                SharedVault.save(existing)
+                BrowserPrototypeStore.save(existing)
                 return ok(["result": "updated"])
             }
-            SharedVault.save(VaultItem(kind: .login, account: account, website: website, secret: secret))
+            BrowserPrototypeStore.save(VaultItem(kind: .login, account: account, website: website, secret: secret))
             return ok(["result": "created"])
 
         case "credential":
             guard let origin = request["origin"] as? String, let host = fillableHost(origin),
                   let ref = request["ref"] as? String else { return fail("forbidden") }
-            guard let item = SharedVault.allItems.first(where: { reference($0) == ref }) else { return fail("not-found") }
+            guard let item = BrowserPrototypeStore.allItems.first(where: { reference($0) == ref }) else { return fail("not-found") }
             // Recheck the origin here. A reference alone never releases a secret. `manual` is the
             // person's explicit choice of a login saved for another site, confirmed in the popup.
             // The shipping app asks for approval itself instead of trusting this flag.

@@ -9,7 +9,7 @@ struct NotReady: View {
         NavigationStack {
             VStack(spacing: 16) {
                 Text("Can’t open your vault here").font(.title2.bold()).multilineTextAlignment(.center)
-                Text("AutoFill opens your vault with Face ID or Touch ID, so you never type the vault password here. Open Psss, unlock with your vault password and turn on Face ID or Touch ID. Vaults you opened from Files must be moved into Psss first. Nothing was changed.")
+                Text("AutoFill opens your vault with Face ID or Touch ID, so you never type the vault password here. If you have not created a vault yet, open Psss and create one. Then unlock it with your vault password and turn on Face ID or Touch ID. Vaults you opened from Files must be moved into Psss first. Nothing was changed.")
                     .foregroundStyle(.secondary).multilineTextAlignment(.center)
                 Button("Close", action: close).buttonStyle(.borderedProminent).controlSize(.large)
             }

@@ -44,15 +44,14 @@ func write(_ object: [String: Any]) {
     FileHandle.standardOutput.write(body)
 }
 
-// MARK: Storage. Saved logins go where the app reads them when this process can reach the App
-// Group. An unsigned host cannot, so it keeps a prototype file instead (see docs/browser-extension.md).
+// MARK: Storage. The host keeps a plain-text prototype file (see docs/browser-extension.md). The apps never read it.
 
 func configureStorage() {
     let override = ProcessInfo.processInfo.environment["PSSS_PROTOTYPE_DIR"]
     let directory = override.map { URL(fileURLWithPath: $0) }
         ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Psss Prototype")
     try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    SharedVault.overrideDirectory = directory
+    BrowserPrototypeStore.directory = directory
 }
 
 // MARK: Main

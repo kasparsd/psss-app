@@ -24,25 +24,28 @@ enum VaultStoreError: Error, Equatable {
     case changedOnDisk
     case fileMissing
     case writeFailed(String)
+    /// The vault file exists but could not be read, so the check for changes cannot be made and nothing was written.
+    case unreadable
 }
 
-/// The compiled-in sample vault, plus whatever the person added during the demo, kept in the App Group prototype store
-/// so the AutoFill extension can still be tried against it. Never encrypted.
+/// The compiled-in sample vault. It lives in memory only: what the person adds or edits while trying it is gone when the
+/// store is dropped (the app does that when it locks or quits). Nothing is written to disk and no AutoFill identity is
+/// registered for it, so a sample login can never become a real one the system offers or the extension reads.
 @MainActor
 final class SampleVaultStore: VaultStore {
     let title = String(localized: "Sample vault")
     let isSample = true
+    private var current = SampleVault.items
 
-    func items() -> [VaultItem] { SharedVault.allItems }
+    func items() -> [VaultItem] { current }
 
     func save(_ items: [VaultItem]) throws {
-        for item in items where !SampleVault.items.contains(where: { $0.id == item.id }) { SharedVault.save(item) }
+        for item in items {
+            if let index = current.firstIndex(where: { $0.id == item.id }) { current[index] = item } else { current.append(item) }
+        }
     }
 
-    func delete(_ id: UUID) throws {
-        SharedVault.delete(id)
-        SharedVault.registerIdentities(for: SharedVault.allItems)
-    }
+    func delete(_ id: UUID) throws { current.removeAll { $0.id == id } }
 
     func markUsed(_ id: UUID) {}
     func flush() throws {}

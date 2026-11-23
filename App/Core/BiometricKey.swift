@@ -42,6 +42,9 @@ enum BiometricKeyError: Error {
     case cancelled
     /// The saved key is gone, for example because Face ID was re-enrolled. The password is needed once.
     case invalidated
+    /// Biometrics cannot be used right now (locked out, a closed lid, not available). The saved key and the setting stay as they are;
+    /// the vault password is needed this time.
+    case unavailable
     case failed(OSStatus)
 }
 
@@ -70,7 +73,23 @@ enum BiometricKey {
     }
     #endif
 
+    #if HOSTLESS_TESTS
+    /// Hostless tests replace the Keychain with this table, so no test touches the real one and no prompt is needed. A test sets
+    /// `failure` to make the next loads throw, and edits `memory` to make a saved key stale.
+    nonisolated(unsafe) static var memory: [UUID: Data] = [:]
+    nonisolated(unsafe) static var failure: BiometricKeyError?
+    #endif
+
     static func save(_ key: Data, for id: UUID) throws {
+        #if HOSTLESS_TESTS
+        memory[id] = key
+        return
+        #else
+        try saveToKeychain(key, for: id)
+        #endif
+    }
+
+    private static func saveToKeychain(_ key: Data, for id: UUID) throws {
         delete(for: id)
         var query = baseQuery(for: id)
         query[kSecValueData as String] = key
@@ -90,15 +109,23 @@ enum BiometricKey {
 
     /// Shows the system Face ID or Touch ID prompt and returns the key. Runs off the main actor: reading blocks.
     static func load(for id: UUID, reason: String) async throws -> Data {
-        try await Task.detached {
+        #if HOSTLESS_TESTS
+        if let failure { throw failure }
+        guard let key = memory[id] else { throw BiometricKeyError.invalidated }
+        return key
+        #else
+        return try await Task.detached {
             let context = LAContext()
             context.localizedReason = reason
             #if os(macOS)
             do { _ = try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) }
             catch let error as LAError where error.code == .userCancel || error.code == .appCancel || error.code == .systemCancel {
                 throw BiometricKeyError.cancelled
-            } catch {
+            } catch let error as LAError where error.code == .biometryNotEnrolled {
                 throw BiometricKeyError.invalidated
+            } catch {
+                // Lockout, biometry not available, a failed match: not a reason to delete the saved key.
+                throw BiometricKeyError.unavailable
             }
             #endif
             var query = baseQuery(for: id)
@@ -119,9 +146,14 @@ enum BiometricKey {
                 throw BiometricKeyError.failed(status)
             }
         }.value
+        #endif
     }
 
     static func delete(for id: UUID) {
+        #if HOSTLESS_TESTS
+        memory[id] = nil
+        #else
         SecItemDelete(baseQuery(for: id) as CFDictionary)
+        #endif
     }
 }

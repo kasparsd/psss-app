@@ -2,53 +2,18 @@ import AuthenticationServices
 import os
 import Foundation
 
-/// The prototype's shared storage between the app and its AutoFill extension.
-/// Sample items are compiled into both. Logins saved from a web form travel through a small
-/// file in the App Group container. A real vault replaces this with the encrypted document.
+/// What the app and its AutoFill extension share: the App Group identifier, the credential identity store and the site rule.
+/// No credential is stored here. Logins live only in the encrypted vault file; the sample vault is in memory.
 private let identityLog = Logger(subsystem: "local.kdbox.prototype", category: "identities")
 
 enum SharedVault {
     static let groupID = "group.local.kdbox.prototype"
 
-    /// Where saved logins live for the unsigned browser host, which cannot use the App Group
-    /// (macOS still returns a container path for it, but writing there fails). Always nil in the apps.
-    nonisolated(unsafe) static var overrideDirectory: URL?
-
-    private static var savedURL: URL? {
-        (overrideDirectory ?? FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupID))?
-            .appendingPathComponent("saved-logins.json")
-    }
-
-    static func loadSaved() -> [VaultItem] {
-        guard let url = savedURL, let data = try? Data(contentsOf: url) else { return [] }
-        return (try? JSONDecoder().decode([VaultItem].self, from: data)) ?? []
-    }
-
-    static var allItems: [VaultItem] { SampleVault.items + loadSaved() }
-
-    /// Items for the vault the person chose on first launch: the sample vault, or only their own.
-    static func items(source: String) -> [VaultItem] {
-        source == "sample" ? allItems : loadSaved()
-    }
-
-    static func save(_ item: VaultItem) {
-        guard let url = savedURL else { return }
-        var saved = loadSaved()
-        saved.removeAll { $0.id == item.id }
-        saved.append(item)
-        try? JSONEncoder().encode(saved).write(to: url, options: .atomic)
-    }
-
-    static func delete(_ id: UUID) {
-        guard let url = savedURL else { return }
-        let remaining = loadSaved().filter { $0.id != id }
-        try? JSONEncoder().encode(remaining).write(to: url, options: .atomic)
-    }
-
-    /// Removes the logins saved in the App Group, for starting over.
-    static func eraseSaved() {
-        if let url = savedURL { try? FileManager.default.removeItem(at: url) }
-        removeIdentities()
+    /// Earlier builds saved logins from AutoFill and the sample vault to a plain-text file in the App Group. Deletes it, if
+    /// it is still there. Called once from app start, because that file may hold real credentials.
+    static func removeLegacyPlainTextFile() {
+        guard let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupID) else { return }
+        try? FileManager.default.removeItem(at: group.appendingPathComponent("saved-logins.json"))
     }
 
     /// Clears every suggestion from the system's credential identity store.

@@ -425,8 +425,15 @@ struct VaultPasswordView: View {
             gate.markUnlocked()
         } catch BiometricKeyError.cancelled {
             focused = true
+        } catch BiometricKeyError.unavailable {
+            problem = String(localized: "\(biometry?.label ?? "Face ID") cannot be used right now. Enter the vault password this time.")
+            focused = true
         } catch BiometricKeyError.invalidated {
-            problem = String(localized: "\(biometry?.label ?? "Face ID") no longer opens \(vaultName), for example because it changed. Enter the vault password once. You can turn it on again afterwards.")
+            if session.reference?.biometricStale == true {
+                problem = String(localized: "\(biometry?.label ?? "Face ID") no longer opens \(vaultName), because the vault was changed elsewhere. Enter the vault password once and \(biometry?.label ?? "Face ID") is turned on again.")
+            } else {
+                problem = String(localized: "\(biometry?.label ?? "Face ID") no longer opens \(vaultName), for example because it changed. Enter the vault password once. You can turn it on again afterwards.")
+            }
             focused = true
         } catch {
             if case VaultStoreError.fileMissing = error { missing = true }
@@ -475,7 +482,7 @@ struct ChangePasswordSheet: View {
                 Section {
                     CredentialFields(password: $password, confirmation: $confirmation, keyFile: $keyFile, confirms: true)
                 } footer: {
-                    Text("The vault is encrypted again with the new password. Other copies of the file keep the old one.")
+                    Text("The vault is encrypted again with the new password. Earlier backup copies kept on this device are removed. Copies elsewhere, such as on other devices, in iCloud versions or in exports, keep the old password.")
                 }
                 if working { WorkingNotice(text: "Encrypting the vault with the new password…") }
                 if let problem { Text(problem).foregroundStyle(.red) }
@@ -501,6 +508,9 @@ struct ChangePasswordSheet: View {
                 try await store.changeCredentials(to: .init(password: password, keyFile: keyFile))
                 session.refreshBiometricKey()
                 dismiss()
+            } catch VaultStoreError.changedOnDisk {
+                problem = String(localized: "The vault was changed elsewhere, so the password was not changed. Close this sheet, reload the vault and try again.")
+                working = false
             } catch {
                 problem = (error as? KDBXError)?.message ?? (error as? VaultStoreError)?.message ?? error.localizedDescription
                 working = false
@@ -592,7 +602,6 @@ struct LostPasswordSheet: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .confirmationDialog("Forget \(vaultName)?", isPresented: $confirmsForget, titleVisibility: .visible) {
                 Button(managed ? "Delete Vault from This Device" : "Forget Vault", role: .destructive) {
-                    SharedVault.eraseSaved()
                     session.forget()
                     dismiss()
                     onForgotten()
