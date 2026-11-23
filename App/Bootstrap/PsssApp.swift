@@ -10,6 +10,13 @@ struct PsssApp: App {
         SharedVault.removeLegacyPlainTextFile()
         // Only the app purges Recently Deleted (items older than 30 days) when it unlocks a vault. The AutoFill extension does not.
         VaultSession.purgesRecentlyDeletedOnUnlock = true
+        #if os(iOS)
+        // Undo is the capsule after Delete Item (and Command-Z on iPad). Shaking the phone must not undo anything.
+        UIApplication.shared.applicationSupportsShakeToEdit = false
+        #elseif os(macOS)
+        // The window has its own All | Codes | Cards control, so the system's "Show Tab Bar" and "Show All Tabs" would only confuse.
+        NSWindow.allowsAutomaticWindowTabbing = false
+        #endif
         // Removes the login-keychain items an earlier local build left behind. Does nothing except in a provisioned Mac app.
         BiometricKey.removeLeftoverLoginItems()
     }
@@ -22,6 +29,7 @@ struct PsssApp: App {
         .defaultSize(width: 1100, height: 680)
         #endif
         .commands {
+            VaultPlaceCommands()
             CommandGroup(after: .appVisibility) {
                 Button("Lock Psss") { lockVault?() }
                     .keyboardShortcut("l", modifiers: .command)
@@ -32,7 +40,7 @@ struct PsssApp: App {
                 Button("New Login") { newItem?(.login) }
                     .keyboardShortcut("n", modifiers: .command)
                     .disabled(newItem == nil)
-                Button("New Credit Card") { newItem?(.creditCard) }
+                Button("New Card") { newItem?(.creditCard) }
                     .keyboardShortcut("n", modifiers: [.command, .option])
                     .disabled(newItem == nil)
                 Button("New Secure Note") { newItem?(.secureNote) }

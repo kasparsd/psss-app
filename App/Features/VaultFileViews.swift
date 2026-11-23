@@ -704,12 +704,13 @@ struct LostPasswordSheet: View {
             .formStyle(.grouped)
             .navigationTitle("Forgot your password?")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-            .confirmationDialog("Forget \(vaultName)?", isPresented: $confirmsForget, titleVisibility: .visible) {
+            .alert("Forget \(vaultName)?", isPresented: $confirmsForget) {
                 Button(managed ? "Delete Vault from This Device" : "Forget Vault", role: .destructive) {
                     session.forget()
                     dismiss()
                     onForgotten()
                 }
+                Button("Cancel", role: .cancel) {}
             } message: {
                 Text(managed ? "The vault and its passwords are deleted from this device and cannot be recovered."
                              : "Psss stops using this file. The file stays where it is.")

@@ -18,6 +18,26 @@ struct VaultReference: Codable, Equatable, Sendable {
     /// Biometric unlock was switched off because the saved key no longer opened the vault, not because the person chose to.
     /// The next password unlock saves a fresh key and switches it back on.
     var biometricStale = false
+    /// Whether the last unlock, creation or password change used a key file, and a password. Two non-secret flags, so Setup can
+    /// say what the vault is encrypted with. Nothing about the key file itself is kept. A password is assumed until an unlock says
+    /// otherwise.
+    var usesKeyFile = false
+    var usesPassword = true
+
+    /// What Setup says the vault file is encrypted with.
+    var encryptionDescription: String {
+        switch (usesPassword, usesKeyFile) {
+        case (true, true): String(localized: "A KeePass file, encrypted with your vault password and a key file.")
+        case (false, true): String(localized: "A KeePass file, encrypted with a key file.")
+        default: String(localized: "A KeePass file, encrypted with your vault password.")
+        }
+    }
+
+    /// Notes which credentials opened or created the vault.
+    mutating func record(_ credentials: KDBXCredentials) {
+        usesKeyFile = credentials.keyFile != nil
+        usesPassword = credentials.password != nil
+    }
 
     init(id: UUID = UUID(), name: String, managed: Bool, bookmark: Data?, fileName: String) {
         self.id = id; self.name = name; self.managed = managed; self.bookmark = bookmark; self.fileName = fileName
@@ -33,6 +53,8 @@ struct VaultReference: Codable, Equatable, Sendable {
         biometricUnlock = try c.decodeIfPresent(Bool.self, forKey: .biometricUnlock) ?? false
         biometricDeclined = try c.decodeIfPresent(Bool.self, forKey: .biometricDeclined) ?? false
         biometricStale = try c.decodeIfPresent(Bool.self, forKey: .biometricStale) ?? false
+        usesKeyFile = try c.decodeIfPresent(Bool.self, forKey: .usesKeyFile) ?? false
+        usesPassword = try c.decodeIfPresent(Bool.self, forKey: .usesPassword) ?? true
     }
 
     private static let defaultsKey = "vaultReference"
@@ -346,10 +368,6 @@ final class KeePassVaultStore: VaultStore {
         try transact { if document.upsert(items) { try commit() } }
     }
 
-    /// Deletes for good, like `deletePermanently`. The interface's confirmation says "cannot be undone", so this stays permanent
-    /// until Recently Deleted has its own screen.
-    func delete(_ id: UUID) throws { try deletePermanently(id) }
-
     // MARK: Recently Deleted
 
     func moveToRecentlyDeleted(_ id: UUID) throws { try moveToRecentlyDeleted([id]) }
@@ -515,6 +533,9 @@ final class KeePassVaultStore: VaultStore {
             credentialsChangePending = true
             try commit()
         }
+        var used = reference
+        used.record(credentials)
+        reference = VaultReference.update(reference.id) { $0.usesKeyFile = used.usesKeyFile; $0.usesPassword = used.usesPassword } ?? used
         return lastCommitLeftOldBackups ? .changedBackupsRemain : .changed
     }
 }
@@ -538,7 +559,8 @@ final class VaultSession {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? String(localized: "Passwords") : name
         let document = try await Task.detached { try KDBX.create(name: name, credentials: credentials) }.value
         document.upsert(items)
-        let reference = VaultReference(name: name, managed: true, bookmark: nil, fileName: "\(UUID().uuidString).kdbx")
+        var reference = VaultReference(name: name, managed: true, bookmark: nil, fileName: "\(UUID().uuidString).kdbx")
+        reference.record(credentials)
         try FileManager.default.createDirectory(at: VaultFiles.managedDirectory, withIntermediateDirectories: true)
         let url = VaultFiles.managedURL(fileName: reference.fileName)
         let data = try KDBX.save(document)
@@ -555,8 +577,9 @@ final class VaultSession {
             let data = try VaultFiles.read(picked)
             let document = try await Task.detached { try KDBX.open(data, credentials: credentials) }.value
             let name = document.databaseName.isEmpty ? picked.deletingPathExtension().lastPathComponent : document.databaseName
-            let reference = VaultReference(name: name, managed: false, bookmark: try VaultFiles.bookmark(for: picked),
+            var reference = VaultReference(name: name, managed: false, bookmark: try VaultFiles.bookmark(for: picked),
                                            fileName: picked.lastPathComponent)
+            reference.record(credentials)
             reference.persist()
             self.reference = reference
             store = KeePassVaultStore(reference: reference, url: picked, scoped: scoped, document: document, fileData: data)
@@ -569,7 +592,7 @@ final class VaultSession {
     /// Opens the remembered vault after a lock or relaunch.
     func unlock(credentials: KDBXCredentials) async throws {
         biometricNotice = nil
-        try await unlock { data in try KDBX.open(data, credentials: credentials) }
+        try await unlock(recording: credentials) { data in try KDBX.open(data, credentials: credentials) }
         syncReference()  // the AutoFill extension may have marked the saved key stale while the vault was opening
         // After every password unlock the saved key is replaced with the key just derived from the file as it is now. A key saved
         // earlier may be stale in ways nothing has noticed yet (the password was changed elsewhere, then this unlock used the new
@@ -628,7 +651,10 @@ final class VaultSession {
         }
     }
 
-    private func unlock(opening open: @escaping @Sendable (Data) throws -> KDBXDocument) async throws {
+    /// `credentials` is what a password unlock used: once the vault has opened with them, the reference says whether a key file
+    /// was part of that, before the store (and Setup) read it. A Face ID unlock passes none and changes nothing.
+    private func unlock(recording credentials: KDBXCredentials? = nil,
+                        opening open: @escaping @Sendable (Data) throws -> KDBXDocument) async throws {
         syncReference()
         guard var reference else { throw VaultStoreError.fileMissing }
         let url: URL, scoped: Bool
@@ -648,6 +674,11 @@ final class VaultSession {
             guard FileManager.default.fileExists(atPath: url.path) || (try? VaultFiles.read(url)) != nil else { throw VaultStoreError.fileMissing }
             let data = try VaultFiles.read(url)
             let document = try await Task.detached { try open(data) }.value
+            if let credentials, reference.usesKeyFile != (credentials.keyFile != nil) || reference.usesPassword != (credentials.password != nil) {
+                reference.record(credentials)
+                let used = reference
+                VaultReference.update(reference.id) { $0.usesKeyFile = used.usesKeyFile; $0.usesPassword = used.usesPassword }
+            }
             self.reference = reference
             store = KeePassVaultStore(reference: reference, url: url, scoped: scoped, document: document, fileData: data)
             // The 30-day purge of Recently Deleted. Off unless the app switched it on, so the AutoFill extension, which opens the

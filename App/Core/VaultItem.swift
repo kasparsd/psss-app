@@ -19,6 +19,8 @@ struct VaultItem: Identifiable, Sendable, Codable {
     var website = ""
     var secret = ""
     var expiry = ""
+    /// A card's security code (CVC, CVV), cards only. Stored as the protected custom string `Security code`.
+    var securityCode = ""
     var notes = ""
     /// TOTP (RFC 6238) secret as Base32, logins only. The codes it makes are shown as the item's one-time code.
     var otpSecret = ""
@@ -58,7 +60,7 @@ struct VaultItem: Identifiable, Sendable, Codable {
     }
 
     init(id: UUID = UUID(), kind: ItemKind, title: String = "", account: String = "", website: String = "",
-         secret: String = "", expiry: String = "", notes: String = "",
+         secret: String = "", expiry: String = "", securityCode: String = "", notes: String = "",
          otpSecret: String = "", otpSettings: TOTPSettings = .standard, lastUsed: Date? = nil, useCount: Int = 0,
          created: Date? = nil, modified: Date? = nil) {
         self.id = id
@@ -68,6 +70,7 @@ struct VaultItem: Identifiable, Sendable, Codable {
         self.website = website
         self.secret = secret
         self.expiry = expiry
+        self.securityCode = securityCode
         self.notes = notes
         self.otpSecret = otpSecret
         self.otpSettings = otpSettings

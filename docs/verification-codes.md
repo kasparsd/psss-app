@@ -37,6 +37,10 @@ Everything is decoded on the device. Nothing is uploaded and the image is never 
 - Confirm: “Type this code into the site to finish turning on two-step verification.” Buttons “Save code”, “Cancel”.
 - Errors: nothing to paste, no QR found, QR is a web link, invalid key, unsupported type, Google Authenticator batch (not built), camera denied. Each names the fix. Wording lives in `VerificationCodeSheet`.
 
+## Copying a code: the Codes view
+
+Approved 2026-11-23. Codes, one of the three places (a tab on iPhone and iPad, the toolbar control on Mac), lists every login with a code, live, so a code is copied without opening the login. Details and copy are in [experience](experience.md#places-all-codes-cards-approved-2026-11-23).
+
 ## Deferred, in order
 
 1. The `otpauth://` URL scheme, so a site’s tap-to-open link opens the app. Needs unlock, then pick a login. Never auto-save from a URL.

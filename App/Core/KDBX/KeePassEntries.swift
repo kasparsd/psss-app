@@ -217,6 +217,8 @@ enum EntryMapping {
     /// Private field that remembers which template an entry was created with. Other apps ignore it.
     static let typeKey = "PSSS_TYPE"
     static let cardExpiryKey = "Expiry"
+    /// A card's security code: a protected custom string with the name the importer already gives it.
+    static let cardSecurityCodeKey = "Security code"
 
     // KeePassXC passkey fields, so a passkey made here opens there and the other way round.
     static let passkeyCredential = "KPEX_PASSKEY_CREDENTIAL_ID"
@@ -229,7 +231,7 @@ enum EntryMapping {
     static let passkeyCreated = "PSSS_PASSKEY_CREATED"
     private static let passkeyKeys = [passkeyCredential, passkeyKey, passkeyRelyingParty, passkeyUsername, passkeyUserHandle]
     /// The strings Psss itself keeps protected: the password (a card's number too), the one-time code and the passkey's private key.
-    private static let protectedKeys: Set<String> = ["Password", "otp", passkeyKey]
+    private static let protectedKeys: Set<String> = ["Password", "otp", passkeyKey, cardSecurityCodeKey]
     /// Strings whose change is a change of a secret, even where the file does not mark them protected.
     private static let secretKeys: Set<String> = protectedKeys.union([
         passkeyCredential, passkeyRelyingParty, passkeyUserHandle, passkeyCreated,
@@ -331,7 +333,8 @@ enum EntryMapping {
         }
         let times = entry.child("Times")
         var item = VaultItem(id: id, kind: kind, title: title, account: account, website: website, secret: secret,
-                             expiry: kind == .creditCard ? string(entry, cardExpiryKey) ?? "" : "", notes: notes,
+                             expiry: kind == .creditCard ? string(entry, cardExpiryKey) ?? "" : "",
+                             securityCode: kind == .creditCard ? string(entry, cardSecurityCodeKey) ?? "" : "", notes: notes,
                              otpSecret: kind == .login ? otp.secret : "", otpSettings: kind == .login ? otp.settings : .standard,
                              created: times?.child("CreationTime").flatMap { KeePassTime.date($0.text) },
                              modified: times?.child("LastModificationTime").flatMap { KeePassTime.date($0.text) })
@@ -401,6 +404,8 @@ enum EntryMapping {
         case .keePassEntry: set(typeKey, "custom")
         }
         set(cardExpiryKey, item.kind == .creditCard ? item.expiry : nil)
+        // Only a card owns this string: a login or note may carry a custom field of the same name, which is left alone.
+        if item.kind == .creditCard { set(cardSecurityCodeKey, item.securityCode) }
 
         // Rewrite the TOTP field only when the secret or its parameters changed, so the issuer set elsewhere survives.
         let secret = item.kind == .login ? TOTP.normalizedSecret(item.otpSecret) ?? "" : ""
@@ -447,7 +452,7 @@ enum EntryMapping {
             item.passkey.map { [$0.credentialID, $0.userHandle, Data($0.rpID.utf8), $0.privateKey] }
         }
         return a.kind == b.kind && title(a) == title(b) && a.account == b.account && a.website == b.website && a.secret == b.secret
-            && a.notes == b.notes && (a.kind == .creditCard ? a.expiry == b.expiry : true)
+            && a.notes == b.notes && (a.kind == .creditCard ? a.expiry == b.expiry && a.securityCode == b.securityCode : true)
             && code(a) == code(b) && passkey(a) == passkey(b)
     }
 

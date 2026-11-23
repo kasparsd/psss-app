@@ -10,9 +10,8 @@ protocol VaultStore: AnyObject {
     func items() -> [VaultItem]
     /// Adds or updates items, then persists once.
     func save(_ items: [VaultItem]) throws
-    /// Deletes for good. The interface's confirmation says it cannot be undone, so this stays permanent for now.
-    func delete(_ id: UUID) throws
-    /// Moves a login, card or note to Recently Deleted (the Recycle Bin of a KeePass vault) instead of deleting it.
+    /// Moves a login, card or note to Recently Deleted (the Recycle Bin of a KeePass vault). Nothing is deleted outright: the
+    /// interface's Delete is this call, and only `deletePermanently` removes an item for good.
     func moveToRecentlyDeleted(_ id: UUID) throws
     /// Moves many items to Recently Deleted in one pass and one write.
     func moveToRecentlyDeleted(_ ids: [UUID]) throws
@@ -69,8 +68,6 @@ final class SampleVaultStore: VaultStore {
             if let index = current.firstIndex(where: { $0.id == item.id }) { current[index] = item } else { current.append(item) }
         }
     }
-
-    func delete(_ id: UUID) throws { try deletePermanently(id) }
 
     func moveToRecentlyDeleted(_ id: UUID) throws {
         guard let index = current.firstIndex(where: { $0.id == id }) else { return }

@@ -71,7 +71,7 @@ Defects that matter for sync:
 - [ ] Coordinated reads run on the main actor and block while iCloud downloads a file.
 - [x] Two saves of one entry within a second made two history items with the same time. Entry times now always move forward (2026-11-23).
 - [ ] A saved file never has the same bytes twice, since seeds and IVs are fresh each time. “Nothing to merge” has to compare decrypted content, never file hashes.
-- [~] Deleting was permanent in the codec. The Recycle Bin exists in the codec and the store (2026-11-23, see [items](items.md#built-so-far-2026-11-23)); the app's delete button still deletes permanently until the Recently Deleted screen is approved.
+- [~] Deleting was permanent in the codec. The Recycle Bin exists in the codec and the store (2026-11-23, see [items](items.md#built-so-far-2026-11-23)); the app's Delete Item moves an item to Recently Deleted (built 2026-11-23); only Delete Now… and Delete All… remove for good.
 
 ### How iCloud Drive presents two edits
 

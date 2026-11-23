@@ -78,7 +78,7 @@ var login = VaultItem(kind: .login, title: "Example", account: "alex@example.net
                       secret: "p@ss<word>&\"1\" ü 漢", notes: "line one\nline two", otpSecret: "JBSWY3DPEHPK3PXP")
 login.passkey = Passkeys.register(rpID: "example.com", userHandle: Data("alex".utf8), clientDataHash: Data(count: 32)).record
 let unnamed = VaultItem(kind: .login, account: "u", website: "https://www.unnamed.example/login", secret: "x")
-let card = VaultItem(kind: .creditCard, title: "Card", account: "Alex", secret: "4242424242424242", expiry: "08/30")
+let card = VaultItem(kind: .creditCard, title: "Card", account: "Alex", secret: "4242424242424242", expiry: "08/30", securityCode: "123")
 let note = VaultItem(kind: .secureNote, title: "Note", notes: "text")
 let custom = VaultItem(kind: .keePassEntry, title: "License", secret: "KEY-1")
 for item in [login, card, note, custom, unnamed] { document.upsert(item) }
@@ -97,6 +97,33 @@ check("passkey credential survives", hex(back.passkey?.credentialID ?? Data()), 
 check("passkey key survives", hex(back.passkey?.privateKey ?? Data()), hex(login.passkey!.privateKey))
 check("card kind", "\(items.first { $0.id == card.id }!.kind)", "creditCard")
 check("card expiry", items.first { $0.id == card.id }!.expiry, "08/30")
+check("card security code", items.first { $0.id == card.id }!.securityCode, "123")
+do {
+    let cardEntry = reopened.rootGroup!.children(named: "Entry").first { EntryMapping.uuid(of: $0) == card.id }!
+    expect("card security code is a protected custom string", EntryMapping.strings(cardEntry)["Security code"]?.isProtected == true)
+    var cleared = card
+    cleared.securityCode = ""
+    let fresh = try KDBX.open(bytes, credentials: .init(password: "correct horse"))
+    fresh.upsert(cleared)
+    let freshEntry = fresh.rootGroup!.children(named: "Entry").first { EntryMapping.uuid(of: $0) == card.id }!
+    expect("clearing the security code removes the string", EntryMapping.strings(freshEntry)["Security code"] == nil)
+}
+do {
+    // The Cards place: last used first, expired last, an unreadable expiry is not expired, and a snapshot keeps its order.
+    let now = Date(timeIntervalSince1970: 1_800_000_000)  // January 2027
+    var old = VaultItem(kind: .creditCard, title: "Old", secret: "4111111111111111", expiry: "03/25", lastUsed: now)
+    var recent = VaultItem(kind: .creditCard, title: "Recent", secret: "4242424242424242", expiry: "08/30", lastUsed: now.addingTimeInterval(-10))
+    let older = VaultItem(kind: .creditCard, title: "Older", secret: "5555555555554444", expiry: "garbled", lastUsed: now.addingTimeInterval(-9999))
+    let order = CardsOrder.ordered([old, older, recent], now: now)
+    check("cards: live ones by last use, expired last", (order.live + order.expired).map(\.title).joined(separator: ","), "Recent,Older,Old")
+    check("cards: only the past expiry is expired", order.expired.map(\.title).joined(separator: ","), "Old")
+    check("cards: summary names the network and last four", recent.cardSummary, "Visa ending 4242")
+    expect("cards: expiry month and year in words, in the person's language", (old.cardExpiryMonthYear ?? "").contains("2025") && old.cardExpiryMonthYear != "03/25")
+    recent.lastUsed = now.addingTimeInterval(-99999)
+    old.lastUsed = nil
+    let kept = CardsOrder.ordered([old, older, recent], rank: [recent.id: 0, older.id: 1], now: now)
+    check("cards: a snapshot order holds while use changes, and a new card leads", (kept.live + kept.expired).map(\.title).joined(separator: ","), "Recent,Older,Old")
+}
 check("note kind", "\(items.first { $0.id == note.id }!.kind)", "secureNote")
 check("custom kind", "\(items.first { $0.id == custom.id }!.kind)", "keePassEntry")
 expectError("wrong password", .wrongCredentials) { _ = try KDBX.open(bytes, credentials: .init(password: "nope")) }
@@ -270,7 +297,7 @@ expect("usage file holds no secrets", !String(decoding: (try? Data(contentsOf: U
 let usageStore2 = session.store!
 usageStore2.markUsed(custom.id)
 expect("custom item has usage", UsageLog.load(for: vaultId)[custom.id]?.useCount == 1)
-try usageStore2.delete(custom.id)
+try usageStore2.deletePermanently(custom.id)
 expect("deleted item drops its usage", UsageLog.load(for: vaultId)[custom.id] == nil)
 expect("other usage stays", UsageLog.load(for: vaultId)[login.id]?.useCount == usageBefore + 2)
 
@@ -461,7 +488,7 @@ do {
     try sample.save([typed])
     expect("sample edits work for the session", sample.items().contains { $0.id == typed.id })
     expect("a new sample store forgets them", !SampleVaultStore().items().contains { $0.id == typed.id })
-    try sample.delete(typed.id)
+    try sample.deletePermanently(typed.id)
     expect("sample delete works for the session", !sample.items().contains { $0.id == typed.id })
 }
 
@@ -1429,7 +1456,7 @@ do {
     expect("sample: delete for good from Recently Deleted", sample.recentlyDeleted().count == 1 && !sample.items().contains { $0.id == first.id })
     try sample.emptyRecentlyDeleted()
     expect("sample: empty", sample.recentlyDeleted().isEmpty && sample.items().count == total - 2)
-    try sample.delete(SampleVault.items[2].id)
+    try sample.deletePermanently(SampleVault.items[2].id)
     expect("sample: delete stays permanent", sample.recentlyDeleted().isEmpty && sample.items().count == total - 3)
     expect("sample: no previous passwords", sample.previousPasswords(of: second.id).isEmpty && sample.passwordChanged(of: second.id) == nil)
     try sample.restorePassword(of: second.id, replacedAt: .now); try sample.clearPreviousPasswords(of: second.id)
@@ -1482,7 +1509,7 @@ do {
     UsageLog.record(x.id, in: v.id)
     check("delete for good from Recently Deleted writes once", "\(try await writes { try v.store.deletePermanently(x.id) })", "1")
     expect("it is gone, with its usage", v.store.recentlyDeleted().isEmpty && !v.store.items().contains { $0.id == x.id } && UsageLog.load(for: v.id)[x.id] == nil)
-    check("delete, as before, is permanent and writes once", "\(try await writes { try v.store.delete(y.id) })", "1")
+    check("deletePermanently writes once", "\(try await writes { try v.store.deletePermanently(y.id) })", "1")
     expect("and leaves nothing to restore", v.store.recentlyDeleted().isEmpty && !v.store.items().contains { $0.id == y.id })
     check("deleting for good something that is not there writes nothing", "\(try await writes { try v.store.deletePermanently(UUID()) })", "0")
 
@@ -2326,7 +2353,7 @@ do {
     let plan = try CSVSource.plan(from: "Title,URL,Username,Password\nImported,https://imported.example,i,pw\n")
     let operations: [(String, () async throws -> Void)] = [
         ("save", { try store.save([withHistory, VaultItem(kind: .secureNote, title: "New note", notes: "n")]) }),
-        ("delete", { try store.delete(y.id) }),
+        ("deletePermanently (live item)", { try store.deletePermanently(y.id) }),
         ("moveToRecentlyDeleted", { try store.moveToRecentlyDeleted(z.id) }),
         ("restore", { try store.restore(binned.id) }),
         ("restorePassword", { try store.restorePassword(of: x.id, replacedAt: store.previousPasswords(of: x.id)[0].replaced) }),
@@ -2569,7 +2596,7 @@ do {
     typealias Operation = (name: String, run: (KeePassVaultStore) throws -> Void, overwritable: Bool)
     let operations: [Operation] = [
         ("save", { try $0.save([edited, VaultItem(kind: .secureNote, title: "New note", notes: "n")]) }, true),
-        ("delete", { try $0.delete(y.id) }, true),
+        ("deletePermanently (single)", { try $0.deletePermanently(y.id) }, true),
         ("moveToRecentlyDeleted", { try $0.moveToRecentlyDeleted(z.id) }, true),
         ("moveToRecentlyDeleted (batch)", { try $0.moveToRecentlyDeleted([y.id, z.id]) }, true),
         ("restore", { try $0.restore(binned.id) }, true),
@@ -3235,6 +3262,207 @@ func reminderDisplay(_ vault: AutoFillVault, _ reading: AutoFillReading, _ memor
     check("autofill: the hostless default cannot read the real state", "\(standIn.reading)", "unreadable")
 }
 await autoFillReminderChecks()
+
+// MARK: Package A: Recently Deleted text, Delete as a move, no-op saves, the key file flag
+
+do {  // The words and dates of Recently Deleted
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(identifier: "UTC")!
+    let gb = Locale(identifier: "en_GB")
+    func at(_ iso: String) -> Date { ISO8601DateFormatter().date(from: iso)! }
+    let today = at("2026-11-23T12:00:00Z")
+    func line(_ deleted: Date?, now: Date = today) -> String { RecentlyDeletedText.rowLine(deleted: deleted, now: now, calendar: cal, locale: gb) }
+    func ago(_ days: Double) -> Date { today.addingTimeInterval(-days * 86_400) }
+
+    check("row: today", line(at("2026-11-23T08:00:00Z")), "Deleted today · removed for good on 23 Dec")
+    check("row: yesterday", line(ago(1)), "Deleted yesterday · removed for good on 22 Dec")
+    check("row: 3 days", line(ago(3)), "Deleted 3 days ago · removed for good on 20 Dec")
+    check("row: 12 days", line(ago(12)), "Deleted 12 days ago · removed for good on 11 Dec")
+    check("row: 27 days", line(ago(27)), "Deleted 27 days ago · removed for good on 26 Nov")
+    check("removal date is the deletion plus 30 days", "\(RecentlyDeletedText.removalDate(deleted: today).timeIntervalSince(today))", "\(30.0 * 86_400)")
+    check("retention is 30 days", "\(RecentlyDeletedText.retentionDays)", "30")
+    // Calendar days, not blocks of 24 hours: 23:30 the evening before is yesterday after only 40 minutes.
+    check("a deletion across midnight counts calendar days",
+          RecentlyDeletedText.deletedPhrase(deleted: at("2026-11-22T23:30:00Z"), now: at("2026-11-23T00:10:00Z"), calendar: cal), "Deleted yesterday")
+    check("and 23 hours on the same day is still today",
+          RecentlyDeletedText.deletedPhrase(deleted: at("2026-11-23T00:05:00Z"), now: at("2026-11-23T23:55:00Z"), calendar: cal), "Deleted today")
+    // Across a year end, and the removal date falls in the next year (no year is shown).
+    check("a deletion across the year end",
+          line(at("2026-12-28T10:00:00Z"), now: at("2027-01-03T10:00:00Z")), "Deleted 6 days ago · removed for good on 27 Jan")
+    check("a future deletion date reads as today", line(today.addingTimeInterval(3 * 86_400)), "Deleted today · removed for good on 26 Dec")
+    check("an unknown deletion time promises no date", line(nil), "Deleted")
+    check("detail line", RecentlyDeletedText.detailLine(deleted: at("2026-11-23T08:00:00Z"), now: today, calendar: cal, locale: gb),
+          "Deleted today. Psss removes it for good on 23 Dec.")
+    check("detail line, days ago", RecentlyDeletedText.detailLine(deleted: ago(3), now: today, calendar: cal, locale: gb),
+          "Deleted 3 days ago. Psss removes it for good on 20 Dec.")
+    check("detail line, unknown time", RecentlyDeletedText.detailLine(deleted: nil, now: today, calendar: cal, locale: gb), "Deleted.")
+    check("spoken row uses the long date",
+          RecentlyDeletedText.rowSpokenLabel(title: "Acorn Fitness", kind: .login, deleted: ago(3), now: today, calendar: cal, locale: gb),
+          "Acorn Fitness, Login, Deleted 3 days ago, removed for good on 20 December")
+    check("short date follows the time zone of the calendar",
+          RecentlyDeletedText.shortDate(at("2026-11-23T23:30:00Z"), calendar: { var c = cal; c.timeZone = TimeZone(identifier: "Pacific/Auckland")!; return c }(), locale: gb), "24 Nov")
+
+    check("count: 4", RecentlyDeletedText.itemCount(4), "4 items")
+    check("count: 1", RecentlyDeletedText.itemCount(1), "1 item")
+    check("count: 0", RecentlyDeletedText.itemCount(0), "0 items")
+    check("delete all, question", RecentlyDeletedText.deleteAllQuestion(count: 4), "Delete all 4 items for good?")
+    check("delete all, button", RecentlyDeletedText.deleteAllButton(count: 4), "Delete 4 Items Now")
+    check("delete all, sheet message", RecentlyDeletedText.deleteAllSheetMessage(count: 4),
+          "Delete all 4 items for good? They are removed from this vault and cannot be recovered. Backup copies of the vault may still hold them.")
+    check("delete all, one item: question", RecentlyDeletedText.deleteAllQuestion(count: 1), "Delete 1 item for good?")
+    check("delete all, one item: button", RecentlyDeletedText.deleteAllButton(count: 1), "Delete 1 Item Now")
+    check("delete all, one item: consequence", RecentlyDeletedText.deleteAllConsequence(count: 1),
+          "It is removed from this vault and cannot be recovered. Backup copies of the vault may still hold it.")
+    check("delete one, question", RecentlyDeletedText.deleteOneQuestion(name: "Acorn Fitness"), "Delete “Acorn Fitness” for good?")
+    check("delete one, sheet message", RecentlyDeletedText.deleteOneSheetMessage(name: "Acorn Fitness"),
+          "Delete “Acorn Fitness” for good? It is removed from this vault and cannot be recovered. Backup copies of the vault may still hold it.")
+    check("undo sentence", RecentlyDeletedText.movedMessage(title: "Acorn Fitness"), "“Acorn Fitness” moved to Recently Deleted")
+    check("editor line", RecentlyDeletedText.editorDeleteLine, "Moves this item to Recently Deleted. You can bring it back for 30 days.")
+    check("detail footer", RecentlyDeletedText.detailFooter, "To change this item, restore it first.")
+    check("empty title", RecentlyDeletedText.emptyTitle, "Nothing deleted recently")
+
+    // Search inside Recently Deleted: the same match as the vault list.
+    let acorn = VaultItem(kind: .login, title: "Acorn Fitness", account: "alex@example.net", website: "acornfitness.example", secret: "s")
+    let router = VaultItem(kind: .keePassEntry, title: "Router password", secret: "r")
+    let entries = [DeletedItem(item: acorn, deleted: today), DeletedItem(item: router, deleted: ago(12))]
+    check("search by title", "\(ItemSearch.matching(entries, query: "router").map(\.item.title))", "[\"Router password\"]")
+    check("search by website", "\(ItemSearch.matching(entries, query: "acornfitness.example").map(\.item.title))", "[\"Acorn Fitness\"]")
+    check("search by username", "\(ItemSearch.matching(entries, query: "alex@").map(\.item.title))", "[\"Acorn Fitness\"]")
+    check("an empty search keeps the order given", "\(ItemSearch.matching(entries, query: "  ").map(\.item.title))", "[\"Acorn Fitness\", \"Router password\"]")
+    check("a search with no match is empty", "\(ItemSearch.matching(entries, query: "zzz").count)", "0")
+}
+
+do {  // Delete is a move; Undo and Restore; Delete Now and Delete All; AutoFill identities
+    let fm = FileManager.default
+    let dir = fixtures.appendingPathComponent("package-a")
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    var counter = 0
+    func make(_ items: [VaultItem]) throws -> (store: KeePassVaultStore, url: URL, id: UUID) {
+        counter += 1
+        let url = dir.appendingPathComponent("v\(counter).kdbx")
+        let data = try KDBX.save(try KDBX.create(name: "Package A", credentials: .init(password: "pw"), kdf: light))
+        try data.write(to: url)
+        let id = UUID()
+        let store = KeePassVaultStore(reference: VaultReference(id: id, name: "Package A", managed: true, bookmark: nil, fileName: url.lastPathComponent),
+                                      url: url, scoped: false, document: try KDBX.open(data, credentials: .init(password: "pw")), fileData: data)
+        try store.save(items)
+        return (store, url, id)
+    }
+    func secondWriter(_ v: (store: KeePassVaultStore, url: URL, id: UUID)) throws -> KeePassVaultStore {
+        let data = try Data(contentsOf: v.url)
+        return KeePassVaultStore(reference: VaultReference(id: v.id, name: "Package A", managed: true, bookmark: nil, fileName: v.url.lastPathComponent),
+                                 url: v.url, scoped: false, document: try KDBX.open(data, credentials: .init(password: "pw")), fileData: data)
+    }
+    func newestBackup(_ id: UUID) -> Data? {
+        let folder = VaultFiles.storageRoot.appendingPathComponent("Backups/\(id.uuidString)")
+        return ((try? fm.contentsOfDirectory(atPath: folder.path)) ?? []).sorted().last.flatMap { try? Data(contentsOf: folder.appendingPathComponent($0)) }
+    }
+    func onDisk(_ url: URL) throws -> KDBXDocument { try KDBX.open(Data(contentsOf: url), credentials: .init(password: "pw")) }
+    func ids(_ calls: [VaultIdentities.Call]) -> [String] {
+        calls.flatMap { call -> [String] in if case .registered(let ids) = call { return ids.map(\.uuidString).sorted() } else { return ["removedAll"] } }
+    }
+    let acorn = VaultItem(kind: .login, title: "Acorn Fitness", account: "alex@example.net", website: "acornfitness.example", secret: "a1")
+    let birch = VaultItem(kind: .login, title: "Birch Library", account: "alex", website: "birchlibrary.example", secret: "b1")
+    let cedar = VaultItem(kind: .login, title: "Cedar Mail", account: "alex", website: "cedarmail.example", secret: "c1")
+    let daybreak = VaultItem(kind: .login, title: "Daybreak Studio", account: "alex", website: "daybreakstudio.example", secret: "d1")
+
+    let v = try make([acorn, birch, cedar, daybreak])
+    // Delete Item: a move, no question.
+    try v.store.moveToRecentlyDeleted(acorn.id)
+    expect("delete: the item left the list", !v.store.items().contains { $0.id == acorn.id } && v.store.items().count == 3)
+    expect("delete: it waits in Recently Deleted, deleted just now",
+           v.store.recentlyDeleted().map(\.item.id) == [acorn.id] && abs(v.store.recentlyDeleted()[0].deleted.timeIntervalSinceNow) < 60)
+    expect("delete: the file still holds it, in the bin, and records no deletion",
+           try onDisk(v.url).recycledItems().map(\.item.id) == [acorn.id] && deletedObjects(try onDisk(v.url)) == 0)
+    // AutoFill is told about live items only, so the system stops offering the deleted login at once.
+    _ = VaultIdentities.takeCalls()
+    VaultIdentities.register(for: v.store.items())
+    check("delete: AutoFill identities leave out the deleted item", "\(ids(VaultIdentities.takeCalls()))",
+          "\([birch.id, cedar.id, daybreak.id].map(\.uuidString).sorted())")
+    // Undo is a restore: the item comes back and is offered again.
+    try v.store.restore(acorn.id)
+    expect("undo: the item is back in the list and the bin is empty", v.store.items().contains { $0.id == acorn.id } && v.store.recentlyDeleted().isEmpty)
+    VaultIdentities.register(for: v.store.items())
+    check("undo: AutoFill identities include the restored item", "\(ids(VaultIdentities.takeCalls()).contains(acorn.id.uuidString))", "true")
+    try v.store.restore(acorn.id)
+    check("restoring what is not in the bin changes nothing", "\(v.store.items().count)", "4")
+
+    // Restore after another process changed the file: refused, the document as it was; Save My Change Anyway keeps a rollback copy.
+    try v.store.moveToRecentlyDeleted(acorn.id)
+    let other = try secondWriter(v)
+    let extra = VaultItem(kind: .login, title: "Written elsewhere", website: "elsewhere.example", secret: "e")
+    try other.save([extra])
+    let dump = v.store.documentDump
+    var refused = false
+    do { try v.store.restore(acorn.id) } catch VaultStoreError.changedOnDisk { refused = true }
+    expect("restore on a changed file is refused with changedOnDisk", refused)
+    expect("and leaves the document as it was, the item still in the bin", v.store.documentDump == dump && v.store.recentlyDeleted().count == 1)
+    let theirs = try Data(contentsOf: v.url)
+    try v.store.overwriting { try v.store.restore(acorn.id) }
+    expect("overwriting restores the item", v.store.items().contains { $0.id == acorn.id } && v.store.recentlyDeleted().isEmpty)
+    expect("and keeps the file it replaced as the newest rollback copy", newestBackup(v.id) == theirs)
+
+    // Delete Now and Delete All: for good, recorded as deletions, never to come back.
+    try v.store.moveToRecentlyDeleted([acorn.id, birch.id, cedar.id])
+    check("three items wait", "\(v.store.recentlyDeleted().count)", "3")
+    try v.store.deletePermanently(birch.id)
+    expect("Delete Now removes one for good and records the deletion", try v.store.recentlyDeleted().count == 2 && deletedObjects(onDisk(v.url)) == 1)
+    let listed = v.store.recentlyDeleted().count
+    try v.store.emptyRecentlyDeleted()
+    check("Delete All removes as many as the list showed", "\(listed) \(deletedObjects(try onDisk(v.url)))", "2 3")
+    expect("and Recently Deleted is empty, the rest of the vault untouched", v.store.recentlyDeleted().isEmpty && v.store.items().contains { $0.id == daybreak.id })
+    VaultFiles.removeBackups(for: v.id)
+
+    // Leftover: a save that writes nothing must not touch the recorded state of the file. Another writer changed the file; a save
+    // with no change succeeds silently, and the next real save is still refused instead of merging what the other writer wrote.
+    let n = try make([acorn])
+    let writer = try secondWriter(n)
+    try writer.save([extra])
+    let writtenByOther = try Data(contentsOf: n.url)
+    try n.store.save([acorn])
+    expect("a save with no change writes nothing", try Data(contentsOf: n.url) == writtenByOther)
+    let noopDump = n.store.documentDump
+    var edited = acorn
+    edited.secret = "a2"
+    var refusedAfterNoop = false
+    do { try n.store.save([edited]) } catch VaultStoreError.changedOnDisk { refusedAfterNoop = true }
+    expect("the next real save is refused with changedOnDisk, not merged", refusedAfterNoop)
+    expect("and the other writer's file and this store are untouched", try Data(contentsOf: n.url) == writtenByOther && n.store.documentDump == noopDump)
+    VaultFiles.removeBackups(for: n.id)
+    VaultFiles.removeBackups(for: v.id)
+}
+
+do {  // Setup says whether a key file is part of the vault's key
+    var reference = VaultReference(name: "Keys", managed: true, bookmark: nil, fileName: "k.kdbx")
+    check("password only", reference.encryptionDescription, "A KeePass file, encrypted with your vault password.")
+    reference.record(.init(password: "pw", keyFile: Data(count: 32)))
+    check("password and a key file", reference.encryptionDescription, "A KeePass file, encrypted with your vault password and a key file.")
+    reference.record(.init(password: nil, keyFile: Data(count: 32)))
+    check("a key file alone", reference.encryptionDescription, "A KeePass file, encrypted with a key file.")
+    reference.record(.init(password: "pw"))
+    check("password again", reference.encryptionDescription, "A KeePass file, encrypted with your vault password.")
+    let decoded = try JSONDecoder().decode(VaultReference.self, from: Data(#"{"id":"\#(UUID().uuidString)","name":"Old","managed":true,"fileName":"o.kdbx"}"#.utf8))
+    expect("a reference written without the flags reads as password only", !decoded.usesKeyFile && decoded.usesPassword)
+
+    let keyFile = Data((0..<32).map { UInt8($0) })
+    let keyed = VaultSession()
+    keyed.forget()
+    try await keyed.create(name: "Keyed", credentials: .init(password: "pw", keyFile: keyFile), items: [])
+    check("a vault created with a key file says so", keyed.store!.reference.encryptionDescription,
+          "A KeePass file, encrypted with your vault password and a key file.")
+    expect("and the stored reference carries the flag, not the key file", VaultReference.load()?.usesKeyFile == true)
+    keyed.lock()
+    try await keyed.unlock(credentials: .init(password: "pw", keyFile: keyFile))
+    check("unlocking with a key file keeps saying so", keyed.store!.reference.encryptionDescription,
+          "A KeePass file, encrypted with your vault password and a key file.")
+    try await keyed.store!.changeCredentials(to: .init(password: "pw2"))
+    check("changing to a password alone updates it", keyed.store!.reference.encryptionDescription, "A KeePass file, encrypted with your vault password.")
+    expect("and the stored reference follows", VaultReference.load()?.usesKeyFile == false)
+    keyed.lock()
+    try await keyed.unlock(credentials: .init(password: "pw2"))
+    check("the next unlock still says password only", keyed.store!.reference.encryptionDescription, "A KeePass file, encrypted with your vault password.")
+    keyed.forget()
+}
 
 print(failures == 0 ? "all passed" : "\(failures) failed")
 removeProcessFolders()
