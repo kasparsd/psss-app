@@ -44,7 +44,7 @@ Mark on the left, wordmark on the right, centred on the pill's centre line with 
 
 ## Landing page
 
-`Design/Landing/index.html` is the structural starting point: lockup, slogan “Secure passwords for the rest of us.”, App Store badge and device screenshots, nothing else. Screenshots and Apple's official badge are still to add. Sync copy follows the rules in [product](product.md): “Pay once, or yearly” and “No subscription required”.
+`Design/Landing/index.html` is the pre-release page (drafted 2026-11-23): the lockup, the slogan “Secure passwords for the rest of us.” as the headline, what you get, an honest “Where it stands”, a waitlist and a few questions. It has no scripts, cookies, analytics or outside fonts, and its `README.md` lists the placeholders to fill in and the ways to run the waitlist. The App Store badge and device screenshots join it when the app is released. No price or paid tier is mentioned anywhere, following [product](product.md#business-model); the only line about money is “Nothing is decided about pricing yet. Sync through iCloud will be free.”
 
 ## Explorations
 
