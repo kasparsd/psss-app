@@ -54,8 +54,8 @@ private struct CredentialFields: View {
                 }
                 .padding(.vertical, 4)
             }
-        }
-        .fileImporter(isPresented: $choosingKeyFile, allowedContentTypes: [.data]) { result in
+            // One importer on one view. On a Group, the modifier would be applied to every row of it.
+            .fileImporter(isPresented: $choosingKeyFile, allowedContentTypes: [.data]) { result in
             do {
                 let url = try result.get()
                 let scoped = url.startAccessingSecurityScopedResource()
@@ -67,6 +67,7 @@ private struct CredentialFields: View {
                 keyFileProblem = nil
             } catch {
                 keyFileProblem = ((error as? KDBXError).map { confirms ? $0.messageForNewKey : $0.message }) ?? error.localizedDescription
+            }
             }
         }
     }
@@ -137,6 +138,7 @@ struct NewVaultSheet: View {
         Task {
             do {
                 try await session.create(name: name, credentials: .init(password: password, keyFile: keyFile), items: importing)
+                password = ""; confirmation = ""; keyFile = nil
                 dismiss()
                 onCreated()
             } catch {
@@ -191,6 +193,7 @@ struct OpenVaultSheet: View {
         Task {
             do {
                 try await session.open(fileAt: file, credentials: .init(password: password.isEmpty ? nil : password, keyFile: keyFile))
+                password = ""; keyFile = nil
                 dismiss()
                 onOpened()
             } catch {
@@ -208,13 +211,15 @@ struct VaultPasswordView: View {
     @State private var password = ""
     @State private var keyFile: Data?
     @State private var keyFileName: String?
-    @State private var choosingKeyFile = false
+    /// What the one file picker of this screen is for. It is kept after the picker closes, because the completion runs after
+    /// the presentation flag was reset.
+    private enum FilePurpose { case relinkVault, keyFile, otherVault }
+    @State private var picking = false
+    @State private var purpose = FilePurpose.keyFile
     @State private var working = false
     @State private var problem: String?
     @State private var missing = false
-    @State private var relinking = false
     @State private var confirmingSwitch = false
-    @State private var choosingOther = false
     @State private var otherFile: URL?
     @State private var explaining = false
     @State private var lost = false
@@ -277,7 +282,7 @@ struct VaultPasswordView: View {
                     }
                     keyFileRow
                     if missing {
-                        Button { relinking = true } label: {
+                        Button { choose(.relinkVault) } label: {
                             Label("Locate Vault File…", systemImage: "folder").frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent).controlSize(.large)
@@ -330,36 +335,37 @@ struct VaultPasswordView: View {
         .sheet(isPresented: $explaining) { PasswordExplainerSheet() }
         .sheet(isPresented: $lost) {
             LostPasswordSheet(session: session, vaultName: vaultName,
-                              onOpenAnother: { lost = false; if session.reference?.managed == true { confirmingSwitch = true } else { choosingOther = true } },
+                              onOpenAnother: { lost = false; openAnother(afterSheet: true) },
                               onForgotten: { vaultSource = ""; gate.markUnlocked() })
         }
-        .fileImporter(isPresented: $relinking, allowedContentTypes: [.keePassVault, .data]) { result in
+        .fileImporter(isPresented: $picking, allowedContentTypes: purpose == .keyFile ? [.data] : [.keePassVault, .data]) { result in
             guard let url = try? result.get() else { return }
-            do { try session.relink(to: url); missing = false; problem = nil }
-            catch { problem = error.localizedDescription }
-        }
-        .fileImporter(isPresented: $choosingKeyFile, allowedContentTypes: [.data]) { result in
-            guard let url = try? result.get() else { return }
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            do {
-                let data = try Data(contentsOf: url)
-                _ = try KDBXCredentials.keyFileHash(data)
-                keyFile = data
-                keyFileName = url.lastPathComponent
-                problem = nil
-            } catch {
-                problem = (error as? KDBXError)?.message ?? String(localized: "That file can't be used as a key file.")
+            switch purpose {
+            case .relinkVault:
+                do { try session.relink(to: url); missing = false; problem = nil }
+                catch { problem = error.localizedDescription }
+            case .keyFile:
+                // Read inside the security scope, then keep only the bytes, and only until unlocking succeeds.
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                do {
+                    let data = try Data(contentsOf: url)
+                    _ = try KDBXCredentials.keyFileHash(data)
+                    keyFile = data
+                    keyFileName = url.lastPathComponent
+                    problem = nil
+                } catch {
+                    problem = (error as? KDBXError)?.message ?? String(localized: "That file can't be used as a key file.")
+                }
+            case .otherVault:
+                otherFile = url
             }
-        }
-        .fileImporter(isPresented: $choosingOther, allowedContentTypes: [.keePassVault, .data]) { result in
-            if let url = try? result.get() { otherFile = url }
         }
         .sheet(item: $otherFile) { url in
             OpenVaultSheet(session: session, file: url) { gate.markUnlocked() }
         }
         .alert("Leave \(vaultName)?", isPresented: $confirmingSwitch) {
-            Button("Choose a File…") { choosingOther = true }
+            Button("Choose a File…") { choose(.otherVault, afterDismissal: true) }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Psss created \(vaultName) and keeps it only on this device. Once you open another vault, this one can't be reopened from here. Export a copy first if you want to keep it.")
@@ -376,9 +382,7 @@ struct VaultPasswordView: View {
                 Menu {
                     Button { } label: { Label(vaultName, systemImage: "checkmark") }
                     Divider()
-                    Button("Open Another Vault…") {
-                        if session.reference?.managed == true { confirmingSwitch = true } else { choosingOther = true }
-                    }
+                    Button("Open Another Vault…") { openAnother(afterSheet: false) }
                 } label: {
                     #if os(iOS)
                     Label(vaultName, systemImage: "chevron.up.chevron.down").labelStyle(.titleAndIcon).lineLimit(1)
@@ -411,12 +415,33 @@ struct VaultPasswordView: View {
             if keyFile != nil {
                 Button("Remove") { keyFile = nil; keyFileName = nil }.buttonStyle(.borderless)
             }
-            Button(keyFile == nil ? "Choose…" : "Change…") { choosingKeyFile = true }
+            Button(keyFile == nil ? "Choose…" : "Change…") { choose(.keyFile) }
                 #if os(iOS)
                 .buttonStyle(.bordered)
                 #endif
         }
         .disabled(working)
+    }
+
+    /// Opens the screen's one file picker for `purpose`. After a sheet or alert closes, the picker waits until it has gone,
+    /// because a picker requested while another presentation is leaving is dropped.
+    private func choose(_ purpose: FilePurpose, afterDismissal: Bool = false) {
+        guard afterDismissal else { self.purpose = purpose; picking = true; return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            self.purpose = purpose
+            picking = true
+        }
+    }
+
+    private func openAnother(afterSheet: Bool) {
+        if session.reference?.managed == true {
+            // A vault Psss made cannot be reopened from here, so ask first.
+            if afterSheet { Task { @MainActor in try? await Task.sleep(for: .milliseconds(500)); confirmingSwitch = true } }
+            else { confirmingSwitch = true }
+        } else {
+            choose(.otherVault, afterDismissal: afterSheet)
+        }
     }
 
     private func unlockWithBiometrics() async {
@@ -460,7 +485,7 @@ struct VaultPasswordView: View {
         Task {
             do {
                 try await session.unlock(credentials: .init(password: password.isEmpty ? nil : password, keyFile: keyFile))
-                password = ""
+                password = ""; keyFile = nil; keyFileName = nil
                 gate.markUnlocked()
             } catch {
                 if case VaultStoreError.fileMissing = error { missing = true }

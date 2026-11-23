@@ -40,6 +40,31 @@ private extension ItemTrait {
     }
 }
 
+/// Where an alert is shown: the vault screen, or a sheet that is open over it.
+fileprivate enum AlertSurface: Hashable { case vault, editor, setup }
+
+/// The one alert of a surface. Titles, messages and buttons come from the vault screen, so they are the same on every surface.
+private struct AlertSurfaceModifier: ViewModifier {
+    let surface: AlertSurface
+    let owner: VaultView
+
+    func body(content: Content) -> some View {
+        content.alert(owner.alertTitle,
+                      isPresented: Binding(get: { owner.activeAlert != nil && owner.activeSurface == surface },
+                                           set: { if !$0, owner.activeSurface == surface { owner.dropActiveAlert() } }),
+                      presenting: owner.activeSurface == surface ? owner.activeAlert : nil) { kind in
+            owner.alertActions(kind)
+        } message: { kind in
+            owner.alertMessage(kind)
+        }
+    }
+}
+
+/// Every alert of the vault screen. Only one is shown at a time.
+private enum VaultAlert: Hashable {
+    case conflict, editorRemoved, storeProblem, importProblem, importNotice, biometricOff, biometricOffer
+}
+
 private enum VaultCategory: Hashable {
     case recent
     case mostUsed
@@ -154,6 +179,13 @@ struct VaultView: View {
     @State private var editorItemRemoved = false
     @State private var showsEditorRemoved = false
     @State private var showsSetup = false
+    @State private var wantsPasswordChange = false
+    /// The alert on screen and the surface that shows it. There is only ever one of each, so an alert cannot be asked for on
+    /// two surfaces at once. See `nextAlert` for the order of the ones waiting.
+    @State fileprivate var activeAlert: VaultAlert?
+    @State fileprivate var activeSurface: AlertSurface?
+    /// The pending wait before an alert appears. Replaced by a newer request, cancelled when the view goes away.
+    @State private var alertTask: Task<Void, Never>?
     @Environment(\.scenePhase) private var scenePhase
 
     /// A usage pill with nothing to show falls back to All, so a new vault never opens empty.
@@ -198,43 +230,29 @@ struct VaultView: View {
             items = store.items()
             registerIdentities()
         }
-        .alert("Imported", isPresented: Binding(get: { importNotice != nil }, set: { if !$0 { importNotice = nil } })) {
-            Button("Open vault") { importNotice = nil; items = store.items(); registerIdentities() }
-        } message: { Text(importNotice ?? "") }
-        .alert("Could not save", isPresented: Binding(get: { storeProblem != nil }, set: { if !$0 { storeProblem = nil } })) {
-            Button("OK") { storeProblem = nil }
-        } message: { Text(storeProblem ?? "") }
-        .alert("The vault changed elsewhere", isPresented: $conflict) {
-            Button("Reload Vault") { refusedWrite = nil; refusedFollowUp = nil; reloadFromDisk() }
-            Button("Save My Change Anyway", role: .destructive) { overwrite() }
-            Button("Cancel", role: .cancel) { refusedWrite = nil; refusedFollowUp = nil }
-        } message: {
-            Text("The vault file was changed by another app or device since Psss last read it. Reload shows that version and discards the change you just made. Save My Change Anyway writes the vault as Psss has it, with your change, over the file; the version it replaces is kept as a backup copy on this device.")
+        // One alert at a time, shown by the surface the action came from: the item editor or Setup while one of them is open,
+        // otherwise this screen. The flags below say what is waiting; `nextAlert` picks by priority.
+        .modifier(AlertSurfaceModifier(surface: .vault, owner: self))
+        .onChange(of: nextAlert?.0) { presentNextAlert() }
+        .onChange(of: nextAlert?.1) { presentNextAlert() }
+        .onChange(of: activeAlert) { presentNextAlert() }
+        .onChange(of: sheetIsOpen) { _, open in
+            // An alert whose sheet has gone, or a vault alert under a sheet that opened, is not lost: its flag is still set, so it
+            // is asked for again on the surface that is there now.
+            if let surface = activeSurface, !isOpen(surface) { dropActiveAlert() }
+            presentNextAlert()
         }
-        .alert("Unlock \(store.title) with \(session.biometry?.label ?? "Face ID")?", isPresented: $offersBiometric) {
-            Button("Use \(session.biometry?.label ?? "Face ID")") {
-                do { try session.enableBiometric() } catch { storeProblem = String(localized: "\(session.biometry?.label ?? "Face ID") could not be turned on for this vault.") }
-            }
-            Button("Not Now", role: .cancel) { session.declineBiometricOffer() }
-        } message: {
-            Text("\(session.biometry?.label ?? "Face ID") opens this vault on this device only. Your vault password still works, and you need it if you change \(session.biometry?.label ?? "Face ID"). Turn it off any time in Setup.")
-        }
-        // The notice replaces the offer: Face ID was just turned off because its key could not be saved, so asking again would only
-        // fail again. Setup has the switch.
-        .alert("\(session.biometry?.label ?? BiometryKind.nameForMessages) is off",
-               isPresented: Binding(get: { session.biometricNotice != nil }, set: { if !$0 { session.biometricNotice = nil } })) {
-            Button("OK") { session.biometricNotice = nil }
-        } message: { Text(session.biometricNotice ?? "") }
+        .onChange(of: showsSetup) { _, _ in if let surface = activeSurface, !isOpen(surface) { dropActiveAlert() } }
+        .onChange(of: editor?.id) { _, _ in if let surface = activeSurface, !isOpen(surface) { dropActiveAlert() } }
+        .onChange(of: gate.isUnlocked) { _, _ in dropActiveAlert() }
+        .onDisappear { alertTask?.cancel(); alertTask = nil }
         .task { if !store.isSample, session.biometricNotice == nil, session.shouldOfferBiometric { offersBiometric = true } }
         .sheet(isPresented: $changingPassword) {
             if let store = store as? KeePassVaultStore { ChangePasswordSheet(store: store, onReloaded: { adoptReloadedVault() },
                                                           onChangedElsewhere: { gate.lock(notice: Self.changedElsewhereNotice) }) }
         }
-        .alert("Could not import", isPresented: Binding(get: { importProblem != nil }, set: { if !$0 { importProblem = nil } })) {
-            Button("OK") { importProblem = nil }
-        } message: { Text(importProblem ?? "") }
         .focusedSceneValue(\.newItem, { kind in editor = VaultItem(kind: kind) })
-        .task { if store.isSample { SharedVault.removeIdentities() } else { registerIdentities() } }
+        .task { if store.isSample { VaultIdentities.remove() } else { registerIdentities() } }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { reloadIfChangedOnDisk() }
         }
@@ -243,16 +261,126 @@ struct VaultView: View {
         }) { item in
             ItemEditor(item: item, onSave: save, onKeepDraft: keepDraft,
                        onDelete: items.contains { $0.id == item.id } ? { delete(item.id) } : nil)
+                .modifier(AlertSurfaceModifier(surface: .editor, owner: self))
         }
-        .alert("This item was removed", isPresented: $showsEditorRemoved) {
-            Button("OK") {}
-        } message: {
+        .sheet(isPresented: $showsSetup, onDismiss: {
+            // Change Vault Password opens its own sheet, but only once this one has gone.
+            if wantsPasswordChange { wantsPasswordChange = false; changingPassword = true }
+        }) { setupSheet.modifier(AlertSurfaceModifier(surface: .setup, owner: self)) }
+    }
+
+    /// Everything waiting, in the order it is shown: a decision about the vault file first, then what was lost, then problems,
+    /// then information, and the offer last.
+    private var waitingAlerts: [VaultAlert] {
+        var waiting: [VaultAlert] = []
+        if conflict { waiting.append(.conflict) }
+        if showsEditorRemoved { waiting.append(.editorRemoved) }
+        if storeProblem != nil { waiting.append(.storeProblem) }
+        if importProblem != nil { waiting.append(.importProblem) }
+        if importNotice != nil { waiting.append(.importNotice) }
+        if session.biometricNotice != nil { waiting.append(.biometricOff) }
+        if offersBiometric { waiting.append(.biometricOffer) }
+        return waiting
+    }
+
+    private var sheetIsOpen: Bool { showsSetup || changingPassword || editor != nil || copyDocument != nil }
+
+    private func isOpen(_ surface: AlertSurface) -> Bool {
+        switch surface {
+        case .vault: !sheetIsOpen
+        case .editor: editor != nil
+        case .setup: showsSetup
+        }
+    }
+
+    /// Where an alert is shown now, or nil when it has to wait. Saving can be refused from inside the editor or Setup, so
+    /// those two alerts belong to the sheet that is open (the editor first: it can open from nowhere else but the list).
+    /// Everything else belongs to this screen, and waits while any sheet is open or closing.
+    private func surface(for alert: VaultAlert) -> AlertSurface? {
+        if alert == .conflict || alert == .storeProblem {
+            if editor != nil { return .editor }
+            if showsSetup { return .setup }
+        }
+        return sheetIsOpen ? nil : .vault
+    }
+
+    /// The first waiting alert that has a surface now. A blocked one does not hold back the ones behind it.
+    private var nextAlert: (VaultAlert, AlertSurface)? {
+        for alert in waitingAlerts { if let surface = surface(for: alert) { return (alert, surface) } }
+        return nil
+    }
+
+    fileprivate func dropActiveAlert() {
+        activeAlert = nil
+        activeSurface = nil
+    }
+
+    private func presentNextAlert() {
+        alertTask?.cancel()
+        alertTask = nil
+        guard activeAlert == nil, gate.isUnlocked, let (_, surface) = nextAlert else { return }
+        alertTask = Task { @MainActor in
+            // Lets a closing sheet, the code sheet inside the editor, or the previous alert finish leaving first. A request for
+            // a sheet's own alert waits only a moment: the sheet is already on screen.
+            try? await Task.sleep(for: .milliseconds(surface == .vault ? 450 : 250))
+            guard !Task.isCancelled, activeAlert == nil, gate.isUnlocked, let (next, surface) = nextAlert else { return }
+            activeSurface = surface
+            activeAlert = next
+        }
+    }
+
+    fileprivate var alertTitle: LocalizedStringKey {
+        let faceID = session.biometry?.label ?? BiometryKind.nameForMessages
+        switch activeAlert {
+        case .conflict: return "The vault changed elsewhere"
+        case .editorRemoved: return "This item was removed"
+        case .storeProblem: return "Could not save"
+        case .importProblem: return "Could not import"
+        case .importNotice: return "Imported"
+        case .biometricOff: return "\(faceID) is off"
+        case .biometricOffer: return "Unlock \(store.title) with \(faceID)?"
+        case nil: return ""
+        }
+    }
+
+    @ViewBuilder fileprivate func alertActions(_ kind: VaultAlert) -> some View {
+        switch kind {
+        case .conflict:
+            Button("Reload Vault") { conflict = false; refusedWrite = nil; refusedFollowUp = nil; reloadFromDisk() }
+            Button("Save My Change Anyway", role: .destructive) { conflict = false; overwrite() }
+            Button("Cancel", role: .cancel) { conflict = false; refusedWrite = nil; refusedFollowUp = nil }
+        case .editorRemoved:
+            Button("OK") { showsEditorRemoved = false }
+        case .storeProblem:
+            Button("OK") { storeProblem = nil }
+        case .importProblem:
+            Button("OK") { importProblem = nil }
+        case .importNotice:
+            Button("Open vault") { importNotice = nil; items = store.items(); registerIdentities() }
+        case .biometricOff:
+            Button("OK") { session.biometricNotice = nil }
+        case .biometricOffer:
+            Button("Use \(session.biometry?.label ?? "Face ID")") {
+                offersBiometric = false
+                do { try session.enableBiometric() } catch { storeProblem = String(localized: "\(session.biometry?.label ?? "Face ID") could not be turned on for this vault.") }
+            }
+            Button("Not Now", role: .cancel) { offersBiometric = false; session.declineBiometricOffer() }
+        }
+    }
+
+    @ViewBuilder fileprivate func alertMessage(_ kind: VaultAlert) -> some View {
+        switch kind {
+        case .conflict:
+            Text("The vault file was changed by another app or device since Psss last read it. Reload shows that version and discards the change you just made. Save My Change Anyway writes the vault as Psss has it, with your change, over the file; the version it replaces is kept as a backup copy on this device.")
+        case .editorRemoved:
             Text("It was removed on another device or in another app, so the editor was closed. Changes you had not saved were not kept.")
+        case .storeProblem: Text(storeProblem ?? "")
+        case .importProblem: Text(importProblem ?? "")
+        case .importNotice: Text(importNotice ?? "")
+        case .biometricOff: Text(session.biometricNotice ?? "")
+        case .biometricOffer:
+            Text("\(session.biometry?.label ?? "Face ID") opens this vault on this device only. Your vault password still works, and you need it if you change \(session.biometry?.label ?? "Face ID"). Turn it off any time in Setup.")
         }
-        .sheet(isPresented: $showsSetup) { setupSheet }
-        .fileExporter(isPresented: Binding(get: { copyDocument != nil }, set: { if !$0 { copyDocument = nil } }),
-                      document: copyDocument, contentType: .keePassVault,
-                      defaultFilename: store.title) { _ in copyDocument = nil }
     }
 
     /// A new vault has nothing to select, so there is no list, no detail pane and no search: just the ways to fill it.
@@ -376,7 +504,7 @@ struct VaultView: View {
                             }
                             LabeledContent("Items", value: items.count.formatted())
                             Button("Save a Copy…") { copyDocument = (try? VaultFiles.read(keePass.url)).map(VaultCopy.init) }
-                            Button("Change Vault Password…") { showsSetup = false; changingPassword = true }
+                            Button("Change Vault Password…") { wantsPasswordChange = true; showsSetup = false }
                             if let biometry = session.biometry {
                                 Toggle("Unlock with \(biometry.label)", isOn: Binding(
                                     get: { session.reference?.biometricUnlock == true },
@@ -430,9 +558,13 @@ struct VaultView: View {
                     }
                 }
                 .formStyle(.grouped)
+                // The exporter belongs to the sheet that asks for it: the vault screen is busy presenting this sheet.
+                .fileExporter(isPresented: Binding(get: { copyDocument != nil }, set: { if !$0 { copyDocument = nil } }),
+                              document: copyDocument, contentType: .keePassVault,
+                              defaultFilename: store.title) { _ in copyDocument = nil }
                 .confirmationDialog("Start over?", isPresented: $confirmsReset, titleVisibility: .visible) {
                     Button(resetButtonTitle, role: .destructive) {
-                        SharedVault.removeIdentities()
+                        VaultIdentities.remove()
                         session.forget()
                         showsSetup = false
                         vaultSource = ""
@@ -669,7 +801,7 @@ struct VaultView: View {
     /// Tells the system which sites have logins. The sample vault registers none: nothing in it may ever be offered by AutoFill.
     private func registerIdentities() {
         guard !store.isSample else { return }
-        SharedVault.registerIdentities(for: items)
+        VaultIdentities.register(for: items)
     }
 
     /// Picks up what the AutoFill extension or another app wrote to the vault file while this view was in the background.
