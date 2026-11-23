@@ -1,5 +1,7 @@
 #!/bin/sh
 # Builds and runs the hostless KDBX codec tests (RFC vectors, round trips, KeePassXC interop).
+# One heavy job at a time on this Mac: see scripts/heavy.sh.
+[ -n "$PSSS_HEAVY_LOCKED" ] || exec "$(dirname "$0")/heavy.sh" "$0" "$@"
 set -e
 cd "$(dirname "$0")/.."
 mkdir -p build/kdbx-test
