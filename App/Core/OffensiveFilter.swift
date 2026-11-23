@@ -10,6 +10,35 @@ import Foundation
 /// An empty list rejects nothing. Terms shorter than three characters are ignored, because they would throw away too many drafts.
 struct OffensiveFilter: Sendable {
     let terms: [String]
+    private let cache = AcceptanceCache()
+
+    /// Estimates are kept here, once for each word count, so they are the same for every draw.
+    private final class AcceptanceCache: @unchecked Sendable {
+        let lock = NSLock()
+        var rates: [Int: Double] = [:]
+    }
+
+    /// Drafts the estimate looks at. The error is about 0.0015 in the rate, 0.002 bit.
+    static let acceptanceSample = 10_000
+
+    /// The share of Apple-style drafts of this many groups that this list lets through. Redrawing a rejected draft removes
+    /// exactly this share of the possible passwords, so `log2` of it is what the list costs in bits, the same for every
+    /// password. Estimated once for each list from a fixed sample (a fixed seed, never the caller's generator) and kept.
+    /// 1 for an empty list.
+    func acceptanceRate(groups: Int) -> Double {
+        guard !terms.isEmpty else { return 1 }
+        cache.lock.lock(); defer { cache.lock.unlock() }
+        if let known = cache.rates[groups] { return known }
+        var source = FixedRandomSource(seed: 0xA11CE)
+        var accepted = 0
+        for _ in 0..<Self.acceptanceSample {
+            let draft = AppleStyle.draft(groups: groups, using: &source)
+            if !rejects(AppleStyle.assemble(draft, separators: [])) { accepted += 1 }
+        }
+        let rate = Double(max(accepted, 1)) / Double(Self.acceptanceSample)
+        cache.rates[groups] = rate
+        return rate
+    }
 
     static let minimumTermLength = 3
 
@@ -49,5 +78,18 @@ struct OffensiveFilter: Sendable {
     private static func normalized(_ text: String) -> String {
         String(text.lowercased().unicodeScalars.filter { ($0.value >= 97 && $0.value <= 122) || ($0.value >= 48 && $0.value <= 57) }
             .map { Character($0) })
+    }
+}
+
+/// A fixed, seeded source (SplitMix64) for estimates that must come out the same every time. Never used to make a password.
+struct FixedRandomSource: RandomNumberGenerator {
+    private var state: UInt64
+    init(seed: UInt64) { state = seed }
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
     }
 }

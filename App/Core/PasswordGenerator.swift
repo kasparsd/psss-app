@@ -3,7 +3,7 @@ import Foundation
 /// A password and how it was made.
 ///
 /// Printing one, in a log or in a failed test, shows no characters: `description` is redacted on purpose.
-struct GeneratedPassword: Equatable, Sendable, CustomStringConvertible, CustomDebugStringConvertible {
+struct GeneratedPassword: Equatable, Sendable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
     /// The system's three kinds (`ASGeneratedPassword.Kind`): `strong` has special characters, `alphanumeric` has none, `passphrase` is words.
     enum Kind: String, Sendable { case strong, alphanumeric, passphrase }
 
@@ -33,8 +33,34 @@ struct GeneratedPassword: Equatable, Sendable, CustomStringConvertible, CustomDe
     /// redrawing for the rules cost.
     let bits: Double
     let adjustment: Adjustment?
+    /// What the default (a password like Safari makes) carries with the offensive-word list this password was made with.
+    let defaultBits: Double
+    /// The site's maximum length, when its rules gave one.
+    let siteMaximum: Int?
 
-    var isWeakerThanDefault: Bool { PasswordStrength.isWeakerThanDefault(bits: bits) }
+    init(value: String, kind: Kind, type: GeneratorSettings.Kind, bits: Double, adjustment: Adjustment?,
+         defaultBits: Double = PasswordStrength.recommendedBits, siteMaximum: Int? = nil) {
+        self.value = value; self.kind = kind; self.type = type; self.bits = bits; self.adjustment = adjustment
+        self.defaultBits = defaultBits; self.siteMaximum = siteMaximum
+    }
+
+    func annotated(defaultBits: Double, siteMaximum: Int?) -> GeneratedPassword {
+        GeneratedPassword(value: value, kind: kind, type: type, bits: bits, adjustment: adjustment, defaultBits: defaultBits, siteMaximum: siteMaximum)
+    }
+
+    /// Weaker than the default made with the same list. A password like Safari makes is the default's own shape, so it never is,
+    /// and a password nobody could make is not a weak one.
+    var isWeakerThanDefault: Bool { !value.isEmpty && type != .apple && PasswordStrength.isWeakerThanDefault(bits: bits, defaultBits: defaultBits) }
+
+    /// The line beside the control that made this weaker, or nil.
+    func hint(control: GeneratorText.Control = .length) -> String? {
+        isWeakerThanDefault ? GeneratorText.hint(bits: bits, control: control, defaultBits: defaultBits, siteMaximum: siteMaximum) : nil
+    }
+
+    /// `dump` and `Mirror` show the kind, the length and the strength, never the characters.
+    var customMirror: Mirror {
+        Mirror(self, children: ["kind": kind.rawValue, "length": value.count, "bits": bits], displayStyle: .struct)
+    }
 
     var description: String { "GeneratedPassword(\(kind.rawValue), \(value.count) characters, \(String(format: "%.1f", bits)) bits)" }
     var debugDescription: String { description }
@@ -95,9 +121,15 @@ enum PasswordGenerator {
     static func make<G: RandomNumberGenerator>(_ settings: GeneratorSettings = .recommended, rules: PasswordRules = PasswordRules(),
                                                words: WordList? = WordList.bundled, filter: OffensiveFilter = OffensiveFilter.bundled,
                                                using generator: inout G) -> GeneratedPassword {
+        let result = produce(settings, rules: rules, words: words, filter: filter, using: &generator)
+        return result.annotated(defaultBits: PasswordStrength.defaultBits(filter: filter), siteMaximum: rules.maxLength)
+    }
+
+    private static func produce<G: RandomNumberGenerator>(_ settings: GeneratorSettings, rules: PasswordRules, words: WordList?,
+                                                          filter: OffensiveFilter, using generator: inout G) -> GeneratedPassword {
         let settings = settings.clamped
         let cap = rules.effectiveMaxLength
-        guard rules.minLength <= cap, cap >= 1 else { return impossible }
+        guard !rules.isUnsatisfiable, rules.minLength <= cap, cap >= 1 else { return impossible }
         let checker = PasswordRules.Checker(rules)
         var reason: GeneratedPassword.Adjustment?
         switch settings.kind {
@@ -144,8 +176,12 @@ enum PasswordGenerator {
     /// The hidden form of a password: one bullet (U+2022) for each character and nothing else, so the length shows and the characters never do.
     static func mask(_ value: String) -> String { String(repeating: "\u{2022}", count: value.count) }
 
-    /// The line beside the control that made a password weaker than the default, or nil at 71 bits and above.
-    static func hint(bits: Double, control: GeneratorText.Control = .length) -> String? { GeneratorText.hint(bits: bits, control: control) }
+    /// The line beside the control that made a password weaker than the default, or nil at the default's strength and above
+    /// (71 bits unless the default's own figure for the offensive-word list is given).
+    static func hint(bits: Double, control: GeneratorText.Control = .length, defaultBits: Double = PasswordStrength.recommendedBits,
+                     siteMaximum: Int? = nil) -> String? {
+        GeneratorText.hint(bits: bits, control: control, defaultBits: defaultBits, siteMaximum: siteMaximum)
+    }
 
     // MARK: Like Safari makes
 
@@ -167,21 +203,44 @@ enum PasswordGenerator {
             var attempts = 0
             while attempts < draftLimit {
                 attempts += 1
-                let draft = AppleStyle.draft(groups: groups, using: &generator)
-                var separators: [Character] = []
-                if !candidates.isEmpty {
-                    for _ in 0..<(groups - 1) { separators.append(candidates[RandomPick.index(below: candidates.count, using: &generator)]) }
-                }
-                let password = AppleStyle.assemble(draft, separators: separators)
+                let password = appleCandidate(groups: groups, candidates: candidates, using: &generator)
                 guard password.count <= cap, checker.accepts(password), !filter.rejects(password) else { continue }
+                // Redrawing removes a fixed share of the passwords this draw could make: what the offensive-word list throws
+                // away, and what the rules throw away. Both are estimated once from fixed samples, not from how many
+                // redraws this password happened to need, so every password made the same way reports the same bits.
                 var bits = AppleStyle.bits(groups: groups)
                 if candidates.count > 1 { bits += Double(groups - 1) * log2(Double(candidates.count)) }
-                if attempts > 1 { bits -= log2(Double(attempts)) }
+                bits += log2(filter.acceptanceRate(groups: groups))
+                bits += log2(ruleAcceptance(rules: rules, groups: groups, candidates: candidates, cap: cap, checker: checker))
                 return .made(GeneratedPassword(value: String(password), kind: .strong, type: .apple, bits: bits, adjustment: nil))
             }
             return .fallback(.rulesNeedRandom)
         }
         return .fallback(.rulesNeedRandom)
+    }
+
+    /// One Apple-style draft, with separators drawn from `candidates`.
+    private static func appleCandidate<G: RandomNumberGenerator>(groups: Int, candidates: [Character], using generator: inout G) -> [Character] {
+        let draft = AppleStyle.draft(groups: groups, using: &generator)
+        var separators: [Character] = []
+        if !candidates.isEmpty {
+            for _ in 0..<(groups - 1) { separators.append(candidates[RandomPick.index(below: candidates.count, using: &generator)]) }
+        }
+        return AppleStyle.assemble(draft, separators: separators)
+    }
+
+    /// The share of drafts the rules (not the word list) let through: 1 unless the rules can reject a draft by chance, which
+    /// only `max-consecutive` and a required symbol drawn from a small set do. Estimated from 1,000 drafts of a fixed seed.
+    private static func ruleAcceptance(rules: PasswordRules, groups: Int, candidates: [Character], cap: Int, checker: PasswordRules.Checker) -> Double {
+        guard rules.maxConsecutive != nil || rules.required.contains(where: { $0.characters.isDisjoint(with: alphanumerics) }) else { return 1 }
+        var source = FixedRandomSource(seed: 0xB0B)
+        let sample = 1000
+        var accepted = 0
+        for _ in 0..<sample {
+            let password = appleCandidate(groups: groups, candidates: candidates, using: &source)
+            if password.count <= cap, checker.accepts(password) { accepted += 1 }
+        }
+        return Double(max(accepted, 1)) / Double(sample)
     }
 
     /// The characters the separators are drawn from: the hyphen, unless the rules need a symbol that the hyphen does not give, or do

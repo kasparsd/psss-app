@@ -32,10 +32,14 @@ enum GeneratorText {
     /// Which control the hint points at.
     enum Control: Sendable { case words, length }
 
-    /// "Weaker than the recommended password. …", only below the recommended strength.
-    static func hint(bits: Double, control: Control) -> String? {
-        guard PasswordStrength.isWeakerThanDefault(bits: bits) else { return nil }
+    /// "Weaker than the recommended password. …", only below the default's strength. When the site's own maximum is under 8
+    /// characters the line names that cause, because no control the person has can fix it.
+    static func hint(bits: Double, control: Control, defaultBits: Double = PasswordStrength.recommendedBits, siteMaximum: Int? = nil) -> String? {
+        guard PasswordStrength.isWeakerThanDefault(bits: bits, defaultBits: defaultBits) else { return nil }
         let time = PasswordStrength.timeText(bits: bits)
+        if let siteMaximum, siteMaximum < 8 {
+            return String(localized: "This site allows only \(siteMaximum) characters, so this password is weaker than the recommended one. A machine trying a trillion guesses a second would need about \(time).")
+        }
         switch control {
         case .words:
             return String(localized: "Weaker than the recommended password. A machine trying a trillion guesses a second would need about \(time). Add a word.")
@@ -52,7 +56,13 @@ enum PasswordStrength {
     /// Guesses a second the time sentence assumes: a site that kept a fast hash, on purpose pessimistic.
     static let guessesPerSecond = 1e12
 
-    static func isWeakerThanDefault(bits: Double) -> Bool { bits < recommendedBits }
+    static func isWeakerThanDefault(bits: Double, defaultBits: Double = recommendedBits) -> Bool { bits < defaultBits }
+
+    /// What the default carries with this offensive-word list: 71.97 bits less what the list throws away. A password is
+    /// compared with this, not with a fixed 71, so the default is never weaker than itself.
+    static func defaultBits(filter: OffensiveFilter) -> Double {
+        AppleStyle.bits(groups: 3) + log2(filter.acceptanceRate(groups: 3))
+    }
 
     /// Seconds for a machine to try half of all passwords of this strength.
     static func secondsToGuess(bits: Double) -> Double { pow(2, bits - 1) / guessesPerSecond }

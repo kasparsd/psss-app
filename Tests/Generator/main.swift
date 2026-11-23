@@ -67,7 +67,7 @@ enum Fixture {
     static let digits = "0123456789"
 
     /// A tiny word list: the loader and every Words test run against it, not against the EFF list.
-    static let words = WordList(text: [
+    static let words = WordList(testText: [
         "alpha", "bravo", "cedar", "delta", "ember", "fable", "gamma", "harbor", "island", "jungle", "kettle", "lemon", "meadow",
         "nectar", "orchid", "pebble", "quartz", "ribbon", "sunset", "timber", "umber", "velvet", "walnut", "yarrow", "zephyr",
         "anchor", "basket", "candle", "dragon", "engine", "forest", "garden", "hammer", "ignite", "jacket", "kitten", "ladder",
@@ -83,7 +83,7 @@ enum Fixture {
             let second = Character(Unicode.Scalar(UInt8(97 + index / 26)))
             lines.append("longwor" + String(first) + String(second))
         }
-        return WordList(text: lines.joined(separator: "\n"))!
+        return WordList(testText: lines.joined(separator: "\n"))!
     }()
 
     /// Neutral stand-ins, not real terms: the mechanism is what is tested.
@@ -737,7 +737,8 @@ func testSettings() {
     check("settings: a value of the wrong type becomes the default", decode("{\"words\":\"six\",\"includeNumber\":3}")?.words == 6 && decode("{\"includeNumber\":3}")?.includeNumber == true)
     check("settings: both ends of each range clamp", GeneratorSettings(words: 1, length: 500).words == 4 && GeneratorSettings(words: 1, length: 500).length == 64
           && GeneratorSettings(words: 12, length: 1).words == 7 && GeneratorSettings(words: 12, length: 1).length == 12)
-    check("settings: a newer version is still read", decode("{\"version\":9,\"kind\":\"characters\"}")?.kind == .characters)
+    check("settings: a newer version is not guessed at, it reads as recommended", decode("{\"version\":9,\"kind\":\"characters\",\"length\":40}") == recommended)
+    check("settings: the current version and a missing version are read", decode("{\"version\":1,\"kind\":\"characters\"}")?.kind == .characters && decode("{\"kind\":\"words\"}")?.kind == .words)
 
     GeneratorSettingsStorage.write(Data("not json".utf8))
     check("settings: damaged data reads as recommended", GeneratorSettings.load() == recommended)
@@ -754,11 +755,23 @@ func testSettings() {
 
 func testWordList() {
     check("word list: the fixture loads, deduplicated", Fixture.words.words.count > 40 && Set(Fixture.words.words).count == Fixture.words.words.count)
-    check("word list: comments and blank lines are skipped", WordList(text: "# credit\n\nalpha\r\nbravo\n")?.words == ["alpha", "bravo"])
-    check("word list: a damaged line refuses the whole list", WordList(text: "alpha\nBravo\n") == nil && WordList(text: "alpha\nbra-vo\n") == nil && WordList(text: "alpha\n11111\tbravo\n") == nil && WordList(text: "alpha\nx\n") == nil)
-    check("word list: duplicates are dropped so strength is not overstated", WordList(text: "alpha\nbravo\nalpha\n")?.words.count == 2)
-    check("word list: too few words refuses the list", WordList(text: "alpha\n") == nil && WordList(text: "alpha\nbravo\n", minimumCount: 3) == nil)
-    check("word list: bits a word", abs((WordList(text: "alpha\nbravo\ncedar\ndelta\n")?.bitsPerWord ?? 0) - 2) < 1e-9)
+    check("word list: comments and blank lines are skipped", WordList(testText: "# credit\n\nalpha\r\nbravo\n")?.words == ["alpha", "bravo"])
+    check("word list: a damaged line refuses the whole list", WordList(testText: "alpha\nBravo\n") == nil && WordList(testText: "alpha\nbra-vo\n") == nil && WordList(testText: "alpha\n11111\tbravo\n") == nil && WordList(testText: "alpha\nx\n") == nil)
+    check("word list: duplicates are dropped so strength is not overstated", WordList(testText: "alpha\nbravo\nalpha\n")?.words.count == 2)
+    check("word list: too few words refuses the list", WordList(testText: "alpha\n") == nil && WordList(testText: "alpha\nbravo\n", minimumCount: 3) == nil)
+    check("word list: the real initialiser refuses a tiny list, so no caller can generate from one", WordList(text: "alpha\nbravo\ncedar\ndelta\n") == nil && WordList(text: "") == nil)
+    func generated(_ count: Int) -> String {
+        (0..<count).map { index in
+            String([97 + index / 676, 97 + index / 26 % 26, 97 + index % 26].map { Character(Unicode.Scalar(UInt8($0))) })
+        }.joined(separator: "\n")
+    }
+    check("word list: 6,999 words are refused", WordList(text: generated(6999)) == nil)
+    let full = WordList(text: generated(7000))
+    check("word list: 7,000 words are accepted", full != nil && full?.words.count == 7000)
+    var big = SplitMix64(seed: 130)
+    let fromFull = full.map { gen(GeneratorSettings(kind: .words), words: $0, &big) }
+    check("word list: a list of 7,000 makes Words", fromFull?.type == GeneratorSettings.Kind.words)
+    check("word list: bits a word", abs((WordList(testText: "alpha\nbravo\ncedar\ndelta\n")?.bitsPerWord ?? 0) - 2) < 1e-9)
     check("word list: the bundled list is missing in a hostless run, so Words falls back", WordList.bundled == nil)
     var rng = SplitMix64(seed: 13)
     let fallback = PasswordGenerator.make(GeneratorSettings(kind: .words), using: &rng)
@@ -790,6 +803,98 @@ func testMask() {
     check("mask: printing a generated password shows no characters", printed == 0)
 }
 
+// MARK: Follow-ups: list cost, reflection, padded rules, unreadable classes, required and allowed, versions, tiny caps
+
+func testFollowUps() {
+    // The offensive-word list costs a fixed share of the passwords, the same for every draw, and the default is never weaker than itself.
+    var terms: [String] = []
+    var position = 0
+    for c in AppleStyle.consonants { for v in AppleStyle.vowels { for d in AppleStyle.consonants { if position % 6 == 0 { terms.append(String([c, v, d])) }; position += 1 } } }
+    let list = OffensiveFilter(terms: terms)
+    var rng = SplitMix64(seed: 21)
+    var flagged = 0, hinted = 0, notApple = 0
+    var figures = Set<Double>()
+    var defaultFigure = 0.0
+    for _ in 0..<5000 {
+        let result = gen(.recommended, filter: list, &rng)
+        if result.type != .apple { notApple += 1 }
+        if result.isWeakerThanDefault { flagged += 1 }
+        if result.hint() != nil || PasswordGenerator.hint(bits: result.bits, defaultBits: result.defaultBits) != nil { hinted += 1 }
+        figures.insert(result.bits)
+        defaultFigure = result.defaultBits
+    }
+    check("list cost: \(terms.count) terms, 5000 default draws, none flagged weaker", flagged == 0, "\(flagged) flagged")
+    check("list cost: and none shows a hint", hinted == 0, "\(hinted) hints")
+    check("list cost: and every one is Apple-style", notApple == 0)
+    check("list cost: every draw reports the same bits, whatever the redraws it needed", figures.count == 1 && abs((figures.first ?? 0) - defaultFigure) < 1e-9)
+    let rate = list.acceptanceRate(groups: 3)
+    check("list cost: the list throws away a real share (acceptance is estimated, once)", rate > 0.15 && rate < 0.6 && rate == list.acceptanceRate(groups: 3), "\(rate)")
+    check("list cost: the default's figure is Apple-style's less log2 of the acceptance", abs(defaultFigure - (AppleStyle.bits(groups: 3) + log2(rate))) < 1e-9)
+    check("list cost: that figure is under 71, which is why a fixed 71 could not be the bar", defaultFigure < PasswordStrength.recommendedBits)
+    check("list cost: an empty list costs nothing", OffensiveFilter.none.acceptanceRate(groups: 3) == 1 && PasswordStrength.defaultBits(filter: .none) == AppleStyle.bits(groups: 3))
+    var other = SplitMix64(seed: 22)
+    let twelve = gen(GeneratorSettings(kind: .characters, length: 12), filter: list, &other)
+    check("list cost: a genuinely weaker choice is still flagged, with its hint", twelve.isWeakerThanDefault && twelve.hint() != nil)
+
+    // dump and Mirror do not show the characters.
+    var third = SplitMix64(seed: 23)
+    let result = gen(.recommended, &third)
+    var dumped = ""
+    dump(result, to: &dumped)
+    var dumpedMany = ""
+    dump([result, result], to: &dumpedMany)
+    check("reflection: dump shows no characters", !dumped.contains(result.value) && !dumpedMany.contains(result.value))
+    let children = Array(Mirror(reflecting: result).children)
+    check("reflection: Mirror children show no characters", children.count == 3 && children.allSatisfy { !"\($0.value)".contains(result.value) })
+    check("reflection: Mirror shows the length", children.contains { $0.label == "length" && ($0.value as? Int) == 20 })
+
+    // Padding cannot push a rule out of view, and text that is still too long is refused, not cut.
+    let padded = PasswordRules(parsing: String(repeating: " ", count: 5000) + "maxlength: 6;")
+    check("padding: 5,000 spaces then maxlength: 6 is read", padded.maxLength == 6 && !padded.isUnsatisfiable)
+    check("padding: runs of ; and spaces collapse before the limit", PasswordRules(parsing: "minlength: 8;" + String(repeating: "; ", count: 5000) + "maxlength: 10;").maxLength == 10)
+    var fourth = SplitMix64(seed: 24)
+    check("padding: the password honours the rule", (0..<50).allSatisfy { _ in gen(.recommended, rules: padded, &fourth).value.count == 6 })
+    check("padding: a space inside a class is kept", PasswordRules(parsing: "required: [ a ];").required.first?.characters == Set(" a"))
+    let tooLong = PasswordRules(parsing: "required: [" + String(repeating: "a", count: 5000) + "];")
+    check("padding: text still over the limit is unsatisfiable, not cut", tooLong.isUnsatisfiable && tooLong.required.isEmpty)
+    let refused = gen(.recommended, rules: tooLong, &fourth)
+    check("padding: and no password is made", refused.value.isEmpty && refused.adjustment == .cannotSatisfy)
+    same("padding: it is stored as impossible", tooLong.canonical, "impossible: yes;")
+    check("padding: and reads back as impossible", PasswordRules(parsing: tooLong.canonical) == tooLong)
+    check("padding: impossible survives a merge", PasswordRules(parsing: "maxlength: 9;").merged(with: tooLong).isUnsatisfiable)
+
+    // A class with no printable ASCII member cannot be met, and is not quietly dropped.
+    for text in ["required: [é]; minlength: 10;", "allowed: [é];", "required: [日本];"] {
+        let rules = PasswordRules(parsing: text)
+        var any = SplitMix64(seed: 25)
+        let made = [GeneratorSettings.Kind.apple, .words, .characters].map { gen(GeneratorSettings(kind: $0), rules: rules, &any) }
+        check("unreadable class: \(text) is unsatisfiable and makes nothing", rules.isUnsatisfiable && made.allSatisfy { $0.value.isEmpty && $0.adjustment == .cannotSatisfy })
+    }
+    check("unreadable class: a union with a readable class stays satisfiable", !PasswordRules(parsing: "required: upper, [é];").isUnsatisfiable)
+    check("unreadable class: the readable members of a class are kept", PasswordRules(parsing: "required: [éa];").required.first?.characters == Set("a") && !PasswordRules(parsing: "required: [éa];").isUnsatisfiable)
+
+    // Required classes join the allowed set, as in Apple's parser (see the plan, D6).
+    let both = PasswordRules(parsing: "required: upper; allowed: lower;")
+    check("required and allowed: a required class is added to what is allowed", both.alphabet == PasswordRules.lower.union(PasswordRules.upper) && !both.isUnsatisfiable)
+    var fifth = SplitMix64(seed: 26)
+    check("required and allowed: so a password with a capital and lowercase letters is made", (0..<200).allSatisfy { _ in
+        let r = gen(GeneratorSettings(kind: .characters), rules: both, &fifth)
+        return r.value.contains(where: isUpper) && r.value.allSatisfy { $0.isLetter } && both.accepts(r.value)
+    })
+    check("required and allowed: with no allowed rule the same", PasswordRules(parsing: "required: upper;").alphabet == PasswordRules.asciiPrintable)
+
+    // A site's maximum under 8 names itself as the cause.
+    var sixth = SplitMix64(seed: 27)
+    let capped = gen(.recommended, rules: PasswordRules(parsing: "maxlength: 6;"), &sixth)
+    let cappedWant = "This site allows only 6 characters, so this password is weaker than the recommended one. A machine trying a trillion guesses a second would need about \(PasswordStrength.timeText(bits: capped.bits))."
+    check("tiny cap: 6 characters, flagged weaker", capped.value.count == 6 && capped.isWeakerThanDefault && capped.siteMaximum == 6)
+    same("tiny cap: the hint names the site's maximum", capped.hint() ?? "", cappedWant)
+    check("tiny cap: the same text through the plain function", PasswordGenerator.hint(bits: capped.bits, defaultBits: capped.defaultBits, siteMaximum: 6) == cappedWant)
+    let nine = gen(GeneratorSettings(kind: .characters), rules: PasswordRules(parsing: "maxlength: 9;"), &sixth)
+    check("tiny cap: a maximum of 9 gets the usual hint", nine.hint()?.hasSuffix("Make it longer.") == true)
+    check("tiny cap: with no maximum the usual hint", gen(GeneratorSettings(kind: .characters, length: 12), &sixth).hint()?.hasSuffix("Make it longer.") == true)
+}
+
 testDeterminism()
 testAppleShape()
 testWordsDistribution()
@@ -805,6 +910,7 @@ testParser()
 testSettings()
 testWordList()
 testMask()
+testFollowUps()
 
 print(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

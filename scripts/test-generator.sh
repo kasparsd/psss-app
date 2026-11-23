@@ -9,9 +9,10 @@ cd "$(dirname "$0")/.."
 mkdir -p build/generator-test
 FILES="App/Core/PasswordRules.swift App/Core/AppleStyle.swift App/Core/OffensiveFilter.swift App/Core/WordList.swift \
   App/Core/GeneratorSettings.swift App/Core/GeneratorText.swift App/Core/PasswordGenerator.swift"
-# No generated value may be logged or printed anywhere in the engine.
-if grep -nE '(^|[^A-Za-z])(print|debugPrint|dump|NSLog|os_log|Logger)\(' $FILES; then
-  echo "test-generator: the engine must not log or print (see the lines above)" >&2
+# No generated value may be logged, printed or put in an error message anywhere in the engine.
+LEAKS='(^|[^A-Za-z0-9_])(print|debugPrint|dump|NSLog|os_log|Logger|fputs)[[:space:]]*\(|\.(debug|info|error|notice|log|warning|fault)\(|(fatalError|preconditionFailure|assertionFailure|precondition|assert)\(.*\\\('
+if grep -nE "$LEAKS" $FILES; then
+  echo "test-generator: the engine must not log, print or put a value in a message (see the lines above)" >&2
   exit 1
 fi
 swiftc -O -swift-version 6 -D HOSTLESS_TESTS $FILES Tests/Generator/main.swift -o build/generator-test/run

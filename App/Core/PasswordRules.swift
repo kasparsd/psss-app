@@ -28,6 +28,12 @@ struct PasswordRules: Equatable, Sendable {
     /// Nil means the rules do not restrict the characters (printable ASCII).
     var allowed: Set<Character>?
     var maxConsecutive: Int?
+    /// True when the text said something that cannot be read or met: a required or allowed class with no printable ASCII member
+    /// (`[é]`), or text too long to read whole. Nothing is dropped silently: no password is made for such rules.
+    var isUnsatisfiable = false
+
+    /// The longest rule text that is read, after runs of white space and `;` are collapsed. Longer text is unsatisfiable, not cut.
+    static let maximumTextLength = 4096
 
     /// Passwords Psss makes are never longer than this unless `minLength` demands more (bcrypt reads 72 bytes).
     static let generatedMaxLength = 64
@@ -60,7 +66,8 @@ struct PasswordRules: Equatable, Sendable {
     init(parsing text: String?) {
         self.init()
         guard let text, !text.isEmpty else { return }
-        let characters = Array(text.prefix(4096))
+        let characters = Self.collapsed(text)
+        if characters.count > Self.maximumTextLength { isUnsatisfiable = true; return }
         var index = 0
         while index < characters.count {
             while index < characters.count, characters[index] == ";" || characters[index].isWhitespace { index += 1 }
@@ -73,6 +80,33 @@ struct PasswordRules: Equatable, Sendable {
             index = next
             apply(key: key.trimmingCharacters(in: .whitespaces).lowercased(), value: value)
         }
+    }
+
+    /// The text without leading white space and with each run of white space and `;` outside a custom class cut to one `;` (when
+    /// the run holds one) or one space. This happens before any length limit, so padding cannot push a rule out of view.
+    private static func collapsed(_ text: String) -> [Character] {
+        let input = Array(text)
+        var output: [Character] = []
+        var index = 0
+        var hasSemicolon = false, hasSpace = false
+        while index < input.count {
+            let character = input[index]
+            if character == ";" || character.isWhitespace {
+                if character == ";" { hasSemicolon = true } else { hasSpace = true }
+                index += 1
+                continue
+            }
+            if !output.isEmpty, hasSemicolon || hasSpace { output.append(hasSemicolon ? ";" : " ") }
+            hasSemicolon = false; hasSpace = false
+            output.append(character)
+            index += 1
+            if character == "[" {
+                var body = ""
+                index = copyClassBody(input, from: index, into: &body)
+                output.append(contentsOf: body)
+            }
+        }
+        return output
     }
 
     /// The text up to the next `;` that is not inside a custom class, and where to carry on.
@@ -107,11 +141,13 @@ struct PasswordRules: Equatable, Sendable {
         case "max-consecutive":
             if let number = Self.number(value), number >= 1 { maxConsecutive = min(maxConsecutive ?? number, number) }
         case "required":
-            let set = Self.parseClasses(value)
-            if !set.isEmpty { require(set) }
+            let (set, unreadable) = Self.parseClasses(value)
+            if !set.isEmpty { require(set) } else if unreadable { isUnsatisfiable = true }
         case "allowed":
-            let set = Self.parseClasses(value)
-            if !set.isEmpty { allowed = (allowed ?? []).union(set) }
+            let (set, unreadable) = Self.parseClasses(value)
+            if !set.isEmpty { allowed = (allowed ?? []).union(set) } else if unreadable { isUnsatisfiable = true }
+        case "impossible":
+            if value.trimmingCharacters(in: .whitespaces).lowercased() == "yes" { isUnsatisfiable = true }
         default:
             break
         }
@@ -124,8 +160,10 @@ struct PasswordRules: Equatable, Sendable {
     }
 
     /// The union of the classes in a comma separated list. Unknown classes add nothing.
-    private static func parseClasses(_ value: String) -> Set<Character> {
+    /// `unreadable` is true when a custom class named members but none of them is printable ASCII (`[é]`).
+    private static func parseClasses(_ value: String) -> (set: Set<Character>, unreadable: Bool) {
         var result = Set<Character>()
+        var unreadable = false
         let text = Array(value)
         var item = ""
         var index = 0
@@ -140,7 +178,9 @@ struct PasswordRules: Equatable, Sendable {
             case "ascii-printable", "unicode": result.formUnion(asciiPrintable)
             default:
                 guard name.hasPrefix("["), name.hasSuffix("]"), name.count >= 3 else { return }
-                for member in name.dropFirst().dropLast() where member.isASCII && asciiPrintable.contains(member) { result.insert(member) }
+                var kept = 0
+                for member in name.dropFirst().dropLast() where member.isASCII && asciiPrintable.contains(member) { result.insert(member); kept += 1 }
+                if kept == 0 { unreadable = true }
             }
         }
         while index < text.count {
@@ -151,7 +191,7 @@ struct PasswordRules: Equatable, Sendable {
             if character == "[" { index = copyClassBody(text, from: index, into: &item) }
         }
         flush()
-        return result
+        return (result, unreadable)
     }
 
     // MARK: Building
@@ -186,6 +226,7 @@ struct PasswordRules: Equatable, Sendable {
         case (nil, nil): result.allowed = nil
         }
         result.maxConsecutive = [maxConsecutive, other.maxConsecutive].compactMap { $0 }.min()
+        result.isUnsatisfiable = isUnsatisfiable || other.isUnsatisfiable
         return result
     }
 
@@ -250,7 +291,7 @@ struct PasswordRules: Equatable, Sendable {
         init(_ rules: PasswordRules) { self.rules = rules; alphabet = rules.alphabet }
 
         func accepts(_ password: [Character]) -> Bool {
-            guard password.count >= rules.minLength, password.count <= (rules.maxLength ?? Int.max) else { return false }
+            guard !rules.isUnsatisfiable, password.count >= rules.minLength, password.count <= (rules.maxLength ?? Int.max) else { return false }
             for character in password where !alphabet.contains(character) { return false }
             for requirement in rules.required {
                 var found = 0
@@ -276,6 +317,7 @@ struct PasswordRules: Equatable, Sendable {
     /// same rules, requirements in the order they were first read.
     var canonical: String {
         var parts: [String] = []
+        if isUnsatisfiable { parts.append("impossible: yes") }
         if minLength > 0 { parts.append("minlength: \(minLength)") }
         if let maxLength { parts.append("maxlength: \(maxLength)") }
         if let maxConsecutive { parts.append("max-consecutive: \(maxConsecutive)") }

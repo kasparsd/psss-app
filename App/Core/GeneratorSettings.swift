@@ -3,7 +3,7 @@ import Foundation
 /// What a person chose in the password generator, kept per device in the App Group defaults the app and the AutoFill extension
 /// share. Not a secret, not in the vault, not encrypted. Absence means the recommended settings.
 ///
-/// Reading is forgiving on purpose: a missing key, a wrong type, an unknown `kind` or a value out of range never fails. They become
+/// Reading is forgiving on purpose: a stored version newer than this build reads as the recommended settings; a missing key, a wrong type, an unknown `kind` or a value out of range never fails. They become
 /// the recommended value or the nearest allowed one.
 struct GeneratorSettings: Codable, Equatable, Sendable {
     /// What kind of password. An unknown stored value falls back to `.apple`.
@@ -62,6 +62,8 @@ struct GeneratorSettings: Codable, Equatable, Sendable {
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         version = (try? container.decode(Int.self, forKey: .version)) ?? Self.currentVersion
+        // A newer version may mean something else by the same keys. Do not guess: start from the recommended settings.
+        if version > Self.currentVersion { self = .recommended; return }
         kind = (try? container.decode(String.self, forKey: .kind)).flatMap(Kind.init(rawValue:)) ?? .apple
         words = (try? container.decode(Int.self, forKey: .words)) ?? words
         length = (try? container.decode(Int.self, forKey: .length)) ?? length

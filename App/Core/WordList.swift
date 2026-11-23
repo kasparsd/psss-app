@@ -11,9 +11,19 @@ struct WordList: Sendable {
     /// Every letter any word uses, so a rule can be checked once.
     let letters: Set<Character>
 
+    /// The fewest words a list may have. Fewer than 7,000 is a truncated list: a word then carries visibly fewer than 12 bits.
+    static let minimumCount = 7000
+
     /// Words each need 2 to 12 letters a to z. Duplicates are dropped, so the bits a word carries are never overstated.
-    /// Nil when a line is not a clean word or when fewer than `minimumCount` words remain.
-    init?(text: String, minimumCount: Int = 2) {
+    /// Nil when a line is not a clean word or when fewer than 7,000 words remain: no caller can generate from a tiny list.
+    init?(text: String) { self.init(text: text, minimumCount: Self.minimumCount) }
+
+    #if HOSTLESS_TESTS
+    /// For tests only: a small fixture list.
+    init?(testText text: String, minimumCount: Int = 2) { self.init(text: text, minimumCount: minimumCount) }
+    #endif
+
+    private init?(text: String, minimumCount: Int) {
         var seen = Set<String>()
         var words: [String] = []
         for line in text.split(whereSeparator: \.isNewline) {
@@ -30,10 +40,10 @@ struct WordList: Sendable {
     var bitsPerWord: Double { log2(Double(words.count)) }
 
     /// The EFF list in the bundle (the app's or the extension's own). Nil when the file is not there or is damaged: a list
-    /// of fewer than 7,000 words is a truncated one, and Words then falls back to random characters instead of getting weaker.
+    /// of fewer than 7,000 words is refused, and Words then falls back to random characters instead of getting weaker.
     static let bundled: WordList? = {
         guard let url = Bundle.main.url(forResource: "EFFLongWordList", withExtension: "txt"),
               let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-        return WordList(text: text, minimumCount: 7000)
+        return WordList(text: text)
     }()
 }
