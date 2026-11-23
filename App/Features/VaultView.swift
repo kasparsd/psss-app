@@ -113,6 +113,8 @@ struct VaultView: View {
     @Environment(VaultSession.self) private var session
     @State private var storeProblem: String?
     @State private var conflict = false
+    /// The write the vault file refused because it changed elsewhere, kept while the alert is up so Replace can repeat it.
+    @State private var refusedWrite: (() throws -> Void)?
     @State private var changingPassword = false
     @State private var copyDocument: VaultCopy?
 
@@ -197,11 +199,11 @@ struct VaultView: View {
             Button("OK") { storeProblem = nil }
         } message: { Text(storeProblem ?? "") }
         .alert("The vault changed elsewhere", isPresented: $conflict) {
-            Button("Reload Vault") { reloadFromDisk() }
-            Button("Overwrite with My Version", role: .destructive) { overwrite() }
-            Button("Cancel", role: .cancel) {}
+            Button("Reload Vault") { refusedWrite = nil; reloadFromDisk() }
+            Button("Replace the File with My Version", role: .destructive) { overwrite() }
+            Button("Cancel", role: .cancel) { refusedWrite = nil }
         } message: {
-            Text("Another app or device saved this vault since you opened it. Reload to see its version and lose your last change, or overwrite it with yours. The overwritten file is kept as a backup.")
+            Text("The vault file was changed by another app or device since you opened it. Reload shows that version and discards the change you just made. Replace writes your version of the whole vault over it; the other version is kept as a backup copy on this device.")
         }
         .alert("Unlock \(store.title) with \(session.biometry?.label ?? "Face ID")?", isPresented: $offersBiometric) {
             Button("Use \(session.biometry?.label ?? "Face ID")") {
@@ -671,12 +673,19 @@ struct VaultView: View {
         }
     }
 
-    private func attempt(_ write: () throws -> Void) {
-        do { try write() } catch VaultStoreError.changedOnDisk {
+    /// Runs a write. When it throws, the store has put the vault back to what the file holds, so the list and the AutoFill
+    /// identities are refreshed from it; a write refused because the file changed elsewhere is kept for Replace. Returns whether it worked.
+    @discardableResult
+    private func attempt(_ write: @escaping () throws -> Void) -> Bool {
+        do { try write(); refusedWrite = nil; return true } catch VaultStoreError.changedOnDisk {
+            refusedWrite = write
             conflict = true
         } catch {
             storeProblem = (error as? VaultStoreError)?.message ?? (error as? KDBXError)?.message ?? error.localizedDescription
         }
+        items = store.items()
+        registerIdentities()
+        return false
     }
 
     private func reloadFromDisk() {
@@ -687,9 +696,13 @@ struct VaultView: View {
         }
     }
 
+    /// Repeats the refused write with the check for a changed file skipped. It is applied to whatever the store holds now.
     private func overwrite() {
-        guard let store = store as? KeePassVaultStore else { return }
-        attempt { try store.commit(overwrite: true) }
+        guard let store = store as? KeePassVaultStore, let write = refusedWrite else { return }
+        refusedWrite = nil
+        attempt { try store.overwriting(write) }
+        items = store.items()
+        registerIdentities()
     }
 
     private func delete(_ id: VaultItem.ID) {
@@ -703,7 +716,7 @@ struct VaultView: View {
 
     /// Stores an item as it is while its editor stays open.
     private func keepDraft(_ item: VaultItem) {
-        attempt { try store.save([item]) }
+        guard attempt({ try store.save([item]) }) else { return }
         if let index = items.firstIndex(where: { $0.id == item.id }) {
             items[index] = item
         } else {
@@ -713,7 +726,8 @@ struct VaultView: View {
     }
 
     private func save(_ item: VaultItem) {
-        attempt { try store.save([item]) }
+        // A refused save leaves the editor open with the person's text, and the list as the file holds it.
+        guard attempt({ try store.save([item]) }) else { return }
         if let index = items.firstIndex(where: { $0.id == item.id }) {
             items[index] = item
         } else {

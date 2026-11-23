@@ -36,6 +36,14 @@ enum UsageLog {
         write(all, for: vault)
     }
 
+    /// Drops the entries of deleted items, reading and writing the log once.
+    static func remove(_ ids: some Sequence<UUID>, in vault: UUID) {
+        var all = load(for: vault)
+        var changed = false
+        for id in ids where all.removeValue(forKey: id) != nil { changed = true }
+        if changed { write(all, for: vault) }
+    }
+
     /// Deletes the whole log, when the vault is forgotten.
     static func erase(for vault: UUID) { try? FileManager.default.removeItem(at: fileURL(for: vault)) }
 

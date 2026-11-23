@@ -21,9 +21,9 @@ extension KDBXDocument {
         normalizeHistoryLimits()
         var references: [(node: XNode, index: Int?)] = []
         root.walk { node in
-            if node.name == "Value", let reference = node.attribute("Ref") {
-                references.append((node, Int(reference)))
-            } else if node.children.isEmpty, Self.timeElements.contains(node.name), KeePassTime.isISO(node.text),
+            if !node.attributes.isEmpty {
+                if node.name == "Value", let reference = node.attribute("Ref") { references.append((node, Int(reference))) }
+            } else if node.children.isEmpty, node.text.utf8.count >= 20, Self.timeElements.contains(node.name), KeePassTime.isISO(node.text),
                       let date = KeePassTime.date(node.text) {
                 node.text = KeePassTime.stored(date)
             }

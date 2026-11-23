@@ -127,13 +127,22 @@ enum PlanBuilder {
         var cardFields: [ImportField] = []
         var validFrom: Custom?
         var codes: [(text: String, section: String)] = []
+        var blankCodes: [ImportField] = []
         var unreadableValues: [String] = []
 
         func ingest(_ field: SectionField) {
             if field.name.hasPrefix("TOTP_") {
-                if let text = Value.scalarText(field.value), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    codes.append((text, ImportText.clean(field.section)))
+                if let text = Value.scalarText(field.value), !text.isEmpty {
                     seen.insert(field.name)
+                    if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        codes.append((text, ImportText.clean(field.section)))
+                    } else if ImportText.clean(text) == text {
+                        // Spaces are not a code: it is left out, and the item says so.
+                        issue(.secretSpaces, String(localized: "the one-time code is only spaces and was left out"))
+                    } else {
+                        // Characters the file cannot hold: kept as it is so that cleaning reports it like any other secret.
+                        blankCodes.append(ImportField(.code, value: text, concealed: true))
+                    }
                 }
                 return
             }
@@ -227,6 +236,7 @@ enum PlanBuilder {
         }
         fields += websites.map { ImportField(.website, value: $0) }
         if let codeValue { fields.append(ImportField(.code, value: codeValue, concealed: true)) }
+        fields += blankCodes
         if !notes.isEmpty { fields.append(ImportField(.notes, value: notes)) }
         if kind == .card { fields += cardFields.filter { [.securityCode, .pin].contains($0.role) } }
         fields += customFields
@@ -282,6 +292,8 @@ enum PlanBuilder {
                               tags: tags, created: created, modified: modified,
                               history: revisions.map { ImportRevision(password: $0.password, date: $0.date) }, issues: issues)
         item.sanitize(emptied: emptied)
+        // An item with no identifier gets one made of what it is, so a second import finds it again.
+        if r.uuid.isEmpty { item.sourceID = "1password:nouuid:" + item.identityHash(8) }
         return Built(item: item, webFormFields: webFormFields, missingDate: missingDate, tagsAltered: tagsAltered)
     }
 

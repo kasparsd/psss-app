@@ -14,12 +14,18 @@ protocol VaultStore: AnyObject {
     func delete(_ id: UUID) throws
     /// Moves a login, card or note to Recently Deleted (the Recycle Bin of a KeePass vault) instead of deleting it.
     func moveToRecentlyDeleted(_ id: UUID) throws
+    /// Moves many items to Recently Deleted in one pass and one write.
+    func moveToRecentlyDeleted(_ ids: [UUID]) throws
     /// What is in Recently Deleted, newest deletion first, with when each was deleted. Never part of `items()`.
     func recentlyDeleted() -> [(item: VaultItem, deleted: Date)]
     /// Puts an item back where it was deleted from (or at the top level when that is gone).
     func restore(_ id: UUID) throws
+    /// Puts many items back in one pass and one write.
+    func restore(_ ids: [UUID]) throws
     /// Deletes an item for good, from Recently Deleted or from the vault.
     func deletePermanently(_ id: UUID) throws
+    /// Deletes many items for good in one pass and one write.
+    func deletePermanently(_ ids: [UUID]) throws
     func emptyRecentlyDeleted() throws
     /// Earlier passwords of an item, newest first, each with when it was replaced. Empty when there are none.
     func previousPasswords(of id: UUID) -> [(password: String, replaced: Date)]
@@ -70,6 +76,10 @@ final class SampleVaultStore: VaultStore {
         guard let index = current.firstIndex(where: { $0.id == id }) else { return }
         deleted.insert((current.remove(at: index), Date()), at: 0)
     }
+
+    func moveToRecentlyDeleted(_ ids: [UUID]) throws { for id in ids { try moveToRecentlyDeleted(id) } }
+    func restore(_ ids: [UUID]) throws { for id in ids { try restore(id) } }
+    func deletePermanently(_ ids: [UUID]) throws { for id in ids { try deletePermanently(id) } }
 
     func recentlyDeleted() -> [(item: VaultItem, deleted: Date)] { deleted }
 

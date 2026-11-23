@@ -28,9 +28,12 @@ extension KDBXDocument {
         /// counted). Another app that recycles a whole group stamps the group, not the entries inside, so this is when they
         /// were deleted too. Nil outside the bin, or when no such group has a time.
         var groupDeleted: Date?
+        /// For an entry in the bin: some group between the bin and the entry has a `LocationChanged` that cannot be read. The
+        /// entry is then never purged automatically.
+        var groupUnreadable: Bool
 
-        init(entry: XNode, group: XNode, inBin: Bool, groupDeleted: Date? = nil) {
-            self.entry = entry; self.group = group; self.inBin = inBin; self.groupDeleted = groupDeleted
+        init(entry: XNode, group: XNode, inBin: Bool, groupDeleted: Date? = nil, groupUnreadable: Bool = false) {
+            self.entry = entry; self.group = group; self.inBin = inBin; self.groupDeleted = groupDeleted; self.groupUnreadable = groupUnreadable
         }
     }
 
@@ -40,7 +43,14 @@ extension KDBXDocument {
     var rawRecycleBinID: String? {
         guard let id = meta?.child("RecycleBinUUID")?.text, !id.isEmpty, id != Data(count: 16).base64EncodedString(),
               id != rootGroup?.child("UUID")?.text else { return nil }
-        return id
+        // Two groups with the bin's identifier is a corrupt file (a copy that kept its identifier): there is no bin to trust.
+        var carriers = 0
+        func visit(_ group: XNode) {
+            if group.child("UUID")?.text == id { carriers += 1 }
+            for child in group.children where child.name == "Group" { visit(child) }
+        }
+        if let rootGroup { visit(rootGroup) }
+        return carriers > 1 ? nil : id
     }
 
     /// The Recycle Bin's group identifier as stored in `Meta`, or nil when the bin is switched off, has none yet or names the
@@ -55,25 +65,31 @@ extension KDBXDocument {
         node.child("Times")?.child("LocationChanged").flatMap { KeePassTime.date($0.text) }
     }
 
+    /// The same, saying also whether the element is there at all, so a time that is present but unreadable can be told from none.
+    static func locationChangedEvidence(of node: XNode) -> (date: Date?, present: Bool) {
+        guard let element = node.child("Times")?.child("LocationChanged") else { return (nil, false) }
+        return (KeePassTime.date(element.text), true)
+    }
+
     /// Every entry outside history, in document order, each marked with whether it sits in the Recycle Bin.
     func locations() -> [EntryLocation] {
         let bin = recycleBinID
         var found: [EntryLocation] = []
-        func visit(_ group: XNode, inBin: Bool, floor: Date?) {
+        func visit(_ group: XNode, inBin: Bool, floor: Date?, unreadable: Bool) {
             for child in group.children {
                 if child.name == "Entry" {
-                    found.append(EntryLocation(entry: child, group: group, inBin: inBin, groupDeleted: inBin ? floor : nil))
+                    found.append(EntryLocation(entry: child, group: group, inBin: inBin, groupDeleted: inBin ? floor : nil, groupUnreadable: inBin && unreadable))
                 } else if child.name == "Group" {
                     if inBin {
-                        let own = Self.locationChanged(of: child)
-                        visit(child, inBin: true, floor: [floor, own].compactMap { $0 }.max())
+                        let own = Self.locationChangedEvidence(of: child)
+                        visit(child, inBin: true, floor: [floor, own.date].compactMap { $0 }.max(), unreadable: unreadable || (own.present && own.date == nil))
                     } else {
-                        visit(child, inBin: bin != nil && child.child("UUID")?.text == bin, floor: nil)
+                        visit(child, inBin: bin != nil && child.child("UUID")?.text == bin, floor: nil, unreadable: false)
                     }
                 }
             }
         }
-        if let rootGroup { visit(rootGroup, inBin: false, floor: nil) }
+        if let rootGroup { visit(rootGroup, inBin: false, floor: nil, unreadable: false) }
         return found
     }
 

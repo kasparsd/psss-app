@@ -137,29 +137,77 @@ extension KDBXDocument {
     /// Moves a live entry, with its history, to the Recycle Bin (made on first use), remembers where it came from and when,
     /// and sets its `LocationChanged`. Returns false when there is no such live entry.
     @discardableResult
-    func moveToRecycleBin(_ id: UUID) -> Bool {
+    func moveToRecycleBin(_ id: UUID) -> Bool { moveToRecycleBin([id]) > 0 }
+
+    /// Moves live entries to the bin in one pass over the document, however many. Returns how many entries moved (an identifier
+    /// with no live entry is skipped).
+    @discardableResult
+    func moveToRecycleBin(_ ids: [UUID]) -> Int {
         let all = locations()
         for other in all where !other.inBin { dropStaleBinMarks(of: other.entry) }
-        guard let location = all.first(where: { !$0.inBin && EntryMapping.uuid(of: $0.entry) == id }),
-              let bin = recycleBinGroup(creating: true) else { return false }
-        EntryMapping.correctProtection(location.entry)
+        var wanted = Set(ids)
+        let picked = all.filter { location in
+            guard !location.inBin, let id = EntryMapping.uuid(of: location.entry) else { return false }
+            return wanted.remove(id) != nil
+        }
+        guard !picked.isEmpty, let bin = recycleBinGroup(creating: true) else { return 0 }
         let now = KeePassTime.now
-        let stored = KeePassTime.stored(now)
-        location.group.children.removeAll { $0 === location.entry }
-        bin.children.append(location.entry)
-        EntryMapping.setCustomData(location.entry, RecycleBinKeys.deletedFrom, location.group.child("UUID")?.text, modified: stored)
-        EntryMapping.setCustomData(location.entry, RecycleBinKeys.deletedAt, KeePassTime.string(now), modified: stored)
-        ensureTimes(location.entry).times.setChildText("LocationChanged", stored)
-        return true
+        let stored = KeePassTime.stored(now), text = KeePassTime.string(now)
+        removeEntries(picked)
+        for location in picked {
+            EntryMapping.correctProtection(location.entry)
+            bin.children.append(location.entry)
+            EntryMapping.setCustomData(location.entry, RecycleBinKeys.deletedFrom, location.group.child("UUID")?.text, modified: stored)
+            EntryMapping.setCustomData(location.entry, RecycleBinKeys.deletedAt, text, modified: stored)
+            ensureTimes(location.entry).times.setChildText("LocationChanged", stored)
+        }
+        return picked.count
+    }
+
+    /// Takes the entries out of the groups they are in: one pass per group, not one per entry.
+    private func removeEntries(_ locations: [EntryLocation]) {
+        var byGroup: [ObjectIdentifier: (group: XNode, doomed: Set<ObjectIdentifier>)] = [:]
+        for location in locations { byGroup[ObjectIdentifier(location.group), default: (location.group, [])].doomed.insert(ObjectIdentifier(location.entry)) }
+        for (_, pair) in byGroup { pair.group.children.removeAll { pair.doomed.contains(ObjectIdentifier($0)) } }
     }
 
     /// Puts a deleted entry back in the group it came from, or the root group when that group is gone or was never recorded.
     /// Refuses (false) when a live entry has the same identifier, so a restore never makes a duplicate; the copy in the bin stays
     /// until it is deleted for good.
     @discardableResult
-    func restoreFromRecycleBin(_ id: UUID) -> Bool {
-        guard let location = binLocation(id) else { return false }
-        return restoreFromBin(location, knownUnique: false) != nil
+    func restoreFromRecycleBin(_ id: UUID) -> Bool { restoreFromRecycleBin([id]) > 0 }
+
+    /// Restores entries in one pass. Returns how many came back; one whose identifier a live entry has is refused.
+    @discardableResult
+    func restoreFromRecycleBin(_ ids: [UUID]) -> Int {
+        let all = locations()
+        for other in all where !other.inBin { dropStaleBinMarks(of: other.entry) }
+        let live = Set(all.filter { !$0.inBin }.compactMap { EntryMapping.uuid(of: $0.entry) })
+        var wanted = Set(ids)
+        let picked = all.filter { location in
+            guard location.inBin, let id = EntryMapping.uuid(of: location.entry), !live.contains(id) else { return false }
+            return wanted.remove(id) != nil
+        }
+        guard !picked.isEmpty else { return 0 }
+        var groups: [String: XNode] = [:]
+        let bin = recycleBinID
+        func collect(_ group: XNode) {
+            guard let id = group.child("UUID")?.text, id != bin else { return }
+            groups[id] = group
+            for child in group.children where child.name == "Group" { collect(child) }
+        }
+        if let rootGroup { collect(rootGroup) }
+        let stored = KeePassTime.storedNow
+        removeEntries(picked)
+        for location in picked {
+            let target = EntryMapping.customData(location.entry, RecycleBinKeys.deletedFrom).flatMap { groups[$0] } ?? rootGroup
+            EntryMapping.correctProtection(location.entry)
+            (target ?? location.group).children.append(location.entry)
+            EntryMapping.setCustomData(location.entry, RecycleBinKeys.deletedFrom, nil, modified: stored)
+            EntryMapping.setCustomData(location.entry, RecycleBinKeys.deletedAt, nil, modified: stored)
+            ensureTimes(location.entry).times.setChildText("LocationChanged", stored)
+        }
+        return picked.count
     }
 
     /// The restored entry's new location, or nil when it was refused. `knownUnique` skips the scan for a live entry with the same
@@ -180,18 +228,27 @@ extension KDBXDocument {
 
     // MARK: Reading the bin
 
-    /// When the entry in the bin was deleted: the latest of its own `LocationChanged`, the `LocationChanged` of the groups between
-    /// the bin and it, and Psss's own record. Nil when none of them is there.
-    private func deletionDate(of location: EntryLocation) -> Date? {
-        let own = EntryMapping.customData(location.entry, RecycleBinKeys.deletedAt).flatMap { KeePassTime.date($0) }
-        return [own, Self.locationChanged(of: location.entry), location.groupDeleted].compactMap { $0 }.max()
+    /// What the file says about when an entry in the bin was deleted: the latest of its own `LocationChanged`, the
+    /// `LocationChanged` of the groups between the bin and it, and Psss's own record. `unreadable` is set when any of that
+    /// evidence is present but cannot be read (damaged text, a date outside years 1 to 9999): such an entry is never purged.
+    private func deletion(of location: EntryLocation) -> (date: Date?, unreadable: Bool) {
+        var unreadable = location.groupUnreadable
+        var dates: [Date] = []
+        if let text = EntryMapping.customData(location.entry, RecycleBinKeys.deletedAt) {
+            if let date = KeePassTime.date(text) { dates.append(date) } else { unreadable = true }
+        }
+        let own = Self.locationChangedEvidence(of: location.entry)
+        if own.present { if let date = own.date { dates.append(date) } else { unreadable = true } }
+        if let group = location.groupDeleted { dates.append(group) }
+        return (dates.max(), unreadable)
     }
 
-    /// What is in the bin, newest deletion first. An entry with no known deletion time shows as deleted now, and is never purged.
+    /// What is in the bin, newest deletion first. An entry with no readable deletion time shows as deleted now, so does one
+    /// whose time is in the future, and neither is ever purged.
     func recycledItems() -> [(item: VaultItem, deleted: Date)] {
         let now = KeePassTime.now
         return locations().filter(\.inBin).compactMap { location -> (item: VaultItem, deleted: Date)? in
-            EntryMapping.item(from: location.entry, document: self).map { (item: $0, deleted: deletionDate(of: location) ?? now) }
+            EntryMapping.item(from: location.entry, document: self).map { (item: $0, deleted: min(deletion(of: location).date ?? now, now)) }
         }.sorted { $0.deleted > $1.deleted }
     }
 
@@ -200,13 +257,18 @@ extension KDBXDocument {
     /// Removes the entry for good, from the live entries or the bin, and records the deletion in `DeletedObjects`. Its import
     /// source, if it has one, goes on the list of deleted sources. Returns false when there is no such entry.
     @discardableResult
-    func deletePermanently(_ id: UUID) -> Bool {
+    func deletePermanently(_ id: UUID) -> Bool { deletePermanently([id]) > 0 }
+
+    /// Removes the entries for good in one pass, wherever they are. Returns how many identifiers matched an entry.
+    @discardableResult
+    func deletePermanently(_ ids: [UUID]) -> Int {
         let all = locations()
         for location in all where !location.inBin { dropStaleBinMarks(of: location.entry) }
-        let matches = all.filter { EntryMapping.uuid(of: $0.entry) == id }
-        guard !matches.isEmpty else { return false }
+        let wanted = Set(ids)
+        let matches = all.filter { EntryMapping.uuid(of: $0.entry).map(wanted.contains) ?? false }
+        guard !matches.isEmpty else { return 0 }
         remove(matches)
-        return true
+        return Set(matches.compactMap { EntryMapping.uuid(of: $0.entry) }).count
     }
 
     /// Deletes everything in the bin for good, subgroups of the bin included. Returns how many entries went.
@@ -240,21 +302,27 @@ extension KDBXDocument {
         let all = locations()
         for location in all where !location.inBin { dropStaleBinMarks(of: location.entry) }
         let doomed = all.filter { location in
-            location.inBin && (deletionDate(of: location).map { now.timeIntervalSince($0) > interval } ?? false)
+            guard location.inBin else { return false }
+            let evidence = deletion(of: location)
+            // Evidence that is present but unreadable, a time in the future, or no time at all never purges.
+            guard !evidence.unreadable, let date = evidence.date, date <= now else { return false }
+            return now.timeIntervalSince(date) > interval
         }
         remove(doomed)
-        func prune(_ group: XNode, floor: Date?) {
+        func prune(_ group: XNode, floor: Date?, blocked: Bool) {
             for subgroup in group.children(named: "Group") {
-                let time = [floor, Self.locationChanged(of: subgroup)].compactMap { $0 }.max()
-                prune(subgroup, floor: time)
-                guard !subgroup.children.contains(where: { $0.name == "Entry" || $0.name == "Group" }),
-                      let time, now.timeIntervalSince(time) > interval else { continue }
+                let own = Self.locationChangedEvidence(of: subgroup)
+                let time = [floor, own.date].compactMap { $0 }.max()
+                let unreadable = blocked || (own.present && own.date == nil)
+                prune(subgroup, floor: time, blocked: unreadable)
+                guard !subgroup.children.contains(where: { $0.name == "Entry" || $0.name == "Group" }), !unreadable,
+                      let time, time <= now, now.timeIntervalSince(time) > interval else { continue }
                 group.children.removeAll { $0 === subgroup }
                 recordDeletion(of: subgroup)
                 groupsRemoved += 1
             }
         }
-        if let bin = recycleBinGroup(creating: false) { prune(bin, floor: nil) }
+        if let bin = recycleBinGroup(creating: false) { prune(bin, floor: nil, blocked: false) }
         return (doomed.count, groupsRemoved)
     }
 

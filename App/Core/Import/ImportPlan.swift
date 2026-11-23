@@ -74,7 +74,7 @@ struct ImportIssue: Sendable, Equatable {
         case attachmentTooLarge, attachmentsTotalLimit, attachmentLimitPerItem, attachmentRejected, attachmentMissingFolder
         case historyTrimmed, similarLogin, skippedRow, unsafeIdentifier, windowsExport
         case dateMissing, unreadableValue, attachmentSkipped, tagsChanged, updatedOverwrote, mergeConflict
-        case secretChanged, secretSpaces, textEmptied, foldersFlattened, sharedIdentifier, deletedNotImported, inRecycleBin, trashedInSource, notesCombined, codeNotInUse
+        case secretChanged, secretSpaces, looksLikeExisting, textEmptied, foldersFlattened, sharedIdentifier, deletedNotImported, inRecycleBin, trashedInSource, notesCombined, codeNotInUse
     }
 
     var kind: Kind
@@ -93,22 +93,29 @@ struct ImportSkipped: Sendable, Equatable {
     var rows = 0
 }
 
-/// Counts without secrets: what a plan holds, or what an apply added.
+/// Counts without secrets: what a plan holds, or what an apply added. Everything here is safe to show: titles, kinds and counts,
+/// never a field value.
 struct ImportSummary: Sendable, Equatable {
+    /// Logins, cards, notes and other items added.
     var logins = 0
     var cards = 0
     var notes = 0
     var others = 0
+    /// Attachments written, in added items and in updates and merges.
     var attachments = 0
+    /// Earlier passwords written into history.
     var historyEntries = 0
+    /// Items left out because the vault already holds them with the same content (or the export repeated them).
     var duplicatesSkipped = 0
     /// Logins with the same site and username as one already in the vault but another password, added anyway.
     var similarAdded = 0
+    /// Items that are in the trash in the source, and the records that are not items at all.
     var trashedSkipped = 0
     var unreadable = 0
     var webFormFieldsSkipped = 0
     var rowsSkipped = 0
     var missingDates = 0
+    /// Everything worth telling the person, in order. `issuesByKind` groups them.
     var issues: [ImportIssue] = []
     /// Passwords and other secrets whose characters the vault file cannot hold, stored without them. The interface should say so loudly.
     var secretsChanged = 0
@@ -120,8 +127,11 @@ struct ImportSummary: Sendable, Equatable {
     var deletedItems: [SkippedItem] = []
     /// Attachments an update removed because the source dropped them, by item title and file name.
     var removedAttachments: [RemovedAttachment] = []
-    /// Entries whose stored import hashes were upgraded to the current form without any other change. It is a write, but not an
-    /// import of anything: `needsWrite` is true when only these are left.
+    /// CSV rows added that look like a login already in the vault from an earlier CSV import (same site and user name with another
+    /// title, or same title and user name with another site), so a screen can offer to merge them. Titles and kinds only.
+    var possibleMatches: [PossibleMatch] = []
+    /// Entries whose stored import hashes were written or upgraded to the current form without any other change. It is a write, but
+    /// not an import of anything: `needsWrite` is true when only these are left.
     var refreshed = 0
 
     /// Entries changed in place because the same source identifier came back with other content.
@@ -135,6 +145,18 @@ struct ImportSummary: Sendable, Equatable {
     var itemCount: Int { addedCount + updated + merged }
     /// Whether applying this changes the vault file at all.
     var needsWrite: Bool { itemCount > 0 || refreshed > 0 }
+    /// The issues grouped by kind, each group in order.
+    var issuesByKind: [ImportIssue.Kind: [ImportIssue]] { Dictionary(grouping: issues, by: \.kind) }
+    /// Nothing a person needs to read: no issue, no changed secret, no unreadable record and nothing left out because it was deleted
+    /// here. Counts of what was added, skipped as duplicate or refreshed do not make an import unclean.
+    var isClean: Bool { issues.isEmpty && secretsChanged == 0 && unreadable == 0 && deletedNotImported == 0 && possibleMatches.isEmpty }
+}
+
+struct PossibleMatch: Sendable, Equatable {
+    var title: String
+    var kind: ImportItemKind
+    /// The title of the entry it looks like.
+    var existingTitle: String
 }
 
 struct SkippedItem: Sendable, Equatable {
@@ -342,7 +364,7 @@ extension ImportItem {
             if label.isEmpty, !field.label.isEmpty { emptied = true }
             fields[index].label = label
         }
-        var historyChanged = false, historyEmptied = false
+        var historyChanged = false, historyEmptied = false, historySpaces = false
         var keptHistory: [ImportRevision] = []
         for var revision in history {
             let password = clean(revision.password)
@@ -350,6 +372,7 @@ extension ImportItem {
                 if password.isEmpty { historyEmptied = true; continue }
                 historyChanged = true
             }
+            if password == revision.password, !password.isEmpty, password.allSatisfy(\.isWhitespace) { historySpaces = true }
             revision.password = password
             keptHistory.append(revision)
         }
@@ -357,6 +380,10 @@ extension ImportItem {
         if historyChanged {
             found.append(ImportIssue(kind: .secretChanged, item: shown.isEmpty ? nil : shown,
                                      detail: String(localized: "an earlier password contained characters that cannot be stored and was changed. Check it in 1Password before you rely on it.")))
+        }
+        if historySpaces {
+            found.append(ImportIssue(kind: .secretSpaces, item: shown.isEmpty ? nil : shown,
+                                     detail: String(localized: "an earlier password is only spaces. Check it in 1Password.")))
         }
         if historyEmptied {
             found.append(ImportIssue(kind: .secretChanged, item: shown.isEmpty ? nil : shown,
@@ -366,6 +393,8 @@ extension ImportItem {
             found.append(ImportIssue(kind: .textEmptied, item: shown.isEmpty ? nil : shown,
                                      detail: String(localized: "some text contained only characters that cannot be stored, so it is empty now")))
         }
+        // A one-time code with nothing left in it is not a code.
+        fields.removeAll { $0.role == .code && $0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         tags = tags.map(clean)
         folder = folder.map(clean)
         sourceID = sourceID.map(clean)
@@ -399,7 +428,7 @@ extension ImportPlan {
                 items[index].sharedBase = id
                 items[index].sourceID = "\(id)#\(digest)"
                 items[index].issues.append(ImportIssue(kind: .sharedIdentifier, item: items[index].title.isEmpty ? nil : items[index].title,
-                                                       detail: String(localized: "two items in the export share one identifier, so this one was added as a separate entry")))
+                                                       detail: String(localized: "two items in the export share one identifier, and the items are kept as separate entries")))
             }
         }
         if !dropped.isEmpty { items = items.enumerated().filter { !dropped.contains($0.offset) }.map(\.element) }

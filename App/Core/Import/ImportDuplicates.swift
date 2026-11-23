@@ -66,12 +66,46 @@ enum ImportDuplicates {
         case deletedByPerson
     }
 
-    /// What `decide` found: one decision per plan item, and which of them were matched to an entry by its fields.
+    /// Why an item was added although a login for the same site and user name exists.
+    enum SimilarReason: Sendable, Equatable {
+        /// Both have a password and they differ.
+        case password
+        /// The vault's login has a password and this one has none.
+        case incomingHasNone
+        /// This one has a password and the vault's login has none.
+        case existingHasNone
+        /// Neither has a password, and the titles differ.
+        case otherTitle
+        /// The entry it would have merged into was already merged into by an earlier item of this import.
+        case mergeTaken
+    }
+
+    /// A CSV row that looks like an earlier CSV login with another title or another site.
+    struct LooksLike: Sendable, Equatable {
+        var existing: Int
+        /// What differs: the title (same site and user name) or the site (same title and user name).
+        var differsInTitle: Bool
+    }
+
+    /// What the rules need to know about an entry beyond `Existing`, asked for only when several items share an identifier.
+    struct EntryDetail: Sendable {
+        /// The per-field hashes stored when it was imported, by field name.
+        var fieldHashes: [String: String]
+        /// The passwords in its history.
+        var history: [String]
+    }
+
+    /// What `decide` found: one decision per plan item, and the details a message needs.
     struct Outcome: Sendable {
         var decisions: [Decision]
         /// Items of a group that shares one identifier, matched to an existing entry by their fields because no entry had their
-        /// exact identifier (the title or site changed since the import).
-        var matchedByFields: Set<Int>
+        /// exact identifier: the position of the item and the entry.
+        var matchedByFields: [Int: Int]
+        /// Items matched to an entry among several that are alike (same kind, title, site and user name), by password and fields.
+        /// The entry keeps its own identifier, so a reordered export changes nothing.
+        var keepsIdentifier: Set<Int>
+        var similar: [Int: SimilarReason]
+        var looksLike: [Int: LooksLike]
     }
 
     static func classify(_ plan: ImportPlan, against existing: [Existing], deleted: Set<String> = []) -> [Decision] {
@@ -85,14 +119,24 @@ enum ImportDuplicates {
         return item.websites.first.map { host(ImportText.clean($0)) } ?? ""
     }
 
+    /// The digest part of a shared identifier: `1password:x#abcd1234` and `1password:x#abcd1234-2` both give `abcd1234`.
+    private static func suffixDigest(_ id: String?) -> String? {
+        guard let id, let mark = id.range(of: "#", options: .backwards) else { return nil }
+        return id[mark.upperBound...].split(separator: "-").first.map(String.init)
+    }
+
     /// One decision per plan item, in order. Items accepted earlier in the same plan count as existing for the later ones.
-    /// `deleted` holds the source identifiers the person deleted in Psss.
-    static func decide(_ plan: ImportPlan, against existing: [Existing], deleted: Set<String> = []) -> Outcome {
+    /// `deleted` holds the source identifiers the person deleted in Psss. `details` tells about an entry when items that are alike
+    /// have to be paired with entries.
+    static func decide(_ plan: ImportPlan, against existing: [Existing], deleted: Set<String> = [],
+                       details: ((Int) -> EntryDetail)? = nil) -> Outcome {
         var byID: [String: Int] = [:]
         var byBase: [String: [Int]] = [:]
         var passwords: [String: Set<String>] = [:]
         var withoutPassword = Set<String>()
         var mergeable: [String: [Int]] = [:]
+        var csvBySiteUser: [String: [Int]] = [:]
+        var csvByTitleUser: [String: [Int]] = [:]
         var consumed = Set<Int>()
         for (index, entry) in existing.enumerated() {
             if let id = entry.sourceID {
@@ -109,6 +153,10 @@ enum ImportDuplicates {
                 passwords[key(host, entry.username), default: []].insert(entry.password)
                 if entry.password.isEmpty { withoutPassword.insert(key(host, entry.username, entry.title)) }
                 if entry.isPlain, !entry.password.isEmpty { mergeable[key(host, entry.username, entry.password), default: []].append(index) }
+                if entry.isFromCSV {
+                    csvBySiteUser[key(host, entry.username), default: []].append(index)
+                    csvByTitleUser[key(entry.title, entry.username), default: []].append(index)
+                }
             }
         }
         // Which of several matching entries is merged into: from a CSV first, then the most recently modified, then file order.
@@ -123,14 +171,63 @@ enum ImportDuplicates {
 
         // Items that share an identifier with others of the export carry a suffix made of their own content. When no entry has
         // the exact identifier (the title or site was edited), the unclaimed entries of the group are matched by their fields.
+        // Items that are alike in kind, title, site and user name cannot be told apart by the suffix, which only counts them, so they
+        // are paired with the entries by password and fields, and only what is left over is paired by order.
         var fuzzy: [Int: Int] = [:]
+        var tied = Set<Int>()
+        var paired: [Int: Int] = [:]
+        var keeps = Set<Int>()
         var groups: [String: [Int]] = [:]
         for (position, item) in plan.items.enumerated() { if let base = item.sharedBase { groups[base, default: []].append(position) } }
         for (base, members) in groups {
+            var digestCount: [String: Int] = [:]
+            for position in members { digestCount[plan.items[position].identityDigest, default: 0] += 1 }
             var claimed = Set<Int>()
             var open: [Int] = []
+            var alike: [String: [Int]] = [:]
             for position in members {
-                if let id = plan.items[position].sourceID, let index = byID[id], !existing[index].inRecycleBin { claimed.insert(index) } else { open.append(position) }
+                let item = plan.items[position]
+                if digestCount[item.identityDigest, default: 0] > 1 { alike[item.identityDigest, default: []].append(position); tied.insert(position); continue }
+                if let id = item.sourceID, let index = byID[id], !existing[index].inRecycleBin { claimed.insert(index) } else { open.append(position) }
+            }
+            // The alike ones first, among the entries that carry their digest.
+            for (digest, positions) in alike {
+                var candidates = (byBase[base] ?? []).filter { !claimed.contains($0) && suffixDigest(existing[$0].sourceID) == digest }
+                var scored: [(score: Int, position: Int, entry: Int)] = []
+                for position in positions {
+                    if let id = plan.items[position].sourceID, let index = byID[id], existing[index].inRecycleBin { continue }
+                    let item = plan.items[position]
+                    let password = ImportText.clean(item.password)
+                    var pairs: [KeePassImport.Pair] = []
+                    if details != nil { pairs = KeePassImport.render(item, protected: []).pairs }
+                    for index in candidates {
+                        var score = 0
+                        if let details {
+                            let detail = details(index)
+                            if !password.isEmpty, existing[index].password == password || detail.history.contains(password) { score += 1000 }
+                            for pair in pairs where detail.fieldHashes[pair.key] == KeePassImport.fieldHash(existing[index].entryID, pair.key, pair.value) { score += 1 }
+                        }
+                        scored.append((score, position, index))
+                    }
+                }
+                scored.sort { a, b in
+                    if a.score != b.score { return a.score > b.score }
+                    if a.position != b.position { return a.position < b.position }
+                    return a.entry < b.entry
+                }
+                var taken = Set<Int>()
+                for pick in scored where pick.score > 0 && paired[pick.position] == nil && !taken.contains(pick.entry) {
+                    paired[pick.position] = pick.entry
+                    taken.insert(pick.entry)
+                }
+                candidates.removeAll { taken.contains($0) }
+                for position in positions where paired[position] == nil && !candidates.isEmpty {
+                    if let id = plan.items[position].sourceID, let index = byID[id], existing[index].inRecycleBin { continue }
+                    paired[position] = candidates.removeFirst()
+                }
+                for position in positions where paired[position] != nil { keeps.insert(position) }
+                claimed.formUnion(taken)
+                claimed.formUnion(paired.values)
             }
             var candidates = (byBase[base] ?? []).filter { !claimed.contains($0) }
             for position in open where !candidates.isEmpty {
@@ -146,7 +243,9 @@ enum ImportDuplicates {
                 if let best { fuzzy[position] = candidates[best.at]; candidates.remove(at: best.at) }
             }
         }
-        var matchedByFields = Set<Int>()
+        var matchedByFields: [Int: Int] = [:]
+        var similar: [Int: SimilarReason] = [:]
+        var looksLike: [Int: LooksLike] = [:]
         var planIDs = Set<String>()
 
         var decisions: [Decision] = []
@@ -154,10 +253,16 @@ enum ImportDuplicates {
         for (position, item) in plan.items.enumerated() {
             if let id = item.sourceID {
                 if planIDs.contains(id) { decisions.append(.duplicate); continue }
-                let direct = byID[id].flatMap { existing[$0].inRecycleBin && fuzzy[position] != nil ? nil : $0 }
+                var direct: Int?
+                if tied.contains(position) {
+                    direct = paired[position]
+                    if direct == nil, let index = byID[id], existing[index].inRecycleBin { direct = index }
+                } else if let index = byID[id], !(existing[index].inRecycleBin && fuzzy[position] != nil) {
+                    direct = index
+                }
                 if let index = direct ?? fuzzy[position] {
                     planIDs.insert(id)
-                    if direct == nil { matchedByFields.insert(position) }
+                    if direct == nil { matchedByFields[position] = index }
                     if existing[index].inRecycleBin {
                         decisions.append(.inRecycleBin(index))
                     } else if consumed.contains(index) {
@@ -209,25 +314,35 @@ enum ImportDuplicates {
             var decision = Decision.add
             if forcedSimilar {
                 decision = .addSimilar
+                similar[position] = .mergeTaken
             } else if !hosts.isEmpty {
-                var similar = false
+                var reason: SimilarReason?
                 for host in hosts {
                     guard let known = passwords[key(host, item.username)] else { continue }
                     if !item.password.isEmpty, known.contains(item.password) { decision = .duplicate; break }
-                    similar = true
+                    let anyPassword = known.contains { !$0.isEmpty }
+                    reason = reason ?? (item.password.isEmpty ? (anyPassword ? .incomingHasNone : .otherTitle) : (anyPassword ? .password : .existingHasNone))
                 }
-                if decision != .duplicate, similar { decision = .addSimilar }
+                if decision != .duplicate, let reason { decision = .addSimilar; similar[position] = reason }
             }
             decisions.append(decision)
             if decision != .duplicate {
                 if let id = item.sourceID { planIDs.insert(id) }
+                // A CSV row that matches no marker may still be a login the vault holds under another title or site.
+                if item.sourceID?.hasPrefix("csv:") == true, !hosts.isEmpty {
+                    if let other = hosts.lazy.compactMap({ csvBySiteUser[key($0, item.username)]?.first { existing[$0].title != title } }).first {
+                        looksLike[position] = LooksLike(existing: other, differsInTitle: true)
+                    } else if let other = csvByTitleUser[key(title, item.username)]?.first(where: { entry in !existing[entry].hosts.contains { hosts.contains($0) } }) {
+                        looksLike[position] = LooksLike(existing: other, differsInTitle: false)
+                    }
+                }
                 for host in hosts {
                     passwords[key(host, item.username), default: []].insert(item.password)
                     if item.password.isEmpty { withoutPassword.insert(key(host, item.username, title)) }
                 }
             }
         }
-        return Outcome(decisions: decisions, matchedByFields: matchedByFields)
+        return Outcome(decisions: decisions, matchedByFields: matchedByFields, keepsIdentifier: keeps, similar: similar, looksLike: looksLike)
     }
 
     static func host(_ website: String) -> String { SiteMatch.normalizedHost(website) }
@@ -257,7 +372,15 @@ final class AttachmentDigest: @unchecked Sendable {
         var hasher = SHA256()
         guard let handle = try? FileHandle(forReadingFrom: url) else { return "unreadable" }
         defer { try? handle.close() }
-        while let chunk = try? handle.read(upToCount: 1 << 20), !chunk.isEmpty { hasher.update(data: chunk) }
+        // One megabyte at a time, and each buffer is released at once, so a large file is never in memory whole.
+        while true {
+            let more: Bool = autoreleasepool {
+                guard let chunk = try? handle.read(upToCount: 1 << 20), !chunk.isEmpty else { return false }
+                hasher.update(data: chunk)
+                return true
+            }
+            if !more { break }
+        }
         let digest = Hex.string(hasher.finalize())
         lock.lock(); known[key] = digest; lock.unlock()
         return digest
@@ -296,13 +419,16 @@ extension ImportItem {
 
     /// Eight hex digits of what an item is, not what it holds: kind, title, first site and user name. They rarely change, so they
     /// tell apart items that share an identifier.
-    var identityDigest: String {
+    var identityDigest: String { identityHash(4) }
+
+    /// The same, as many bytes of the digest as asked for.
+    func identityHash(_ bytes: Int) -> String {
         var hasher = SHA256()
         for part in [kind.rawValue, ImportText.clean(title), ImportText.clean(websites.first ?? ""), ImportText.clean(username)] {
             hasher.update(data: Data(part.utf8))
             hasher.update(data: Data([0]))
         }
-        return Hex.string(hasher.finalize().prefix(4))
+        return Hex.string(hasher.finalize().prefix(bytes))
     }
 
     /// The fingerprint as stored in an entry: salted with the entry's own identifier, so the same item in two vaults, or twice in

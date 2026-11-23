@@ -305,21 +305,32 @@ final class KeePassVaultStore: VaultStore {
         }
     }
 
-    /// Runs a change to the document and the write that follows it as one step. When the write fails, the document is exactly what
-    /// it was before, so the person never sees data the file does not hold and a later save cannot write it unannounced. A write
-    /// refused because the file changed elsewhere (`changedOnDisk`) is the one failure that keeps the edit in memory, when
-    /// `keepOnConflict` is set: the person is then asked to reload or to overwrite, and Overwrite writes the held edit. The copy is
-    /// a deep copy of the XML tree (the tree is shared by every copy of the document), made before the change.
-    private func transact<T>(keepOnConflict: Bool = true, _ body: () throws -> T) throws -> T {
+    /// Runs a change to the document and the write that follows it as one step. When the write fails for any reason, the
+    /// document is exactly what it was before, so the store never holds a change that is not in the file: what `items()`
+    /// shows, what AutoFill is told and what a later save writes are always what the file holds. The copy is a deep copy of the
+    /// XML tree (the tree is shared by every copy of the document), made before the change.
+    private func transact<T>(_ body: () throws -> T) throws -> T {
         var snapshot = document
         snapshot.root = document.root.deepCopy()
         let wasPending = credentialsChangePending
         do { return try body() } catch {
-            if keepOnConflict, case VaultStoreError.changedOnDisk = error { throw error }
             document = snapshot
             credentialsChangePending = wasPending
             throw error
         }
+    }
+
+    /// Whether writes skip the comparison with what is on disk, set by `overwriting`.
+    private var skipsConflictCheck = false
+
+    /// Runs store calls with the check for a changed file skipped: each applies its change to the document in memory now and
+    /// writes the whole vault over the file, keeping the file it replaces as a rollback copy. For the person's explicit choice
+    /// after a refused write, which repeats what it was doing. An unreadable or missing file is still refused.
+    func overwriting<T>(_ body: () throws -> T) rethrows -> T {
+        let was = skipsConflictCheck
+        skipsConflictCheck = true
+        defer { skipsConflictCheck = was }
+        return try body()
     }
 
     #if HOSTLESS_TESTS
@@ -337,25 +348,34 @@ final class KeePassVaultStore: VaultStore {
 
     // MARK: Recently Deleted
 
-    func moveToRecentlyDeleted(_ id: UUID) throws {
-        try transact { if document.moveToRecycleBin(id) { try commit() } }
+    func moveToRecentlyDeleted(_ id: UUID) throws { try moveToRecentlyDeleted([id]) }
+
+    /// Moves items to Recently Deleted in one pass and one write.
+    func moveToRecentlyDeleted(_ ids: [UUID]) throws {
+        try transact { if document.moveToRecycleBin(ids) > 0 { try commit() } }
     }
 
     func recentlyDeleted() -> [(item: VaultItem, deleted: Date)] { document.recycledItems() }
 
-    func restore(_ id: UUID) throws {
-        try transact { if document.restoreFromRecycleBin(id) { try commit() } }
+    func restore(_ id: UUID) throws { try restore([id]) }
+
+    /// Restores items in one pass and one write.
+    func restore(_ ids: [UUID]) throws {
+        try transact { if document.restoreFromRecycleBin(ids) > 0 { try commit() } }
     }
 
-    func deletePermanently(_ id: UUID) throws {
-        try transact { if document.deletePermanently(id) { try commit() } }
-        UsageLog.remove(id, in: reference.id)
+    func deletePermanently(_ id: UUID) throws { try deletePermanently([id]) }
+
+    /// Deletes items for good in one pass and one write.
+    func deletePermanently(_ ids: [UUID]) throws {
+        try transact { if document.deletePermanently(ids) > 0 { try commit() } }
+        UsageLog.remove(ids, in: reference.id)
     }
 
     func emptyRecentlyDeleted() throws {
         let ids = document.recycledItems().map(\.item.id)
         try transact { if document.emptyRecycleBin() > 0 { try commit() } }
-        for id in ids { UsageLog.remove(id, in: reference.id) }
+        UsageLog.remove(ids, in: reference.id)
     }
 
     /// Deletes what has been in the bin longer than `interval` (30 days when the app opens a vault) and writes the vault only
@@ -369,7 +389,7 @@ final class KeePassVaultStore: VaultStore {
             if purged.entries + purged.groups > 0 { try commit() }
             return purged.entries
         }
-        for id in before.subtracting(document.recycledItems().map(\.item.id)) { UsageLog.remove(id, in: reference.id) }
+        UsageLog.remove(before.subtracting(document.recycledItems().map(\.item.id)), in: reference.id)
         return count
     }
 
@@ -393,7 +413,7 @@ final class KeePassVaultStore: VaultStore {
     /// Adds the plan in one write. When the entries cannot be built or the write fails, the open document goes back to what
     /// it was and the file is untouched, so nothing was added.
     func apply(_ plan: ImportPlan) throws -> ImportSummary {
-        try transact(keepOnConflict: false) {
+        try transact {
             let summary = try document.apply(plan)
             if summary.needsWrite { try commit() }
             return summary
@@ -406,13 +426,13 @@ final class KeePassVaultStore: VaultStore {
     /// Nothing is held back: edits are written as they are made and use goes straight to the usage log.
     func flush() throws {}
 
-    /// Writes the vault. Refuses when the file changed since it was read, unless told to overwrite, and always refuses when the
+    /// Writes the vault. Refuses when the file changed since it was read, unless inside `overwriting`, and always refuses when the
     /// file exists but cannot be read (so Overwrite cannot write blind either). Read, check and write are one coordinated step.
-    func commit(overwrite: Bool = false) throws {
+    private func commit() throws {
         document.touchModified()
         document.prepareForSave()
-        let data = try KDBX.save(document)
-        let previous = try VaultFiles.replace(at: url, with: data, basedOn: baseDigest, overwrite: overwrite)
+        let data = try KDBX.write(document)
+        let previous = try VaultFiles.replace(at: url, with: data, basedOn: baseDigest, overwrite: skipsConflictCheck)
         baseDigest = KDBXCrypto.sha256(data)
         if credentialsChangePending {
             // Copies made before a password change are encrypted with the old password, so none is kept, including this one.
@@ -485,7 +505,7 @@ final class KeePassVaultStore: VaultStore {
             try copy.replaceKey(to: credentials)
             return copy
         }.value
-        try transact(keepOnConflict: false) {
+        try transact {
             document.adoptKey(from: derived)
             document.stampMasterKeyChanged()
             credentialsChangePending = true

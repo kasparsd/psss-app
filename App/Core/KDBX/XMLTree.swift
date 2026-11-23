@@ -102,22 +102,36 @@ enum XMLTree {
         }
     }
 
-    static func serialize(_ root: XNode) -> Data {
+    /// The document as XML text. `protect`, when given, turns the text of every protected `Value` element into what is written
+    /// for it, in document order: the inner stream cipher runs inline, so no copy of the tree is needed.
+    static func serialize(_ root: XNode, protect: ((String) -> String)? = nil) -> Data {
         var out = "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>\n"
-        write(root, depth: 0, into: &out)
+        write(root, depth: 0, into: &out, protect: protect)
         return Data(out.utf8)
     }
 
-    private static func write(_ node: XNode, depth: Int, into out: inout String) {
-        let indent = String(repeating: "\t", count: depth)
-        out += indent + "<" + node.name
-        for (name, value) in node.attributes { out += " \(name)=\"\(escape(value, attribute: true))\"" }
+    private static let tabs = (0...(maxDepth + 2)).map { String(repeating: "\t", count: $0) }
+
+    private static func write(_ node: XNode, depth: Int, into out: inout String, protect: ((String) -> String)?) {
+        let indent = depth < tabs.count ? tabs[depth] : String(repeating: "\t", count: depth)
+        out += indent
+        out += "<"
+        out += node.name
+        for (name, value) in node.attributes {
+            out += " "; out += name; out += "=\""; out += escape(value, attribute: true); out += "\""
+        }
         if node.children.isEmpty {
-            out += node.text.isEmpty ? "/>\n" : ">" + escape(node.text, attribute: false) + "</\(node.name)>\n"
+            var text = node.text
+            if let protect, node.name == "Value", node.attribute("Protected")?.lowercased() == "true" { text = protect(text) }
+            if text.isEmpty { out += "/>\n" } else {
+                out += ">"; out += escape(text, attribute: false); out += "</"; out += node.name; out += ">\n"
+            }
         } else {
+            // A container carries no text, but a protected one still takes its (empty) turn in the stream.
+            if let protect, node.name == "Value", node.attribute("Protected")?.lowercased() == "true" { _ = protect("") }
             out += ">\n"
-            for child in node.children { write(child, depth: depth + 1, into: &out) }
-            out += indent + "</\(node.name)>\n"
+            for child in node.children { write(child, depth: depth + 1, into: &out, protect: protect) }
+            out += indent; out += "</"; out += node.name; out += ">\n"
         }
     }
 
@@ -139,6 +153,8 @@ enum XMLTree {
     }
 
     private static func escape(_ text: String, attribute: Bool) -> String {
+        // Most text is plain printable ASCII with nothing to escape.
+        if text.utf8.allSatisfy({ $0 >= 0x20 && $0 < 0x7F && $0 != 0x26 && $0 != 0x3C && $0 != 0x3E && $0 != 0x22 }) { return text }
         var result = ""
         result.reserveCapacity(text.count)
         for scalar in text.unicodeScalars {

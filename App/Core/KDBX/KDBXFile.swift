@@ -481,10 +481,16 @@ enum KDBX {
 
     /// Serializes with a fresh master seed, IV and inner stream key. Does not run the KDF.
     static func save(_ source: KDBXDocument) throws -> Data {
-        // Work on a copy: preparing the document and protecting values must not change the open one.
+        // Work on a copy: preparing the document must not change the open one.
         var document = source
         document.root = source.root.deepCopy()
         document.prepareForSave()
+        return try write(document)
+    }
+
+    /// Serializes a document the caller has already prepared (`prepareForSave`) and owns, without copying it: protected values
+    /// are encrypted as the XML is written. The vault store uses this after preparing its own document.
+    static func write(_ document: KDBXDocument) throws -> Data {
         var header = document.header
         header.masterSeed = KDBXCrypto.randomBytes(32)
         header.encryptionIV = KDBXCrypto.randomBytes(header.cipher.ivLength)
@@ -507,10 +513,8 @@ enum KDBX {
         let hmacKey = KDBXCrypto.sha512(header.masterSeed + document.transformedKey + Data([1]))
         out.append(KDBXCrypto.hmacSHA256(key: blockKey(hmacKey, index: .max), headerBytes))
 
-        let xml = document.root
         let streamKey = KDBXCrypto.randomBytes(64)
         var stream = innerStream(streamKey)
-        encryptProtected(xml, &stream)
 
         var payload = Data()
         func inner(_ id: UInt8, _ value: Data) { payload.append(id); payload.append(KDBXCrypto.le32(UInt32(value.count))); payload.append(value) }
@@ -518,7 +522,7 @@ enum KDBX {
         inner(2, streamKey)
         for binary in document.binaries { inner(3, binary) }
         inner(0, Data())
-        payload.append(XMLTree.serialize(xml))
+        payload.append(XMLTree.serialize(document.root) { stream.process(Data($0.utf8)).base64EncodedString() })
 
         if header.compressed { payload = try KDBXCrypto.gzip(payload) }
         let masterKey = KDBXCrypto.sha256(header.masterSeed + document.transformedKey)

@@ -10,6 +10,8 @@ struct KDBOXApp: App {
         SharedVault.removeLegacyPlainTextFile()
         // Only the app purges Recently Deleted (items older than 30 days) when it unlocks a vault. The AutoFill extension does not.
         VaultSession.purgesRecentlyDeletedOnUnlock = true
+        // Removes the login-keychain items an earlier local build left behind. Does nothing except in a provisioned Mac app.
+        BiometricKey.removeLeftoverLoginItems()
     }
 
     var body: some Scene {

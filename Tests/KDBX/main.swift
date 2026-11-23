@@ -5,6 +5,10 @@ import Foundation
 
 func hex(_ d: Data) -> String { d.map { String(format: "%02x", $0) }.joined() }
 nonisolated(unsafe) var failures = 0
+/// Runs a store call, with the conflict check skipped when `overwrite`.
+@MainActor func attempt(_ store: KeePassVaultStore, overwrite: Bool, _ body: () throws -> Void) throws {
+    if overwrite { try store.overwriting(body) } else { try body() }
+}
 func check(_ name: String, _ got: String, _ want: String) {
     if got == want { print("ok   \(name)") } else { failures += 1; print("FAIL \(name)\n  got  \(got)\n  want \(want)") }
 }
@@ -211,7 +215,8 @@ check("use survives lock", "\(reopenedStore.items().first { $0.id == login.id }!
 let other = try KDBX.open(Data(contentsOf: reopenedStore.url), credentials: .init(password: "s3ssion"))
 try KDBX.save(other).write(to: reopenedStore.url)
 do { try reopenedStore.save([note]); failures += 1; print("FAIL conflict not detected") } catch VaultStoreError.changedOnDisk { print("ok   conflict detected") }
-try reopenedStore.commit(overwrite: true)
+expect("a refused write left memory as the file holds it", reopenedStore.items().count == 2)
+try reopenedStore.overwriting { try reopenedStore.save([note]) }
 try await reopenedStore.reload()
 check("overwrite wrote our change", "\(reopenedStore.items().count)", "3")
 // The transformed key opens the file without the KDF, saves keep it valid, and a wrong key is refused.
@@ -379,7 +384,7 @@ do {
     catch VaultStoreError.changedOnDisk { print("ok   second writer is refused with changedOnDisk") }
     let afterA = try Data(contentsOf: shared.url)
     expect("a refused write leaves the file as the first writer wrote it", (try? KDBX.open(afterA, credentials: .init(password: "pw")))?.items().contains { $0.id == first.id } == true)
-    try writerB.commit(overwrite: true)
+    try writerB.overwriting { try writerB.save([second]) }
     expect("overwrite writes when the file is readable", try Data(contentsOf: shared.url) != afterA)
 
     // A file that exists but cannot be read: refuse, with and without overwrite, and write nothing.
@@ -389,7 +394,7 @@ do {
         let before = try Data(contentsOf: locked.url)
         try fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.url.path)
         for overwrite in [false, true] {
-            do { try lockedStore.commit(overwrite: overwrite); failures += 1; print("FAIL unreadable file written (overwrite \(overwrite))") }
+            do { try attempt(lockedStore, overwrite: overwrite) { try lockedStore.save([VaultItem(kind: .secureNote, title: "never written", notes: "n")]) }; failures += 1; print("FAIL unreadable file written (overwrite \(overwrite))") }
             catch VaultStoreError.unreadable { print("ok   unreadable file refused (overwrite \(overwrite))") }
         }
         try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: locked.url.path)
@@ -428,7 +433,7 @@ do {
     try conflictStore.save([first]); try conflictStore.save([second])
     do { try await conflictOther.changeCredentials(to: .init(password: "new-pw")); failures += 1; print("FAIL change over a conflict not refused") }
     catch VaultStoreError.changedOnDisk { print("ok   password change refused on a conflict") }
-    try conflictOther.commit(overwrite: true)
+    try conflictOther.overwriting { try conflictOther.save([VaultItem(kind: .secureNote, title: "after refusal", notes: "n")]) }
     expect("overwriting after a refused password change keeps the old password", (try? KDBX.open(Data(contentsOf: conflicted.url), credentials: .init(password: "old-pw"))) != nil
        && (try? KDBX.open(Data(contentsOf: conflicted.url), credentials: .init(password: "new-pw"))) == nil)
     for id in [shared.id, changing.id, conflicted.id, freshId] { VaultFiles.removeBackups(for: id) }
@@ -580,13 +585,13 @@ do {
         let v = try makeStore("deleted")
         try fm.removeItem(at: v.url)
         for overwrite in [false, true] {
-            do { try v.store.save([extra]); try v.store.commit(overwrite: overwrite); failures += 1; print("FAIL missing file written") }
+            do { try attempt(v.store, overwrite: overwrite) { try v.store.save([extra]) }; failures += 1; print("FAIL missing file written") }
             catch VaultStoreError.fileMissing { print("ok   missing file refused (overwrite \(overwrite))") }
         }
         expect("missing file is not recreated", !fm.fileExists(atPath: v.url.path))
         try fm.createDirectory(at: v.url, withIntermediateDirectories: true)
         for overwrite in [false, true] {
-            do { try v.store.commit(overwrite: overwrite); failures += 1; print("FAIL folder in place of the file written over") }
+            do { try attempt(v.store, overwrite: overwrite) { try v.store.save([extra]) }; failures += 1; print("FAIL folder in place of the file written over") }
             catch VaultStoreError.unreadable { print("ok   folder in place of the file refused (overwrite \(overwrite))") }
         }
         var isFolder: ObjCBool = false
@@ -1872,6 +1877,7 @@ do {
     bin.children.append(old)
     for item in [a, b] { let node = entryNode(doc, item.id)!; move(node, from: doc.rootGroup!, to: old); setLocationChanged(node, t - 100 * dayLength) }
     let now = at(t + 40 * dayLength)
+    setClock(t + 40 * dayLength)                  // the clock reads 40 days on, so the group's time is not in the future
     check("a recycled group's entries are dated by the group", "\(doc.recycledItems().filter { $0.item.title.hasPrefix("InGroup") }.map { Int($0.deleted.timeIntervalSince1970 - t) })",
           "[\(Int(40 * dayLength - 60)), \(Int(40 * dayLength - 60))]")
     check("the purge ignores the entries' own old LocationChanged", "\(doc.purgeRecycleBin(olderThan: 30 * dayLength, now: now))", "1")   // only Solo (binned at t)
@@ -2220,13 +2226,6 @@ do {
     expect("a later save writes only what was asked, none of the failed edits", Set(onDisk.items().map(\.title)) == ["X", "Y", "Z", "After"])
     expect("the failed password change left the old password", (try? KDBX.open(Data(contentsOf: url), credentials: .init(password: "new-pw"))) == nil)
 
-    // The one exception: a write refused because the file changed elsewhere keeps the edit for Overwrite.
-    try Data("another app wrote this".utf8).write(to: url)
-    do { try store.save([VaultItem(kind: .secureNote, title: "Kept for overwrite", notes: "n")]) } catch VaultStoreError.changedOnDisk {}
-    expect("a conflict keeps the edit in memory for Overwrite or Reload", store.items().contains { $0.title == "Kept for overwrite" })
-    try store.commit(overwrite: true)
-    expect("Overwrite writes it", try KDBX.open(Data(contentsOf: url), credentials: .init(password: "old-pw")).items().contains { $0.title == "Kept for overwrite" })
-
     // RELOAD-1: a reload that finishes after a save keeps the save.
     let reloading = Task { try await store.reload() }
     await Task.yield()
@@ -2297,6 +2296,545 @@ do {
         check("\(number.prefix(6)) is \(want.name)", CardBrand(number: number)?.name ?? "none", want.name)
     }
     expect("numbers outside every block have no network", CardBrand(number: "9999999999999999") == nil && CardBrand(number: "6000000000000000") == nil)
+}
+
+// MARK: Round 3: no held edits, purge evidence, batches, duplicate bin identifiers
+
+// Purge evidence: anything present but unreadable stops the purge; a time in the future counts as now and never purges.
+do {
+    let t: TimeInterval = 1_700_000_000
+    setClock(t + 200 * dayLength)
+    let now = at(t + 200 * dayLength)
+    let doc = try freshDocument("Evidence")
+    func binned(_ title: String, _ edit: (XNode) -> Void) -> VaultItem {
+        let item = VaultItem(kind: .login, title: title, website: "\(title).example", secret: "s")
+        doc.upsert(item)
+        doc.moveToRecycleBin(item.id)
+        let node = entryNode(doc, item.id)!
+        EntryMapping.setCustomData(node, RecycleBinKeys.deletedAt, KeePassTime.string(at(t)), modified: KeePassTime.stored(at(t)))
+        setLocationChanged(node, t)
+        edit(node)
+        return item
+    }
+    let fine = binned("Fine") { _ in }
+    let badAt = binned("BadDeletedAt") { EntryMapping.setCustomData($0, RecycleBinKeys.deletedAt, "not a time", modified: "") }
+    let badLocation = binned("BadLocation") { $0.child("Times")?.setChildText("LocationChanged", "garbage") }
+    let hugeLocation = binned("OutOfRange") { $0.child("Times")?.setChildText("LocationChanged", "//////////8=") }   // beyond year 9999
+    let emptyLocation = binned("EmptyLocation") { $0.child("Times")?.setChildText("LocationChanged", "") }
+    let futureAt = binned("FutureDeletedAt") { EntryMapping.setCustomData($0, RecycleBinKeys.deletedAt, KeePassTime.string(at(t + 300 * dayLength)), modified: "") }
+    let futureLocation = binned("FutureLocation") { $0.child("Times")?.setChildText("LocationChanged", KeePassTime.stored(at(t + 300 * dayLength))) }
+    // An entry under a group whose own time cannot be read.
+    let badGroup = binGroup("Bad group", locationChanged: t)
+    badGroup.child("Times")?.setChildText("LocationChanged", "damaged")
+    binNode(doc)!.children.append(badGroup)
+    let underBad = binned("UnderBadGroup") { _ in }
+    move(entryNode(doc, underBad.id)!, from: binNode(doc)!, to: badGroup)
+    // An empty group with an unreadable time stays too.
+    let emptyBad = binGroup("Empty bad group", locationChanged: t)
+    emptyBad.child("Times")?.setChildText("LocationChanged", "damaged")
+    binNode(doc)!.children.append(emptyBad)
+
+    let purged = doc.purgeRecycleBin(olderThan: 30 * dayLength, now: now)
+    check("only the entry with clean evidence is purged", "\(purged) \(count(doc, fine.id))", "1 0")
+    for (name, item) in [("a malformed PSSS_DELETED_AT", badAt), ("a malformed LocationChanged", badLocation), ("an out-of-range LocationChanged", hugeLocation),
+                         ("an empty LocationChanged", emptyLocation), ("a future PSSS_DELETED_AT", futureAt), ("a future LocationChanged", futureLocation),
+                         ("an unreadable group time above it", underBad)] {
+        expect("an entry with \(name) is never purged", count(doc, item.id) == 1)
+    }
+    expect("an empty group with an unreadable time stays", groupNode(doc, named: "Empty bad group") != nil && groupNode(doc, named: "Bad group") != nil)
+    let rows = doc.recycledItems()
+    expect("no deletion date is in the future (never a negative age)", rows.allSatisfy { $0.deleted <= now })
+    expect("a future time shows as now", rows.first { $0.item.id == futureAt.id }?.deleted == now && rows.first { $0.item.id == futureLocation.id }?.deleted == now)
+    expect("even far in the future nothing with unreadable evidence goes", doc.purgeRecycleBin(olderThan: 0, now: at(t + 10_000 * dayLength)) <= 2
+           && count(doc, badAt.id) == 1 && count(doc, badLocation.id) == 1 && count(doc, hugeLocation.id) == 1 && count(doc, underBad.id) == 1)
+    resetClock()
+}
+
+// A bin identifier carried by two groups is a corrupt file: no bin.
+do {
+    let doc = try freshDocument("Twins")
+    let a = VaultItem(kind: .login, title: "A", website: "a.example", secret: "a"), b = VaultItem(kind: .login, title: "B", website: "b.example", secret: "b")
+    doc.upsert([a, b])
+    doc.moveToRecycleBin(a.id)
+    let bin = binNode(doc)!
+    let twin = XNode("Group", children: [XNode("UUID", text: bin.child("UUID")!.text), XNode("Name", text: "Copy of the bin")])
+    doc.rootGroup!.children.append(twin)
+    move(entryNode(doc, b.id)!, from: doc.rootGroup!, to: twin)
+    expect("two groups with the bin's identifier mean no bin", doc.recycleBinID == nil && doc.rawRecycleBinID == nil)
+    check("nothing is hidden", "\(doc.items().count) \(doc.recycledItems().count)", "2 0")
+    setLocationChanged(entryNode(doc, a.id)!, 1)
+    check("and a purge deletes nothing", "\(doc.purgeRecycleBin(olderThan: 0, now: Date()))", "0")
+}
+
+// Batches: one pass and one write, however many.
+do {
+    let doc = try freshDocument("Batches")
+    let all = (0..<8).map { VaultItem(kind: .login, title: "B\($0)", website: "b\($0).example", secret: "s\($0)") }
+    doc.upsert(all)
+    let ids = all.map(\.id)
+    check("moving 5 of 8 in one call", "\(doc.moveToRecycleBin(Array(ids[0..<5]) + [UUID()])) \(doc.items().count) \(doc.recycledItems().count)", "5 3 5")
+    check("moving ones already in the bin moves nothing", "\(doc.moveToRecycleBin(Array(ids[0..<5])))", "0")
+    doc.upsert(VaultItem(id: ids[0], kind: .login, title: "Live twin", website: "twin.example", secret: "x"))   // restores B0 itself; give it back
+    doc.moveToRecycleBin(ids[0])
+    var twin = VaultItem(kind: .login, title: "Dup", website: "dup.example", secret: "d")
+    twin = VaultItem(id: ids[1], kind: .login, title: "Dup", website: "dup.example", secret: "d")
+    _ = twin
+    check("restoring 3 in one call", "\(doc.restoreFromRecycleBin(Array(ids[0..<3]))) \(doc.items().count) \(doc.recycledItems().count)", "3 6 2")
+    check("deleting 4 for good in one call, from the bin and from the live entries", "\(doc.deletePermanently([ids[0], ids[3], ids[5], ids[7], UUID()])) \(count(doc, ids[3])) \(count(doc, ids[5]))", "4 0 0")
+    check("and each is a deleted object", "\(deletedObjects(doc))", "4")
+    check("the entries that were not touched are all there", "\(doc.items().count + doc.recycledItems().count)", "4")
+}
+
+// Every store method is all-or-nothing against a conflicting file, and Overwrite repeats the change deliberately.
+do {
+    let fm = FileManager.default
+    let dir = fm.temporaryDirectory.appendingPathComponent("psss-conflict-\(UUID().uuidString)")
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    let t0 = Date().timeIntervalSince1970
+    let seed = try KDBX.create(name: "Conflict", credentials: .init(password: "old-pw"), kdf: light)
+    let x = VaultItem(kind: .login, title: "X", account: "x", website: "x.example", secret: "x1")
+    let y = VaultItem(kind: .login, title: "Y", account: "y", website: "y.example", secret: "y1")
+    let z = VaultItem(kind: .login, title: "Z", account: "z", website: "z.example", secret: "z1")
+    let binned = VaultItem(kind: .login, title: "Binned", account: "b", website: "b.example", secret: "b1")
+    let stale = VaultItem(kind: .login, title: "Stale", account: "s", website: "s.example", secret: "s1")
+    seed.upsert([x, y, z, binned, stale])
+    setClock(t0 - 100 * dayLength); seed.moveToRecycleBin(stale.id)
+    setClock(t0 - 1000); seed.moveToRecycleBin(binned.id); resetClock()
+    var edited = x; edited.secret = "x2"; seed.upsert(edited)
+    let seedData = try KDBX.save(seed)
+    let plan = try CSVSource.plan(from: "Title,URL,Username,Password\nImported,https://imported.example,i,pw\n")
+    var counter = 0
+    func makeStore() throws -> (store: KeePassVaultStore, url: URL, id: UUID) {
+        counter += 1
+        let url = dir.appendingPathComponent("c\(counter).kdbx")
+        try seedData.write(to: url)
+        let id = UUID()
+        let store = KeePassVaultStore(reference: VaultReference(id: id, name: "Conflict", managed: true, bookmark: nil, fileName: url.lastPathComponent), url: url, scoped: false,
+                                      document: try KDBX.open(seedData, credentials: .init(password: "old-pw")), fileData: seedData)
+        return (store, url, id)
+    }
+    func backupFiles(_ id: UUID) -> [String] {
+        ((try? fm.contentsOfDirectory(atPath: VaultFiles.storageRoot.appendingPathComponent("Backups/\(id.uuidString)").path)) ?? []).sorted()
+    }
+    func newestBackup(_ id: UUID) -> Data? {
+        backupFiles(id).last.flatMap { try? Data(contentsOf: VaultFiles.storageRoot.appendingPathComponent("Backups/\(id.uuidString)/\($0)")) }
+    }
+    func summary(_ items: [VaultItem], _ deleted: [(item: VaultItem, deleted: Date)]) -> String {
+        items.map { "\($0.title)=\($0.secret)/\($0.notes)" }.sorted().joined(separator: ",") + " | " + deleted.map { "\($0.item.title)=\($0.item.secret)" }.sorted().joined(separator: ",")
+    }
+    func state(_ store: KeePassVaultStore) -> String {
+        let items = store.items().map { "\($0.id)|\($0.title)|\($0.secret)|\($0.notes)|\($0.modified?.timeIntervalSince1970 ?? 0)" }.sorted().joined(separator: ";")
+        let deleted = store.recentlyDeleted().map { "\($0.item.id)|\($0.deleted.timeIntervalSince1970)" }.joined(separator: ";")
+        return items + "#" + deleted + "#" + hex(KDBXCrypto.sha256(store.documentDump))
+    }
+    typealias Operation = (name: String, run: (KeePassVaultStore) throws -> Void, overwritable: Bool)
+    let operations: [Operation] = [
+        ("save", { try $0.save([edited, VaultItem(kind: .secureNote, title: "New note", notes: "n")]) }, true),
+        ("delete", { try $0.delete(y.id) }, true),
+        ("moveToRecentlyDeleted", { try $0.moveToRecentlyDeleted(z.id) }, true),
+        ("moveToRecentlyDeleted (batch)", { try $0.moveToRecentlyDeleted([y.id, z.id]) }, true),
+        ("restore", { try $0.restore(binned.id) }, true),
+        ("restore (batch)", { try $0.restore([binned.id, stale.id]) }, true),
+        ("restorePassword", { try $0.restorePassword(of: x.id, replacedAt: $0.previousPasswords(of: x.id)[0].replaced) }, true),
+        ("deletePermanently", { try $0.deletePermanently(binned.id) }, true),
+        ("deletePermanently (batch)", { try $0.deletePermanently([binned.id, y.id]) }, true),
+        ("emptyRecentlyDeleted", { try $0.emptyRecentlyDeleted() }, true),
+        ("clearPreviousPasswords", { try $0.clearPreviousPasswords(of: x.id) }, true),
+        ("purgeRecentlyDeleted", { _ = try $0.purgeRecentlyDeleted(now: Date()) }, true),
+        ("rename", { try $0.rename("Renamed") }, true),
+        ("apply", { _ = try $0.apply(plan) }, true),
+    ]
+    for operation in operations {
+        // The expected result, with no conflict.
+        let reference = try makeStore()
+        try operation.run(reference.store)
+        let expected = summary(reference.store.items(), reference.store.recentlyDeleted())
+
+        let mine = try makeStore()
+        let other = KeePassVaultStore(reference: VaultReference(id: mine.id, name: "Conflict", managed: true, bookmark: nil, fileName: mine.url.lastPathComponent), url: mine.url, scoped: false,
+                                      document: try KDBX.open(seedData, credentials: .init(password: "old-pw")), fileData: seedData)
+        try other.save([VaultItem(kind: .secureNote, title: "From the other writer", notes: "o")])
+        let theirs = try Data(contentsOf: mine.url)
+        let before = state(mine.store)
+        let backupsBefore = backupFiles(mine.id)
+        var refused = false
+        do { try operation.run(mine.store) } catch VaultStoreError.changedOnDisk { refused = true } catch { print("     \(operation.name) threw \(error)") }
+        expect("\(operation.name): a conflicting file makes it throw changedOnDisk", refused)
+        expect("\(operation.name): memory, items(), Recently Deleted and the dump are as before", state(mine.store) == before)
+        expect("\(operation.name): the file is the other writer's, untouched, with no new rollback copy", (try? Data(contentsOf: mine.url)) == theirs && backupFiles(mine.id) == backupsBefore)
+        try mine.store.overwriting { try operation.run(mine.store) }
+        expect("\(operation.name): with overwrite it succeeds", true)
+        let written = try KDBX.open(Data(contentsOf: mine.url), credentials: .init(password: "old-pw"))
+        expect("\(operation.name): the file holds the change, and not the other writer's item", summary(written.items(), written.recycledItems()) == expected
+               && !written.items().contains { $0.title == "From the other writer" })
+        expect("\(operation.name): the other writer's version is the newest rollback copy", newestBackup(mine.id) == theirs)
+        expect("\(operation.name): memory equals the file", state(mine.store).prefix { $0 != "#" } == state(mine.store).prefix { $0 != "#" } && summary(mine.store.items(), mine.store.recentlyDeleted()) == expected)
+        VaultFiles.removeBackups(for: mine.id)
+    }
+
+    // A refused password change leaves the old password and every in-memory value as it was.
+    do {
+        let mine = try makeStore()
+        let other = KeePassVaultStore(reference: VaultReference(id: mine.id, name: "Conflict", managed: true, bookmark: nil, fileName: mine.url.lastPathComponent), url: mine.url, scoped: false,
+                                      document: try KDBX.open(seedData, credentials: .init(password: "old-pw")), fileData: seedData)
+        try other.save([VaultItem(kind: .secureNote, title: "From the other writer", notes: "o")])
+        let theirs = try Data(contentsOf: mine.url), before = state(mine.store)
+        var refused = false
+        do { _ = try await mine.store.changeCredentials(to: .init(password: "new-pw")) } catch VaultStoreError.changedOnDisk { refused = true }
+        expect("changeCredentials: a conflicting file refuses it, and memory and the file are as before", refused && state(mine.store) == before && (try? Data(contentsOf: mine.url)) == theirs)
+        VaultFiles.removeBackups(for: mine.id)
+    }
+
+    // A refused write is never written later: not by reloadIfChanged, not by a new session on the file, not by a later save.
+    let scenario = try makeStore()
+    let rival = KeePassVaultStore(reference: VaultReference(id: scenario.id, name: "Conflict", managed: true, bookmark: nil, fileName: scenario.url.lastPathComponent), url: scenario.url, scoped: false,
+                                  document: try KDBX.open(seedData, credentials: .init(password: "old-pw")), fileData: seedData)
+    try rival.save([VaultItem(kind: .secureNote, title: "Rival", notes: "r")])
+    let refusedItem = VaultItem(kind: .secureNote, title: "Refused change", notes: "never")
+    do { try scenario.store.save([refusedItem]); failures += 1; print("FAIL conflict not detected") } catch VaultStoreError.changedOnDisk {}
+    expect("the refused item is not in the list", !scenario.store.items().contains { $0.id == refusedItem.id })
+    expect("reloadIfChanged brings in the other version and not the refused change", try await scenario.store.reloadIfChanged()
+           && scenario.store.items().contains { $0.title == "Rival" } && !scenario.store.items().contains { $0.id == refusedItem.id })
+    try scenario.store.save([VaultItem(kind: .secureNote, title: "Unrelated", notes: "u")])
+    var onDisk = try KDBX.open(Data(contentsOf: scenario.url), credentials: .init(password: "old-pw"))
+    expect("an unrelated save writes only itself", !onDisk.items().contains { $0.id == refusedItem.id } && onDisk.items().contains { $0.title == "Unrelated" })
+
+    // The file goes back to the bytes this store last read: an unrelated save still does not carry the refused change.
+    let revert = try makeStore()
+    let intruder = KeePassVaultStore(reference: VaultReference(id: revert.id, name: "Conflict", managed: true, bookmark: nil, fileName: revert.url.lastPathComponent), url: revert.url, scoped: false,
+                                     document: try KDBX.open(seedData, credentials: .init(password: "old-pw")), fileData: seedData)
+    try intruder.save([VaultItem(kind: .secureNote, title: "Intruder", notes: "i")])
+    do { try revert.store.save([refusedItem]); failures += 1; print("FAIL conflict not detected") } catch VaultStoreError.changedOnDisk {}
+    try seedData.write(to: revert.url)
+    try revert.store.save([VaultItem(kind: .secureNote, title: "Unrelated again", notes: "u")])
+    onDisk = try KDBX.open(Data(contentsOf: revert.url), credentials: .init(password: "old-pw"))
+    expect("a file that returned to the last-read bytes does not bring the refused change back", !onDisk.items().contains { $0.id == refusedItem.id } && onDisk.items().contains { $0.title == "Unrelated again" })
+
+    // Lock and unlock (a new store on the file) shows only what the file holds.
+    let locked = try makeStore()
+    let writer = KeePassVaultStore(reference: VaultReference(id: locked.id, name: "Conflict", managed: true, bookmark: nil, fileName: locked.url.lastPathComponent), url: locked.url, scoped: false,
+                                   document: try KDBX.open(seedData, credentials: .init(password: "old-pw")), fileData: seedData)
+    try writer.save([VaultItem(kind: .secureNote, title: "Writer", notes: "w")])
+    do { try locked.store.save([refusedItem]) } catch VaultStoreError.changedOnDisk {}
+    let reopened = KeePassVaultStore(reference: VaultReference(id: locked.id, name: "Conflict", managed: true, bookmark: nil, fileName: locked.url.lastPathComponent), url: locked.url, scoped: false,
+                                     document: try KDBX.open(Data(contentsOf: locked.url), credentials: .init(password: "old-pw")), fileData: try Data(contentsOf: locked.url))
+    expect("after lock and unlock the refused change is nowhere", !reopened.items().contains { $0.id == refusedItem.id })
+
+    // The unlock purge refused by a conflict leaves memory equal to disk.
+    let purging = try makeStore()
+    let beforePurge = state(purging.store)
+    let racer = KeePassVaultStore(reference: VaultReference(id: purging.id, name: "Conflict", managed: true, bookmark: nil, fileName: purging.url.lastPathComponent), url: purging.url, scoped: false,
+                                  document: try KDBX.open(seedData, credentials: .init(password: "old-pw")), fileData: seedData)
+    try racer.save([VaultItem(kind: .secureNote, title: "Raced", notes: "r")])
+    var purgeRefused = false
+    do { _ = try purging.store.purgeRecentlyDeleted(now: Date()) } catch VaultStoreError.changedOnDisk { purgeRefused = true }
+    expect("the purge is refused by the conflict and memory equals what it was (and what the file held when read)", purgeRefused && state(purging.store) == beforePurge)
+    for id in [scenario.id, revert.id, locked.id, purging.id] { VaultFiles.removeBackups(for: id) }
+    try? fm.removeItem(at: dir)
+}
+
+// Performance of batches: 2,500 entries moved to the bin in one call at 50,000 entries, saved once.
+do {
+    let fm = FileManager.default
+    let dir = fm.temporaryDirectory.appendingPathComponent("psss-batchperf-\(UUID().uuidString)")
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    let doc = try freshDocument("Big")
+    let items = (0..<50_000).map { VaultItem(kind: .login, title: "T\($0)", account: "u\($0)@example.net", website: "https://site\($0).example", secret: "p\($0)", notes: "n") }
+    doc.upsert(items)
+    let url = dir.appendingPathComponent("big.kdbx")
+    let data = try KDBX.save(doc)
+    try data.write(to: url)
+    let id = UUID()
+    let store = KeePassVaultStore(reference: VaultReference(id: id, name: "Big", managed: true, bookmark: nil, fileName: "big.kdbx"), url: url, scoped: false,
+                                  document: try KDBX.open(data, credentials: .init(password: "pw")), fileData: data)
+    let chosen = items.enumerated().filter { $0.offset % 20 == 0 }.map(\.element.id)
+    let started = Date()
+    try store.moveToRecentlyDeleted(chosen)
+    let moved = Date().timeIntervalSince(started)
+    print("     moving \(chosen.count) of 50000 entries to the bin in one call, with the save: \(String(format: "%.2f s", moved))")
+    check("they are all in the bin", "\(store.recentlyDeleted().count) \(store.items().count)", "2500 47500")
+    expect("2,500 moved at 50,000 entries takes under 3 seconds including the save", moved < 3.0)
+    let t2 = Date()
+    try store.restore(chosen)
+    let restored = Date().timeIntervalSince(t2)
+    print("     restoring them in one call: \(String(format: "%.2f s", restored))")
+    expect("and restoring them is as fast", restored < 3.0 && store.items().count == 50_000)
+    let t3 = Date()
+    try store.deletePermanently(chosen)
+    let deleted = Date().timeIntervalSince(t3)
+    print("     deleting them for good in one call: \(String(format: "%.2f s", deleted))")
+    expect("and deleting them for good", deleted < 3.0 && store.items().count == 47_500)
+    VaultFiles.removeBackups(for: id)
+    try? fm.removeItem(at: dir)
+}
+
+do {  // Provider follow-ups: several identifiers, loopback as written, readable hosts, group and Keychain decisions
+    // FillSite over the whole list of identifiers
+    check("sites: first with a host, all secure", "\(FillSite(serviceIdentifiers: ["https://a.example.com", "example.com"]))", "secure(host: \"a.example.com\")")
+    check("sites: an http URL behind a secure first one makes it plain http, named by its own host", "\(FillSite(serviceIdentifiers: ["https://a.example.com", "http://example.com"]))", "plainHTTP(host: \"example.com\")")
+    check("sites: the warning names the unencrypted host", "\(FillSite(serviceIdentifiers: ["https://a.example.com", "http://b.example.org", "http://c.example.org"]))", "plainHTTP(host: \"b.example.org\")")
+    check("sites: an http URL first makes it plain http", "\(FillSite(serviceIdentifiers: ["http://a.example.com", "https://example.com"]))", "plainHTTP(host: \"a.example.com\")")
+    check("sites: an identifier without a host is skipped", "\(FillSite(serviceIdentifiers: ["", "javascript:alert(1)", "https://example.com"]))", "secure(host: \"example.com\")")
+    check("sites: http on this machine behind another is still secure", "\(FillSite(serviceIdentifiers: ["http://localhost:3000", "https://localhost"]))", "secure(host: \"localhost\")")
+    check("sites: no identifiers", "\(FillSite(serviceIdentifiers: []))", "unknown")
+    check("sites: none has a host", "\(FillSite(serviceIdentifiers: ["", "javascript:alert(1)"]))", "unknown")
+    check("sites: a single one reads like the single form", "\(FillSite(serviceIdentifiers: ["http://example.com"]))", "\(FillSite(serviceIdentifier: "http://example.com"))")
+
+    // Loopback is decided on the host as written, not after dropping www.
+    check("loopback: www.127.0.0.1 over http is not this machine", "\(FillSite(serviceIdentifier: "http://www.127.0.0.1"))", "plainHTTP(host: \"127.0.0.1\")")
+    check("loopback: www.localhost over http is not this machine", "\(FillSite(serviceIdentifier: "http://www.localhost:8080/x"))", "plainHTTP(host: \"www.localhost\")")
+    check("loopback: localhost with a trailing dot", "\(FillSite(serviceIdentifier: "http://localhost./"))", "secure(host: \"localhost\")")
+    check("loopback: capitals", "\(FillSite(serviceIdentifier: "http://LOCALHOST:8080"))", "secure(host: \"localhost\")")
+    check("loopback: bare 127.0.0.1 over http", "\(FillSite(serviceIdentifier: "http://127.0.0.1:3000/a?b=c#d"))", "secure(host: \"127.0.0.1\")")
+    check("loopback: ::1 in brackets with a port", "\(FillSite(serviceIdentifier: "http://[::1]:8080/"))", "secure(host: \"::1\")")
+
+    // Readable hosts: RFC 3492 decoding, and a hint only for a name that mixes scripts
+    check("punycode: RFC 3492 Arabic sample", HostDisplay.decodePunycode("egbpdaj6bu4bxfgehfvwxn") ?? "nil", "ليهمابتكلموشعربي؟")
+    check("punycode: bücher", HostDisplay.unicode("xn--bcher-kva.example"), "bücher.example")
+    check("punycode: münchen", HostDisplay.unicode("xn--mnchen-3ya.de"), "münchen.de")
+    check("punycode: café", HostDisplay.unicode("xn--caf-dma.example"), "café.example")
+    check("punycode: Russian name and top-level domain", HostDisplay.unicode("xn--e1afmkfd.xn--p1ai"), "пример.рф")
+    check("punycode: Japanese", HostDisplay.unicode("xn--wgv71a119e.example"), "日本語.example")
+    check("punycode: plain ASCII is unchanged", HostDisplay.unicode("login.example.com"), "login.example.com")
+    check("punycode: upper case prefix with lower case payload", HostDisplay.unicode("XN--bcher-kva.example"), "bücher.example")
+    check("punycode: upper case letters in the payload decode to upper case and stay ASCII", HostDisplay.unicode("xn--BCHER-kva.example"), "xn--BCHER-kva.example")
+    check("punycode: malformed label is left alone", HostDisplay.unicode("xn--a!b.example"), "xn--a!b.example")
+    check("punycode: truncated label is left alone", HostDisplay.unicode("xn--bcher-k.example"), HostDisplay.unicode("xn--bcher-k.example"))
+    check("punycode: empty payload is left alone", HostDisplay.unicode("xn--.example"), "xn--.example")
+    check("punycode: overflow is refused", "\(HostDisplay.decodePunycode("999999999999999999999999") as Any)", "nil")
+    check("shown: one script shows only Unicode", HostDisplay.shown("xn--bcher-kva.example"), "bücher.example")
+    check("shown: Russian name with a Russian top-level domain", HostDisplay.shown("xn--e1afmkfd.xn--p1ai"), "пример.рф")
+    check("shown: ASCII host", HostDisplay.shown("example.com"), "example.com")
+    // "аррӏе.com": Cyrillic letters that look like Latin ones, followed by a Latin top-level domain.
+    check("shown: mixed scripts add the ASCII form", HostDisplay.shown("xn--80ak6aa92e.com"), "аррӏе.com (xn--80ak6aa92e.com)")
+    check("shown: scripts of a mixed name", "\(HostDisplay.scripts(in: "аррӏе.com").sorted())", "[\"Cyrillic\", \"Latin\"]")
+    check("shown: digits and hyphens belong to no script", "\(HostDisplay.scripts(in: "1-2.3").count)", "0")
+
+    // Display safety: never show text that could be mistaken for another ASCII host
+    func puny(_ text: String) -> String {  // RFC 3492 encoder, test only
+        let input = text.unicodeScalars.map { Int($0.value) }
+        var out = input.filter { $0 < 128 }.map { Character(Unicode.Scalar(UInt8($0))) }
+        let basic = out.count
+        var handled = basic
+        if basic > 0 { out.append("-") }
+        var n = 128, delta = 0, bias = 72
+        func digit(_ d: Int) -> Character { Character(Unicode.Scalar(UInt8(d < 26 ? d + 97 : d + 22))) }
+        func adapt(_ d: Int, _ points: Int, _ first: Bool) -> Int {
+            var d = first ? d / 700 : d / 2; d += d / points; var k = 0
+            while d > 455 { d /= 35; k += 36 }
+            return k + 36 * d / (d + 38)
+        }
+        while handled < input.count {
+            let m = input.filter { $0 >= n }.min()!
+            delta += (m - n) * (handled + 1); n = m
+            for c in input {
+                if c < n { delta += 1 }
+                if c == n {
+                    var q = delta, k = 36
+                    while true {
+                        let t = k <= bias ? 1 : (k >= bias + 26 ? 26 : k - bias)
+                        if q < t { break }
+                        out.append(digit(t + (q - t) % (36 - t))); q = (q - t) / (36 - t); k += 36
+                    }
+                    out.append(digit(q)); bias = adapt(delta, handled + 1, handled == basic); delta = 0; handled += 1
+                }
+            }
+            delta += 1; n += 1
+        }
+        return "xn--" + String(out)
+    }
+    check("display: the encoder agrees with the decoder", HostDisplay.unicode(puny("bücher") + ".example"), "bücher.example")
+    check("display: encoder vector", puny("bücher"), "xn--bcher-kva")
+    let hostile: [(String, UInt32)] = [
+        ("bidi embedding", 0x202A), ("bidi embedding", 0x202B), ("bidi pop", 0x202C), ("bidi lro", 0x202D), ("bidi override", 0x202E),
+        ("bidi isolate", 0x2066), ("bidi isolate", 0x2067), ("bidi isolate", 0x2068), ("bidi pop isolate", 0x2069),
+        ("lrm", 0x200E), ("rlm", 0x200F), ("arabic letter mark", 0x061C),
+        ("zero width space", 0x200B), ("zwnj", 0x200C), ("zwj", 0x200D), ("word joiner", 0x2060), ("bom", 0xFEFF),
+        ("soft hyphen", 0x00AD), ("mongolian vowel separator", 0x180E), ("C0 control", 0x01), ("C0 control", 0x1F),
+        ("C1 control", 0x80), ("C1 control", 0x9F), ("no-break space", 0x00A0), ("en quad", 0x2000), ("hair space", 0x200A),
+        ("narrow no-break space", 0x202F), ("medium math space", 0x205F), ("ideographic space", 0x3000),
+        ("ideographic full stop", 0x3002), ("fraction slash", 0x2044), ("division slash", 0x2215), ("variation selector", 0xFE0F),
+        ("grapheme joiner", 0x034F), ("hangul filler", 0x3164), ("private use", 0xE000), ("unassigned", 0x0378), ("noncharacter", 0xFFFF)
+    ]
+    for (name, value) in hostile {
+        let c = String(Unicode.Scalar(value)!)
+        for (place, label) in [("start", c + "bank"), ("middle", "ba" + c + "nk"), ("end", "bank" + c)] {
+            let host = puny(label) + ".com"
+            check("display: \(name) U+\(String(value, radix: 16, uppercase: true)) at the \(place) shows ASCII only", HostDisplay.shown(host), host)
+        }
+    }
+    let spoof = puny("bank\u{200B}") + ".com"
+    check("display: bank + zero width space is not shown as bank.com", HostDisplay.shown(spoof) == "bank.com" ? "spoofed" : "ok", "ok")
+    check("display: right-to-left override", HostDisplay.shown(puny("ab\u{202E}cd") + ".example"), puny("ab\u{202E}cd") + ".example")
+    check("display: a label that decodes to pure ASCII is suspicious", HostDisplay.shown("xn--bank-.com"), "xn--bank-.com")
+    check("display: decoding fails", HostDisplay.shown("xn--a!b.com"), "xn--a!b.com")
+    check("display: one bad label hides the whole host", HostDisplay.shown(puny("bücher") + "." + puny("a\u{200B}b") + ".com"), puny("bücher") + "." + puny("a\u{200B}b") + ".com")
+    check("display: not in NFC", HostDisplay.shown(puny("e\u{301}cole") + ".example"), puny("e\u{301}cole") + ".example")
+    check("display: NFC form of the same name is shown", HostDisplay.shown(puny("\u{E9}cole") + ".example"), "\u{E9}cole.example")
+    check("display: upper case letter", HostDisplay.shown(puny("B\u{FC}cher") + ".example"), puny("B\u{FC}cher") + ".example")
+    check("display: mark at the start", HostDisplay.shown(puny("\u{301}abc") + ".example"), puny("\u{301}abc") + ".example")
+    check("display: hyphen and digits are fine", HostDisplay.shown(puny("caf\u{E9}-2") + ".example"), "caf\u{E9}-2.example")
+    check("display: mixed scripts still add the ASCII form", HostDisplay.shown(puny("\u{430}\u{440}\u{440}\u{4CF}\u{435}") + ".com"), "\u{430}\u{440}\u{440}\u{4CF}\u{435}.com (\(puny("\u{430}\u{440}\u{440}\u{4CF}\u{435}")).com)")
+    expect("display: a raw zero width space in a host is written out", HostDisplay.shown("ban\u{200B}k.com").contains("U+200B") && HostDisplay.shown("ban\u{200B}k.com").unicodeScalars.allSatisfy(\.isASCII))
+    expect("display: raw safe text passes", HostDisplay.shown("b\u{FC}cher.example") == "b\u{FC}cher.example")
+
+    // Property: whenever `shown` differs from the ASCII host, the non-ASCII text in it holds nothing invisible, no format or
+    // control character, no space and nothing unassigned. Random scalar sequences, encoded to punycode labels, from a fixed seed.
+    func forbidden(_ s: Unicode.Scalar) -> Bool {
+        if s.isASCII { return false }
+        let bad: Set<Unicode.GeneralCategory> = [.format, .control, .spaceSeparator, .lineSeparator, .paragraphSeparator, .surrogate, .privateUse, .unassigned]
+        if bad.contains(s.properties.generalCategory) || s.properties.isDefaultIgnorableCodePoint { return true }
+        return [0x202A, 0x202B, 0x202C, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068, 0x2069, 0x200E, 0x200F, 0x061C, 0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF, 0xAD, 0x180E, 0xA0, 0x202F, 0x205F, 0x3000].contains(Int(s.value))
+            || (0x2000...0x200A).contains(Int(s.value))
+    }
+    // The stricter property for what is shown: every non-ASCII label is unchanged by NFKC and lower casing, has no combining mark
+    // after an ASCII letter, and has no non-ASCII digit together with an ASCII letter or digit.
+    func strictlySafe(_ shown: String) -> Bool {
+        let readable = String(shown.split(separator: " (", maxSplits: 1, omittingEmptySubsequences: false)[0])
+        for label in readable.split(separator: ".") where !label.allSatisfy(\.isASCII) {
+            let scalars = Array(label.unicodeScalars)
+            if scalars != Array(String(label).precomposedStringWithCompatibilityMapping.unicodeScalars) { return false }
+            if scalars != Array(String(label).lowercased().unicodeScalars) { return false }
+            for (i, s) in scalars.enumerated() where i > 0 && [.nonspacingMark, .spacingMark].contains(s.properties.generalCategory) {
+                let before = scalars[..<i].last { ![.nonspacingMark, .spacingMark].contains($0.properties.generalCategory) }
+                if let before, before.isASCII, before.properties.isAlphabetic { return false }
+            }
+            let digits = scalars.filter { $0.properties.generalCategory == .decimalNumber }
+            if digits.contains(where: { !$0.isASCII }) {
+                if scalars.contains(where: { $0.isASCII && ($0.properties.isAlphabetic || $0.properties.generalCategory == .decimalNumber) }) { return false }
+                let bases = Set(digits.map { Int($0.value) - Int($0.properties.numericValue ?? 0) })
+                if bases.count != 1 { return false }
+            }
+        }
+        return true
+    }
+    var seed: UInt64 = 0x1234_5678_9ABC_DEF0
+    func next() -> UInt64 { seed &+= 0x9E37_79B9_7F4A_7C15; var z = seed; z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9; z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB; return z ^ (z >> 31) }
+    let pools: [ClosedRange<UInt32>] = [0x61...0x7A, 0xA0...0x24F, 0x300...0x36F, 0x400...0x4FF, 0x590...0x6FF, 0x2000...0x206F, 0x2E80...0x9FFF, 0xFE00...0xFE0F, 0xFFF0...0xFFFF, 0xE000...0xE0FF, 0x1F300...0x1F3FF,
+                                  0xFF00...0xFF5F, 0x1D400...0x1D7FF, 0xAA...0xBA, 0x660...0x669, 0x6F0...0x6F9, 0x966...0x96F, 0x1C0...0x1C3, 0x131...0x138, 0xA780...0xA7FF, 0x1EA0...0x1EF9, 0x41...0x5A, 0x30...0x39, 0x2160...0x217F, 0xFB00...0xFB06]
+    var shownDifferent = 0, propertyViolations = 0
+    for _ in 0..<4000 {
+        var text = ""
+        for _ in 0..<Int(next() % 9 + 1) {
+            let pool = pools[Int(next() % UInt64(pools.count))]
+            if let scalar = Unicode.Scalar(UInt32(next() % UInt64(pool.count)) + pool.lowerBound) { text.unicodeScalars.append(scalar) }
+        }
+        let host = puny(text) + ".example"
+        let out = HostDisplay.shown(host)
+        if out != host {
+            shownDifferent += 1
+            if out.unicodeScalars.contains(where: forbidden) || !strictlySafe(out) { propertyViolations += 1; print("violation for \(text.unicodeScalars.map { String($0.value, radix: 16) })") }
+        }
+    }
+    check("property: no forbidden character in any shown text", "\(propertyViolations)", "0")
+    expect("property: the random run did show some decoded names", shownDifferent > 100)
+    // The same with random payloads that are not valid encodings of anything
+    var payloadViolations = 0
+    let alphabet = Array("abcdefghijklmnopqrstuvwxyz0123456789-")
+    for _ in 0..<3000 {
+        let payload = String((0..<Int(next() % 14 + 1)).map { _ in alphabet[Int(next() % UInt64(alphabet.count))] })
+        let host = "xn--\(payload).com"
+        let out = HostDisplay.shown(host)
+        if out != host, out.unicodeScalars.contains(where: forbidden) { payloadViolations += 1 }
+    }
+    check("property: random payloads never show a forbidden character", "\(payloadViolations)", "0")
+
+    // Lookalikes: fullwidth and compatibility forms, Latin letters that read as others, marks that barely render, foreign digits
+    func hint(_ label: String, _ tld: String = "com") -> String { let d = puny(label); return "\(label).\(tld) (\(d).\(tld))" }
+    func asciiOnly(_ label: String, _ tld: String = "com") -> String { puny(label) + "." + tld }
+    let tldCom = ".com"
+    check("lookalike: fullwidth Latin and digits", HostDisplay.shown(puny("\u{FF41}\u{FF50}\u{FF50}\u{FF4C}\u{FF45}") + tldCom), asciiOnly("\u{FF41}\u{FF50}\u{FF50}\u{FF4C}\u{FF45}"))
+    check("lookalike: one fullwidth letter in a Latin word", HostDisplay.shown(puny("a\u{FF50}ple") + tldCom), asciiOnly("a\u{FF50}ple"))
+    check("lookalike: a with dot below (Vietnamese) is a letter of its own", HostDisplay.shown(puny("\u{1EA1}pple") + tldCom), "\u{1EA1}pple.com")
+    check("lookalike: a letter followed by a low line", HostDisplay.shown(puny("apple\u{332}") + tldCom), asciiOnly("apple\u{332}"))
+    check("lookalike: a letter followed by a long solidus overlay", HostDisplay.shown(puny("apple\u{338}") + tldCom), asciiOnly("apple\u{338}"))
+    check("lookalike: dotless i", HostDisplay.shown(puny("paypal\u{131}") + tldCom), hint("paypal\u{131}"))
+    check("lookalike: dental click", HostDisplay.shown(puny("paypa\u{1C0}") + tldCom), hint("paypa\u{1C0}"))
+    check("lookalike: turned l", HostDisplay.shown(puny("paypa\u{A781}") + tldCom), hint("paypa\u{A781}"))
+    check("lookalike: sinological dot", HostDisplay.shown(puny("exam\u{A78F}ple") + tldCom), hint("exam\u{A78F}ple"))
+    check("lookalike: kra", HostDisplay.shown(puny("\u{138}ey") + tldCom), hint("\u{138}ey"))
+    check("lookalike: feminine ordinal", HostDisplay.shown(puny("\u{AA}pple") + tldCom), asciiOnly("\u{AA}pple"))
+    check("lookalike: masculine ordinal", HostDisplay.shown(puny("g\u{BA}gle") + tldCom), asciiOnly("g\u{BA}gle"))
+    check("lookalike: Arabic-Indic digits after Latin", HostDisplay.shown(puny("a1\u{662}\u{663}") + tldCom), asciiOnly("a1\u{662}\u{663}"))
+    check("lookalike: fullwidth zeros in a Latin word", HostDisplay.shown(puny("g\u{FF10}\u{FF10}gle") + tldCom), asciiOnly("g\u{FF10}\u{FF10}gle"))
+    check("lookalike: Devanagari digits in a Latin word", HostDisplay.shown(puny("g\u{966}\u{967}gle") + tldCom), asciiOnly("g\u{966}\u{967}gle"))
+    check("lookalike: mathematical letters", HostDisplay.shown(puny("\u{1D41A}pple") + tldCom), asciiOnly("\u{1D41A}pple"))
+    check("lookalike: ligature", HostDisplay.shown(puny("o\u{FB01}ce") + tldCom), asciiOnly("o\u{FB01}ce"))
+    check("lookalike: Cyrillic name under a Cyrillic top-level domain stays as it is", HostDisplay.shown(puny("\u{430}\u{440}\u{440}\u{4CF}\u{435}") + "." + puny("\u{440}\u{444}")), "\u{430}\u{440}\u{440}\u{4CF}\u{435}.\u{440}\u{444}")
+    check("lookalike: Arabic letters with Arabic-Indic digits under an Arabic top level domain", HostDisplay.shown(puny("\u{628}\u{661}\u{662}") + "." + puny("\u{634}\u{628}\u{643}\u{629}")), "\u{628}\u{661}\u{662}.\u{634}\u{628}\u{643}\u{629}")
+    check("lookalike: two Arabic digit sets in one label", HostDisplay.shown(puny("\u{628}\u{661}\u{6F2}") + "." + puny("\u{634}\u{628}\u{643}\u{629}")), asciiOnly("\u{628}\u{661}\u{6F2}", puny("\u{634}\u{628}\u{643}\u{629}")))
+    check("lookalike: Arabic digits with an ASCII digit", HostDisplay.shown(puny("\u{628}1\u{662}") + "." + puny("\u{634}\u{628}\u{643}\u{629}")), asciiOnly("\u{628}1\u{662}", puny("\u{634}\u{628}\u{643}\u{629}")))
+    check("common Latin: Vietnamese", HostDisplay.shown(puny("vi\u{1EC7}t") + tldCom), "vi\u{1EC7}t.com")
+    check("common Latin: Romanian", HostDisplay.shown(puny("ro\u{219}u") + tldCom), "ro\u{219}u.com")
+    check("common Latin: German sharp s", HostDisplay.shown(puny("stra\u{DF}e") + tldCom), "stra\u{DF}e.com")
+    check("common Latin: Polish", HostDisplay.shown(puny("\u{142}\u{F3}d\u{17A}") + tldCom), "\u{142}\u{F3}d\u{17A}.com")
+    check("common Latin: Scandinavian", HostDisplay.shown(puny("sm\u{F8}rrebr\u{F8}d") + tldCom), "sm\u{F8}rrebr\u{F8}d.com")
+    check("common Latin letters: a to z, accents, no ordinals", "\([0x61, 0xE9, 0x142, 0x1EA1, 0x219].allSatisfy { HostDisplay.isCommonLatinLetter(Unicode.Scalar($0)!) })\([0xAA, 0xBA, 0x131, 0x138, 0x1C0, 0xA781, 0xA78F].contains { HostDisplay.isCommonLatinLetter(Unicode.Scalar($0)!) })", "truefalse")
+
+    // Text from the vault is made safe before it is shown
+    let dirty: [(String, [UInt32])] = [
+        ("bidi controls", [0x202A, 0x202B, 0x202C, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068, 0x2069, 0x200E, 0x200F, 0x061C]),
+        ("zero width and format", [0x200B, 0x200C, 0x2060, 0xFEFF, 0x00AD, 0x180E, 0x2061, 0x2064, 0x034F, 0x3164]),
+        ("C0 controls", [0x01, 0x07, 0x1B, 0x7F]), ("C1 controls", [0x80, 0x85 + 1, 0x9F]),
+        ("tag characters", [0xE0001, 0xE0041, 0xE007F]), ("private use and unassigned", [0xE000, 0x0378, 0xFFFF])
+    ]
+    for (name, values) in dirty {
+        for value in values {
+            let c = String(Unicode.Scalar(value)!)
+            check("text: \(name) U+\(String(value, radix: 16, uppercase: true)) inside a title", DisplayText.safe("ab" + c + "cd"), "abcd")
+            check("text: \(name) U+\(String(value, radix: 16, uppercase: true)) at both ends", DisplayText.safe(c + "ab" + c), "ab")
+        }
+    }
+    check("text: bidi override cannot reorder the rest", DisplayText.safe("Bank\u{202E}gro.evil"), "Bankgro.evil")
+    for value in [0x20, 0x09, 0x0A, 0x0D, 0xA0, 0x2000, 0x2003, 0x200A, 0x202F, 0x205F, 0x3000, 0x2028, 0x2029, 0x85] as [UInt32] {
+        check("text: space U+\(String(value, radix: 16, uppercase: true)) becomes one space", DisplayText.safe("a" + String(Unicode.Scalar(value)!) + String(Unicode.Scalar(value)!) + "b"), "a b")
+    }
+    check("text: runs of mixed spaces collapse and the ends are trimmed", DisplayText.safe("  a \u{A0}\u{2003}\t\n b  "), "a b")
+    check("text: a right-to-left title is kept as it is", DisplayText.safe("\u{5E9}\u{5DC}\u{5D5}\u{5DD} \u{5E2}\u{5D5}\u{5DC}\u{5DD}"), "\u{5E9}\u{5DC}\u{5D5}\u{5DD} \u{5E2}\u{5D5}\u{5DC}\u{5DD}")
+    let long = DisplayText.safe(String(repeating: "x", count: 5000))
+    check("text: 5,000 characters are cut to 80", "\(long.count) \(long.last!)", "80 \u{2026}")
+    check("text: a title that fits is not cut", DisplayText.safe(String(repeating: "x", count: 80)).count == 80 ? "ok" : "cut", "ok")
+    check("text: only invisible characters falls back to the placeholder", DisplayText.safe("\u{200B}\u{202E}\u{2060} \u{A0}"), "Untitled")
+    check("text: the fallback can be changed", DisplayText.safe("\u{200B}", empty: ""), "")
+    let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}"
+    check("emoji: a ZWJ family survives", DisplayText.safe("a " + family + " b"), "a " + family + " b")
+    check("emoji: a ZWJ between letters goes", DisplayText.safe("a\u{200D}b"), "ab")
+    check("emoji: a ZWJ after an emoji and before a letter goes", DisplayText.safe("\u{1F600}\u{200D}a"), "\u{1F600}a")
+    check("emoji: a ZWJ at the end goes", DisplayText.safe("\u{1F600}\u{200D}"), "\u{1F600}")
+    check("emoji: a ZWJ at the start goes", DisplayText.safe("\u{200D}\u{1F600}"), "\u{1F600}")
+    check("emoji: a skin tone survives", DisplayText.safe("\u{1F44D}\u{1F3FD}"), "\u{1F44D}\u{1F3FD}")
+    check("emoji: a heart with its variation selector survives", DisplayText.safe("\u{2764}\u{FE0F}"), "\u{2764}\u{FE0F}")
+    check("emoji: a variation selector after a letter goes", DisplayText.safe("a\u{FE0F}"), "a")
+    check("emoji: a flag survives", DisplayText.safe("\u{1F1F1}\u{1F1FB}"), "\u{1F1F1}\u{1F1FB}")
+    check("emoji: a family counts as one character when cutting", DisplayText.safe(String(repeating: family, count: 90)).count == 80 ? "80" : "other", "80")
+    check("marks: a combining accent survives", DisplayText.safe("e\u{301}cole"), "e\u{301}cole")
+    let marks = DisplayText.safe(String(repeating: "e\u{301}", count: 100))
+    check("marks: cutting never leaves a mark without its letter", "\(marks.count) \(marks.unicodeScalars.dropLast().last == "\u{301}")", "80 true")
+    check("title: a safe title", DisplayText.title(of: VaultItem(kind: .login, title: "Mail\u{202E}", website: "x.example")), "Mail")
+    check("title: no title uses the readable site", DisplayText.title(of: VaultItem(kind: .login, website: "https://xn--bcher-kva.example")), "b\u{FC}cher.example")
+    check("title: an invisible title uses the site", DisplayText.title(of: VaultItem(kind: .login, title: "\u{200B}", website: "example.com")), "example.com")
+    check("title: nothing at all is untitled", DisplayText.title(of: VaultItem(kind: .login)), "Untitled")
+
+    // The Mac App Group comes from the entitlement only when it carries a team identifier
+    check("group: team-prefixed", SharedVault.teamPrefixedGroup(in: ["ABCDE12345.local.kdbox.prototype"]) ?? "nil", "ABCDE12345.local.kdbox.prototype")
+    check("group: no team (empty prefix) is refused", SharedVault.teamPrefixedGroup(in: ["local.kdbox.prototype"]) ?? "nil", "nil")
+    check("group: leading dot is refused", SharedVault.teamPrefixedGroup(in: [".local.kdbox.prototype"]) ?? "nil", "nil")
+    check("group: group. identifier is refused", SharedVault.teamPrefixedGroup(in: ["group.local.kdbox.prototype"]) ?? "nil", "nil")
+    check("group: lower case team is refused", SharedVault.teamPrefixedGroup(in: ["abcde12345.local"]) ?? "nil", "nil")
+    check("group: nine characters is refused", SharedVault.teamPrefixedGroup(in: ["ABCDE1234.local.kdbox"]) ?? "nil", "nil")
+    check("group: eleven characters is refused", SharedVault.teamPrefixedGroup(in: ["ABCDE123456.local.kdbox"]) ?? "nil", "nil")
+    check("group: nothing after the team is refused", SharedVault.teamPrefixedGroup(in: ["ABCDE12345.", "ABCDE12345"]) ?? "nil", "nil")
+    check("group: empty dot after the team is refused", SharedVault.teamPrefixedGroup(in: ["ABCDE12345..x"]) ?? "nil", "nil")
+    check("group: the first valid one wins", SharedVault.teamPrefixedGroup(in: ["local.x", "ABCDE12345.a", "ZZZZZ99999.b"]) ?? "nil", "ABCDE12345.a")
+    check("group: empty list", SharedVault.teamPrefixedGroup(in: []) ?? "nil", "nil")
+
+    // The Keychain mode is decided once from the entitlements: provisioned only with the shared group, team-prefixed
+    let shared = "ABCDE12345.local.kdbox.prototype"
+    expect("keychain: provisioned with the shared group", BiometricKey.isProvisioned(keychainGroups: [shared], group: shared))
+    expect("keychain: not provisioned without the entitlement", !BiometricKey.isProvisioned(keychainGroups: nil, group: shared))
+    expect("keychain: not provisioned with another group only", !BiometricKey.isProvisioned(keychainGroups: ["ABCDE12345.other"], group: shared))
+    expect("keychain: not provisioned for the default group", !BiometricKey.isProvisioned(keychainGroups: ["group.local.kdbox.prototype"], group: "group.local.kdbox.prototype"))
+    expect("keychain: not provisioned for a group with no team", !BiometricKey.isProvisioned(keychainGroups: ["local.kdbox.prototype"], group: "local.kdbox.prototype"))
 }
 
 print(failures == 0 ? "all passed" : "\(failures) failed")
