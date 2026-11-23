@@ -42,6 +42,7 @@ extension BiometryKind {
 
     /// The kind this device had when the saved key was made. Messages use it when `current` is nil (a lockout hides it). Stored
     /// beside the vault reference, in the shared defaults where those are available; nothing secret.
+    // A local Mac build has no shared defaults (no App Group), so the provider cannot see this name and says "Biometric unlock".
     static var remembered: BiometryKind? {
         switch UserDefaults(suiteName: SharedVault.groupID)?.string(forKey: rememberedKey) {
         case "faceID": .faceID

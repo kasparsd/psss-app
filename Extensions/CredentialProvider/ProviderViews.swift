@@ -180,18 +180,18 @@ private struct LoginRow: View {
     var isDefault = false
     let action: () -> Void
 
-    private var detail: String {
-        let site = HostDisplay.shown(SharedVault.host(item.website))
-        let account = DisplayText.safe(item.account, empty: "")
-        return showsSite && !site.isEmpty ? (account.isEmpty ? site : "\(account) · \(site)") : account
-    }
+    private var account: String { DisplayText.safe(item.account, empty: "") }
+    /// Shown after the account, so a login for another site says which site it belongs to.
+    private var site: String { showsSite ? HostDisplay.shown(SharedVault.host(item.website)) : "" }
 
     var body: some View {
         let button = Button(action: action) {
             HStack {
                 VStack(alignment: .leading) {
                     Text(verbatim: DisplayText.title(of: item))
-                    if !detail.isEmpty { Text(verbatim: detail).foregroundStyle(.secondary) }
+                    // The account and the site are separate lines, so neither can run into the other.
+                    if !account.isEmpty { Text(verbatim: account).foregroundStyle(.secondary) }
+                    if !site.isEmpty { Text(verbatim: site).foregroundStyle(.secondary) }
                 }
                 Spacer()
                 Text(verb).foregroundStyle(Color.accentColor)
@@ -376,19 +376,21 @@ struct FillList: View {
         pending?.otherSite == false ? "Fill on a page that is not encrypted?" : "Fill a login from another site?"
     }
 
-    /// The lines of the confirmation, one paragraph each. The login's name, which comes from the vault, is alone in its line
-    /// and every site name is in a line of its own, after a fixed label, so no text from the vault shares a run with a site.
+    /// The lines of the confirmation, one paragraph each, in the same order on the Mac sheet and the iOS alert: the saved site,
+    /// the site being signed in to, the login's name and account, then the sentences. Each line about the login is a fixed label
+    /// and a value, so text from the vault never shares a run with one of our sentences.
     private func lines(for pending: Pending) -> [String] {
         let httpWarning = String(localized: "This page is not encrypted (http), so anything filled here can be read on the network.")
         guard pending.otherSite else { return [httpWarning] }
+        // Every line about the login is "fixed text: value", so text from the vault can never read as one of our sentences.
+        let unreadable = String(localized: "a site Psss could not read")
+        let website = pending.item.website.trimmingCharacters(in: .whitespacesAndNewlines)
         let saved = HostDisplay.shown(SharedVault.host(pending.item.website))
-        var lines = [DisplayText.title(of: pending.item)]
-        lines.append(saved.isEmpty ? String(localized: "This login has no website saved.") : String(localized: "Saved for \(saved)"))
-        if let host = site.host {
-            lines.append(String(localized: "You are signing in to \(HostDisplay.shown(host))"))
-        } else {
-            lines.append(String(localized: "Psss could not tell which site you are signing in to."))
-        }
+        var lines = [String(localized: "Saved for: \(website.isEmpty ? String(localized: "no website") : (saved.isEmpty ? unreadable : saved))")]
+        lines.append(String(localized: "You are signing in to: \(site.host.map { HostDisplay.shown($0) } ?? unreadable)"))
+        lines.append(String(localized: "Login: \(DisplayText.title(of: pending.item))"))
+        let account = DisplayText.safe(pending.item.account, empty: "")
+        if !account.isEmpty { lines.append(String(localized: "Account: \(account)")) }
         lines.append(String(localized: "Only continue if you trust this page."))
         if pending.plainHTTP { lines.append(httpWarning) }
         return lines
@@ -400,7 +402,7 @@ struct FillList: View {
 /// left, Cancel at the trailing edge, as in a standard Mac alert.
 private struct ConfirmSheet: View {
     let title: LocalizedStringKey
-    /// One `Text` per line: the login's own name is alone in its line, and each site name has a line of its own.
+    /// One `Text` per line, each "fixed text: value", so the login's own text stays in the value part of its line.
     let lines: [String]
     let confirmTitle: LocalizedStringKey
     let confirm: () -> Void

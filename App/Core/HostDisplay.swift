@@ -79,22 +79,26 @@ enum HostDisplay {
         let isPlain = scalars.allSatisfy { $0.isASCII && ($0.properties.isAlphabetic || ($0.value >= 48 && $0.value <= 57) || $0 == "-") }
         guard !isPlain else { return false }
         var base: Unicode.Scalar?  // the last scalar that is not a mark
+        var marksOnBase = 0
         var foreignDigitSets = Set<Int>(), hasForeignDigit = false, hasASCIIDigit = false
         for (index, scalar) in scalars.enumerated() {
             if isInvisibleOrConfusable(scalar) { return false }
             switch scalar.properties.generalCategory {
-            case .lowercaseLetter, .otherLetter, .modifierLetter: base = scalar
+            case .lowercaseLetter, .otherLetter, .modifierLetter: base = scalar; marksOnBase = 0
             case .decimalNumber:
-                base = scalar
+                base = scalar; marksOnBase = 0
                 if scalar.isASCII { hasASCIIDigit = true } else {
                     hasForeignDigit = true
                     foreignDigitSets.insert(Int(scalar.value) - Int(scalar.properties.numericValue ?? 0))
                 }
             case .nonspacingMark, .spacingMark:
-                guard index > 0, let base, !(base.isASCII && base.properties.isAlphabetic) else { return false }
+                guard index > 0, let base, markIsAllowed(scalar, on: base) else { return false }
+                marksOnBase += 1
+                if marksOnBase > 2 { return false }
+                continue
             default:
                 guard scalar == "-" else { return false }
-                base = scalar
+                base = scalar; marksOnBase = 0
             }
         }
         if hasForeignDigit {
@@ -104,6 +108,21 @@ enum HostDisplay {
             guard script(of: digit.value) == letterScripts.first else { return false }
         }
         return true
+    }
+
+    /// A combining mark may stay only on a base of its own script: no mark from the general combining blocks (U+0300 to U+036F,
+    /// U+1AB0 to U+1AFF, U+1DC0 to U+1DFF, U+FE20 to U+FE2F), which Latin, Cyrillic and Greek bases would need and which can
+    /// decorate any letter; never an enclosing mark (category Me) or an overlay (U+0334 to U+0338, U+20D2 to U+20F0).
+    /// Arabic harakat, Hebrew points, Indic vowel signs and Thai marks sit in their own script's block, so they pass on a
+    /// base of that script. Hiragana and Katakana count as one script for marks.
+    private static func markIsAllowed(_ mark: Unicode.Scalar, on base: Unicode.Scalar) -> Bool {
+        let v = mark.value
+        if mark.properties.generalCategory == .enclosingMark { return false }
+        if (0x334...0x338).contains(v) || (0x20D2...0x20F0).contains(v) { return false }
+        if (0x300...0x36F).contains(v) || (0x1AB0...0x1AFF).contains(v) || (0x1DC0...0x1DFF).contains(v) || (0xFE20...0xFE2F).contains(v) { return false }
+        let markScript = script(of: v), baseScript = script(of: base.value)
+        let kana: Set<String> = ["Hiragana", "Katakana"]
+        return markScript == baseScript || (kana.contains(markScript) && kana.contains(baseScript))
     }
 
     /// Characters that read as something else or as nothing, listed explicitly on top of the category checks.
@@ -132,27 +151,44 @@ enum HostDisplay {
     }
 
     /// The scripts of the letters in `text`. Digits, dots and hyphens belong to no script. Scripts that are not listed count
-    /// as one script each by Unicode block, so two unlisted scripts still read as mixed.
+    /// as one script each by Unicode block, so two unlisted scripts still read as mixed. The writing systems that Unicode's
+    /// security recommendations treat as one are one script here: Han with Hiragana and Katakana ("Japanese"), Han with
+    /// Bopomofo ("Chinese") and Han with Hangul ("Korean"). Han alone stays "Han".
     static func scripts(in text: String) -> Set<String> {
         var found = Set<String>()
         for scalar in text.unicodeScalars where scalar.properties.isAlphabetic {
             found.insert(script(of: scalar.value))
         }
+        guard found.count > 1, found.contains("Han") || found.isSubset(of: ["Hiragana", "Katakana"]) else { return found }
+        if found.isSubset(of: ["Han", "Hiragana", "Katakana"]) { return ["Japanese"] }
+        if found.isSubset(of: ["Han", "Bopomofo"]) { return ["Chinese"] }
+        if found.isSubset(of: ["Han", "Hangul"]) { return ["Korean"] }
         return found
     }
 
+    /// Script by block. Where a script has several blocks they share one name. Anything not listed is its own "Block n".
     private static let ranges: [(ClosedRange<UInt32>, String)] = [
         (0x41...0x5A, "Latin"), (0x61...0x7A, "Latin"), (0xAA...0xAA, "Latin"), (0xBA...0xBA, "Latin"), (0xC0...0x24F, "Latin"),
         (0x1E00...0x1EFF, "Latin"), (0x2C60...0x2C7F, "Latin"), (0xA720...0xA7FF, "Latin"), (0xFF21...0xFF5A, "Latin"),
         (0x370...0x3FF, "Greek"), (0x1F00...0x1FFF, "Greek"),
         (0x400...0x52F, "Cyrillic"), (0x1C80...0x1C8F, "Cyrillic"), (0x2DE0...0x2DFF, "Cyrillic"), (0xA640...0xA69F, "Cyrillic"),
-        (0x530...0x58F, "Armenian"), (0x590...0x5FF, "Hebrew"), (0x600...0x6FF, "Arabic"), (0x750...0x77F, "Arabic"),
-        (0x900...0x97F, "Devanagari"), (0xE00...0xE7F, "Thai"),
-        (0x3040...0x309F, "Hiragana"), (0x30A0...0x30FF, "Katakana"), (0x3400...0x4DBF, "Han"), (0x4E00...0x9FFF, "Han"),
-        (0x20000...0x2FFFF, "Han"), (0xAC00...0xD7AF, "Hangul"), (0x1100...0x11FF, "Hangul")
+        (0x530...0x58F, "Armenian"), (0x590...0x5FF, "Hebrew"),
+        (0x600...0x6FF, "Arabic"), (0x750...0x77F, "Arabic"), (0x8A0...0x8FF, "Arabic"), (0xFB50...0xFDFF, "Arabic"), (0xFE70...0xFEFE, "Arabic"),
+        (0x700...0x74F, "Syriac"), (0x860...0x86F, "Syriac"), (0x780...0x7BF, "Thaana"), (0x7C0...0x7FF, "NKo"),
+        (0x900...0x97F, "Devanagari"), (0xA8E0...0xA8FF, "Devanagari"), (0x980...0x9FF, "Bengali"), (0xA00...0xA7F, "Gurmukhi"),
+        (0xA80...0xAFF, "Gujarati"), (0xB00...0xB7F, "Oriya"), (0xB80...0xBFF, "Tamil"), (0xC00...0xC7F, "Telugu"),
+        (0xC80...0xCFF, "Kannada"), (0xD00...0xD7F, "Malayalam"), (0xD80...0xDFF, "Sinhala"),
+        (0xE00...0xE7F, "Thai"), (0xE80...0xEFF, "Lao"), (0xF00...0xFFF, "Tibetan"),
+        (0x1000...0x109F, "Myanmar"), (0xA9E0...0xA9FF, "Myanmar"), (0xAA60...0xAA7F, "Myanmar"),
+        (0x1780...0x17FF, "Khmer"), (0x19E0...0x19FF, "Khmer"), (0x1800...0x18AF, "Mongolian"),
+        (0x10A0...0x10FF, "Georgian"), (0x1C90...0x1CBF, "Georgian"), (0x2D00...0x2D2F, "Georgian"), (0x1200...0x139F, "Ethiopic"),
+        (0x3040...0x309F, "Hiragana"), (0x30A0...0x30FF, "Katakana"), (0x31F0...0x31FF, "Katakana"),
+        (0x3100...0x312F, "Bopomofo"), (0x31A0...0x31BF, "Bopomofo"),
+        (0x3005...0x3007, "Han"), (0x3400...0x4DBF, "Han"), (0x4E00...0x9FFF, "Han"), (0x20000...0x2FFFF, "Han"),
+        (0x1100...0x11FF, "Hangul"), (0x3130...0x318F, "Hangul"), (0xA960...0xA97F, "Hangul"), (0xAC00...0xD7AF, "Hangul"), (0xD7B0...0xD7FF, "Hangul")
     ]
 
-    private static func script(of value: UInt32) -> String {
+    static func script(of value: UInt32) -> String {
         ranges.first { $0.0.contains(value) }?.1 ?? "Block \(value >> 7)"
     }
 
