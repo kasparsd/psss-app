@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Conflict alert and lock notice mock</title>
+<style>
+:root{color-scheme:light dark;
+--page:#f5f5f7;--ink:#1d1d1f;--ink2:#5c5c61;--rule:#d2d2d7;--pcard:#fff;
+--screen:#f2f2f7;--card:#fff;--sep:rgba(60,60,67,.18);--lab:#000;--lab2:rgba(60,60,67,.62);
+--accent:#007aff;--accent-bg:rgba(0,122,255,.12);--accent-sel:rgba(0,122,255,.2);--red:#ff3b30;--red-bg:rgba(255,59,48,.12);--orange:#ff9500;--orange-bg:rgba(255,149,0,.14);
+--win:#fff;--side:#e8e8ed;--bar:#f4f4f6;--bezel:#1c1c1e;--field:rgba(120,120,128,.14);--dim:rgba(0,0,0,.32);--shadow:0 6px 24px rgba(0,0,0,.18);
+--t:17px;--b:13px}
+@media (prefers-color-scheme:dark){:root{
+--page:#161618;--ink:#f5f5f7;--ink2:#a1a1a6;--rule:#38383a;--pcard:#1f1f21;
+--screen:#000;--card:#1c1c1e;--sep:rgba(84,84,88,.65);--lab:#fff;--lab2:rgba(235,235,245,.6);
+--accent:#0a84ff;--accent-bg:rgba(10,132,255,.2);--accent-sel:rgba(10,132,255,.32);--red:#ff453a;--red-bg:rgba(255,69,58,.18);--orange:#ff9f0a;--orange-bg:rgba(255,159,10,.2);
+--win:#1e1e1e;--side:#2a2a2d;--bar:#2c2c2e;--bezel:#3a3a3c;--field:rgba(120,120,128,.28);--dim:rgba(0,0,0,.5);--shadow:0 6px 24px rgba(0,0,0,.6)}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font:16px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif}
+main{padding:28px 24px 80px;max-width:1700px;margin:0 auto}
+.prose{max-width:860px}
+h1{font-size:30px;line-height:1.2;margin:8px 0 8px}
+h2{font-size:22px;margin:44px 0 6px;padding-top:18px;border-top:1px solid var(--rule)}
+h3{font-size:17px;margin:26px 0 4px}
+p,li{color:var(--ink)}
+.muted{color:var(--ink2)}
+a{color:var(--accent)}
+.crumb{margin:0 0 6px}
+.frames{display:flex;flex-wrap:wrap;gap:30px 28px;align-items:flex-start;margin:18px 0}
+.fig{margin:0;display:flex;flex-direction:column;gap:10px}
+.fig.kphone{width:300px}
+.fig.kmac{width:800px}
+.fig.kmsh{width:560px}
+.fig .lbl{font-weight:600}
+.fig figcaption{color:var(--ink2);font-size:15px;line-height:1.45}
+.note{background:var(--pcard);border:1px solid var(--rule);border-radius:10px;padding:12px 16px;max-width:860px}
+.dec li{margin:0 0 14px}
+.dec .rej,.dec .why{color:var(--ink2)}
+table.cmp{border-collapse:collapse;max-width:860px}
+table.cmp td,table.cmp th{border-top:1px solid var(--rule);padding:6px 12px 6px 0;vertical-align:top;text-align:left}
+
+/* ---- everything inside a device uses exactly two sizes: --t (title) and --b (body) ---- */
+.phone,.win,.winback,.msheet,.malert,.menu{font-size:var(--b);line-height:1.35;font-weight:400;color:var(--lab)}
+.t{font-size:var(--t);font-weight:600;line-height:1.25}
+.s{color:var(--lab2)}
+.b{font-weight:600}
+.c{text-align:center}
+
+/* iPhone */
+.phone{width:300px;min-height:640px;border-radius:46px;background:var(--bezel);padding:8px;box-shadow:var(--shadow)}
+.phone .scr{position:relative;min-height:624px;border-radius:38px;background:var(--screen);overflow:hidden;display:flex;flex-direction:column}
+.sb{display:flex;justify-content:space-between;padding:12px 26px 4px;font-weight:600}
+.nav{display:flex;align-items:center;justify-content:space-between;padding:6px 14px;min-height:38px;gap:8px}
+.nav .mid{font-weight:600;text-align:center;flex:1}
+.nav .r{display:flex;gap:8px;align-items:center}
+.lt{padding:2px 14px 8px}
+.body{flex:1;padding:0 14px 14px}
+.pin{padding:10px 14px 18px;background:var(--screen);display:flex;flex-direction:column;gap:8px}
+.grp{background:var(--card);border-radius:12px;margin:0 0 6px;overflow:hidden}
+.row{padding:10px 14px;border-top:1px solid var(--sep);display:flex;align-items:center;gap:10px}
+.row:first-child{border-top:0}
+.row.col{flex-direction:column;align-items:stretch;gap:6px}
+.grow{flex:1;min-width:0}
+.spl{display:flex;justify-content:space-between;gap:8px}
+.sec{color:var(--lab2);padding:14px 14px 6px}
+.foot{color:var(--lab2);padding:6px 14px 10px}
+.pills{display:flex;gap:6px;overflow:hidden;padding:0 14px 10px;white-space:nowrap}
+.pill{padding:5px 11px;border-radius:999px;background:var(--field)}
+.pill.on{background:var(--accent);color:#fff}
+.search{margin:6px 14px 18px;padding:10px 16px;border-radius:999px;background:var(--card);color:var(--lab2);box-shadow:0 1px 6px rgba(0,0,0,.12)}
+.gear{display:inline-block;width:22px;height:22px;border-radius:50%;border:3px double var(--accent)}
+.ic{width:28px;height:28px;border-radius:7px;color:#fff;display:grid;place-items:center;font-weight:600;flex:none}
+.ic.c1{background:#5e8c6a}.ic.c2{background:#6f7bb5}.ic.c3{background:#b5846f}.ic.c4{background:#8e8e93}.ic.c5{background:#a56fb5}
+.ic.big{width:60px;height:60px;border-radius:14px}
+.hd{display:flex;flex-direction:column;align-items:center;gap:8px;padding:6px 0 14px}
+
+/* buttons: always a text label */
+.btn{display:inline-block;padding:6px 12px;border-radius:999px;background:var(--accent-bg);color:var(--accent);font-weight:600;white-space:nowrap}
+.btn.pri{background:var(--accent);color:#fff}
+.btn.red{background:var(--red-bg);color:var(--red)}
+.btn.plain{background:none;padding:6px 6px;font-weight:400}
+.btn.plainred{background:none;color:var(--red);padding:6px 6px;font-weight:400}
+.btn.full{display:block;text-align:center;padding:11px 12px;border-radius:14px}
+.btn.off{opacity:.4}
+.acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.card-note{background:var(--card);border-radius:12px;padding:12px 14px;margin:0 0 10px}
+.card-note.warn{border:2px solid var(--orange);background:var(--card)}
+.warnhd{display:flex;gap:8px;align-items:center;font-weight:600;margin-bottom:6px}
+.tri{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:5px;background:var(--orange);color:#fff;font-weight:700;flex:none}
+.pwd{letter-spacing:.12em}
+
+/* overlays */
+.dim{position:absolute;inset:0;background:var(--dim);display:flex;align-items:center;justify-content:center;padding:18px}
+.dim.bottom{align-items:flex-end}
+.dim.top{align-items:flex-start;padding-top:0}
+.alert{width:100%;max-width:262px;background:var(--card);border-radius:16px;overflow:hidden;text-align:center;box-shadow:var(--shadow)}
+.alert .m{padding:18px 16px 14px;display:flex;flex-direction:column;gap:6px}
+.alert .ab{border-top:1px solid var(--sep);padding:11px 8px;color:var(--accent)}
+.alert .ab.red{color:var(--red)}
+.alert .ab.bold{font-weight:600}
+.sheetb{width:100%;display:flex;flex-direction:column;gap:8px}
+.sheetb .g{background:var(--card);border-radius:14px;overflow:hidden;text-align:center}
+.sheetb .g .m{padding:12px 14px;color:var(--lab2)}
+.sheetb .g .ab{border-top:1px solid var(--sep);padding:12px;color:var(--accent)}
+.sheetb .g .ab.red{color:var(--red)}
+.sheetb .g .ab.bold{font-weight:600}
+.toast{position:absolute;left:14px;right:14px;bottom:76px;border-radius:999px;background:var(--card);box-shadow:var(--shadow);padding:8px 8px 8px 16px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.toast.mac{left:auto;right:auto;bottom:18px;left:50%;transform:translateX(-50%);width:max-content;max-width:90%}
+.sheetp{position:absolute;left:0;right:0;bottom:0;top:46px;background:var(--screen);border-radius:20px 20px 0 0;box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden}
+.card-white{background:var(--card)}
+
+/* Mac window */
+.win{width:800px;border-radius:12px;background:var(--win);box-shadow:var(--shadow);border:1px solid var(--sep);overflow:hidden;position:relative}
+.tb{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bar);border-bottom:1px solid var(--sep)}
+.lights{display:flex;gap:7px;margin-right:10px}
+.lights i{display:block;width:12px;height:12px;border-radius:50%}
+.lights i:nth-child(1){background:#ff5f57}.lights i:nth-child(2){background:#febc2e}.lights i:nth-child(3){background:#28c840}
+.tb .sp{flex:1}
+.fld{padding:4px 12px;border-radius:7px;background:var(--field);color:var(--lab2);min-width:130px}
+.cols{display:flex;min-height:430px}
+.side{width:190px;background:var(--side);padding:10px 8px;flex:none}
+.side .sh{color:var(--lab2);font-weight:600;padding:8px 8px 4px}
+.sr{display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:6px}
+.sr.sel{background:var(--accent-sel)}
+.sr .n{margin-left:auto;color:var(--lab2)}
+.si{width:14px;height:14px;border-radius:4px;border:2px solid var(--accent);flex:none}
+.lst{width:290px;border-right:1px solid var(--sep);flex:none;display:flex;flex-direction:column}
+.lh{padding:12px 14px 8px}
+.mrow{padding:7px 10px;border-radius:7px;margin:1px 8px;display:flex;gap:10px;align-items:center}
+.mrow.sel{background:var(--accent);color:#fff}
+.mrow.sel .s{color:rgba(255,255,255,.82)}
+.det{flex:1;padding:16px 18px;position:relative;min-width:0}
+.det .grp{background:var(--field);border-radius:10px}
+.det .row{padding:8px 12px}
+.det .sec{padding:12px 4px 6px}
+.det .foot{padding:6px 4px 8px}
+.lfoot{padding:10px 14px;color:var(--lab2)}
+.empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:12px;padding:20px 28px;color:var(--lab2)}
+.empty .btn{margin-top:4px}
+.winback{position:relative;background:var(--side);border-radius:12px;box-shadow:var(--shadow);border:1px solid var(--sep);padding:0 0 28px;width:560px}
+.winback .tb{border-radius:12px 12px 0 0}
+.winback .dimb{position:absolute;inset:0;background:var(--dim);border-radius:12px}
+.msheet{position:relative;width:480px;margin:36px auto 0;background:var(--win);border-radius:12px;box-shadow:var(--shadow);border:1px solid var(--sep);padding:18px 20px 18px;display:flex;flex-direction:column;gap:12px}
+.msheet .grp{background:var(--field);border-radius:10px}
+.msheet .row{padding:8px 12px}
+.msheet .sec{padding:8px 2px 4px}
+.msheet .foot{padding:6px 2px}
+.mbtns{display:flex;gap:8px;justify-content:flex-end;align-items:center}
+.mbtns .btn{border-radius:6px;font-weight:400;padding:4px 14px;background:var(--field);color:var(--lab)}
+.mbtns .btn.pri{background:var(--accent);color:#fff}
+.mbtns .btn.red{background:var(--field);color:var(--red)}
+.win .btn,.msheet .btn,.malert .btn{border-radius:6px}
+.win .btn.plain,.win .btn.plainred,.msheet .btn.plain,.msheet .btn.plainred{border-radius:6px}
+.malert{position:absolute;left:50%;top:70px;transform:translateX(-50%);width:300px;background:var(--win);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--sep);padding:18px 20px;display:flex;flex-direction:column;gap:10px;text-align:center;align-items:center}
+.malert .bt{display:flex;flex-direction:column;gap:8px;width:100%;margin-top:6px}
+.malert .bt .btn{display:block;text-align:center;padding:5px 10px;background:var(--field);color:var(--lab);font-weight:400}
+.malert .bt .btn.pri{background:var(--accent);color:#fff}
+.malert .bt .btn.red{color:var(--red)}
+.mattach{position:absolute;left:50%;top:40px;transform:translateX(-50%);width:380px}
+.mattach.malert{top:41px;border-radius:0 0 14px 14px;transform:translateX(-50%)}
+.dimw{position:absolute;inset:0;background:var(--dim);z-index:1}
+.malert{z-index:2}.menu{z-index:3}
+.menu{position:absolute;background:var(--win);border:1px solid var(--sep);border-radius:8px;box-shadow:var(--shadow);padding:4px;min-width:190px}
+.menu .mi{padding:3px 10px;border-radius:5px;display:flex;justify-content:space-between;gap:20px}
+.menu .mi.hot{background:var(--accent);color:#fff}
+.menu .mi.dis{color:var(--lab2)}
+.menu hr{border:0;border-top:1px solid var(--sep);margin:4px 0}
+.mbar{display:flex;gap:16px;padding:4px 12px;background:var(--bar);border-bottom:1px solid var(--sep)}
+.mbar .on{background:var(--accent);color:#fff;padding:0 8px;border-radius:5px}
+.lockc{display:flex;flex-direction:column;gap:14px;padding:20px 22px;flex:1;justify-content:center}
+.inp{padding:11px 12px;border-radius:9px;background:var(--field);border:1px solid var(--sep)}
+.inp.err{border-color:var(--sep)}
+.errt{color:var(--red)}
+.lockbox{width:330px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+.spin{display:flex;gap:8px;align-items:center;justify-content:center;color:var(--lab2)}
+.bar{height:6px;border-radius:3px;background:var(--field);overflow:hidden}
+.bar i{display:block;height:100%;width:55%;background:var(--accent)}
+
+.stack{display:flex;flex-direction:column;gap:10px}
+.stack .grp{margin:0}
+.wl{margin-top:8px}
+.kind{display:flex;gap:10px;align-items:flex-start}
+.menu .mi.sepa{padding:0}
+</style>
+</head>
+<body>
+<main>
+<p class="crumb"><a href="index.html">All mocks</a></p>
+
+<h1>The conflict alert and the lock notice</h1>
+<div class="prose"><p class="muted">These two are already in the code and have not been seen by the owner in one place. They are drawn as the code has them, with the exact strings from <code>App/Features/VaultView.swift</code> and <code>App/Features/VaultFileViews.swift</code>. The alert is shown over the editor, which is where a refused save normally happens. Nothing is redesigned on this page. Wording I would change is listed at the end, separately.</p>
+<div class="note"><strong>When they appear.</strong>
+<ul>
+<li><strong>The alert</strong> appears when a change (a save, a delete, a restore, an import write) is refused because the vault file was changed by another app or device after Psss last read it. The refused change is kept in memory while the alert is up.</li>
+<li><strong>Reload Vault</strong> reads the file again and drops the refused change. If the saved Face ID or Touch ID key no longer opens the changed file, Psss locks and shows the notice below.</li>
+<li><strong>Save My Change Anyway</strong> repeats the change over the file without the check and keeps the replaced file as one of the backup copies on this device. <strong>Cancel</strong> leaves things as the file has them; the form stays open.</li>
+</ul></div></div><h2>1. The conflict alert</h2><div class="frames"><figure class="fig kphone"><div class="lbl">1. iPhone: alert</div><div class="phone"><div class="scr"><div class="sb"><span>9:41</span><span class="s">Wi-Fi</span></div><div class="nav"><span>Cancel</span><span class="mid">Login</span><span class="r"><span class="btn pri">Save</span></span></div><div class="body" style="padding-top:8px"><div class="grp"><div class="row "><div class="grow"><div class="s">Website</div><div>acornfitness.example</div></div></div><div class="row "><div class="grow"><div class="s">Username</div><div>alex@example.net</div></div></div><div class="row "><div class="grow"><div class="s">Password</div><div><span class="pwd">••••••••</span></div></div></div><div class="row "><div class="grow"><div class="s">Notes</div><div>Locker 214</div></div></div></div><div class="grp"><div class="row "><div class="grow c" style="color:var(--red)">Delete Item</div></div></div><div class="foot">Moves this item to Recently Deleted. You can bring it back for 30 days.</div></div><div class="dim"><div class="alert"><div class="m"><div class="t">The vault changed elsewhere</div><div>The vault file was changed by another app or device since Psss last read it. Reload shows that version and discards the change you just made. Save My Change Anyway writes the vault as Psss has it, with your change, over the file; the version it replaces is kept as a backup copy on this device.</div></div><div class="ab ">Reload Vault</div><div class="ab red">Save My Change Anyway</div><div class="ab bold">Cancel</div></div></div></div></div><figcaption>The alert over the editor after Save was pressed. Title, message and three buttons are the code's strings. Save My Change Anyway has the destructive role, so it is red. Cancel is the cancel role, so it is bold and last. The system draws the buttons stacked because the labels are long.</figcaption></figure><figure class="fig kmac"><div class="lbl">2. Mac: alert</div><div class="win"><div class="tb"><div class="lights"><i></i><i></i><i></i></div><span class="b"></span><span class="sp"></span><span class="btn ">Add</span><span class="gear" title="Setup"></span><span class="fld">Search</span></div><div class="cols"><div class="side"><div class="sh">Personal</div><div class="sr"><span class="si"></span><span>Recent</span><span class="n">9</span></div><div class="sr"><span class="si"></span><span>Most used</span><span class="n">10</span></div><div class="sr sel"><span class="si"></span><span>All items</span><span class="n">340</span></div><div class="sr"><span class="si"></span><span>Logins</span><span class="n">300</span></div><div class="sr"><span class="si"></span><span>Credit cards</span><span class="n">10</span></div><div class="sr"><span class="si"></span><span>Secure notes</span><span class="n">20</span></div><div class="sr"><span class="si"></span><span>Custom items</span><span class="n">30</span></div><div class="sr"><span class="si"></span><span>Recently Deleted</span><span class="n">4</span></div><div class="sh">Filters</div><div class="sr"><span class="si"></span><span>Passkeys</span><span class="n">6</span></div><div class="sr"><span class="si"></span><span>Codes</span><span class="n">41</span></div><div class="sr"><span class="si"></span><span>With notes</span><span class="n">52</span></div></div><div class="lst"><div class="lh"><div class="t">All items</div><div class="s">340 items</div></div><div class="mrow"><span class="ic c1">A</span><div class="grow"><div>acornfitness.example</div><div class="s">alex@example.net</div></div></div><div class="mrow"><span class="ic c3">B</span><div class="grow"><div>birchlibrary.example</div><div class="s">alex</div></div></div></div><div class="det"><div class="empty">No item selected</div></div></div><div class="dimw"></div><div class="malert mattach"><div class="t">The vault changed elsewhere</div><div>The vault file was changed by another app or device since Psss last read it. Reload shows that version and discards the change you just made. Save My Change Anyway writes the vault as Psss has it, with your change, over the file; the version it replaces is kept as a backup copy on this device.</div><div class="bt"><span class="btn pri">Reload Vault</span><span class="btn red">Save My Change Anyway</span><span class="btn ">Cancel</span></div></div></div><figcaption>The same alert on Mac, as the system draws a sheet with stacked buttons. Reload Vault is drawn as the default button; the real default is the system's choice for the first non-destructive button and I have not run it. The message is identical.</figcaption></figure></div><p class="prose muted"><strong>iPad</strong>: the centered system alert, as on iPhone, with the same three buttons and message.</p><h2>2. The lock screen after Reload Vault</h2><div class="frames"><figure class="fig kphone"><div class="lbl">3. iPhone: lock notice, no Face ID</div><div class="phone"><div class="scr"><div class="sb"><span>9:41</span><span class="s">Wi-Fi</span></div><div class="lockc" style="padding:20px 22px"><div class="lockbox" style="width:100%;max-width:340px;gap:16px"><div><div class="spl" style="align-items:center"><span>Unlock Vault:</span><span class="btn ">Personal ⌄</span></div><div class="s">Personal.kdbx · iCloud Drive › Documents</div></div><div style="display:flex;gap:8px;align-items:center"><div class="inp grow s">Vault Password</div></div><div class="errt">The vault was changed by another app or device and needs your vault password again.</div><div class="spl" style="align-items:center"><span>Key file (optional)</span><span class="btn ">Choose…</span></div><span class="btn pri full">Unlock Personal</span><div class="s c">Psss cannot reset or recover a vault password. A key file is only needed if you added one when you created this vault.</div><div class="acts" style="justify-content:center"><span class="btn ">What Is This?</span><span class="btn ">Forgot Password?</span></div></div></div></div></div><figcaption>Reload Vault was chosen and the saved key no longer opens the file, so Psss locked. The notice is the red problem line, in the same place as a wrong-password message, above the key file row. It is the code's string; the screen around it is the existing KeePass lock screen with one text size. This is the case with Face ID off.</figcaption></figure><figure class="fig kphone"><div class="lbl">4. iPhone: what Face ID users probably see</div><div class="phone"><div class="scr"><div class="sb"><span>9:41</span><span class="s">Wi-Fi</span></div><div class="lockc" style="padding:20px 22px"><div class="lockbox" style="width:100%;max-width:340px;gap:16px"><div><div class="spl" style="align-items:center"><span>Unlock Vault:</span><span class="btn ">Personal ⌄</span></div><div class="s">Personal.kdbx · iCloud Drive › Documents</div></div><div style="display:flex;gap:8px;align-items:center"><div class="inp grow s">Vault Password</div><span class="btn ">Face ID</span></div><div class="errt">Face ID no longer opens Personal, because the vault was changed elsewhere. Enter the vault password once and Face ID is turned on again.</div><div class="spl" style="align-items:center"><span>Key file (optional)</span><span class="btn ">Choose…</span></div><span class="btn pri full">Unlock Personal</span><div class="s c">Psss cannot reset or recover a vault password. A key file is only needed if you added one when you created this vault.</div><div class="acts" style="justify-content:center"><span class="btn ">What Is This?</span><span class="btn ">Forgot Password?</span></div></div></div></div></div><figcaption>By reading the code, not by running it: with Face ID on, the lock screen asks for Face ID at once, and that attempt starts by clearing the problem line. When it fails because the key is stale, the line becomes the Face ID sentence shown here, and the lock notice is gone. So people with Face ID on would probably never see the notice. Please run it on a device before relying on this.</figcaption></figure><figure class="fig kmac"><div class="lbl">3. Mac: lock notice, no Touch ID</div><div class="win"><div class="tb"><div class="lights"><i></i><i></i><i></i></div><span class="b">Psss</span></div><div style="min-height:470px;display:flex;align-items:center;justify-content:center;padding:24px"><div class="lockbox" style="width:100%;max-width:340px;gap:16px"><div><div class="spl" style="align-items:center"><span>Unlock Vault:</span><span class="btn ">Personal ⌄</span></div><div class="s">Personal.kdbx · iCloud Drive › Documents</div></div><div style="display:flex;gap:8px;align-items:center"><div class="inp grow s">Vault Password</div></div><div class="errt">The vault was changed by another app or device and needs your vault password again.</div><div class="spl" style="align-items:center"><span>Key file (optional)</span><span class="btn ">Choose…</span></div><span class="btn pri full">Unlock Personal</span><div class="s c">Psss cannot reset or recover a vault password. A key file is only needed if you added one when you created this vault.</div><div class="acts" style="justify-content:center"><span class="btn ">What Is This?</span><span class="btn ">Forgot Password?</span></div></div></div></div><figcaption>The same lock screen on Mac, with the notice. Mac uses the same single column, a label and bordered pop-up for the vault, and one filled button.</figcaption></figure><figure class="fig kmac"><div class="lbl">4. Mac: what Touch ID users probably see</div><div class="win"><div class="tb"><div class="lights"><i></i><i></i><i></i></div><span class="b">Psss</span></div><div style="min-height:470px;display:flex;align-items:center;justify-content:center;padding:24px"><div class="lockbox" style="width:100%;max-width:340px;gap:16px"><div><div class="spl" style="align-items:center"><span>Unlock Vault:</span><span class="btn ">Personal ⌄</span></div><div class="s">Personal.kdbx · iCloud Drive › Documents</div></div><div style="display:flex;gap:8px;align-items:center"><div class="inp grow s">Vault Password</div><span class="btn ">Touch ID</span></div><div class="errt">Touch ID no longer opens Personal, because the vault was changed elsewhere. Enter the vault password once and Touch ID is turned on again.</div><div class="spl" style="align-items:center"><span>Key file (optional)</span><span class="btn ">Choose…</span></div><span class="btn pri full">Unlock Personal</span><div class="s c">Psss cannot reset or recover a vault password. A key file is only needed if you added one when you created this vault.</div><div class="acts" style="justify-content:center"><span class="btn ">What Is This?</span><span class="btn ">Forgot Password?</span></div></div></div></div><figcaption>Mac with Touch ID on: the same replacement as on iPhone (by reading, not run).</figcaption></figure></div><h2>3. Wording I would change (not applied)</h2>
+<table class="cmp">
+<tr><th>Now</th><th>Proposed</th><th>Why</th></tr>
+<tr><td>Title: “The vault changed elsewhere”</td><td>“Personal was changed elsewhere” (the vault's name)</td><td>The experience doc says a conflict names the vault and the item. It also avoids a screen full of the same title when there are two vaults.</td></tr>
+<tr><td>Message: “The vault file was changed by another app or device since Psss last read it. Reload shows that version and discards the change you just made. Save My Change Anyway writes the vault as Psss has it, with your change, over the file; the version it replaces is kept as a backup copy on this device.”</td><td>“Another app or device saved this vault after Psss last read it. Your change to “Acorn Fitness” was not saved. Reload Vault shows that version and drops your change. Replace with My Version saves yours; the version it replaces is kept as a backup on this device.”</td><td>Drops “vault file”, “as Psss has it” and “over the file”, names the change that was refused, and keeps each button's effect in the order the buttons appear. Still two sentences per button, which the alert cannot avoid.</td></tr>
+<tr><td>Button “Reload Vault”</td><td>“Discard My Change and Reload”</td><td>The current label hides the cost: the change is lost. Longer, but the system wraps it.</td></tr>
+<tr><td>Button “Save My Change Anyway”</td><td>“Replace with My Version”</td><td>“Anyway” says it is risky but not what it overwrites. This names what happens to the other copy. Keeps the destructive role.</td></tr>
+<tr><td>Button “Cancel”</td><td>“Keep Editing”, only when an editor is open</td><td>Today Cancel leaves the form open with the change in it, but nothing says so.</td></tr>
+<tr><td>Notice: “The vault was changed by another app or device and needs your vault password again.”</td><td>“Another app or device changed this vault, so Psss needs your vault password to open the new version. Your last change was not saved.”</td><td>Says why a password is needed and that the change did not survive, which is the question the person has at this moment.</td></tr>
+<tr><td>The notice is shown in red problem text</td><td>The same line in primary text with a warning mark, as the import errors on page 3</td><td>Red is reserved for deletion. It is not a notice about deleting. Wrong-password messages on this screen would follow.</td></tr>
+<tr><td>The notice can be replaced by the Face ID sentence (see frame 4)</td><td>Show the notice first, and let the Face ID attempt add to it, or skip the automatic Face ID attempt when the notice is present</td><td>A person asked for Face ID right after being told the vault changed, then told Face ID no longer works, gets two messages for one cause.</td></tr>
+</table><h2 id="decisions">Decisions for the owner</h2><ol class="dec"><li><strong>Leave the alert and the lock notice exactly as they are until the owner has looked at them here.</strong><div class="rej">Rejected: Rewrite them in this task (the brief says not to redesign).</div><div class="why">Why: The wording changes above are suggestions, each independent; none is needed to build the other mocks.</div></li><li><strong>Recently Deleted and the restore failure reuse this alert with no new wording.</strong><div class="rej">Rejected: A separate message per action.</div><div class="why">Why: One concept. If the message is changed above, every use improves at once.</div></li><li><strong>If the alert is reworded, name the item that was refused.</strong><div class="rej">Rejected: Name only the vault.</div><div class="why">Why: Experience doc, screen 13: conflicts name the vault and the item.</div></li></ol><h2>Conflicts with Apple's guidance</h2><ol class="dec"><li><strong>Three buttons and a long message in an alert.</strong><div class="why">The HIG prefers two buttons, a short title and a message of one or two lines, and warns against a long message. The alert has to choose between a lossy action, a destructive action and a dismissal, and a message that explains both. A sheet with two explained choices would match the guidance better, at the cost of a new screen; this is the reason for the rewording above rather than a redesign.</div></li><li><strong>A destructive button that is not the cancel button, in the middle.</strong><div class="why">The HIG puts the destructive role where it is easy to tell apart and never as the default. The code does that. Order on iOS (Reload Vault first) puts the safer action first, which is right.</div></li><li><strong>The lock notice in red.</strong><div class="why">Apple's own lock and sign-in screens use red for failures, so the code follows the platform, but the project reserves red for deletion; see the table.</div></li></ol>
+</main>
+</body>
+</html>
