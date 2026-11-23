@@ -102,10 +102,12 @@ extension View {
                     : String(localized: "Read \(parsed.items.count) logins from the file. Skipped \(parsed.skipped) empty rows.")
             } catch let failure as CSVImport.Failure {
                 problem.wrappedValue = failure.message
+            } catch VaultStoreError.changedOnDisk {
+                problem.wrappedValue = String(localized: "Nothing was imported, because the vault file was changed by another app or device. Lock and unlock the vault, then import again.")
             } catch let failure as VaultStoreError {
-                problem.wrappedValue = failure.message
+                problem.wrappedValue = String(localized: "Nothing was imported. \(failure.message)")
             } catch {
-                problem.wrappedValue = error.localizedDescription
+                problem.wrappedValue = String(localized: "Nothing was imported. \(error.localizedDescription)")
             }
         }
     }

@@ -728,9 +728,9 @@ extension KDBXError {
 extension VaultStoreError {
     var message: String {
         switch self {
-        case .changedOnDisk: String(localized: "The vault file was changed by another app or device since you opened it.")
-        case .fileMissing: String(localized: "Psss cannot find the vault file. It may have moved or be unavailable.")
-        case .writeFailed(let reason): String(localized: "The vault could not be saved. \(reason)")
+        case .changedOnDisk: String(localized: "The vault file was changed by another app or device since Psss last read it. Nothing was changed. Lock and unlock the vault to see the current version, then try again.")
+        case .fileMissing: String(localized: "Psss cannot find the vault file. It may have moved or be unavailable, so nothing was changed. Check where the file is, then try again.")
+        case .writeFailed(let reason): String(localized: "The vault could not be saved, so nothing was changed. \(reason) Check that the file can be written and the disk has room, then try again.")
         case .unreadable: String(localized: "Psss cannot read the vault file right now, so nothing was saved. It may still be downloading from iCloud. Try again in a moment.")
         }
     }

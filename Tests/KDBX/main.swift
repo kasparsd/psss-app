@@ -756,6 +756,35 @@ func stringFlag(_ entry: XNode, _ key: String) -> String? {
 }
 func hasString(_ entry: XNode, _ key: String) -> Bool { EntryMapping.string(entry, key) != nil }
 
+// Speed budgets are multiples of a calibration, not of the clock: how long this machine takes right now to serialize a fixed
+// document of 1,000 entries and list it. A loaded machine makes the unit longer, so a budget stretches with it, and a ceiling
+// stays only to catch a real blow-up (the quiet-machine ratio below, times ten).
+let calibrationDocument: KDBXDocument = {
+    let doc = try! KDBX.create(name: "Calibration", credentials: .init(password: "pw"), kdf: .aesForTesting(rounds: 1000))
+    doc.upsert((0..<1_000).map { VaultItem(kind: .login, title: "C\($0)", account: "u\($0)@example.net", website: "https://c\($0).example", secret: "p\($0)", notes: "n") })
+    return doc
+}()
+/// The fastest of five runs, in seconds, measured now.
+func calibrationUnit() -> Double {
+    var best = Double.infinity
+    for _ in 0..<5 {
+        let start = Date()
+        _ = XMLTree.serialize(calibrationDocument.root)
+        _ = calibrationDocument.items()
+        best = min(best, Date().timeIntervalSince(start))
+    }
+    return best
+}
+/// Checks that `measured` seconds is within `ratio` calibration units (the ratio seen on a quiet machine, times ten, plus a little slack), measured
+/// again just now, and prints both.
+func withinBudget(_ name: String, _ measured: Double, quietRatio: Double) {
+    let unit = calibrationUnit()
+    let limit = (10 * quietRatio + 20) * unit        // ten times the quiet ratio, plus 20 units of slack for a stall on a busy machine
+    print(String(format: "     budget %@: %.0f ms measured, %.1f units of %.1f ms (a quiet machine takes about %.1f units; limit %.0f ms)", name as NSString, measured * 1000, measured / unit, unit * 1000, quietRatio, limit * 1000))
+    expect(name, measured <= limit)
+}
+print(String(format: "     calibration unit: %.2f ms", calibrationUnit() * 1000))
+
 // Parsing times is fast: no formatter per call.
 do {
     let texts = ["2021-03-04T05:06:07Z", "v2HS1w4AAAA=", "2021-03-04T05:06:07.250Z", "2021-03-04T07:06:07+02:00"]
@@ -764,7 +793,7 @@ do {
     for i in 0..<100_000 { sum += KeePassTime.date(texts[i % 3])?.timeIntervalSince1970 ?? 0 }
     let took = Date().timeIntervalSince(start)
     print("     100000 time parses took \(Int(took * 1000)) ms")
-    expect("100,000 time parses take well under a second", took < 0.5 && sum > 0)
+    withinBudget("100,000 time parses stay within the budget", took, quietRatio: 1.7); expect("and parsed", sum > 0)
     expect("an ISO time with an offset still reads", KeePassTime.date(texts[3]) == at(1_614_834_367))
     expect("year 1 is the KDBX epoch, as the base64 form has it (the system parser is two days off there)", KeePassTime.date("0001-01-01T00:00:00Z") == KeePassTime.date("AAAAAAAAAAA="))
     expect("leap days and old dates parse like the system parser", ["2024-02-29T23:59:59Z", "1999-12-31T00:00:00Z", "2100-03-01T12:00:00Z"].allSatisfy {
@@ -1713,7 +1742,7 @@ do {
         return doc
     }
     func seconds(_ body: () -> Void) -> Double { let start = Date(); body(); return Date().timeIntervalSince(start) }
-    func listing(_ doc: KDBXDocument) -> Double { var count = 0; let t = seconds { count = doc.items().count }; expect("every generated entry is listed", count > 0); return t }
+    func listing(_ doc: KDBXDocument) -> Double { var count = 0; let t = (0..<3).map { _ in seconds { count = doc.items().count } }.min()!; expect("every generated entry is listed", count > 0); return t }
     func fmt(_ t: Double) -> String { String(format: "%.2f s", t) }
 
     var times: [Int: Double] = [:]
@@ -1725,12 +1754,15 @@ do {
         if count == 5_000 || count == 50_000 { print("     deep copy of the XML tree of \(count) entries (the snapshot before a store change): \(fmt(seconds { _ = doc.root.deepCopy() }))") }
         check("items() lists all \(count)", "\(doc.items().count)", "\(count)")
     }
-    expect("items() on 20,000 entries takes under 1 second", times[20_000]! < 1.0)
-    expect("items() on 50,000 entries takes under 2.5 seconds", times[50_000]! < 2.5)
-    expect("items() scales linearly: 20,000 take at most about 5 times as long as 5,000", times[20_000]! <= 5.5 * max(times[5_000]!, 0.02))
+    withinBudget("items() on 20,000 entries stays within the budget", times[20_000]!, quietRatio: 12.5)
+    withinBudget("items() on 50,000 entries stays within the budget", times[50_000]!, quietRatio: 31)
+    let floorTime = 0.1 * calibrationUnit()
+    print(String(format: "     items() scaling: 20,000 over 5,000 = %.1f, 50,000 over 5,000 = %.1f (linear is 4 and 10)", times[20_000]! / max(times[5_000]!, floorTime), times[50_000]! / max(times[5_000]!, floorTime)))
+    expect("items() scales linearly: 20,000 take at most 8 times as long as 5,000", times[20_000]! <= 8 * max(times[5_000]!, floorTime))
+    expect("and 50,000 at most 20 times as long as 5,000", times[50_000]! <= 20 * max(times[5_000]!, floorTime))
     let tBase64 = listing(try generated(20_000))
     print("     items() on 20000 entries with KDBX 4 times: \(fmt(tBase64))")
-    expect("and with KDBX 4 times too", tBase64 < 1.0)
+    withinBudget("and with KDBX 4 times too", tBase64, quietRatio: 13)
 
     // A batch save is one pass and one commit.
     let fm = FileManager.default
@@ -1746,7 +1778,7 @@ do {
     let backupsBefore = Set(((try? fm.contentsOfDirectory(atPath: VaultFiles.storageRoot.appendingPathComponent("Backups/\(id.uuidString)").path)) ?? []))
     let tSave = try { () throws -> Double in let start = Date(); try store.save(batch); return Date().timeIntervalSince(start) }()
     print("     save of 2000 new items in one call: \(fmt(tSave))")
-    expect("saving 2,000 new items in one call takes under 2 seconds", tSave < 2.0)
+    withinBudget("saving 2,000 new items in one call stays within the budget", tSave, quietRatio: 5.5)
     check("and they are all there", "\(store.items().count)", "2000")
     let backupsAfter = Set(((try? fm.contentsOfDirectory(atPath: VaultFiles.storageRoot.appendingPathComponent("Backups/\(id.uuidString)").path)) ?? []))
     check("one commit: one rollback copy", "\(backupsAfter.subtracting(backupsBefore).count)", "1")
@@ -1757,7 +1789,7 @@ do {
         let start = Date(); try store.save(changed); return Date().timeIntervalSince(start)
     }()
     print("     save of 2000 edited items in one call: \(fmt(tEdit))")
-    expect("editing 2,000 items in one call takes under 2 seconds", tEdit < 2.0)
+    withinBudget("editing 2,000 items in one call stays within the budget", tEdit, quietRatio: 8.5)
     VaultFiles.removeBackups(for: id)
     try? fm.removeItem(at: dir)
 
@@ -1769,12 +1801,12 @@ do {
     let tBin = seconds { recycled = binned.recycledItems().count }
     print("     recycledItems() with 2000 binned entries: \(fmt(tBin))")
     check("all 2,000 are in the bin", "\(recycled) \(binned.items().count)", "2000 0")
-    expect("recycledItems() with 2,000 entries takes under half a second", tBin < 0.5)
+    withinBudget("recycledItems() with 2,000 entries stays within the budget", tBin, quietRatio: 1.5)
     var emptied = 0
     let tEmpty = seconds { emptied = binned.emptyRecycleBin() }
     print("     emptyRecycleBin() with 2000 entries: \(fmt(tEmpty))")
     check("emptying removes them all", "\(emptied) \(binned.recycledItems().count)", "2000 0")
-    expect("emptying 2,000 entries takes under 2 seconds", tEmpty < 2.0)
+    withinBudget("emptying 2,000 entries stays within the budget", tEmpty, quietRatio: 1.0)
 }
 
 
@@ -2364,6 +2396,14 @@ do {
     check("nothing is hidden", "\(doc.items().count) \(doc.recycledItems().count)", "2 0")
     setLocationChanged(entryNode(doc, a.id)!, 1)
     check("and a purge deletes nothing", "\(doc.purgeRecycleBin(olderThan: 0, now: Date()))", "0")
+    // A delete then makes a fresh bin with the usual name, and leaves the old groups alone: ordinary groups, their entries visible.
+    let oldID = bin.child("UUID")!.text
+    let c = VaultItem(kind: .login, title: "C", website: "c.example", secret: "c")
+    doc.upsert(c)
+    doc.moveToRecycleBin(c.id)
+    check("a delete makes one fresh bin, named like the old one", "\(doc.recycleBinID != nil && doc.recycleBinID != oldID) \(doc.rootGroup!.children(named: "Group").filter { $0.child("Name")?.text == "Recycle Bin" }.count)", "true 2")
+    expect("the old groups' entries are visible in items() again", Set(doc.items().map(\.title)) == ["A", "B"] && doc.recycledItems().map(\.item.title) == ["C"])
+    check("a purge takes only what is in the fresh bin; the old groups' entries stay", "\(doc.purgeRecycleBin(olderThan: 0, now: Date().addingTimeInterval(1000 * dayLength))) \(count(doc, a.id)) \(count(doc, b.id)) \(doc.items().count)", "1 1 1 2")
 }
 
 // Batches: one pass and one write, however many.
@@ -2553,17 +2593,17 @@ do {
     let moved = Date().timeIntervalSince(started)
     print("     moving \(chosen.count) of 50000 entries to the bin in one call, with the save: \(String(format: "%.2f s", moved))")
     check("they are all in the bin", "\(store.recentlyDeleted().count) \(store.items().count)", "2500 47500")
-    expect("2,500 moved at 50,000 entries takes under 3 seconds including the save", moved < 3.0)
+    withinBudget("2,500 moved at 50,000 entries, with the save, stay within the budget", moved, quietRatio: 75)
     let t2 = Date()
     try store.restore(chosen)
     let restored = Date().timeIntervalSince(t2)
     print("     restoring them in one call: \(String(format: "%.2f s", restored))")
-    expect("and restoring them is as fast", restored < 3.0 && store.items().count == 50_000)
+    withinBudget("and restoring them", restored, quietRatio: 75); expect("all are back", store.items().count == 50_000)
     let t3 = Date()
     try store.deletePermanently(chosen)
     let deleted = Date().timeIntervalSince(t3)
     print("     deleting them for good in one call: \(String(format: "%.2f s", deleted))")
-    expect("and deleting them for good", deleted < 3.0 && store.items().count == 47_500)
+    withinBudget("and deleting them for good", deleted, quietRatio: 75); expect("and they are gone", store.items().count == 47_500)
     VaultFiles.removeBackups(for: id)
     try? fm.removeItem(at: dir)
 }
@@ -2806,7 +2846,11 @@ do {  // Provider follow-ups: several identifiers, loopback as written, readable
     check("emoji: a heart with its variation selector survives", DisplayText.safe("\u{2764}\u{FE0F}"), "\u{2764}\u{FE0F}")
     check("emoji: a variation selector after a letter goes", DisplayText.safe("a\u{FE0F}"), "a")
     check("emoji: a flag survives", DisplayText.safe("\u{1F1F1}\u{1F1FB}"), "\u{1F1F1}\u{1F1FB}")
-    check("emoji: a family counts as one character when cutting", DisplayText.safe(String(repeating: family, count: 90)).count == 80 ? "80" : "other", "80")
+    do {  // a long run of families is cut by the 320 scalar limit, and says so
+        let cut = DisplayText.safe(String(repeating: family, count: 90))
+        expect("emoji: families are cut by the scalar limit and end in an ellipsis", cut.hasSuffix("\u{2026}") && cut.unicodeScalars.count <= DisplayText.maxScalars + 1 && cut.count <= 80)
+        check("emoji: 40 families fit in 80 characters and 320 scalars with no cut", DisplayText.safe(String(repeating: family, count: 40)), String(repeating: family, count: 40))
+    }
     check("marks: a combining accent survives", DisplayText.safe("e\u{301}cole"), "e\u{301}cole")
     let marks = DisplayText.safe(String(repeating: "e\u{301}", count: 100))
     check("marks: cutting never leaves a mark without its letter", "\(marks.count) \(marks.unicodeScalars.dropLast().last == "\u{301}")", "80 true")

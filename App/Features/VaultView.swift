@@ -115,6 +115,8 @@ struct VaultView: View {
     @State private var conflict = false
     /// The write the vault file refused because it changed elsewhere, kept while the alert is up so Replace can repeat it.
     @State private var refusedWrite: (() throws -> Void)?
+    /// What follows a successful write of that kind (closing the editor, the selection), run if Save My Change Anyway works.
+    @State private var refusedFollowUp: (() -> Void)?
     @State private var changingPassword = false
     @State private var copyDocument: VaultCopy?
 
@@ -199,11 +201,11 @@ struct VaultView: View {
             Button("OK") { storeProblem = nil }
         } message: { Text(storeProblem ?? "") }
         .alert("The vault changed elsewhere", isPresented: $conflict) {
-            Button("Reload Vault") { refusedWrite = nil; reloadFromDisk() }
-            Button("Replace the File with My Version", role: .destructive) { overwrite() }
-            Button("Cancel", role: .cancel) { refusedWrite = nil }
+            Button("Reload Vault") { refusedWrite = nil; refusedFollowUp = nil; reloadFromDisk() }
+            Button("Save My Change Anyway", role: .destructive) { overwrite() }
+            Button("Cancel", role: .cancel) { refusedWrite = nil; refusedFollowUp = nil }
         } message: {
-            Text("The vault file was changed by another app or device since you opened it. Reload shows that version and discards the change you just made. Replace writes your version of the whole vault over it; the other version is kept as a backup copy on this device.")
+            Text("The vault file was changed by another app or device since Psss last read it. Reload shows that version and discards the change you just made. Save My Change Anyway writes the vault as Psss has it, with your change, over the file; the version it replaces is kept as a backup copy on this device.")
         }
         .alert("Unlock \(store.title) with \(session.biometry?.label ?? "Face ID")?", isPresented: $offersBiometric) {
             Button("Use \(session.biometry?.label ?? "Face ID")") {
@@ -673,12 +675,14 @@ struct VaultView: View {
         }
     }
 
-    /// Runs a write. When it throws, the store has put the vault back to what the file holds, so the list and the AutoFill
-    /// identities are refreshed from it; a write refused because the file changed elsewhere is kept for Replace. Returns whether it worked.
+    /// Runs a write, then `followUp` when it worked. When it throws, the store has put the vault back to what the file holds, so
+    /// the list and the AutoFill identities are refreshed from it; a write refused because the file changed elsewhere is kept,
+    /// with its follow-up, for Save My Change Anyway. Returns whether it worked.
     @discardableResult
-    private func attempt(_ write: @escaping () throws -> Void) -> Bool {
-        do { try write(); refusedWrite = nil; return true } catch VaultStoreError.changedOnDisk {
+    private func attempt(_ write: @escaping () throws -> Void, then followUp: (() -> Void)? = nil) -> Bool {
+        do { try write(); refusedWrite = nil; refusedFollowUp = nil; followUp?(); return true } catch VaultStoreError.changedOnDisk {
             refusedWrite = write
+            refusedFollowUp = followUp
             conflict = true
         } catch {
             storeProblem = (error as? VaultStoreError)?.message ?? (error as? KDBXError)?.message ?? error.localizedDescription
@@ -692,53 +696,59 @@ struct VaultView: View {
         guard let store = store as? KeePassVaultStore else { return }
         Task {
             do { try await store.reload(); items = store.items(); registerIdentities() }
-            catch { storeProblem = (error as? KDBXError)?.message ?? error.localizedDescription }
+            catch { storeProblem = (error as? KDBXError)?.message ?? (error as? VaultStoreError)?.message ?? error.localizedDescription }
         }
     }
 
-    /// Repeats the refused write with the check for a changed file skipped. It is applied to whatever the store holds now.
+    /// Repeats the refused change now, with the check for a changed file skipped, on the vault as the store holds it (the last
+    /// version Psss read, or the reloaded one), and then does what a successful write of that kind does.
     private func overwrite() {
         guard let store = store as? KeePassVaultStore, let write = refusedWrite else { return }
+        let followUp = refusedFollowUp
         refusedWrite = nil
-        attempt { try store.overwriting(write) }
-        items = store.items()
-        registerIdentities()
+        refusedFollowUp = nil
+        attempt({ try store.overwriting(write) }, then: {
+            items = store.items()
+            registerIdentities()
+            followUp?()
+        })
     }
 
     private func delete(_ id: VaultItem.ID) {
-        attempt { try store.delete(id) }
-        items = store.items()
-        registerIdentities()
-        selection = nil
-        compactPath = []
-        editor = nil
+        // A refused delete leaves the selection and the open detail alone: the item is still there.
+        attempt({ try store.delete(id) }, then: {
+            items = store.items()
+            registerIdentities()
+            selection = nil
+            compactPath = []
+            editor = nil
+        })
     }
 
     /// Stores an item as it is while its editor stays open.
     private func keepDraft(_ item: VaultItem) {
-        guard attempt({ try store.save([item]) }) else { return }
-        if let index = items.firstIndex(where: { $0.id == item.id }) {
-            items[index] = item
-        } else {
-            items.append(item)
-        }
-        registerIdentities()
+        attempt({ try store.save([item]) }, then: { showSaved(item) })
     }
 
     private func save(_ item: VaultItem) {
         // A refused save leaves the editor open with the person's text, and the list as the file holds it.
-        guard attempt({ try store.save([item]) }) else { return }
+        attempt({ try store.save([item]) }, then: {
+            showSaved(item)
+            search = ""
+            if !activeCategory.includes(item) { category = .kind(item.kind) }
+            selection = item.id
+            compactColumn = .detail
+            editor = nil
+        })
+    }
+
+    private func showSaved(_ item: VaultItem) {
         if let index = items.firstIndex(where: { $0.id == item.id }) {
             items[index] = item
         } else {
             items.append(item)
         }
         registerIdentities()
-        search = ""
-        if !activeCategory.includes(item) { category = .kind(item.kind) }
-        selection = item.id
-        compactColumn = .detail
-        editor = nil
     }
 }
 
