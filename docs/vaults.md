@@ -16,8 +16,10 @@ See [vault items](items.md) for the entry templates and preservation rules. Veri
 
 - KDBX is canonical (decided by the owner, 2026-11-23). Psss does not build a private store, and the earlier fallback is dropped; reopen only for an existing, proven alternative that is clearly better. Keep KDBX behind the `VaultStore` boundary so the app domain does not depend on KeePass structures. What used to be kill criteria are now problems to solve inside the format: the AutoFill extension must unlock within its memory and time budget (the Keychain-held transformed key is the answer so far, to be measured in S2), and two-device edits must merge at entry level without losing an edit (S4).
 - Keep the Argon2 cost out of the extension. After the app unlocks, wrap the derived key in the Keychain behind biometrics so the provider only decrypts.
-- Use counts and last-used dates are device-local and never written to the vault file (decided 2026-11-22, not built yet). Today `markUsed` edits the entry and the next lock rewrites the whole file, which makes devices that only read conflict with each other and rotates out the five rollback copies. The plan: a small per-vault usage file in the App Group container, read by `items()`, removed with the vault; a rollback copy is kept only for writes that change content. KDBX `LastAccessTime` and `UsageCount` are left as found.
-- The app reloads the vault when the file changed while it was in the background (the AutoFill extension writes to the same file), using the key it already holds, and locks if that key no longer opens it. Not built yet.
+- Use counts and last-used dates are device-local and never written to the vault file (built 2026-11-23): a small per-vault usage file in the App Group container (`Usage/<vault>.json`, no secrets), read by `items()` and removed with the vault. A rollback copy is kept only for a write that changed content and succeeded, and all of them are removed when the vault password changes. KDBX `LastAccessTime` and `UsageCount` are left as found.
+- The app reloads the vault when the file changed while it was in the background (the AutoFill extension writes to the same file), using the key it already holds, and locks if that key no longer opens it. Built 2026-11-23.
+- The vault reference (name, file, bookmark, settings, no secrets) lives in the App Group defaults. Where those cannot be opened it is a file in the app's own Application Support, which the provider cannot see, so the provider shows its not-ready screen. There is no fallback to the process's own defaults.
+- The sample vault is in memory only. What is added to it is gone when Psss locks or quits, nothing from it is written to disk, and it offers no AutoFill.
 - Default to one vault, created without asking about files. Offer file-level options only in advanced settings. More vaults are supported; see [Multiple vaults](#multiple-vaults).
 
 - Support local and iCloud Drive storage. No hosted account is required.
@@ -60,8 +62,8 @@ The app notices an outside change only when it next writes, by comparing the fil
 
 Defects that matter for sync:
 
-- [ ] The check and the write are two separate coordinated steps, so another writer can land between them. Make it one coordinated read, compare and write.
-- [ ] When the read before a write fails (file not downloaded, offline), the check is skipped and the write goes ahead blind. Fail instead.
+- [x] The check and the write were two separate coordinated steps. Now one coordinated read, compare and write (2026-11-23).
+- [x] When the read before a write failed, the check was skipped. Now the write is refused, also when the file disappeared under an open vault (2026-11-23).
 - [ ] Coordinated reads run on the main actor and block while iCloud downloads a file.
 - [ ] Two saves of one entry within a second make two history items with the same time, which merge cannot tell apart. Entry times must always move forward.
 - [ ] A saved file never has the same bytes twice, since seeds and IVs are fresh each time. “Nothing to merge” has to compare decrypted content, never file hashes.

@@ -138,7 +138,7 @@ Ideas not built yet: HTTPS pages with a local certificate authority (the secure 
 
 ## Status
 
-Frozen on 2026-11-22 until the M0 gate on 2026-12-20, Safari included: bug fixes only. See the [roadmap](roadmap.md#course-correction-review-of-2026-11-22). The host and the Safari handler still answer from the sample vault and the plain-JSON prototype file, not from the encrypted vault.
+Frozen on 2026-11-22 until the M0 gate on 2026-12-20, Safari included: bug fixes only. See the [roadmap](roadmap.md#course-correction-review-of-2026-11-22). Since 2026-11-23 the prototype's plain-JSON store (`App/Core/BrowserPrototypeStore.swift`) works only inside the native messaging host, which sets its directory. In the apps and the bundled Safari extension every request for candidates, search, a credential or a save answers `unsupported` and touches no file, until the extension reads the encrypted vault through the app. An origin whose host cannot be read is refused everywhere.
 
 - [x] Shared extension, three targets, reproducible Chromium and Firefox archives, requirement checks in `build.py check`.
 - [x] Native host with framing, caller check, origin rules and search; 18 protocol tests.
