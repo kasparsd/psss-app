@@ -19,6 +19,15 @@ enum CardBrand: CaseIterable {
         }
     }
 
+    /// The name for a crowded row ("Amex •• 0005 · 02/29"). Spoken text uses `name`.
+    var shortName: String {
+        switch self {
+        case .americanExpress: "Amex"
+        case .dinersClub: "Diners"
+        default: name
+        }
+    }
+
     var asset: String {
         switch self {
         case .visa: "brand-visa"

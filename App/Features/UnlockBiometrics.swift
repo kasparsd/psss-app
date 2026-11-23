@@ -1,0 +1,146 @@
+import LocalAuthentication
+import SwiftUI
+#if os(macOS)
+import LocalAuthenticationEmbeddedUI
+#endif
+
+/// The app icon with the live biometric glyph on its bottom-trailing corner, as Apple Passwords draws it on its lock screen.
+/// The glyph is the control that tries again. On a Mac that is listening it is Apple's embedded Touch ID view, which is where
+/// the sensor answers; otherwise it is a button.
+struct LockIcon: View {
+    let biometry: BiometryKind?
+    /// The sensor is being asked right now (Mac), so the embedded view is shown.
+    var listening = false
+    /// Dimmed: not listening, or opening the vault.
+    var dimmed = false
+    var vaultName = ""
+    var retry: () -> Void = {}
+    /// The context bound to the embedded Touch ID view (Mac only; nil elsewhere).
+    var context: LAContext?
+
+    private let size: CGFloat = 76
+
+    var body: some View {
+        icon
+            .frame(width: size, height: size)
+            .overlay(alignment: .bottomTrailing) {
+                if let biometry { badge(biometry).offset(x: 12, y: 12) }
+            }
+            .padding(.bottom, 8)
+            .accessibilityElement(children: .contain)
+    }
+
+    @ViewBuilder private var icon: some View {
+        #if os(macOS)
+        Image(nsImage: NSApplication.shared.applicationIconImage)
+            .resizable().scaledToFit()
+            .accessibilityHidden(true)
+        #else
+        Image("LockScreenIcon")
+            .resizable().scaledToFit()
+            .clipShape(RoundedRectangle(cornerRadius: size * 0.2237, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: size * 0.2237, style: .continuous).strokeBorder(.primary.opacity(0.12), lineWidth: 0.5))
+            .accessibilityHidden(true)
+        #endif
+    }
+
+    private func badge(_ biometry: BiometryKind) -> some View {
+        Group {
+            #if os(macOS)
+            if listening, let context {
+                EmbeddedTouchID(context: context)
+                    .frame(width: 32, height: 32)
+                    .accessibilityLabel(biometry.label)
+                    .accessibilityHint(Text("Touch the sensor to open \(vaultName)."))
+                    .help("Touch the sensor to open \(vaultName)")
+            } else {
+                button(biometry)
+            }
+            #else
+            button(biometry)
+            #endif
+        }
+        .frame(width: 40, height: 40)
+        .background(.regularMaterial, in: Circle())
+        .overlay(Circle().strokeBorder(.primary.opacity(0.15), lineWidth: 0.5))
+        .opacity(dimmed ? 0.45 : 1)
+    }
+
+    private func button(_ biometry: BiometryKind) -> some View {
+        Button(action: retry) {
+            Image(systemName: biometry.symbol)
+                .font(.title2)
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 40, height: 40)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(biometry.label)
+        .accessibilityHint(Text("Tries \(biometry.label) again to open \(vaultName)."))
+        .help("Try \(biometry.label) again")
+    }
+}
+
+#if os(macOS)
+/// Apple's embedded authentication view. It draws the Touch ID glyph for `context`, and the sensor answers inline, with no
+/// system dialog, while the context is being evaluated and the window is key.
+private struct EmbeddedTouchID: NSViewRepresentable {
+    let context: LAContext
+
+    func makeNSView(context: Context) -> LAAuthenticationView {
+        LAAuthenticationView(context: self.context, controlSize: .small)
+    }
+
+    func updateNSView(_ view: LAAuthenticationView, context: Context) {}
+}
+
+/// Touch ID on the Mac lock screen: listens while the lock window is key and stops when it is not. The sensor only answers
+/// the app that is asking and in front, so the screen starts listening when its window becomes key and stops when it resigns
+/// or the app deactivates. Each listening session is its own `LAContext` (an invalidated context cannot be reused), and the one
+/// that passed is handed on so the Keychain read needs no second prompt.
+@MainActor
+@Observable
+final class TouchIDListener {
+    enum Outcome {
+        /// A finger matched. The context is evaluated and can read the saved key.
+        case matched(LAContext)
+        /// The system gave up on the finger after its attempts.
+        case notRecognised
+        /// Lockout, no sensor, or anything else that makes the vault password necessary this time.
+        case unavailable
+    }
+
+    /// The context bound to the embedded view while listening; nil when not listening.
+    private(set) var context: LAContext?
+    var isListening: Bool { context != nil }
+
+    func start(reason: String, finished: @escaping (Outcome) -> Void) {
+        guard context == nil else { return }
+        let session = LAContext()
+        session.localizedReason = reason
+        context = session
+        Task { [weak self] in
+            var code: LAError.Code?
+            var matched = false
+            do { matched = try await session.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) }
+            catch { code = (error as? LAError)?.code }
+            // A stale answer (stopped, or a newer session started) changes nothing.
+            guard let self, self.context === session else { return }
+            self.context = nil
+            if matched { finished(.matched(session)); return }
+            switch code {
+            case .userCancel, .appCancel, .systemCancel: break
+            case .authenticationFailed: finished(.notRecognised)
+            default: finished(.unavailable)
+            }
+        }
+    }
+
+    /// Stops asking, for example when the window resigns key. Nothing is reported.
+    func stop() {
+        guard let context else { return }
+        self.context = nil
+        context.invalidate()
+    }
+}
+#endif

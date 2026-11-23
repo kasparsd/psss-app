@@ -1,3 +1,4 @@
+import LocalAuthentication
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -225,7 +226,20 @@ struct VaultPasswordView: View {
     @State private var lost = false
     @State private var triedBiometric = false
     @State private var unlockingWithBiometrics = false
+    /// "Use Password…" was pressed: the password form is shown in place.
+    @State private var formRequested = false
+    /// Face ID or Touch ID looked and did not recognise the person. The form opens with a line that says so.
+    @State private var notRecognised = false
     @FocusState private var focused: Bool
+    #if os(macOS)
+    @State private var listener = TouchIDListener()
+    @Environment(\.controlActiveState) private var controlActiveState
+    #else
+    @Environment(\.scenePhase) private var scenePhase
+    /// The scene went to the background since Face ID last ran, so coming back asks again. The Face ID sheet itself makes the
+    /// scene inactive and active, which must not start another attempt.
+    @State private var leftScene = false
+    #endif
     @AppStorage("vaultSource") private var vaultSource = ""
 
     /// Input fields are darker than the grey rows around them, with a visible edge, so they read as places to type.
@@ -244,94 +258,71 @@ struct VaultPasswordView: View {
 
     private var vaultName: String { session.reference?.name ?? "Psss" }
 
+    /// The password form is shown straight away when there is nothing else to try (no biometrics, a missing file) or when
+    /// something needs the password (a problem, "not recognised", a lock notice); otherwise "Use Password…" shows it.
+    private var showForm: Bool {
+        formRequested || biometry == nil || missing || problem != nil || notRecognised || gate.lockNotice != nil
+    }
+
+    /// Mac: the sensor is being asked and the embedded view shows. iPhone and iPad: Face ID is not running in the background,
+    /// so this is only true while the system sheet is up (`working`).
+    private var listening: Bool {
+        #if os(macOS)
+        listener.isListening && !working
+        #else
+        false
+        #endif
+    }
+
+    private var introLine: String {
+        guard let biometry else { return String(localized: "Enter the vault password to open “\(vaultName)”.") }
+        #if os(macOS)
+        if controlActiveState != .key {
+            return String(localized: "Click this window, then use \(biometry.label) or enter the vault password.")
+        }
+        #endif
+        switch biometry {
+        case .touchID: return String(localized: "Touch ID or enter the vault password to open “\(vaultName)”.")
+        default: return String(localized: "Use \(biometry.label) or enter the vault password to open “\(vaultName)”.")
+        }
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer(minLength: 24)
-            VStack(spacing: 16) {
-                vaultSelector
-
-                VStack(spacing: 16) {
-                    HStack(spacing: 8) {
-                        SecureField("Vault Password", text: $password)
-                            .textFieldStyle(.plain)
-                            .focused($focused)
-                            .onSubmit(unlock)
-                            .disabled(missing || working)
-                            .padding(12)
-                            .background(Self.fieldFill, in: RoundedRectangle(cornerRadius: 8))
-                            .overlay(RoundedRectangle(cornerRadius: 8)
-                                .strokeBorder(focused ? Color.accentColor : Color.secondary.opacity(0.4), lineWidth: focused ? 2 : 1))
-                        if let biometry, !missing {
-                            Button { Task { await unlockWithBiometrics() } } label: {
-                                Label(biometry.label, systemImage: biometry.symbol)
-                            }
-                            .controlSize(.large)
-                            .disabled(working)
-                            .help("Unlock \(vaultName) with \(biometry.label)")
-                        }
-                    }
-                    if let problem {
-                        ProblemText(text: problem)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } else if let notice = gate.lockNotice {
-                        // Information, not a mistake in what the person typed, so not red. A newer problem replaces it.
-                        Text(notice).foregroundStyle(.primary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    keyFileRow
-                    if missing {
-                        Button { choose(.relinkVault) } label: {
-                            Label("Locate Vault File…", systemImage: "folder").frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.borderedProminent).controlSize(.large)
-                    } else {
-                        Button(action: unlock) {
-                            Label(working ? "Unlocking…" : "Unlock \(vaultName)", systemImage: "lock.open").frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.borderedProminent).controlSize(.large)
-                        .disabled(working || (password.isEmpty && keyFile == nil))
-                        .keyboardShortcut(.defaultAction)
-                    }
-                }
-
-                // One place for all help text. Progress takes its place while working, so nothing moves.
-                ZStack(alignment: .top) {
-                    if working {
-                        WorkingNotice(text: unlockingWithBiometrics ? "Opening your vault…" : "Checking your vault password…")
-                    } else {
-                        VStack(spacing: 10) {
-                            Text("Psss cannot reset or recover a vault password. A key file is only needed if you added one when you created this vault.")
-                            HStack(spacing: 8) {
-                                Button("What Is This?") { explaining = true }
-                                Button("Forgot Password?") { lost = true }
-                            }
-                            .buttonStyle(.bordered)
-                            .foregroundStyle(.primary)
-                        }
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .frame(maxWidth: .infinity, minHeight: 100, alignment: .top)
+        GeometryReader { proxy in
+            ScrollView {
+                content
+                    .frame(maxWidth: .infinity, minHeight: proxy.size.height)
             }
-            .frame(maxWidth: 340)
-            .padding(.horizontal, 24)
-            Spacer(minLength: 24)
+            .scrollBounceBehavior(.basedOnSize)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background)
-        .onAppear { focused = true }
+        .onAppear { startBiometricsOnAppear() }
         .task {
-            // Like Apple Passwords, ask for Face ID or Touch ID straight away; the button retries.
-            // Not when the vault was just locked because it changed elsewhere: the saved key is probably stale, so the
-            // prompt would only fail. The notice says to enter the vault password, and the button still tries.
-            guard !triedBiometric, biometry != nil, !missing, gate.lockNotice == nil else { return }
+            // Like Apple Passwords, ask for Face ID straight away. Not when the vault was just locked because it changed
+            // elsewhere: the saved key is probably stale, so the prompt would only fail. The notice says to enter the vault
+            // password, and the glyph still tries.
+            #if os(iOS)
+            guard !triedBiometric else { return }
             triedBiometric = true
-            await unlockWithBiometrics()
+            await startFaceID(automatic: true)
+            #endif
         }
+        #if os(macOS)
+        // The sensor answers only the app in front, so listen while this window is key and stop when it is not.
+        .onChange(of: controlActiveState) { _, state in
+            if state == .key { startBiometrics(automatic: true) } else { listener.stop() }
+        }
+        .onDisappear { listener.stop() }
+        #else
+        // Coming back to the app asks again; the system sheet's own inactive and active changes do not.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { leftScene = true }
+            else if phase == .active, leftScene {
+                leftScene = false
+                Task { await startFaceID(automatic: true) }
+            }
+        }
+        #endif
         .sheet(isPresented: $explaining) { PasswordExplainerSheet() }
         .sheet(isPresented: $lost) {
             LostPasswordSheet(session: session, vaultName: vaultName,
@@ -372,55 +363,129 @@ struct VaultPasswordView: View {
         }
     }
 
-    /// Which vault is being unlocked: a label on the left and a standard bordered pop-up on the right, like the key file row.
-    /// The current vault is checked; the other choice is one click away.
-    private var vaultSelector: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 10) {
-                Text("Unlock Vault:")
-                Spacer(minLength: 0)
-                Menu {
-                    Button { } label: { Label(vaultName, systemImage: "checkmark") }
-                    Divider()
-                    Button("Open Another Vault…") { openAnother(afterSheet: false) }
-                } label: {
-                    #if os(iOS)
-                    Label(vaultName, systemImage: "chevron.up.chevron.down").labelStyle(.titleAndIcon).lineLimit(1)
-                    #else
-                    Text(vaultName).lineLimit(1)
-                    #endif
-                }
-                #if os(iOS)
-                .buttonStyle(.bordered)
-                #endif
-                .fixedSize()
-                .disabled(working)
-                .accessibilityLabel("Unlock vault: \(vaultName). Choose another vault.")
-            }
-            if let location = session.reference?.locationDescription {
-                Text(location).foregroundStyle(.secondary).lineLimit(2)
+    private var content: some View {
+        VStack(spacing: 16) {
+            LockIcon(biometry: biometry, listening: listening, dimmed: working || !listening, vaultName: vaultName,
+                     retry: { startBiometrics(automatic: false) }, context: lockContext)
+            Text("Psss Is Locked").font(.title2.weight(.semibold))
+            statusLine
+            messageLine
+            if showForm {
+                form
+            } else if !working {
+                Button("Use Password…") { formRequested = true }
+                    .buttonStyle(.bordered).controlSize(.large)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: 340)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 24)
     }
 
-    /// The key file is rare, so it starts empty, but it is always visible and says when it is needed.
-    private var keyFileRow: some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Key file (optional)")
-                if let keyFileName { Text(keyFileName).foregroundStyle(.secondary).lineLimit(1) }
+    private var lockContext: LAContext? {
+        #if os(macOS)
+        listener.context
+        #else
+        nil
+        #endif
+    }
+
+    /// The one line under the title. Progress takes its place while working, so nothing else moves.
+    @ViewBuilder private var statusLine: some View {
+        if working {
+            if unlockingWithBiometrics {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text("Opening your vault…")
+                }
+                .accessibilityElement(children: .combine)
+            } else {
+                WorkingNotice(text: "Checking your vault password…")
             }
-            Spacer(minLength: 0)
-            if keyFile != nil {
-                Button("Remove") { keyFile = nil; keyFileName = nil }.buttonStyle(.borderless)
-            }
-            Button(keyFile == nil ? "Choose…" : "Change…") { choose(.keyFile) }
-                #if os(iOS)
-                .buttonStyle(.bordered)
-                #endif
+        } else {
+            Text(introLine).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
         }
-        .disabled(working)
+    }
+
+    /// Where problems appear, as before: a problem replaces "not recognised", which replaces a lock notice.
+    @ViewBuilder private var messageLine: some View {
+        if let problem {
+            ProblemText(text: problem)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if notRecognised, let biometry {
+            Text("\(biometry.label) didn't recognise you. Try again, or enter the vault password.")
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if let notice = gate.lockNotice {
+            // Information, not a mistake in what the person typed, so not red. A newer problem replaces it.
+            Text(notice).foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var form: some View {
+        VStack(spacing: 16) {
+            SecureField("Vault Password", text: $password)
+                .textFieldStyle(.plain)
+                .focused($focused)
+                .onSubmit(unlock)
+                .disabled(missing || working)
+                .padding(12)
+                .background(Self.fieldFill, in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(focused ? Color.accentColor : Color.secondary.opacity(0.4), lineWidth: focused ? 2 : 1))
+            keyFileRow
+            if missing {
+                Button { choose(.relinkVault) } label: {
+                    Label("Locate Vault File…", systemImage: "folder").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent).controlSize(.large)
+            } else {
+                Button(action: unlock) {
+                    Text("Unlock").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent).controlSize(.large)
+                .disabled(working || (password.isEmpty && keyFile == nil))
+                .keyboardShortcut(.defaultAction)
+            }
+            if !working {
+                HStack(spacing: 8) {
+                    Button("What Is This?") { explaining = true }
+                    Button("Forgot Password?") { lost = true }
+                }
+                .buttonStyle(.bordered)
+                .foregroundStyle(.primary)
+            }
+        }
+        .onAppear { focused = true }
+    }
+
+    /// A vault that uses a key file shows its row. For any other vault (or one whose reference does not know yet) a small button
+    /// adds one, so a key file is never out of reach.
+    @ViewBuilder private var keyFileRow: some View {
+        if session.reference?.usesKeyFile == true || keyFile != nil {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Key file")
+                    if let keyFileName { Text(keyFileName).foregroundStyle(.secondary).lineLimit(1) }
+                }
+                Spacer(minLength: 0)
+                if keyFile != nil {
+                    Button("Remove") { keyFile = nil; keyFileName = nil }.buttonStyle(.borderless)
+                }
+                Button(keyFile == nil ? "Choose…" : "Change…") { choose(.keyFile) }
+                    #if os(iOS)
+                    .buttonStyle(.bordered)
+                    #endif
+            }
+            .disabled(working)
+        } else {
+            Button("Use a Key File…") { choose(.keyFile) }
+                .buttonStyle(.borderless)
+                .disabled(working)
+        }
     }
 
     /// Opens the screen's one file picker for `purpose`. After a sheet or alert closes, the picker waits until it has gone,
@@ -460,15 +525,55 @@ struct VaultPasswordView: View {
         }
     }
 
-    private func unlockWithBiometrics() async {
+    /// Mac and iPhone/iPad entry points. `automatic` is the screen appearing, the window becoming key or the scene becoming
+    /// active; false is a tap on the glyph. An automatic start is skipped when the vault was just locked with a notice (the saved
+    /// key is probably stale); the glyph still tries.
+    private func startBiometrics(automatic: Bool) {
+        #if os(macOS)
+        guard biometry != nil, !missing, !working, !(automatic && gate.lockNotice != nil) else { return }
+        notRecognised = false
+        listener.start(reason: String(localized: "Unlock \(vaultName).")) { outcome in
+            switch outcome {
+            case .matched(let context):
+                Task { await unlockWithBiometrics(evaluated: context) }
+            case .notRecognised:
+                problem = nil
+                notRecognised = true
+            case .unavailable:
+                gate.lockNotice = nil
+                problem = String(localized: "\(biometry?.label ?? "Touch ID") cannot be used right now. Enter the vault password this time.")
+            }
+        }
+        #else
+        Task { await startFaceID(automatic: automatic) }
+        #endif
+    }
+
+    private func startBiometricsOnAppear() {
+        #if os(macOS)
+        if controlActiveState == .key { startBiometrics(automatic: true) }
+        #endif
+    }
+
+    #if os(iOS)
+    private func startFaceID(automatic: Bool) async {
+        guard biometry != nil, !missing, !working, !(automatic && gate.lockNotice != nil) else { return }
+        notRecognised = false
+        await unlockWithBiometrics()
+    }
+    #endif
+
+    /// `evaluated` is the Mac's embedded Touch ID context, which already passed: the saved key is read without a second prompt.
+    private func unlockWithBiometrics(evaluated: LAContext? = nil) async {
         guard !working else { return }
         working = true
         unlockingWithBiometrics = true
         problem = nil
+        notRecognised = false
         // The lock notice stays until the unlock succeeds or a new problem replaces it: cancelling the prompt explains nothing else.
         defer { working = false; unlockingWithBiometrics = false }
         do {
-            try await session.unlockWithBiometrics()
+            try await session.unlockWithBiometrics(evaluated: evaluated.map(EvaluatedContext.init))
             password = ""
             gate.lockNotice = nil
             gate.markUnlocked()

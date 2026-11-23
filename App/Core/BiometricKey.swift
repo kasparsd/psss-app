@@ -69,6 +69,12 @@ extension BiometryKind {
     }
 }
 
+/// A context that already passed a biometric check. `LAContext` is thread-safe; the wrapper only lets it cross to the task that
+/// reads the Keychain.
+struct EvaluatedContext: @unchecked Sendable {
+    let context: LAContext
+}
+
 enum BiometricKeyError: Error {
     /// The person cancelled the system prompt: stay on the lock screen, say nothing.
     case cancelled
@@ -198,7 +204,11 @@ enum BiometricKey {
     }
 
     /// Shows the system Face ID or Touch ID prompt and returns the key. Runs off the main actor: reading blocks.
-    static func load(for id: UUID, reason: String) async throws -> Data {
+    ///
+    /// `evaluated` is a context that already passed a biometric check, for example one bound to the lock screen's embedded
+    /// Touch ID view (macOS). No second prompt is shown: the provisioned item is read with that context, and a local build skips
+    /// its own check because that context is the check.
+    static func load(for id: UUID, reason: String, evaluated: EvaluatedContext? = nil) async throws -> Data {
         #if HOSTLESS_TESTS
         if let failure { throw failure }
         guard let key = memory[id] else { throw BiometricKeyError.invalidated }
@@ -209,14 +219,14 @@ enum BiometricKey {
             removeLeftoverLoginItems()
             guard provisioned else {
                 guard !isExtension else { throw BiometricKeyError.unavailable }
-                return try await loadFromLoginKeychain(for: id, reason: reason)
+                return try await loadFromLoginKeychain(for: id, reason: reason, evaluated: evaluated)
             }
             // A login-keychain item from an earlier local build must never open this build: it is not tied to the enrolled
             // fingers. The app removes it; an extension leaves the login keychain alone.
             if !isExtension { SecItemDelete(baseQuery(for: id, protected: false) as CFDictionary) }
             #endif
-            let context = LAContext()
-            context.localizedReason = reason
+            let context = evaluated?.context ?? LAContext()
+            if evaluated == nil { context.localizedReason = reason }
             var query = baseQuery(for: id, protected: true)
             query[kSecReturnData as String] = true
             query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -250,13 +260,13 @@ enum BiometricKey {
 
     #if os(macOS) && !HOSTLESS_TESTS
     /// The login keychain item of an unprovisioned build. The item has no access control, so the app asks for Touch ID itself.
-    private static func loadFromLoginKeychain(for id: UUID, reason: String) async throws -> Data {
+    private static func loadFromLoginKeychain(for id: UUID, reason: String, evaluated: EvaluatedContext?) async throws -> Data {
         // Look for the item first without a prompt, so an invalidated key does not ask for Touch ID for nothing.
         var probe = baseQuery(for: id, protected: false)
         probe[kSecReturnAttributes as String] = true
         guard SecItemCopyMatching(probe as CFDictionary, nil) == errSecSuccess else { throw BiometricKeyError.invalidated }
         let context = LAContext()
-        do { _ = try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) }
+        do { if evaluated == nil { _ = try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) } }
         catch let error as LAError where error.code == .userCancel || error.code == .appCancel || error.code == .systemCancel {
             throw BiometricKeyError.cancelled
         } catch let error as LAError where error.code == .biometryNotEnrolled {

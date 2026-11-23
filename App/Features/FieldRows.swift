@@ -184,8 +184,8 @@ extension VaultItem {
     /// Every hidden value looks like this, whatever its length: a mask that matched the secret would tell an onlooker how long it is.
     static let hiddenMask = "••••••••"
 
-    /// How the item's main secret looks while it is hidden: a card keeps its last four digits on purpose.
-    var maskedSecret: String { kind == .creditCard ? "•••• " + secret.suffix(4) : Self.hiddenMask }
+    /// How the item's main secret looks while it is hidden: the same eight dots as every protected value, a card number included.
+    var maskedSecret: String { Self.hiddenMask }
 
     /// How the item's main secret looks when it is shown: a card number in groups of four.
     var spacedSecret: String {

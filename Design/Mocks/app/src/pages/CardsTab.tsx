@@ -28,7 +28,7 @@ export function CardsTab() {
           <Frame phone label="A. Cards tab" caption="One row per card, last used first. The second line is what you scan for: brand, last four digits, expiry. The whole row opens the card; there is no second tap target in it.">
             <PhoneCards />
           </Frame>
-          <Frame phone label="B. The card's page" caption="Opened from the Cards tab, so Back says “Cards” and the Cards tab stays selected. Every field has its copy icon; number and security code stay masked until the eye.">
+          <Frame phone label="B. The card's page" caption="Opened from the Cards tab, so Back returns to Cards and the Cards tab stays selected. Every field has its copy icon; number and security code stay masked until the eye.">
             <PhoneItem id={6} from="cards" />
           </Frame>
           <Frame phone label="C. Just copied" caption="Copying the number: the checkmark and the shared “Number copied” pill, for about two seconds, with a haptic. Copying counts as using the card, so it leads the list next time; the list never reorders while on screen.">

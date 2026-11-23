@@ -631,12 +631,15 @@ final class VaultSession {
     /// Unlocks with Face ID or Touch ID. Never throws for a cancelled prompt; the lock screen just stays.
     /// If the saved key no longer fits (Face ID re-enrolled, or the vault password was changed elsewhere), biometric unlock is
     /// switched off and the error says to use the password once.
-    func unlockWithBiometrics() async throws {
+    ///
+    /// `evaluated` is a context that already passed the biometric check (the Mac lock screen's embedded Touch ID view), so the
+    /// key is read without a second prompt.
+    func unlockWithBiometrics(evaluated: EvaluatedContext? = nil) async throws {
         syncReference()
         guard let reference, reference.biometricUnlock else { throw BiometricKeyError.invalidated }
         let key: Data
         do {
-            key = try await BiometricKey.load(for: reference.id, reason: String(localized: "Unlock \(reference.name)."))
+            key = try await BiometricKey.load(for: reference.id, reason: String(localized: "Unlock \(reference.name)."), evaluated: evaluated)
         } catch BiometricKeyError.invalidated {
             setBiometric(false)
             throw BiometricKeyError.invalidated

@@ -77,7 +77,7 @@ private struct ListSearch: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {
         if enabled {
-            content.searchable(text: text, prompt: "Search").searchFocused(focus)
+            content.searchable(text: text, prompt: "Search all items").searchFocused(focus)
         } else {
             content
         }
@@ -287,6 +287,8 @@ struct VaultView: View {
     @FocusState private var searchFocused: Bool
     @State private var didFocusOnLaunch = false
     @State private var editor: VaultItem?
+    /// The editor opens at the verification code step (Set Up Code… on a login's page).
+    @State private var editorStartsWithCode = false
     /// The open editor's item was removed elsewhere. The alert waits for the sheet to finish closing.
     @State private var editorItemRemoved = false
     @State private var showsEditorRemoved = false
@@ -323,11 +325,9 @@ struct VaultView: View {
     /// The pill that is lit. While searching from a usage pill the results span everything, so All is the honest highlight.
     private var shownCategory: VaultCategory { isSearching && searchesWholeVault ? .allItems : activeCategory }
 
-    /// Typing searches the whole vault, whatever is selected. Only a type pill the person can see lit (iPhone, or Mac and iPad with
-    /// the sidebar hidden) still narrows the search to that type; Recently Deleted, the usage views and Codes and Cards never do.
-    private var searchesWholeVault: Bool {
-        activeCategory.isUsageView || activeCategory == .recentlyDeleted || !showsAllList || (!usesStack && columns == .all)
-    }
+    /// Search is global on every platform (owner, 2026-11-23): typing always searches the whole vault, whichever view or pill is
+    /// open, and there is no scope bar, so a missing result never comes from a hidden scope.
+    private var searchesWholeVault: Bool { true }
 
     /// The Recently Deleted list is showing. Searching leaves it: results come from the live vault, deleted items never turn up in
     /// them.
@@ -363,6 +363,17 @@ struct VaultView: View {
         withSheets
             .focusedSceneValue(\.newItem, { kind in editor = VaultItem(kind: kind) })
             .focusedSceneValue(\.vaultPlace, placeBinding)
+            .focusedSceneValue(\.openSetup, { showsSetup = true })
+            #if os(macOS)
+            // Edit, Delete (system item) and the Delete key act on the selected item while the list has focus. A text field
+            // that has focus handles both itself. ⌘⌫ is handled here too, since the system item shows no ⌘⌫ of its own.
+            .onDeleteCommand { deleteSelectedAction?() }
+            .onKeyPress(.delete, phases: .down) { press in
+                guard press.modifiers.contains(.command), let action = deleteSelectedAction else { return .ignored }
+                action()
+                return .handled
+            }
+            #endif
             // Another place starts with no search: the person asked for something else.
             .onChange(of: place) { search = "" }
             .onChange(of: place) { hideSignal += 1 }
@@ -377,13 +388,25 @@ struct VaultView: View {
             }
     }
 
+    /// Edit, Delete (⌘⌫) on Mac: moves the selected item to Recently Deleted (Undo follows), or asks before deleting one that is
+    /// already in Recently Deleted for good. Off while the editor is open or the search field has focus (⌘⌫ edits its text there).
+    private var deleteSelectedAction: (() -> Void)? {
+        guard !usesStack, editor == nil, !searchFocused, !sheetIsOpen,
+              let id = regularVisibleItems.first(where: { $0.id == selection })?.id else { return nil }
+        if items.contains(where: { $0.id == id }) { return { delete(id) } }
+        if deletedEntries.contains(where: { $0.id == id }) { return { deletionRequest = .one(id) } }
+        return nil
+    }
+
     private var withSheets: some View {
         base
             .sheet(item: $editor, onDismiss: {
+                editorStartsWithCode = false
                 if editorItemRemoved { editorItemRemoved = false; showsEditorRemoved = true }
             }) { item in
                 ItemEditor(item: item, onSave: save, onKeepDraft: keepDraft,
-                           onDelete: items.contains { $0.id == item.id } ? { delete(item.id) } : nil)
+                           onDelete: items.contains { $0.id == item.id } ? { delete(item.id) } : nil,
+                           startsWithCode: editorStartsWithCode)
                     .modifier(AlertSurfaceModifier(surface: .editor, owner: self))
             }
             .sheet(isPresented: $showsSetup, onDismiss: {
@@ -622,7 +645,7 @@ struct VaultView: View {
         .tabViewSearchActivation(.searchTabSelection)
         .onChange(of: inSearchTab) { _, now in
             // A search belongs to the search tab: the places always list what they list.
-            if !now { search = "" }
+            if !now { search = ""; searchPath = [] }
         }
         #endif
     }
@@ -735,7 +758,7 @@ struct VaultView: View {
         // keyboard when the tab is selected, and the field's X returns to the previous tab by itself, with no field left on it.
         // (On the TabView, with `isPresented` and a programmatic tab change, the X left an inline field on the tab it returned to;
         // proved in a probe on iOS 27.2.)
-        .searchable(text: $search, prompt: "Search")
+        .searchable(text: $search, prompt: "Search all items")
         .searchFocused($searchFocused)
         .onSubmit(of: .search) { openTopResult() }
     }
@@ -753,7 +776,7 @@ struct VaultView: View {
 
     private var cardsView: some View {
         CardsView(items: items, selection: usesStack ? nil : selectionBinding, open: openItem(_:),
-                  used: markUsed(_:), add: { editor = VaultItem(kind: .creditCard) })
+                  add: { editor = VaultItem(kind: .creditCard) })
             #if os(iOS)
             .navigationBarTitleDisplayMode(usesStack ? .automatic : .inline)
             #endif
@@ -807,7 +830,8 @@ struct VaultView: View {
     @ViewBuilder
     private func detail(for id: VaultItem.ID) -> some View {
         if let item = items.first(where: { $0.id == id }) {
-            ItemDetail(item: item, hideSignal: hideSignal, edit: { editor = item }, used: { markUsed(item.id) })
+            ItemDetail(item: item, hideSignal: hideSignal, edit: { editor = item },
+                       setUpCode: { editorStartsWithCode = true; editor = item }, used: { markUsed(item.id) })
                 .id(item.id)
         } else if let entry = deletedEntries.first(where: { $0.id == id }) {
             RecentlyDeletedDetail(entry: entry, hideSignal: hideSignal, restore: { restore(id) }, askDeleteNow: { deletionRequest = .one(id) })
@@ -874,18 +898,14 @@ struct VaultView: View {
     private func regularChrome<Content: View>(_ content: Content) -> some View {
         content
             .navigationSplitViewStyle(.balanced)
-            .modifier(ListSearch(enabled: true, text: $search, focus: $searchFocused))
-            .onSubmit(of: .search) { openTopResult() }
             .onAppear { ensureSelection() }
             .onChange(of: place) { ensureSelection() }
             .onChange(of: regularVisibleItems.map(\.id)) { ensureSelection() }
-            #if os(macOS)
-            .toolbar { regularToolbar }
-            #endif
     }
 
+    /// The list column's toolbar: the All | Codes | Cards control and a labeled Add (Delete All… in Recently Deleted).
     @ToolbarContentBuilder
-    private var regularToolbar: some ToolbarContent {
+    private var listToolbar: some ToolbarContent {
         ToolbarItem(placement: .principal) {
             Picker("Place", selection: placeBinding) {
                 ForEach(VaultPlace.allCases) { Text($0.title).tag($0) }
@@ -894,7 +914,9 @@ struct VaultView: View {
             .labelsHidden()
             .help("Choose All, Codes or Cards (⌘1, ⌘2, ⌘3)")
         }
-        windowToolbar
+        if showsAddOrDeleteAll {
+            ToolbarItem(placement: .primaryAction) { addOrDeleteAll }
+        }
     }
 
     private var regularDetail: some View {
@@ -912,10 +934,10 @@ struct VaultView: View {
         }
         // On Mac and iPad the capsule sits at the bottom of the detail column.
         .undoBanner(undoBanner)
-        #if os(iOS)
-        // iPad: the toolbar lives in the detail column's bar (see `regularChrome`).
-        .toolbar { regularToolbar }
-        #endif
+        // The item column's toolbar is the open item's labeled Edit (it has its own, hidden when nothing is open) and the one
+        // search field, "Search all items", which searches the whole vault from any place and swaps the list for results.
+        .modifier(ListSearch(enabled: true, text: $search, focus: $searchFocused))
+        .onSubmit(of: .search) { openTopResult() }
     }
 
     private var allSplit: some View {
@@ -932,6 +954,16 @@ struct VaultView: View {
                 .listStyle(.sidebar)
                 .navigationTitle("Vault")
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220)
+                #if os(iOS)
+                // The sidebar column: the system's sidebar button, and on iPad the Setup gear. On Mac, Setup is Psss, Settings… (⌘,).
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Setup", systemImage: "gearshape") { showsSetup = true }
+                            .labelStyle(.iconOnly)
+                            .help("Setup")
+                    }
+                }
+                #endif
             } content: {
                 Group {
                     if isSearching || place == .all {
@@ -944,6 +976,7 @@ struct VaultView: View {
                 }
                 // Wide enough for the names, with the code button or the card's summary beside them.
                 .navigationSplitViewColumnWidth(min: 320, ideal: 400, max: 560)
+                .toolbar { listToolbar }
             } detail: {
                 regularDetail
             }
@@ -1083,6 +1116,12 @@ struct VaultView: View {
     @ViewBuilder
     private func listRows(_ results: [VaultItem], pillsInList: Bool = false) -> some View {
         // On iPhone the pills are the top of the list, under the large title: they scroll away with it and return at the top.
+        if !usesStack {
+            // Mac and iPad: the list's title and count are its first line (the bar carries the controls).
+            // While a search is active the list shows results from the whole vault, whatever place is selected.
+            ListTitleLine(title: isSearching ? "Results" : (showsAllList ? shownCategory.title : place.title),
+                          count: RecentlyDeletedText.itemCount(results.count))
+        }
         if pillsInList {
             pills
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { pillsHeight = $0 }
@@ -1225,12 +1264,7 @@ struct VaultView: View {
         }
         // In Codes or Cards a search keeps that place's title: the title and the bar do not change while typing.
         .navigationTitle(showsAllList ? shownCategory.title : place.title)
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(!usesStack && place != .all ? .inline : .automatic)
-        #endif
-        #if os(macOS)
-        .navigationSubtitle(RecentlyDeletedText.itemCount(results.count))
-        #endif
+        .columnTitleInList(!usesStack)
         .safeAreaInset(edge: .top, spacing: 0) {
             // The sidebar already filters on Mac and iPad. With it hidden, pills fill in. iPhone has them in the list itself.
             // Codes and Cards have no filters, so a search there shows none.
@@ -1239,25 +1273,6 @@ struct VaultView: View {
         #if os(iOS)
         .sensoryFeedback(.success, trigger: codeCopy.count)
         #endif
-    }
-
-    /// Mac and iPad keep Setup and a labeled New in the window toolbar, where Notes and Mail put compose. iPhone has them in the
-    /// navigation bar of the Vault tab.
-    @ToolbarContentBuilder
-    private var windowToolbar: some ToolbarContent {
-        if !usesStack {
-            if showsAddOrDeleteAll {
-                ToolbarItem(placement: .primaryAction) {
-                    addOrDeleteAll
-                }
-                ToolbarSpacer(.fixed, placement: .primaryAction)
-            }
-            ToolbarItem(placement: .primaryAction) {
-                // The same gear as on iPhone. Lock Now lives in Setup and in the Psss menu (⌘L).
-                Button("Setup", systemImage: "gearshape") { showsSetup = true }
-                    .labelStyle(.iconOnly)
-            }
-        }
     }
 
     /// Filters are always on screen as pills, one tap each. Usage pills lead.
@@ -1363,7 +1378,9 @@ struct VaultView: View {
             // A search result with a code shows the live code in place of the chevron: tap it to copy, tap the rest to open.
             HStack(spacing: 12) {
                 // The name and the account are stacked, so the account has the room the Codes list gives it.
-                Button { openItem(item.id) } label: { ItemRow(item: item, stacked: true).contentShape(Rectangle()) }
+                Button { openItem(item.id) } label: {
+                    ItemRow(item: item, stacked: true).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                }
                     .buttonStyle(.plain)
                     .layoutPriority(1)
                 CodeCopyButton(item: item, state: codeCopy, used: { markUsed(item.id) })
@@ -1759,6 +1776,8 @@ private struct ItemDetail: View {
     let item: VaultItem
     let hideSignal: Int
     let edit: () -> Void
+    /// Opens the editor straight at the verification code step: the "Set Up Code…" row of a login that has none.
+    let setUpCode: () -> Void
     let used: () -> Void
     @State private var revealed: Set<FieldID> = []
     /// The field whose copy icon is a checkmark, for about a second and a half.
@@ -1793,7 +1812,7 @@ private struct ItemDetail: View {
                     field(.secret, secretLabel, item.secret, hidden: true)
                 }
                 // In the order the fields are used: username, password, then the code, all in one card.
-                if !item.otpSecret.isEmpty, item.kind == .login { codeRow }
+                if item.kind == .login { if item.otpSecret.isEmpty { noCodeRow } else { codeRow } }
                 if !item.expiry.isEmpty { field(.expiry, "Expiry", item.expiry) }
                 if !item.securityCode.isEmpty { field(.securityCode, "Security code", item.securityCode, hidden: true) }
                 if !item.website.isEmpty { field(.website, "Website", item.website) }
@@ -1864,12 +1883,24 @@ private struct ItemDetail: View {
         #endif
         // A labeled Edit in the toolbar of the detail column, as in Passwords (Mac) and Contacts (iOS).
         .toolbar {
-            // Text, not a Label: iOS toolbars would reduce a Label to an icon-only circle.
+            // Text, not a Label: iOS toolbars would reduce a Label to an icon-only circle. Only an open item has it.
             Button(action: edit) { Text("Edit") }
-                .buttonStyle(.borderedProminent)
-            .keyboardShortcut("e", modifiers: .command)
+                .keyboardShortcut("e", modifiers: .command)
         }
         .copiedPill(pill)
+    }
+
+    /// A login with no code: the row says so and offers Set Up Code…, where the code would be. Nothing to copy, so no copy icon.
+    private var noCodeRow: some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Verification code").foregroundStyle(.secondary)
+                Text("None")
+            }
+            Spacer(minLength: 8)
+            Button("Set Up Code…", action: setUpCode)
+                .buttonStyle(.bordered)
+        }
     }
 
     private var codeRow: some View {
@@ -1898,8 +1929,10 @@ private struct ItemDetail: View {
                 .scaleEffect(0.7)
                 .frame(width: 40, height: 40)
                 .accessibilityHidden(true)
-                CopyIconButton(name: String(localized: "verification code"), copied: copied == .code) {
-                    copy(code, as: .code, name: String(localized: "Verification code"))
+                if TOTP.code(secret: item.otpSecret, settings: item.otpSettings, at: context.date) != nil {
+                    CopyIconButton(name: String(localized: "verification code"), copied: copied == .code) {
+                        copy(code, as: .code, name: String(localized: "Verification code"))
+                    }
                 }
             }
         }
@@ -1936,6 +1969,8 @@ private struct ItemEditor: View {
     let onKeepDraft: (VaultItem) -> Void
     /// Set only when editing an existing item.
     var onDelete: (() -> Void)?
+    /// Opens the verification code step as soon as the editor is on screen.
+    var startsWithCode = false
     @Environment(\.dismiss) private var dismiss
     @FocusState private var titleFocused: Bool
     @State private var addingCode = false
@@ -2019,6 +2054,8 @@ private struct ItemEditor: View {
                     // Nothing more is asked: the item goes to Recently Deleted and Undo follows. The line says where it goes.
                     Section {
                         Button("Delete Item", role: .destructive, action: onDelete)
+                            // Explicit: a macOS Form draws a destructive button in the default text colour.
+                            .foregroundStyle(.red)
                     } footer: {
                         Text(verbatim: RecentlyDeletedText.editorDeleteLine).font(.body)
                     }
@@ -2043,6 +2080,12 @@ private struct ItemEditor: View {
             }
         }
         .modifier(SheetSize())
+        .task {
+            // A sheet cannot present another while it is still coming up.
+            guard startsWithCode else { return }
+            try? await Task.sleep(for: .milliseconds(450))
+            addingCode = true
+        }
         .sheet(isPresented: $addingCode) {
             VerificationCodeSheet(loginName: item.displayTitle, hasExistingCode: totpUsable) { setup in
                 item.otpSecret = setup.secret
@@ -2096,7 +2139,7 @@ extension ItemEditor {
 private struct SheetSize: ViewModifier {
     func body(content: Content) -> some View {
         #if os(macOS)
-        content.frame(minWidth: 450, minHeight: 360)
+        content.frame(minWidth: 450, minHeight: 360).frame(idealHeight: 560)
         #else
         // iPad: the tallest sheet the screen allows, so the fields and Delete Item at the bottom show with little scrolling; the
         // default form sheet is a short card.
@@ -2114,6 +2157,18 @@ extension FocusedValues {
     var newItem: ((ItemKind) -> Void)? {
         get { self[NewItemKey.self] }
         set { self[NewItemKey.self] = newValue }
+    }
+}
+
+private struct OpenSetupKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+extension FocusedValues {
+    /// Psss, Settings… (⌘,): opens Setup in the focused window.
+    var openSetup: (() -> Void)? {
+        get { self[OpenSetupKey.self] }
+        set { self[OpenSetupKey.self] = newValue }
     }
 }
 

@@ -4,6 +4,7 @@ import SwiftUI
 struct PsssApp: App {
     @FocusedValue(\.newItem) private var newItem
     @FocusedValue(\.lockVault) private var lockVault
+    @FocusedValue(\.openSetup) private var openSetup
 
     init() {
         // Earlier builds may have left real logins in a plain-text file in the App Group. Delete it.
@@ -19,6 +20,9 @@ struct PsssApp: App {
         #endif
         // Removes the login-keychain items an earlier local build left behind. Does nothing except in a provisioned Mac app.
         BiometricKey.removeLeftoverLoginItems()
+        #if DEBUG
+        SyncSpikeHarness.startIfRequested()   // sync spike: does nothing without -psss-sync-spike
+        #endif
     }
 
     var body: some Scene {
@@ -30,6 +34,14 @@ struct PsssApp: App {
         #endif
         .commands {
             VaultPlaceCommands()
+            // Psss, Settings… (⌘,): where the Mac window has no Setup gear.
+            CommandGroup(replacing: .appSettings) {
+                // Always enabled: with no window to show it in, the press does nothing rather than greying the item out.
+                Button("Settings…") { openSetup?() }
+                    .keyboardShortcut(",", modifiers: .command)
+            }
+            // Edit, Delete is the system's own item: the item list answers it with `onDeleteCommand` (VaultView), and a focused
+            // text field answers it first, so there is one Delete and ⌘⌫ still edits text.
             CommandGroup(after: .appVisibility) {
                 Button("Lock Psss") { lockVault?() }
                     .keyboardShortcut("l", modifiers: .command)

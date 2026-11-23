@@ -58,7 +58,9 @@ struct UndoBanner: View {
             HStack(spacing: 8) {
                 Text(offer.message)
                     .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(offer.message)
                 Button("Undo") { model.undo() }
+                    .accessibilityLabel("Undo")
                     .buttonStyle(.borderless)
                     .fontWeight(.semibold)
                     .frame(minWidth: 44, minHeight: 44)
@@ -69,9 +71,8 @@ struct UndoBanner: View {
             .glassEffect(.regular, in: .capsule)
             .frame(maxWidth: 520)
             .transition(.move(edge: .bottom).combined(with: .opacity))
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(offer.message)
-            .accessibilityAction(named: Text("Undo")) { model.undo() }
+            // Two real elements: the sentence, and an Undo button VoiceOver and Voice Control can find and press.
+            .accessibilityElement(children: .contain)
         }
     }
 }

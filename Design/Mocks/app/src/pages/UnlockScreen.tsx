@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Against, Clarity, Decisions, Frame, Frames, Page, Proposed, Section } from '../components/page';
+import { Against, Approved, Clarity, Decisions, Frame, Frames, Page, Section } from '../components/page';
 import { IPad, IPhone, MacWindow } from '../components/devices';
 
 type Bio = 'touch' | 'face' | 'none';
@@ -72,7 +72,7 @@ export function UnlockScreen() {
   return (
     <Page
       title="Unlock screen"
-      status={<><Proposed />. Waiting for approval. Replaces the current password-first lock screen on every device.</>}
+      status={<><Approved />. Not built yet. Replaces the current password-first lock screen on every device.</>}
     >
       <Clarity
         intro={<p>Today the lock screen opens with a password field, an Unlock button, a key file row, a paragraph of help and two buttons, and on Mac it asks for Touch ID in a system dialog. Apple Passwords shows one calm screen: its icon with a Touch ID glyph, one line, and “Use Password…”. Touching the sensor while the window is in front unlocks it, with no dialog.</p>}

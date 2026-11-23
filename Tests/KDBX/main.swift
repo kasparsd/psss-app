@@ -117,7 +117,14 @@ do {
     let order = CardsOrder.ordered([old, older, recent], now: now)
     check("cards: live ones by last use, expired last", (order.live + order.expired).map(\.title).joined(separator: ","), "Recent,Older,Old")
     check("cards: only the past expiry is expired", order.expired.map(\.title).joined(separator: ","), "Old")
-    check("cards: summary names the network and last four", recent.cardSummary, "Visa ending 4242")
+    check("cards: live summary", recent.cardSummary(now: now), "Visa \u{2022}\u{2022} 4242 \u{00B7} 08/30")
+    check("cards: expired summary", old.cardSummary(now: now), "Expired 03/25")
+    check("cards: short brand names", CardBrand.americanExpress.shortName + "/" + CardBrand.dinersClub.shortName + "/" + CardBrand.mastercard.shortName, "Amex/Diners/Mastercard")
+    check("cards: spoken summary", recent.cardSummarySpoken(now: now), "Visa ending 4242, expires 08/30")
+    var bare = recent; bare.expiry = ""
+    check("cards: no expiry drops the separator", bare.cardSummary(now: now), "Visa \u{2022}\u{2022} 4242")
+    bare.secret = "1234"
+    check("cards: no brand keeps the last four", bare.cardSummary(now: now), "\u{2022}\u{2022} 1234")
     expect("cards: expiry month and year in words, in the person's language", (old.cardExpiryMonthYear ?? "").contains("2025") && old.cardExpiryMonthYear != "03/25")
     recent.lastUsed = now.addingTimeInterval(-99999)
     old.lastUsed = nil

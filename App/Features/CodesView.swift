@@ -196,8 +196,8 @@ struct CodesView: View {
             }
         }
         .navigationTitle("Codes")
+        .columnTitleInList(selection != nil)
         #if os(macOS)
-        .navigationSubtitle(codeItems.count == 1 ? "1 code" : "\(codeItems.count) codes")
         .onCopyCommand {
             // Command-C copies the selected row's code. The copy is made after the system has written what this returns (nothing),
             // so the concealed copy is the one left on the clipboard.
@@ -214,6 +214,9 @@ struct CodesView: View {
 
     @ViewBuilder
     private var rows: some View {
+        if selection != nil {
+            ListTitleLine(title: "Codes", count: codeItems.count == 1 ? String(localized: "1 code") : String(localized: "\(codeItems.count) codes"))
+        }
         if !codeItems.isEmpty {
             CountdownLine(period: countdownPeriod)
                 .listRowSeparator(.hidden)
@@ -221,7 +224,12 @@ struct CodesView: View {
             if !recentItems.isEmpty {
                 Section("Recently copied") { ForEach(recentItems) { row($0, in: .recent) } }
             }
-            Section("All codes") { ForEach(allCodes) { row($0, in: .all) } }
+            // The header only tells the two sections apart; without "Recently copied" the title already says Codes.
+            if recentItems.isEmpty {
+                Section { ForEach(allCodes) { row($0, in: .all) } }
+            } else {
+                Section("All codes") { ForEach(allCodes) { row($0, in: .all) } }
+            }
             Text(helpText)
                 .foregroundStyle(.secondary)
                 .listRowSeparator(.hidden)
