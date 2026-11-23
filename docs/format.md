@@ -183,8 +183,8 @@ Still open, listed as questions on the mock pages: whether a vault needs a name 
 | Decision | Recommendation |
 | --- | --- |
 | Adopt this format as the source of truth, with KDBX as import and export | **Decided 2026-11-23: adopted.** |
-| Post-quantum key wrapping from the first version | Yes: the X-Wing hybrid (ML-KEM-768 with X25519) as the HPKE key exchange. Wrapped vault keys stored in a cloud are exactly what an attacker would collect now and decrypt later. It sets the minimum at iOS 26 and macOS 26. To verify: availability in CryptoKit and in libraries for Windows and Linux. |
-| Reuse the age file format for wrapped keys | Evaluate. It would give Windows and Linux tooling for free. To verify: its current post-quantum recipients, and whether its passphrase mode (scrypt) is acceptable in place of Argon2id. |
+| Post-quantum key wrapping from the first version | Yes: the X-Wing hybrid (ML-KEM-768 with X25519) as the HPKE key exchange. Wrapped keys stored in a cloud are exactly what an attacker would collect now and decrypt later. Verified 2026-11-23: CryptoKit has it from iOS 26 and macOS 26 as `XWingMLKEM768X25519_SHA256_AES_GCM_256`, Go has it in `crypto/hpke`, and Python's `cryptography` has it from version 47. It sets the minimum OS at 26. The [specification](format-spec.md) is drafted on this assumption. Still to show: that the three interoperate on the test vectors. |
+| Reuse the age file format for wrapped keys | No. Verified 2026-11-23: age has post-quantum recipients from version 1.3.0, but it is a whole-file format with its own header and passphrase mode (scrypt), CryptoKit has no age support, and what is wrapped here is one 32-byte key, which HPKE does directly on every platform. The reference tool gives Windows and Linux the same reach. The [specification](format-spec.md) is drafted on this assumption. |
 | The person key: synced by iCloud Keychain, or wrapped to each device | **Decided 2026-11-23, approved with the mocks:** iCloud Keychain by default on Apple devices, with the vault password and recovery kit optional under Advanced. The vault is as safe as the Apple Account and device passcode, no safer. |
 | Order | One person on several devices first, with epochs and authors already in every record and every item already in a group. Shared groups second. |
 
@@ -192,8 +192,8 @@ Still open, listed as questions on the mock pages: whether a vault needs a name 
 
 - [x] Owner decision to adopt (2026-11-23).
 - [ ] Owner decision on the four open rows above.
-- [ ] Verify the two items marked “to verify”.
-- [ ] Write the byte-level specification with test vectors: record layout, key derivation labels, wrapped-key layout, folder layout, the three server operations.
+- [x] Verified X-Wing HPKE in CryptoKit, Go and Python, and age's post-quantum recipients (2026-11-23).
+- [~] Byte-level [specification](format-spec.md): draft 1 written 2026-11-23, covering records, keys, membership, slots, the folder layout and the server operations. Test vectors and a reference implementation in `Tests/Format/` are in progress. Not yet specified: the item schema, the invitation and approval exchanges, the backup file and the CloudKit record types.
 - [ ] Spike: CloudKit zone per vault with `CKShare`, including whether a child's Apple Account can accept the share, and convergence times on real devices.
 - [ ] Spike: the folder transport in iCloud Drive and one non-Apple sync tool, with three devices and scripted concurrent edits.
 - [ ] Reference command-line tool that reads and writes a folder vault on macOS, Windows and Linux.

@@ -13,7 +13,7 @@ See the [product contract](product.md) for positioning, principles and business 
 | Platform | [AutoFill and browser coverage](autofill.md), [browser extension](browser-extension.md) |
 | Items | [Cards, notes and KeePass entries](items.md) |
 | Verification codes | [Adding a TOTP code by paste, image or camera](verification-codes.md) |
-| Storage | [KeePass and vault lifecycle](vaults.md), [vault format](format.md) |
+| Storage | [KeePass and vault lifecycle](vaults.md), [vault format](format.md), [byte-level specification](format-spec.md) |
 | Migration | [Strongbox and 1Password](migration.md) |
 | Engineering | [Swift architecture and security](architecture.md) |
 | Development | [Xcode, Swift and localization conventions](development.md) |
