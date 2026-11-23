@@ -264,7 +264,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     }
 
     private static func reason(for error: Error) -> String {
-        (error as? VaultStoreError)?.message ?? (error as? KDBXError)?.message ?? error.localizedDescription
+        (error as? VaultStoreError)?.messageInProvider ?? (error as? KDBXError)?.message ?? error.localizedDescription
     }
 
     private func complete(with item: VaultItem) {

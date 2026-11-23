@@ -217,7 +217,7 @@ struct VaultView: View {
         }
         .task { if !store.isSample, session.shouldOfferBiometric { offersBiometric = true } }
         .sheet(isPresented: $changingPassword) {
-            if let store = store as? KeePassVaultStore { ChangePasswordSheet(store: store) }
+            if let store = store as? KeePassVaultStore { ChangePasswordSheet(store: store, onReloaded: { adoptReloadedVault() }) }
         }
         .alert("Could not import", isPresented: Binding(get: { importProblem != nil }, set: { if !$0 { importProblem = nil } })) {
             Button("OK") { importProblem = nil }
@@ -655,12 +655,9 @@ struct VaultView: View {
         guard let store = store as? KeePassVaultStore else { return }
         Task {
             do {
-                if try await store.reloadIfChanged() {
-                    items = store.items()
-                    registerIdentities()
-                }
+                if try await store.reloadIfChanged() { adoptReloadedVault() }
             } catch KDBXError.wrongCredentials {
-                gate.lock()
+                gate.lock(notice: Self.changedElsewhereNotice)
             } catch {
                 // The file is missing or unreadable for now. Keep what is open; the next save reports the problem.
             }
@@ -695,9 +692,25 @@ struct VaultView: View {
     private func reloadFromDisk() {
         guard let store = store as? KeePassVaultStore else { return }
         Task {
-            do { try await store.reload(); items = store.items(); registerIdentities() }
-            catch { storeProblem = (error as? KDBXError)?.message ?? (error as? VaultStoreError)?.message ?? error.localizedDescription }
+            do { try await store.reload(); adoptReloadedVault() }
+            catch KDBXError.wrongCredentials {
+                gate.lock(notice: Self.changedElsewhereNotice)
+            } catch { storeProblem = (error as? KDBXError)?.message ?? (error as? VaultStoreError)?.message ?? error.localizedDescription }
         }
+    }
+
+    private static let changedElsewhereNotice = String(localized: "The vault was changed by another app or device and needs your vault password again.")
+
+    /// Shows the reloaded vault. An item that is gone from it loses its selection, detail and editor.
+    private func adoptReloadedVault() {
+        let before = Set(items.map(\.id))
+        items = store.items()
+        registerIdentities()
+        let now = Set(items.map(\.id))
+        func gone(_ id: VaultItem.ID) -> Bool { before.contains(id) && !now.contains(id) }
+        if let selected = selection, gone(selected) { selection = nil }
+        if compactPath.contains(where: gone) { compactPath = [] }
+        if let open = editor, gone(open.id) { editor = nil }
     }
 
     /// Repeats the refused change now, with the check for a changed file skipped, on the vault as the store holds it (the last
@@ -707,10 +720,10 @@ struct VaultView: View {
         let followUp = refusedFollowUp
         refusedWrite = nil
         refusedFollowUp = nil
+        // Every follow-up registers the AutoFill identities itself, so this does so once, only when there is none.
         attempt({ try store.overwriting(write) }, then: {
             items = store.items()
-            registerIdentities()
-            followUp?()
+            if let followUp { followUp() } else { registerIdentities() }
         })
     }
 

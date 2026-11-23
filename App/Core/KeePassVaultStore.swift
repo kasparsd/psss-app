@@ -715,17 +715,25 @@ extension KDBXError {
     /// Plain-language text for the interface.
     var message: String {
         switch self {
-        case .notAVault: String(localized: "This file is not a KeePass vault.")
-        case .unsupported(let what): String(localized: "Psss cannot open this vault yet: \(what) is not supported.")
+        case .notAVault: String(localized: "This file is not a KeePass vault. Choose a KeePass file (.kdbx).")
+        case .unsupported(let what): String(localized: "Psss cannot open this vault yet: \(what) is not supported. Open it in the app that made it and save it with AES-256 or ChaCha20, then try again.")
         case .wrongCredentials: String(localized: "The vault password or key file is not right.")
         case .corrupted: String(localized: "The vault file is damaged or was changed by something else. Nothing was modified.")
-        case .invalidKeyFile: String(localized: "This key file cannot be used.")
-        case .invalidParameters: String(localized: "The vault asks for more memory or time than Psss allows.")
+        case .invalidKeyFile: String(localized: "This key file cannot be used. Choose the key file that was used when the vault was made.")
+        case .invalidParameters: String(localized: "The vault asks for more memory or time than Psss allows. Open it in the app that made it and lower its memory or rounds setting, then try again.")
         }
     }
 }
 
 extension VaultStoreError {
+    /// For a place with no vault to lock, such as the AutoFill screen that says a save did not happen.
+    var messageInProvider: String {
+        switch self {
+        case .changedOnDisk: String(localized: "The vault file was changed by another app or device just now, so this was not saved. Try again.")
+        default: message
+        }
+    }
+
     var message: String {
         switch self {
         case .changedOnDisk: String(localized: "The vault file was changed by another app or device since Psss last read it. Nothing was changed. Lock and unlock the vault to see the current version, then try again.")

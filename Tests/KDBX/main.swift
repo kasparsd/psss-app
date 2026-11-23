@@ -1746,8 +1746,10 @@ do {
     func fmt(_ t: Double) -> String { String(format: "%.2f s", t) }
 
     var times: [Int: Double] = [:]
+    var documents: [Int: KDBXDocument] = [:]
     for count in [500, 5_000, 20_000, 50_000] {
         let doc = try generated(count, iso: count == 20_000 || count == 50_000)
+        documents[count] = doc
         let t = listing(doc)
         times[count] = t
         print("     items() on \(count) entries\(count >= 20_000 ? " with ISO times" : ""): \(fmt(t))")
@@ -1757,9 +1759,19 @@ do {
     withinBudget("items() on 20,000 entries stays within the budget", times[20_000]!, quietRatio: 12.5)
     withinBudget("items() on 50,000 entries stays within the budget", times[50_000]!, quietRatio: 31)
     let floorTime = 0.1 * calibrationUnit()
-    print(String(format: "     items() scaling: 20,000 over 5,000 = %.1f, 50,000 over 5,000 = %.1f (linear is 4 and 10)", times[20_000]! / max(times[5_000]!, floorTime), times[50_000]! / max(times[5_000]!, floorTime)))
-    expect("items() scales linearly: 20,000 take at most 8 times as long as 5,000", times[20_000]! <= 8 * max(times[5_000]!, floorTime))
-    expect("and 50,000 at most 20 times as long as 5,000", times[50_000]! <= 20 * max(times[5_000]!, floorTime))
+    func ratios() -> (Double, Double) {
+        (times[20_000]! / max(times[5_000]!, floorTime), times[50_000]! / max(times[5_000]!, floorTime))
+    }
+    var measured = ratios()
+    print(String(format: "     items() scaling: 20,000 over 5,000 = %.1f, 50,000 over 5,000 = %.1f (linear is 4 and 10)", measured.0, measured.1))
+    if measured.0 > 8 || measured.1 > 20 {
+        // A stall on a busy machine can hit one measurement. Measure all three again once before failing.
+        for count in [5_000, 20_000, 50_000] { times[count] = listing(documents[count]!) }
+        measured = ratios()
+        print(String(format: "     items() scaling, measured again: 20,000 over 5,000 = %.1f, 50,000 over 5,000 = %.1f", measured.0, measured.1))
+    }
+    expect("items() scales linearly: 20,000 take at most 8 times as long as 5,000", measured.0 <= 8)
+    expect("and 50,000 at most 20 times as long as 5,000", measured.1 <= 20)
     let tBase64 = listing(try generated(20_000))
     print("     items() on 20000 entries with KDBX 4 times: \(fmt(tBase64))")
     withinBudget("and with KDBX 4 times too", tBase64, quietRatio: 13)

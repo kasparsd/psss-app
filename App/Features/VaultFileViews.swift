@@ -314,7 +314,10 @@ struct VaultPasswordView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background)
-        .onAppear { focused = true }
+        .onAppear {
+            focused = true
+            if let notice = gate.lockNotice { problem = notice; gate.lockNotice = nil }
+        }
         .task {
             // Like Apple Passwords, ask for Face ID or Touch ID straight away; the button retries.
             guard !triedBiometric, biometry != nil, !missing else { return }
@@ -479,6 +482,8 @@ struct ChangePasswordSheet: View {
     @State private var changed = false
     /// The change was refused because the file changed elsewhere. The vault is reloaded when the sheet closes.
     @State private var reloadOnClose = false
+    /// Called after the vault was reloaded on close, so the list can follow.
+    var onReloaded: () -> Void = {}
 
     var body: some View {
         NavigationStack {
@@ -508,7 +513,8 @@ struct ChangePasswordSheet: View {
             .onDisappear {
                 guard reloadOnClose else { return }
                 let store = store
-                Task { try? await store.reload() }
+                let onReloaded = onReloaded
+                Task { if (try? await store.reload()) != nil { onReloaded() } }
             }
         }
         .modifier(VaultSheetSize())

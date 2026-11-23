@@ -105,7 +105,7 @@ extension View {
             } catch VaultStoreError.changedOnDisk {
                 problem.wrappedValue = String(localized: "Nothing was imported, because the vault file was changed by another app or device. Lock and unlock the vault, then import again.")
             } catch let failure as VaultStoreError {
-                problem.wrappedValue = String(localized: "Nothing was imported. \(failure.message)")
+                problem.wrappedValue = failure.message   // every store message already says nothing changed
             } catch {
                 problem.wrappedValue = String(localized: "Nothing was imported. \(error.localizedDescription)")
             }

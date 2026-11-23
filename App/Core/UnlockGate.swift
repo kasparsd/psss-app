@@ -91,7 +91,11 @@ final class UnlockGate {
         state = .unlocked
     }
 
-    func lock() {
+    /// Why the vault was locked without the person asking, shown once on the lock screen.
+    var lockNotice: String?
+
+    func lock(notice: String? = nil) {
+        lockNotice = notice
         state = .locked
     }
 
