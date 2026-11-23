@@ -118,38 +118,3 @@ final class UnlockGate {
         if prompt { await unlock() }
     }
 }
-
-/// Opaque cover shown instead of the vault while locked. Its one action is visible and labeled.
-struct LockScreen: View {
-    let gate: UnlockGate
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "lock.fill")
-                .font(.system(size: 44))
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-            Text("Psss is locked")
-                .font(.title2.weight(.semibold))
-            if case .failed(let message) = gate.state, !message.isEmpty {
-                Text(message)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 320)
-            }
-            Button {
-                Task { await gate.unlock() }
-            } label: {
-                Label("Unlock", systemImage: "lock.open")
-                    .padding(.horizontal, 8)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(gate.state == .unlocking)
-            .keyboardShortcut(.defaultAction)
-        }
-        .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.background)
-    }
-}

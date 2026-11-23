@@ -365,9 +365,8 @@ struct VaultPasswordView: View {
 
     private var content: some View {
         VStack(spacing: 16) {
-            LockIcon(biometry: biometry, listening: listening, dimmed: working || !listening, vaultName: vaultName,
-                     retry: { startBiometrics(automatic: false) }, context: lockContext)
-            Text("Psss Is Locked").font(.title2.weight(.semibold))
+            LockHeader(biometry: biometry, listening: listening, dimmed: working || !listening, vaultName: vaultName,
+                       retry: { startBiometrics(automatic: false) }, context: lockContext)
             statusLine
             messageLine
             if showForm {

@@ -81,6 +81,60 @@ struct LockIcon: View {
     }
 }
 
+/// The top of every lock screen, so the sample vault and a real vault look the same: the app icon (with the biometric glyph
+/// when the vault unlocks with it) and the title.
+struct LockHeader: View {
+    let biometry: BiometryKind?
+    var listening = false
+    var dimmed = false
+    var vaultName = ""
+    var retry: () -> Void = {}
+    var context: LAContext?
+
+    var body: some View {
+        VStack(spacing: 16) {
+            LockIcon(biometry: biometry, listening: listening, dimmed: dimmed, vaultName: vaultName, retry: retry, context: context)
+            Text("Psss Is Locked").font(.title2.weight(.semibold))
+        }
+    }
+}
+
+/// Shown instead of the sample vault while it is locked. Same layout as `VaultPasswordView`; the one action is the device unlock
+/// (Face ID or Touch ID, with the passcode as the fallback). The glyph shows only where that unlock can use biometry.
+struct LockScreen: View {
+    let gate: UnlockGate
+
+    private var unlocking: Bool { gate.state == .unlocking }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            LockHeader(biometry: BiometryKind.current, dimmed: unlocking, vaultName: String(localized: "the sample vault"),
+                       retry: { Task { await gate.unlock() } })
+            Text("Open the sample vault to continue.")
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            if case .failed(let message) = gate.state, !message.isEmpty {
+                Text(message)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Button {
+                Task { await gate.unlock() }
+            } label: {
+                Text("Unlock").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(unlocking)
+            .keyboardShortcut(.defaultAction)
+        }
+        .frame(maxWidth: 340)
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.background)
+    }
+}
+
 #if os(macOS)
 /// Apple's embedded authentication view. It draws the Touch ID glyph for `context`, and the sensor answers inline, with no
 /// system dialog, while the context is being evaluated and the window is key.
