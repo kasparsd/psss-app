@@ -1,8 +1,8 @@
 # Psss vault format, version 1: byte-level specification
 
-**Status: draft 2, 2026-11-23. Not reviewed, not implemented in the app.** The design and its reasons are in [vault format](format.md); this document says exactly what the bytes are, so that two people can implement it without talking to each other. Test vectors and a reference implementation for Node 24 are in `Packages/format/`. Post-quantum key wrapping is decided (2026-11-23, with a floor of iOS 26 and macOS 26). The draft still assumes one decision the owner has not confirmed: not reusing the age envelope. Everything is open to change until the independent review.
+**Status: draft 3, 2026-11-23. Not reviewed, not implemented in the app.** The design and its reasons are in [vault format](format.md); this document says exactly what the bytes are, so that two people can implement it without talking to each other. Test vectors and a reference implementation for Node 24 are in `Packages/format/`. Post-quantum key wrapping is decided (2026-11-23, with a floor of iOS 26 and macOS 26). The draft still assumes one decision the owner has not confirmed: not reusing the age envelope. Everything is open to change until the independent review.
 
-Draft 2 answers the 36 findings from the first independent implementation of draft 1; the [list of changes](#12-changes-from-draft-1) is at the end.
+Draft 2 answered the 36 findings of the first independent implementation. Draft 3 answers the 12 findings of the second pass and the direction review of the same day. The [lists of changes](#12-changes) are at the end. The reference implementation follows draft 2 until it is brought up to this one.
 
 The words MUST, SHOULD and MAY are used as in RFC 2119. “Group” is the keyed unit with members; a person's vault is every group they belong to.
 
@@ -53,8 +53,8 @@ Signed and hashed structures are CBOR restricted as follows. A decoder MUST reje
 - Integers and lengths use the shortest encoding.
 - Map keys are unsigned integers, or text strings where this document says so. Keys of one map are all of one kind, are unique, and are in ascending order.
 - **Order** always means the bytewise order of the deterministic encodings. For text this puts shorter strings first. An array this document calls “sorted” is in strictly ascending order of its elements' encodings, so it has no duplicates; a reader MUST reject one that is not.
-- Nesting is at most 16 levels deep.
-- A map defined in this document MUST NOT carry keys it does not define, except where “open map” is stated.
+- Nesting is at most 16 levels deep. The outermost array or map is level 1, so sixteen arrays inside one another are allowed and seventeen are not.
+- A map defined in this document MUST NOT carry keys it does not define, with two exceptions: where “open map” is stated, and **extension keys**. In a record body and in a payload, integer keys of 128 and above are reserved for later versions: a reader keeps them, covers them with the signature check like any other key, and otherwise ignores them. This is how a later version adds a field without breaking a reader of this one.
 - A writer SHOULD normalize text a person typed to Unicode NFC. A reader MUST NOT reject or change text that is not normalized: normal forms differ between Unicode versions, and two readers must not disagree.
 
 ## 3. Identities and keys
@@ -81,7 +81,7 @@ sig  = Ed25519(sign_seed, "psss/v1/card" || pid || kem_pk)
 
 ### 3.2 Device
 
-A device is a random 16-byte `device_id`. It labels a chain of records (section 4.4) and nothing else. A device that cannot be certain of the last sequence number it wrote, for example after being restored from a backup, or whose chain has forked, MUST take a new `device_id`.
+A device is a random 16-byte `device_id`. It labels a chain of records (section 4.4) and nothing else. Every process that writes records has its own: on Apple platforms the app and the AutoFill extension are two, because two writers on one chain would fork it. A device that cannot be certain of the last sequence number it wrote, for example after being restored from a backup, or whose chain has forked, MUST take a new `device_id`.
 
 A device that is let in by another device (slot type 3) has its own X-Wing key pair, generated at random and kept in the platform's key store. It is used for that slot only.
 
@@ -109,7 +109,11 @@ ciphertext = ChaCha20-Poly1305(key = rk, nonce = 12 zero bytes, aad = header, pl
 record_id  = SHA-256(sealed)
 ```
 
-`salt` is 32 random bytes, so every record has its own key and the fixed nonce is never reused. A sealed record is at most 1,052,760 bytes, which is the header, the largest plaintext and the tag.
+```
+salt = HKDF(ikm = K_epoch, salt = SHA-256(body_without_9), info = "psss/v1/salt")
+```
+
+`salt` is derived from the group key and the body before it is signed (section 4.3), not drawn at random. Every distinct body therefore has its own record key, the fixed nonce is never reused even if a device's random numbers fail, and sealing is deterministic: the same body always gives the same sealed record and the same `record_id`. A reader MUST recompute `salt` after opening and reject a record where it differs, which also ties the record to the one group key it was sealed under. A sealed record is at most 1,052,760 bytes, which is the header, the largest plaintext and the tag.
 
 ### 4.2 Plaintext and padding
 
@@ -151,16 +155,17 @@ A body whose payload does not have the shape its `kind` requires is malformed. A
 
 A chain is all records in one group with the same `author` and `device`. Within a chain `seq` increases by one and `prev` links each record to the one before.
 
-- **The same record twice.** Two sealed records with the same body bytes are the same record, whatever their salts. A device MUST NOT seal a body twice. A reader that holds both uses either, and either `record_id` satisfies a `prev`.
+- **The same record twice.** Sealing is deterministic (section 4.1), so writing the same body again produces the same record with the same `record_id`. A record is identified by its `record_id`.
 - **A fork.** Two records with the same `author`, `device` and `seq` and different bodies fork the chain at that `seq`. A reader accepts the records before the fork, accepts neither of the two and nothing after them, and shows the fork to the person. The device takes a new `device_id` and writes its changes again. Storage that withholds one of the two can hide a fork from a reader; that reader converges when it receives the other.
+- **Remembering.** For each chain and each location, a device keeps the `seq` and `record_id` of the last record it accepted. When a location later offers less than that, or a different record at a `seq` already accepted, the device reports the location as rolled back and does not treat the older state as current.
 - **A gap.** A reader accepts a record only when every earlier record of its chain is present or covered by a checkpoint (section 5.3). A record whose `prev` does not match the record it holds at `seq - 1` waits like one whose predecessor is missing. A gap means storage is behind, which is reported as “behind”, never as an error.
 
 ### 4.5 Clock and order
 
 `wall_ms` is milliseconds since 1970-01-01 UTC.
 
-- **Reading.** A reader MUST hold back a record whose `wall_ms` is more than 24 hours ahead of its own time. A held-back record is not accepted, and the rest of its chain waits behind it, until the reader's time catches up. It is shown to the person as held back.
-- **Writing.** A device sets `wall_ms` to the larger of its own time and the largest `wall_ms` among the records it has accepted in this group, its own included. `counter` is 0 when that is larger than every accepted `wall_ms`, and otherwise one more than the largest accepted `counter` with that `wall_ms`. Because held-back records are never accepted, one wrong clock cannot drag every other device's clock forward by more than a day.
+- **Reading.** A reader MUST hold back a record whose `wall_ms` is more than 10 minutes ahead of its own time. A held-back record is not accepted, and the rest of its chain waits behind it, until the reader's time catches up. It is shown to the person as held back.
+- **Writing.** A device sets `wall_ms` to the larger of its own time and the largest `wall_ms` among the records it has accepted in this group, its own included. `counter` is 0 when that is larger than every accepted `wall_ms`, and otherwise one more than the largest accepted `counter` with that `wall_ms`. Because held-back records are never accepted, one wrong clock cannot drag every other device's clock forward by more than ten minutes. A device whose own clock is far ahead finds its records held back by the others until that time comes, which is the visible sign to fix its clock.
 
 Records are ordered by the tuple `(wall_ms, counter, author, device, seq)`, compared element by element, byte strings bytewise. This order is total.
 
@@ -170,7 +175,7 @@ A content record is accepted when all of these hold; otherwise it is kept and ig
 
 - `mhead` is on the membership chain the reader has accepted (section 6.5);
 - the author is a writer or manager as of `mhead`;
-- the epoch in the header is the epoch as of `mhead`;
+- the epoch in the header is the epoch as of `mhead`, and the record is sealed under the key that epoch's record on the accepted chain commits to;
 - the record is not beyond a cut (section 6.2).
 
 An author whose record is ignored because `mhead` lost a fork writes the change again.
@@ -187,7 +192,7 @@ A field name MUST NOT be in both. A value is any CBOR allowed by section 2 and i
 
 **State.** Each record that sets or clears a field is a **write** of that field, with the record's place in the order of section 4.5. For each item and field, the current value is that of the greatest accepted write. Writes that lost are history. Folding the same set of records in any order gives the same state, and folding a record twice changes nothing.
 
-**Deleting.** The reserved field `deleted` holds an unsigned integer, the time of deletion in milliseconds, which is shown to the person and plays no part in merging. An item is in Recently Deleted when `deleted` is set and no other field of the item has a winning write that is strictly later than the winning write of `deleted`. A later set or clear of any other field therefore brings the item back, which is the rule that an edit beats a delete. Clearing `deleted` restores the item.
+**Deleting.** The reserved field `deleted` holds an unsigned integer, the time of deletion in milliseconds, which is shown to the person and plays no part in merging. An item is in Recently Deleted when `deleted` is set and no other field of the item has a winning write that is strictly later than the winning write of `deleted`. A later set or clear of any other field therefore brings the item back, which is the rule that an edit beats a delete. Clearing `deleted` restores the item. When a deleted item is removed for good is the app's rule (30 days in Psss), measured on the purging device's own clock from when it accepted the delete, never from the value in the record.
 
 ### 5.2 Attachments
 
@@ -198,37 +203,47 @@ sealed chunk = ChaCha20-Poly1305(key, nonce = u32(0) || u64(index), aad = "psss/
 chunk_id     = SHA-256(sealed chunk)
 ```
 
-`key` MUST be new for every attachment and every changed version of one; reusing it with different data would reuse a nonce. A reader MUST check that the chunk lengths add up to `size`. Chunks are stored by id beside the records and fetched when the attachment is opened.
+`key` MUST be new for every attachment and every changed version of one; reusing it with different data would reuse a nonce. A file of no bytes has no chunks. A reader MUST check that the chunk lengths add up to `size`. Chunks are stored by id beside the records and fetched when the attachment is opened.
 
 ### 5.3 Checkpoint, kind 32
 
 ```
-payload = { 1: covered, 2: items, 3: purged }
+payload = { 1: set_id (16 random bytes), 2: part, 3: parts, 4: covered, 5: items, 6: purged }
 covered = sorted array of [author, device, seq, record_id]            the last record covered in each chain
-items   = sorted array of [item_id, { field name → write }]
+items   = sorted array of [item_id, { field name → sorted array of writes }]
 write   = [1, [wall_ms, counter, author, device, seq], value]         a field that is set
           [0, [wall_ms, counter, author, device, seq]]                a field that is cleared
 purged  = sorted array of [item_id, [wall_ms, counter, author, device, seq]]
 ```
 
-A checkpoint restates writes. Each entry of `items` is folded exactly as the write it names, with the same place in the order, so a checkpoint, any number of overlapping checkpoints and the records themselves all fold to the same state in any order. A reader that still holds covered records goes on folding them, and SHOULD show the person any covered record that disagrees with a checkpoint.
+A checkpoint restates writes. Each write in `items` is folded exactly as the write it names, with the same place in the order, so a checkpoint, any number of overlapping checkpoints and the records themselves all fold to the same state in any order. A reader that still holds covered records goes on folding them, and SHOULD show the person any covered record that disagrees with a checkpoint.
 
 - **Who.** The author MUST be a manager as of `mhead`.
+- **Parts.** A state too large for one body is written as `parts` records with the same `set_id`, numbered `part` 0 to `parts - 1`. `covered` and `purged` are carried in part 0 and are empty in the others. The writes of each part fold as soon as it is accepted; `covered` and `purged` take effect only when every part of the set is accepted.
+- **History.** For each field a checkpoint carries the winning write and MAY carry earlier ones. Those earlier writes are the field's history after the records are gone, and are what Previous Passwords reads. The item schema says how many are kept per field; a write that a checkpoint leaves out is forgotten once the records it covers are deleted.
 - **Chains.** For a chain named in `covered`, records up to that `seq` count as present, so a reader that never received them can continue the chain from the next one. Where checkpoints overlap, the greatest `seq` per chain applies.
-- **Removing records.** Content records covered by an accepted checkpoint MAY be deleted from every location. Membership records are never deleted.
-- **Permanent delete.** `purged` names items whose writes up to the given place in the order are to be forgotten. A reader drops those writes from its state and deletes the records that hold them. This is the only way a secret is removed for good.
+- **Removing records.** Content records covered by a complete, accepted checkpoint MAY be deleted from every location. Membership records are never deleted.
+- **Permanent delete.** `purged` names items whose writes up to the given place in the order are to be forgotten. A reader drops those writes from its state and deletes the records that hold them. This is the only way a secret is removed for good, and it is complete only when every location and device has acted on it.
+
+### 5.4 Purge request, kind 33
+
+```
+payload = { 1: sorted array of item_id }
+```
+
+Any writer may ask for items to be removed for good. Every reader hides those items at once. A manager's device, when it next runs, answers with a checkpoint that purges them. In a group of one the person is the manager, so their own device does both. A writer in a shared group can therefore delete for good without being a manager, and the copy on storage goes when a manager's device has been online.
 
 ## 6. Membership records
 
-Membership records form one chain per group, separate from the device chains: each carries `mprev`, the `record_id` of the membership record before it. Roles are `0` removed, `1` reader, `2` writer, `3` manager. A membership record other than an epoch record is sealed under the epoch as of its `mprev`.
+Membership records form one chain per group, separate from the device chains: each carries `mprev`, the `record_id` of the membership record before it. Roles are `0` removed, `1` reader, `2` writer, `3` manager. A membership record that does not start an epoch is sealed under the epoch as of its `mprev`.
 
 ### 6.1 Genesis, kind 1
 
 ```
-payload = { 1: genesis_nonce, 2: card of the creator, 3: commit(0) }
+payload = { 1: genesis_nonce, 2: card of the creator, 3: commit(0), 4: min_reader }
 ```
 
-The first record of a group: epoch 0, `seq` 1, no `mprev`. The creator is a manager. A reader MUST check that the card's `pid` is `author`, that `gid` in the header equals the derivation in section 3.3 from `author`, `genesis_nonce` and the `K_0` it holds, and that the commitment matches. If a reader holds more than one valid genesis for a `gid`, it uses the one with the smallest `record_id`; they can differ only in the creator's own card and clock.
+The first record of a group: epoch 0, `seq` 1, no `mprev`. The creator is a manager. `min_reader` is the lowest format version that may read this group, `1` here; an implementation of a lower version MUST NOT read or write the group and tells the person to update. A reader MUST check that the card's `pid` is `author`, that `gid` in the header equals the derivation in section 3.3 from `author`, `genesis_nonce` and the `K_0` it holds, and that the commitment matches. If a reader holds more than one valid genesis for a `gid`, it uses the one with the smallest `record_id`; they can differ only in the creator's own card and clock.
 
 ### 6.2 Member, kind 2
 
@@ -237,11 +252,11 @@ payload = { 1: mprev, 2: card or pid, 3: role, 4: cut }
 cut     = sorted array of [device, seq]
 ```
 
-Adds a person, changes a role or removes a person. The author MUST be a manager as of `mprev`.
+Adds a person or changes a role. The author MUST be a manager as of `mprev`. `role` is 1, 2 or 3; removing a person is a separate kind (section 6.4).
 
-- Key 2 is a card when the person is not a member as of `mprev` (never added, or removed), and a `pid` otherwise. Role 0 for a person who is not a member is invalid.
-- Key 4 is present when the role is lowered and absent otherwise. It lists the last record the author accepted in each of that person's chains. Content records of that person beyond the cut, and all of their records in chains the cut does not list, are ignored if they are sealed in the epoch of the member record or an earlier one. This stops a person who was removed or lowered, and who still holds old keys, from writing into the past, also from a device no one has seen.
-- Raising a person's role after it was lowered needs a new epoch first, so that their new records are sealed in an epoch the cut does not reach.
+- Key 2 is a card when the person is not a member as of `mprev` (never added, or removed), and a `pid` otherwise.
+- Key 4 is present when the role is lowered and absent otherwise. It lists the last record the author accepted in each of that person's chains, and may be empty. Content records of that person beyond the cut, and all of their records in chains the cut does not list, are ignored if they are sealed in the epoch of the member record or an earlier one. This stops a person who was lowered from writing into the past, also from a device no one has seen.
+- Raising a person's role after it was lowered needs a new epoch first (section 6.3), so that their new records are sealed in an epoch the cut does not reach.
 
 ### 6.3 Epoch, kind 3
 
@@ -249,17 +264,21 @@ Adds a person, changes a role or removes a person. The author MUST be a manager 
 payload = { 1: mprev, 2: e, 3: commit(e), 4: K_(e-1) }
 ```
 
-Starts epoch `e`, which MUST be one more than the epoch as of `mprev`. The author MUST be a manager as of `mprev`. The record is sealed under `K_e` and carries the previous key, so a member who can read epoch `e` can read everything before it. A reader MUST check `K_(e-1)` against `commit(e-1)`.
+Starts epoch `e`, which MUST be one more than the epoch as of `mprev`, with no other change. The author MUST be a manager as of `mprev`. The record is sealed under `K_e` and carries the previous key, so a member who can read epoch `e` can read everything before it. A reader MUST check `K_(e-1)` against `commit(e-1)`. Writers MUST seal new records under the newest epoch they have accepted.
 
-A removal (section 6.2 with role 0) or a replacement (section 6.4) takes effect at once and leaves the group **waiting for a new key**: until an epoch record follows it on the chain, devices MUST NOT seal new content records. The author of the removal SHOULD write the epoch record immediately, and any manager MAY.
-
-### 6.4 Replacing a person's secret, kind 4
+### 6.4 Remove, kind 5, and replace, kind 4
 
 ```
-payload = { 1: mprev, 2: old pid, 3: new card, 4: cut }
+remove  = { 1: mprev, 2: pid, 3: cut, 4: e, 5: commit(e), 6: K_(e-1) }
+replace = { 1: mprev, 2: old pid, 3: new card, 4: cut, 5: e, 6: commit(e), 7: K_(e-1) }
 ```
 
-Written by a manager, or by the person themselves signed with the old key. The new `pid` MUST NOT already be a member and takes the old one's role. `cut` applies to the old `pid` as in section 6.2. The group then waits for a new key (section 6.3). Whoever holds a person's secret is that person as far as this format can tell: if a thief replaces the secret first, a manager removes the thief's `pid` and adds the person again.
+Removing a person and replacing a person's secret each start a new epoch in the same record. The record is sealed under the new key `K_e`, so the removed person, or whoever holds the old secret, cannot read it or anything after it, and there is no moment when the person is gone and the old key is still in use. `e`, the commitment and `K_(e-1)` are as in section 6.3, and `cut` as in section 6.2, applied to the removed or old `pid`; it is always present and may be empty.
+
+- **Remove** is written by a manager. The person MUST be a member as of `mprev`.
+- **Replace** is written by a manager, or by the person themselves signed with the old key. The new `pid` MUST NOT already be a member and takes the old one's role. Whoever holds a person's secret is that person as far as this format can tell: if a thief replaces the secret first, a manager removes the thief's `pid` and adds the person again.
+
+The author wraps `K_e` to every remaining member (section 7.1) before writing the record.
 
 ### 6.5 Validity and forks
 
@@ -267,11 +286,10 @@ A reader verifies the chain from genesis: each record's author holds the needed 
 
 When two or more valid membership records name the same `mprev`, exactly one continues the chain. In order:
 
-1. If `mprev` is a removal or replacement and one candidate is an epoch record by the author of `mprev`, it wins.
-2. Otherwise drop every candidate whose author is removed, lowered or replaced by another candidate. If that drops them all, keep them all.
-3. Of those left, the one that is least by `(author, device, seq, record_id)` wins.
+1. Drop every candidate whose author is removed, lowered or replaced by another candidate. If that drops them all, keep them all.
+2. Of those left, the one that is least by `(author, device, seq, record_id)` wins.
 
-The other candidates and everything after them on their branches are ignored. Their authors write them again on the winning chain if they are still allowed to. The tie-break does not depend on anything an author can vary freely, so it cannot be won by trying salts. Two different keys may exist for one epoch number after a fork; only the key committed by the winning epoch record is that epoch's key, and a content record sealed under the other is ignored.
+The other candidates and everything after them on their branches are ignored. Their authors write them again on the winning chain if they are still allowed to. The tie-break does not depend on anything an author can vary freely. Two different keys may exist for one epoch number after a fork; only the key committed by the record that starts that epoch on the winning chain is that epoch's key, and a content record sealed under the other is ignored.
 
 ### 6.6 How state is computed
 
@@ -299,8 +317,8 @@ A slot is a deterministic CBOR map `{ 1: 1, 2: type, 3: pid, 4: slot_id (16 rand
 | 3 | Another device | `{ 1: device kem_pk }` | `HPKE.SealBase(device kem_pk, info = "psss/v1/slot/device" || pid || slot_id, aad, PS)` |
 
 - **Every slot.** After opening a slot a reader MUST check that the `PS` inside derives the slot's `pid`. Slots are not signed, and anyone who knows a device's public key can make one.
-- **Password.** The password is the UTF-8 bytes of what the person typed, normalized to NFC by the device. Argon2id defaults are 131,072 KiB (128 MiB), 3 passes, 4 lanes. A reader MUST refuse less than 65,536 KiB or fewer than 2 passes, and MUST refuse more than 1,048,576 KiB, 16 passes or 16 lanes, since a slot comes from storage and could otherwise demand unbounded work. An implementation MAY offer an explicit test-only switch that lifts the lower bounds for the published vectors. The AutoFill extension never opens a password slot.
-- **Recovery kit.** 20 random bytes, shown as `RK1-` followed by its 32 characters in Crockford base32 in groups of four separated by hyphens. When reading one, case, hyphens and spaces are ignored, `I` and `L` read as `1`, and `O` reads as `0`.
+- **Password.** The password is the UTF-8 bytes of what the person typed, normalized to NFC by the device. Argon2id defaults are 131,072 KiB (128 MiB), 3 passes, 4 lanes. A reader MUST refuse less than 65,536 KiB or fewer than 2 passes, MUST refuse zero lanes or less than 8 KiB of memory per lane, and MUST refuse more than 1,048,576 KiB, 16 passes or 16 lanes, since a slot comes from storage and could otherwise demand unbounded work. An implementation MAY offer an explicit test-only switch that lifts the lower bounds for the published vectors. The AutoFill extension never opens a password slot.
+- **Recovery kit.** 20 random bytes. It is shown as `RK1-` followed by 36 characters of Crockford base32 in nine groups of four separated by hyphens. The 36 characters encode the kit followed by the first two bytes of `SHA-256("psss/v1/kit-check" || kit)`, with four zero bits at the end. When reading one, case, hyphens and spaces are ignored, `I` and `L` read as `1` and `O` reads as `0`, in the prefix too. A reader checks the two bytes before trying the kit, so a mistyped kit is told apart from a kit that opens nothing.
 - **iCloud Keychain.** On Apple devices `PS` is by default also kept as an item in iCloud Keychain. That is a matter for the platform, not a slot, and is not part of this format.
 
 ## 8. Storage
@@ -311,19 +329,20 @@ A location stores opaque objects. It needs three operations: list what is new, g
 
 ```
 Personal.psss/
-  psss.json                                          {"format":"psss-vault","version":1}
-  people/<pid>/slots/<slot_id>.slot                  the CBOR map of section 7.2
-  groups/<gid>/keys/<epoch>/<pid>-<name>.key         the 1168 bytes of section 7.1
-  groups/<gid>/log/<pid>-<device>/<first seq>.seg    content records
-  groups/<gid>/log/<pid>-<device>/<first seq>.mseg   membership records
+  psss.json                                                     {"format":"psss-vault","version":1}
+  people/<pid>/slots/<slot_id>.slot                             the CBOR map of section 7.2
+  groups/<gid>/keys/<epoch>/<pid>-<name>.key                    the 1168 bytes of section 7.1
+  groups/<gid>/log/<pid>-<device>/<first seq>-<last seq>.seg    content records
+  groups/<gid>/log/<pid>-<device>/<first seq>-<last seq>.mseg   membership records
   groups/<gid>/blobs/<first 2 hex digits>/<chunk_id>
 ```
 
-- Identifiers are lowercase hexadecimal. The epoch is decimal. `<first seq>` is ten decimal digits, so a chain holds fewer than 10^10 records. `<name>` is 8 random bytes in hexadecimal, so two wraps never share a path. `psss.json` is read as JSON; a writer produces exactly the bytes shown and a line feed.
-- A segment is a sequence of frames, `u32(len(sealed)) || sealed`, holding consecutive records of one chain in ascending `seq`. Names are a convenience: a reader takes `author`, `device` and `seq` from the records. A reader MUST stop reading a segment at a frame longer than the largest sealed record or out of sequence, and MUST ignore an incomplete final frame, which is an upload in progress.
-- Only the device that owns a chain writes its segments. It appends to the newest and starts a new one when the newest has reached 65,536 bytes, after which the old one never changes.
-- A membership record is written alone in a segment named `.mseg`, and the device starts a new `.seg` for what follows. A `.seg` whose records are all covered by an accepted checkpoint MAY be deleted whole; an `.mseg` never is.
-- Because no file has two writers, a file-sync service has nothing to conflict on. Slots and wraps are written once and never changed.
+- Identifiers are lowercase hexadecimal. The epoch is decimal. A `seq` in a name is ten decimal digits, so a chain holds fewer than 10^10 records. `<name>` is 8 random bytes in hexadecimal, so two wraps never share a path. `psss.json` is read as JSON; a writer produces exactly the bytes shown and a line feed.
+- **No file is ever changed.** Each time a device writes, it puts the new records of a chain into a new file: under a name beginning with `.tmp-` first, then renamed to its final name. A file-sync service can deliver an older copy of a file that changes; it cannot do that to a file that never does. A reader ignores names beginning with `.tmp-`.
+- A segment is a sequence of frames, `u32(len(sealed)) || sealed`, holding consecutive records of one chain in ascending `seq`. Names are a convenience: a reader takes `author`, `device` and `seq` from the records. A reader MUST stop reading a segment at a frame longer than the largest sealed record or at a record out of sequence, and MUST ignore an incomplete final frame. A frame that cannot be opened yet, for lack of a key, is kept and passed over.
+- Segments may overlap. A device MAY gather many small segments of its own chain into one larger file, written the same way, and then delete the small ones. Only the device that owns a chain writes its segments.
+- A membership record is written alone in a `.mseg`. A `.seg` whose records are all covered by a complete, accepted checkpoint MAY be deleted by any device; an `.mseg` never is.
+- Slots and wraps are written once and never changed.
 
 ### 8.2 Server
 
@@ -342,7 +361,7 @@ One zone per group and one database record per sealed record, named by `record_i
 ## 9. What a reader does with a sealed record
 
 1. **Can it be opened yet?** The header's magic is checked; a wrong one is discarded. A record for a `gid` or an epoch the reader has no key for **waits**: the key may arrive later.
-2. **Is it well formed?** The AEAD tag, the padding, the deterministic form of the body, the payload's shape for a known `kind`, `author`, and the signature over header and body. A record that fails any of these is **discarded**; it can never become valid.
+2. **Is it well formed?** The AEAD tag, the padding, the deterministic form of the body, the payload's shape for a known `kind`, the recomputed `salt`, `author`, and the signature over header and body. A record that fails any of these is **discarded**; it can never become valid.
 3. **Does its chain reach it?** `seq`, `prev`, no fork, no gap, not held back for its clock. Otherwise it **waits**.
 4. **Is it allowed?** For membership records, section 6.5. For content records, the rules at the head of section 5. Otherwise it is **kept and ignored**, and still takes its place in its chain.
 
@@ -359,15 +378,34 @@ A discarded record leaves a gap in its author's chain, which that device repairs
 ## 11. Known weaknesses to put to the reviewer
 
 - The fork rule for membership (section 6.5) is new and is the part most likely to be wrong. Its last tie-break favours whichever manager has the smaller `pid`, always.
-- A checkpoint is trusted on a manager's signature. A reader that no longer holds the covered records cannot check it, so a manager can drop another member's changes for readers who never saw them, and `purged` lets a manager remove any item's history.
+- A checkpoint is trusted on a manager's signature. A reader that no longer holds the covered records cannot check it, so a manager can drop another member's changes for readers who never saw them, and `purged` lets a manager remove any item's history. A permanent delete reaches a location only when some device acts on it there, and a device that never comes back keeps what it has.
 - Storage can withhold the newest records of any chain, or one side of a fork. A reader can only say “behind”.
 - A removed person keeps every key up to their removal and everything they read. A thief who holds a person's secret is that person until a manager removes them.
-- ChaCha20-Poly1305 does not commit to its key. The signature inside each record is what binds it; no attack is known, and a reviewer should confirm none follows from two keys existing for one epoch number after a fork.
+- ChaCha20-Poly1305 does not commit to its key. The recomputed `salt` and the signature inside each record are what bind a record to one key; a reviewer should confirm that this is enough, also when two keys exist for one epoch number after a fork.
+- One person secret on every device signs and unwraps everything. A lost device is answered by replacing the secret and starting a new epoch in every group. The direction review prefers a certified key per device; the argument against is that every Apple device can read the secret from iCloud Keychain anyway. The reviewer is asked to judge both.
+- Sealing is deterministic, so two records with the same body are the same record. A body includes the author, device, `seq` and clock, so this cannot link two different changes; a reviewer should confirm nothing else follows.
 - A person card proves who signed it, not that its `kem_pk` works. A wrong one harms only its owner.
 - File and folder names in a folder location show person and device identifiers, the number of records and when they were written.
 - X-Wing comes from an Internet-Draft, and the only independent evidence that the reference implementation is right is that it agrees with Python's `cryptography` in both directions. CryptoKit and Go must be shown to agree on the vectors before anything depends on them. The signature checks of section 1.2 must likewise be shown to hold in each platform's library.
 
-## 12. Changes from draft 1
+## 12. Changes
+
+### From draft 2
+
+From the second pass of the independent implementation and the direction review of 2026-11-23:
+
+- **Sealing is deterministic.** The salt is derived from the group key and the body, which removes the dependence on random numbers, makes “the same record twice” well defined and ties a record to its key (4.1, 4.4).
+- **Removing a person and replacing a secret start the new epoch in the same record.** The state “waiting for a new key” and the first step of the fork rule are gone (6.4, 6.5).
+- **Checkpoints** can span several records, carry history so that previous passwords survive, and are answered to a **purge request** that any writer may make (5.3, 5.4).
+- **Folder files are never changed.** One new file per write, renamed into place, instead of appending to a segment (8.1).
+- **Clock.** Records more than ten minutes ahead are held back, not 24 hours, and purging is timed on the reader's own clock (4.5, 5.1).
+- **Devices remember** what they last accepted from each location and report a rollback (4.4).
+- **Later versions.** Extension keys that old readers keep and ignore, and a lowest reader version in genesis (2, 6.1).
+- **Each writing process has its own `device_id`** (3.2).
+- **Recovery kit** text carries two check bytes (7.2).
+- **Small points.** Nesting level 1 is the outermost container, an empty file has no chunks, a frame that cannot be opened yet is passed over, Argon2id lanes and memory per lane have a lower limit, and a content record must be sealed under the key its epoch commits to (2, 5, 5.2, 7.2, 8.1).
+
+### From draft 1
 
 From the findings of the first independent implementation:
 
