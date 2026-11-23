@@ -32,7 +32,7 @@ Parse on the device under size, line and path limits. Build a plan, show one lin
 
 - [x] Apple Passwords CSV import.
 - [ ] Credential Exchange import (iOS and macOS 26).
-- [ ] 1Password 7 import per `docs/plans/1password-7-import.md`: the importer, the direct KDBX writer and fixtures first, then the screens after an approved mock.
+- [~] 1Password 7 import per `docs/plans/1password-7-import.md`: the importer, the direct KDBX writer and fixtures are built and validated (2026-11-23); the screens wait for an approved mock.
 - [ ] Build a representative mapping and fixture inventory for both sources.
 - [ ] Test counts and field fidelity after reopening the resulting KDBX with an independent client.
 - [ ] After 1PIF: 1Password 8 (1PUX), OPVault, Windows export variants, mobile direct transfer and passkeys.
