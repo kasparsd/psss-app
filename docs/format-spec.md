@@ -188,7 +188,7 @@ set     = open map: field name (text) → value          may be empty
 clear   = sorted array of field names                    may be empty
 ```
 
-A field name MUST NOT be in both. A value is any CBOR allowed by section 2 and is opaque to merging: a field is the unit that wins or loses whole. Things that must never be half-merged are therefore one field with a map as its value: a passkey, a verification code's secret with its settings, a card number with its expiry. Field names and their values are defined by the item schema, which is a separate document and not part of this draft.
+A field name MUST NOT be in both. A value is any CBOR allowed by section 2 and is opaque to merging: a field is the unit that wins or loses whole. Things that must never be half-merged are therefore one field with a map as its value: a passkey, a verification code's secret with its settings, a card number with its expiry. Field names and their values are defined by the [item schema](format-schema.md), which also says which writes a checkpoint carries as history.
 
 **State.** Each record that sets or clears a field is a **write** of that field, with the record's place in the order of section 4.5. For each item and field, the current value is that of the greatest accepted write. Writes that lost are history. Folding the same set of records in any order gives the same state, and folding a record twice changes nothing.
 
@@ -369,7 +369,6 @@ A discarded record is as if it had never been written. If a device finds that a 
 
 ## 10. Not yet specified
 
-- The item schema: field names and value shapes for logins, cards, notes, passkeys and verification codes, and how an item moves between groups.
 - The invitation and device approval exchanges (the code and the confirmation words in the approved mocks).
 - The backup copy file and the KeePass export mapping.
 - CloudKit record types (section 8.3).

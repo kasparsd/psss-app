@@ -14,7 +14,7 @@ See the [product contract](product.md) for positioning, principles and business 
 | Command line | [Command line and AI agents](cli.md) (proposal, not approved) |
 | Items | [Cards, notes and KeePass entries](items.md) |
 | Verification codes | [Adding a TOTP code by paste, image or camera](verification-codes.md) |
-| Storage | [KeePass and vault lifecycle](vaults.md), [vault format](format.md), [byte-level specification](format-spec.md) |
+| Storage | [KeePass and vault lifecycle](vaults.md), [vault format](format.md), [byte-level specification](format-spec.md), [item schema](format-schema.md) |
 | Migration | [Strongbox and 1Password](migration.md) |
 | Engineering | [Swift architecture and security](architecture.md) |
 | Development | [Xcode, Swift and localization conventions](development.md) |
