@@ -191,6 +191,24 @@ Still open, listed as questions on the mock pages: whether a vault needs a name 
 
 ## Roadmap
 
+### Next steps, in order (set 2026-11-23)
+
+The specification and the schema stay drafts and are changed only when one of these steps shows something wrong. Each step is written by one agent and checked by another.
+
+1. **Key custody spike (S6).** On the Mac and an iPhone: whether a Keychain item that syncs through iCloud Keychain can carry any access control, how long it takes to reach the second device, what the app sees when iCloud Keychain is off, whether the AutoFill extension can read it, and whether a device-only key behind Face ID or Touch ID guarding the local index is enough. Done when this document says where the person's secret sits on a device and how the “waiting for your key” screen is decided, or says the default must change.
+2. **CloudKit, the parts the first spike left out.** Push notifications and background time on iOS, so that a save in flight finishes and a device learns of changes without polling. Then a `CKShare` on a group's zone with a second Apple Account, including a child's account, which the sharing screens depend on. Also a device that restarts and continues its own chain, a record above 1 MB, and two devices whose clocks disagree. Needs a second Apple Account from the owner.
+3. **The rest of the format in Swift,** against the vectors that already exist: membership records and forks, checkpoints, attachments in chunks, the folder layout and the item schema. Then the store can be built on it.
+4. **Bring the reference implementation level with the specification:** the clock counter rule (specification 4.5), a vector for it, and the two vectors about sealing the same body twice marked as holding for a deterministic signer only.
+5. **Folder transport spike:** the same scripted rounds over a folder in iCloud Drive and in one non-Apple sync tool, with three devices.
+6. **Lower the deployment targets** to iOS 26 and macOS 26 and build both schemes.
+7. **Write the sections the spikes were to shape:** the invitation and device approval exchanges, the backup file and the KeePass export mapping, and the CloudKit records for wrapped keys, membership and shared groups.
+8. **Outside cryptographic review** of the specification, not booked. The questions for it are collected in [specification section 11](format-spec.md#11-known-weaknesses-to-put-to-the-reviewer); the newest are whether sealing a body twice should be made harmless by the format, and whether the signature equation must be cofactored.
+9. **A record-log store behind `VaultStore`,** with the local index the AutoFill extension reads, and then the approved screens.
+
+Waiting on the owner: the age envelope decision (recommendation: no), a second Apple Account for step 2, and booking the review. The test zones named `spike-…` in the development environment of `iCloud.app.psss` can be cleared with Reset Environment in the CloudKit Console at any time.
+
+### Status
+
 - [x] Owner decision to adopt (2026-11-23).
 - [ ] Owner decision on the one open row above (the age envelope).
 - [ ] Lower the project's deployment targets from 27 to iOS 26 and macOS 26 and build both schemes; any interface code that needs 27 gets a fallback. The oldest phones to test on are the iPhone 11 and 12.
