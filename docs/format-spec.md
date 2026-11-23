@@ -165,7 +165,7 @@ A chain is all records in one group with the same `author` and `device`. Within 
 `wall_ms` is milliseconds since 1970-01-01 UTC.
 
 - **Reading.** A reader MUST hold back a record whose `wall_ms` is more than 10 minutes ahead of its own time. A held-back record is not accepted, and the rest of its chain waits behind it, until the reader's time catches up. It is shown to the person as held back.
-- **Writing.** A device sets `wall_ms` to the larger of its own time and the largest `wall_ms` among the records it has accepted in this group, its own included. `counter` is 0 when that is larger than every accepted `wall_ms`, and otherwise one more than the largest accepted `counter` with that `wall_ms`. Because held-back records are never accepted, one wrong clock cannot drag every other device's clock forward by more than ten minutes. A device whose own clock is far ahead finds its records held back by the others until that time comes, which is the visible sign to fix its clock.
+- **Writing.** A device sets `wall_ms` to the larger of its own time and the largest `wall_ms` among the records it has accepted in this group, its own included. `counter` is 0 when that is larger than every accepted `wall_ms`, and otherwise one more than the largest accepted `counter` with that `wall_ms`. Because held-back records are never accepted, one wrong clock cannot drag every other device's clock forward by more than ten minutes. A device whose own clock is far ahead finds its records held back by the others until that time comes, which is the visible sign to fix its clock. If the largest accepted `counter` with that `wall_ms` is already 2^64 − 1, the writer uses `wall_ms + 1` and `counter` 0 instead; any writer can put that counter in a record, so an implementation MUST NOT overflow here.
 
 Records are ordered by the tuple `(wall_ms, counter, author, device, seq)`, compared element by element, byte strings bytewise. This order is total.
 
@@ -318,7 +318,7 @@ A slot is a deterministic CBOR map `{ 1: 1, 2: type, 3: pid, 4: slot_id (16 rand
 
 - **Every slot.** After opening a slot a reader MUST check that the `PS` inside derives the slot's `pid`. Slots are not signed, and anyone who knows a device's public key can make one.
 - **Password.** The password is the UTF-8 bytes of what the person typed, normalized to NFC by the device. Argon2id defaults are 131,072 KiB (128 MiB), 3 passes, 4 lanes. A reader MUST refuse less than 65,536 KiB or fewer than 2 passes, MUST refuse zero lanes or less than 8 KiB of memory per lane, and MUST refuse more than 1,048,576 KiB, 16 passes or 16 lanes, since a slot comes from storage and could otherwise demand unbounded work. An implementation MAY offer an explicit test-only switch that lifts the lower bounds for the published vectors. The AutoFill extension never opens a password slot.
-- **Recovery kit.** 20 random bytes. It is shown as `RK1-` followed by 36 characters of Crockford base32 in nine groups of four separated by hyphens. The 36 characters encode the kit followed by the first two bytes of `SHA-256("psss/v1/kit-check" || kit)`, with four zero bits at the end; a reader rejects a text whose last four bits are not zero, and checks that before the check bytes. When reading one, case, hyphens and spaces are ignored, `I` and `L` read as `1` and `O` reads as `0`, in the prefix too. A reader checks the two bytes before trying the kit, so a mistyped kit is told apart from a kit that opens nothing.
+- **Recovery kit.** 20 random bytes. It is shown as `RK1-` followed by 36 characters of Crockford base32 in nine groups of four separated by hyphens. The 36 characters encode the kit followed by the first two bytes of `SHA-256("psss/v1/kit-check" || kit)`, with four zero bits at the end; a reader rejects a text whose last four bits are not zero, and checks that before the check bytes. When reading one, the case of the ASCII letters, hyphens (U+002D) and spaces (U+0020) are ignored and every other character outside the alphabet is refused, so a letter that only becomes `I` or `S` under Unicode case mapping is not accepted; `I` and `L` read as `1` and `O` reads as `0`, in the prefix too. A reader checks the two bytes before trying the kit, so a mistyped kit is told apart from a kit that opens nothing.
 - **iCloud Keychain.** On Apple devices `PS` is by default also kept as an item in iCloud Keychain. That is a matter for the platform, not a slot, and is not part of this format.
 
 ## 8. Storage
@@ -372,6 +372,7 @@ A discarded record is as if it had never been written. If a device finds that a 
 - The invitation and device approval exchanges (the code and the confirmation words in the approved mocks).
 - The backup copy file and the KeePass export mapping.
 - CloudKit record types (section 8.3).
+- Error codes, and the order of some checks that can fail together (the three length and magic checks on a sealed record, the recovery kit text checks, the Argon2id limits). Today the vectors fix them and the specification does not; the Swift implementation had to copy them from the vectors.
 - Limits: the largest group, how often to checkpoint, how long a fork or a held-back record is shown, and when unused chunks are removed.
 
 ## 11. Known weaknesses to put to the reviewer
@@ -385,11 +386,19 @@ A discarded record is as if it had never been written. If a device finds that a 
 - ChaCha20-Poly1305 does not commit to its key. The recomputed `salt` and the signature inside each record are what bind a record to one key; a reviewer should confirm that this is enough, also when two keys exist for one epoch number after a fork.
 - One person secret on every device signs and unwraps everything. A lost device is answered by replacing the secret and starting a new epoch in every group. The direction review prefers a certified key per device; the argument against is that every Apple device can read the secret from iCloud Keychain anyway. The reviewer is asked to judge both.
 - Sealing is deterministic, so two records with the same body are the same record. A body includes the author, device, `seq` and clock, so this cannot link two different changes; a reviewer should confirm nothing else follows.
+- **Deterministic sealing does not hold with CryptoKit (found 2026-11-23, not yet resolved).** Sections 4.1 and 4.4 assume an Ed25519 signer that follows RFC 8032 exactly. CryptoKit's signer adds randomness and has no deterministic mode, so on Apple devices the same body sealed twice gives two valid records with different signatures and different `record_id`s, which section 4.4 would call a fork. Everything else in sealing matches the vectors byte for byte. The choices are: a writer stores each sealed record durably before it leaves the device and never seals a body twice (recommended; the system's signer stays in use); or a first-party deterministic signer in the app, which keeps the text as it is and puts hand-written secret-key arithmetic in the app. The owner has not decided.
 - A person card proves who signed it, not that its `kem_pk` works. A wrong one harms only its owner.
 - File and folder names in a folder location show person and device identifiers, the number of records and when they were written.
-- X-Wing comes from an Internet-Draft, and the only independent evidence that the reference implementation is right is that it agrees with Python's `cryptography` in both directions. CryptoKit and Go must be shown to agree on the vectors before anything depends on them. The signature checks of section 1.2 must likewise be shown to hold in each platform's library.
+- X-Wing comes from an Internet-Draft. The reference implementation agrees with Python's `cryptography` in both directions and, since 2026-11-23, with CryptoKit: CryptoKit derives the same key pair from the 32-byte seed, opens every wrapped key and device slot in the vectors, and what it seals opens in the reference implementation. CryptoKit takes no randomness from the caller, so the vectors with fixed encapsulation randomness cannot be reproduced by it, only opened. Go is still to be shown.
+- CryptoKit's Ed25519 verifier does not make the checks of section 1.2: it accepts signatures under public keys of small order, at a rate of about one in the key's order, which also shows it checks the equation without the cofactor. An implementation on CryptoKit therefore needs its own checks in front of it, as the Swift implementation has. Section 1.2 does not say whether the equation is cofactored; a reviewer should say whether it must.
 
 ## 12. Changes
+
+### Since draft 5, from the Swift implementation (2026-11-23)
+
+- **A clock counter at its largest value** moves the writer to the next millisecond (4.5).
+- **Recovery kit text** folds the case of ASCII letters only (7.2).
+- Not changed, and waiting for the owner: deterministic sealing against CryptoKit's randomized signatures (section 11).
 
 ### From draft 4
 
