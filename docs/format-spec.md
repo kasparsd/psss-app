@@ -356,7 +356,19 @@ Wraps, slots and chunks use the same three operations under `keys/`, `slots/` an
 
 ### 8.3 CloudKit
 
-One zone per group and one database record per sealed record, named by `record_id`, with the wraps beside them; a shared group is that zone with a `CKShare`. The exact record types and fields are set by the sync spike and are not yet part of this draft.
+One zone per group and one database record per sealed record, named by `record_id`, with the wraps beside them; a shared group is that zone with a `CKShare`.
+
+What follows is what the sync spike of 2026-11-23 used and showed to work between a Mac and an iPhone on one Apple Account, in the private database. It is a record of the spike, not yet a requirement: wraps, membership records and sharing were not part of it.
+
+- **Record.** Record type `SealedRecord`. The record name is the `record_id` as 64 lowercase hexadecimal characters. Field `sealed` (bytes) holds the sealed record, and field `v` (integer) is 1. A sealed record can reach 1,052,760 bytes and a database record is limited to 1 MB in all, so above a threshold (700,000 bytes in the spike, a guess) the bytes go in `sealedAsset` (an asset) and `sealed` is left out.
+- **Nothing in the clear.** Author, device and `seq` are not stored as fields. The server sees the record name, the padded size, `v` and its own timestamps. The price is that the server cannot say which record is newest in a chain, so a reader fetches by zone change token and works out the chains itself, as with a folder.
+- **Saving never overwrites.** A record is saved with the policy that fails when the name exists. An existing name is then compared byte for byte: equal bytes mean the record is already there and count as success, different bytes are an error. This happened three times in 400 saves without the client retrying, so CloudKit resends a request below the client and an implementation MUST treat the first as normal. For a record stored as an asset the server's answer does not carry the bytes, and the record has to be fetched to compare.
+- **Fetching** is by zone change token. The token is advanced even when a record in the batch could not be read, and the unread record identifiers are fetched again by name; holding the token back would let one bad record stop all sync. An expired token means fetching the zone from nothing. A request is limited to about 2 MB without assets, so saves are batched under that and a refused batch is split in half.
+- **A zone the person deleted** in iCloud settings is reported differently from a zone that never existed and must not be silently recreated.
+
+Measured with polling every half second and no push notifications: 200 rounds of both devices changing the same field, 400 of 400 records and the same folded item on both, no lost edit, no prompt. A record reached the other device about 1.1 s after it was written (median; 95th percentile about 1.5 s), of which about half a second is the save. Sixty of the 200 rounds were not simultaneous, because the phone's app was in the background for about two minutes and then caught up; nothing was lost. That stretch is also a finding: on iOS an app stops syncing within seconds of leaving the foreground, so the store needs background time for a save in flight and push notifications to learn of changes.
+
+Not yet shown: a second Apple Account and `CKShare`, push notifications, a record above 1 MB, clocks that disagree (every record in the spike had `counter` 0), a restarted device continuing its own chain, and CloudKit under rate limiting.
 
 ## 9. What a reader does with a sealed record
 
@@ -371,7 +383,7 @@ A discarded record is as if it had never been written. If a device finds that a 
 
 - The invitation and device approval exchanges (the code and the confirmation words in the approved mocks).
 - The backup copy file and the KeePass export mapping.
-- CloudKit record types (section 8.3).
+- CloudKit record types for wraps, membership and shared groups (section 8.3 has what the spike used for sealed records).
 - Error codes, and the order of some checks that can fail together (the three length and magic checks on a sealed record, the recovery kit text checks, the Argon2id limits). Today the vectors fix them and the specification does not; the Swift implementation had to copy them from the vectors.
 - Limits: the largest group, how often to checkpoint, how long a fork or a held-back record is shown, and when unused chunks are removed.
 
@@ -398,6 +410,7 @@ A discarded record is as if it had never been written. If a device finds that a 
 
 - **A clock counter at its largest value** moves the writer to the next millisecond (4.5).
 - **Recovery kit text** folds the case of ASCII letters only (7.2).
+- **CloudKit** (8.3) records what the two-device spike used and measured.
 - Not changed, and waiting for the owner: deterministic sealing against CryptoKit's randomized signatures (section 11).
 
 ### From draft 4

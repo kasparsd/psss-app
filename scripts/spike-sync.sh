@@ -93,7 +93,7 @@ ta="$(get mac-a records | sed 's/.*total=\([0-9]*\).*/\1/')"; tb="$(get "$side_b
 if [ -n "$ta" ] && [ "$ta" = "$tb" ]; then echo "same  total records ($ta)"; else echo "DIFF  total records ($ta vs $tb)"; verdict=1; fi
 cmp_line "id hash" "id_hash"
 cmp_line "state hash" "state_hash"
-cmp_line "winning value" "winner"
+cmp_line "winning value" "winner="
 for side in mac-a "$side_b"; do grep -q "^summary result=OK" "$out/$side.log" 2>/dev/null || { echo "FAIL  $side did not report result=OK"; verdict=1; }; done
 [ "$code_a" = 0 ] && [ "$code_b" = 0 ] || { echo "FAIL  non-zero exit code"; verdict=1; }
 if [ "$verdict" = 0 ]; then echo "RESULT: converged"; else echo "RESULT: NOT converged or a side failed"; fi
