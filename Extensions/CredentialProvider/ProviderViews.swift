@@ -274,7 +274,7 @@ struct FillList: View {
                 Button("Cancel", role: .cancel) {}
             } message: { pending in
                 // One paragraph per line, so text from the vault cannot reorder the site names beside it.
-                Text(verbatim: lines(for: pending).joined(separator: "\n"))
+                Text(verbatim: lines(for: pending).map(\.plain).joined(separator: "\n"))
             }
         #endif
     }
@@ -378,23 +378,35 @@ struct FillList: View {
 
     /// The lines of the confirmation, one paragraph each, in the same order on the Mac sheet and the iOS alert: the saved site,
     /// the site being signed in to, the login's name and account, then the sentences. Each line about the login is a fixed label
-    /// and a value, so text from the vault never shares a run with one of our sentences.
-    private func lines(for pending: Pending) -> [String] {
-        let httpWarning = String(localized: "This page is not encrypted (http), so anything filled here can be read on the network.")
+    /// and a value. Values from the vault (the name and the account) are in quotes, so text in them that looks like one of our
+    /// labels reads as the vault's; the site names are ours and have none.
+    private func lines(for pending: Pending) -> [ConfirmLine] {
+        let httpWarning = ConfirmLine(String(localized: "This page is not encrypted (http), so anything filled here can be read on the network."))
         guard pending.otherSite else { return [httpWarning] }
-        // Every line about the login is "fixed text: value", so text from the vault can never read as one of our sentences.
-        let unreadable = String(localized: "a site Psss could not read")
         let website = pending.item.website.trimmingCharacters(in: .whitespacesAndNewlines)
         let saved = HostDisplay.shown(SharedVault.host(pending.item.website))
-        var lines = [String(localized: "Saved for: \(website.isEmpty ? String(localized: "no website") : (saved.isEmpty ? unreadable : saved))")]
-        lines.append(String(localized: "You are signing in to: \(site.host.map { HostDisplay.shown($0) } ?? unreadable)"))
-        lines.append(String(localized: "Login: \(DisplayText.title(of: pending.item))"))
+        let savedValue = website.isEmpty ? String(localized: "no website") : (saved.isEmpty ? String(localized: "a site Psss could not read") : saved)
+        let pageValue = site.host.map { HostDisplay.shown($0) } ?? String(localized: "an unknown site")
+        var lines = [
+            ConfirmLine(String(localized: "Saved for:"), savedValue),
+            ConfirmLine(String(localized: "You are signing in to:"), pageValue),
+            ConfirmLine(String(localized: "Login:"), DisplayText.quoted(DisplayText.title(of: pending.item)))
+        ]
         let account = DisplayText.safe(pending.item.account, empty: "")
-        if !account.isEmpty { lines.append(String(localized: "Account: \(account)")) }
-        lines.append(String(localized: "Only continue if you trust this page."))
+        if !account.isEmpty { lines.append(ConfirmLine(String(localized: "Account:"), DisplayText.quoted(account))) }
+        lines.append(ConfirmLine(String(localized: "Only continue if you trust this page.")))
         if pending.plainHTTP { lines.append(httpWarning) }
         return lines
     }
+}
+
+/// One line of the confirmation: a sentence, or fixed text and a value.
+struct ConfirmLine {
+    let label: String
+    let value: String?
+    init(_ label: String, _ value: String? = nil) { self.label = label; self.value = value }
+    /// The line as plain text, for the iOS alert.
+    var plain: String { value.map { "\(label) \($0)" } ?? label }
 }
 
 #if os(macOS)
@@ -402,8 +414,8 @@ struct FillList: View {
 /// left, Cancel at the trailing edge, as in a standard Mac alert.
 private struct ConfirmSheet: View {
     let title: LocalizedStringKey
-    /// One `Text` per line, each "fixed text: value", so the login's own text stays in the value part of its line.
-    let lines: [String]
+    /// A line with a value is two `Text` views of one size: the label in secondary style, the value in primary.
+    let lines: [ConfirmLine]
     let confirmTitle: LocalizedStringKey
     let confirm: () -> Void
     let cancel: () -> Void
@@ -412,7 +424,16 @@ private struct ConfirmSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             Text(title).font(.title2.bold())
             VStack(alignment: .leading, spacing: 8) {
-                ForEach(Array(lines.enumerated()), id: \.offset) { Text(verbatim: $0.element) }
+                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                    if let value = line.value {
+                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                            Text(verbatim: line.label).foregroundStyle(.secondary)
+                            Text(verbatim: value)
+                        }
+                    } else {
+                        Text(verbatim: line.label)
+                    }
+                }
             }
             HStack {
                 Spacer()

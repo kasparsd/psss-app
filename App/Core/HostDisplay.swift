@@ -110,6 +110,11 @@ enum HostDisplay {
         return true
     }
 
+    /// Known cost: orthographies whose accented letters have no single-character form (Yoruba, Igbo, Navajo, Lithuanian accented
+    /// vowels and Russian stress-marked names, for example) show only their encoded form, because a general combining mark
+    /// (U+0300 to U+036F and the other combining blocks) is refused on a Latin or Cyrillic base. A later allowlist of base and
+    /// mark pairs per orthography could bring them back.
+    ///
     /// A combining mark may stay only on a base of its own script: no mark from the general combining blocks (U+0300 to U+036F,
     /// U+1AB0 to U+1AFF, U+1DC0 to U+1DFF, U+FE20 to U+FE2F), which Latin, Cyrillic and Greek bases would need and which can
     /// decorate any letter; never an enclosing mark (category Me) or an overlay (U+0334 to U+0338, U+20D2 to U+20F0).
