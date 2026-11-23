@@ -96,7 +96,7 @@ unlock secret   iCloud Keychain · device key · vault password (Argon2id) · re
 - **Unlocking** with a device key (held in the Secure Enclave on Apple devices, a TPM or OS keystore elsewhere) needs no password hashing. That is what the AutoFill extension uses.
 - **Changing the vault password** rewrites one wrapped key. Nothing is re-encrypted.
 - **iCloud Keychain holds the person key by default on Apple devices** (asked for by the owner, 2026-11-23). It is one more wrapped copy, so the format does not depend on it. A new device on the same Apple Account has the key as soon as the keychain arrives, with no approval step and nothing to type. Protection is then exactly that of Apple Passwords: the Apple Account, the device passcode and Apple's own recovery. Without iCloud Keychain, and on Windows and Linux, a device is let in by approving it on one that is already in, or with the vault password or recovery kit.
-- **A vault password and a recovery kit are optional,** under Advanced. They matter to someone who wants a way in that does not go through their Apple Account: a non-Apple device, a backup kept elsewhere, or losing the account itself. The app says so once, plainly, and does not nag.
+- **A vault password and a recovery kit are optional,** under Advanced. They matter to someone who wants a way in that does not go through their Apple Account: a non-Apple device, a backup kept elsewhere, or losing the account itself. A kit alone does not survive losing the Apple Account, because the iCloud copy of the vault goes with the account: it has to be paired with a copy somewhere else, on a device, in a folder or server location, or in a backup file. The app says so once, plainly, and does not nag.
 - **Recovery** adds more wrapped copies of the person key: a printed kit, or Shamir shares held as the [family design](vaults.md#family-sharing-and-remote-storage-design-2026-11-23) lays out.
 
 **Primitives, fixed per format version with no negotiation:** HPKE (RFC 9180) for wrapping to a public key, Argon2id for the password, HKDF-SHA256, ChaCha20-Poly1305, Ed25519, SHA-256. All but Argon2id are in CryptoKit, libsodium and the common libraries on every platform. A new algorithm means a new format version, not an option flag.
@@ -142,7 +142,7 @@ Proposed on 2026-11-23 and drawn in `Design/Mocks/` (see the roadmap below). Non
 - **Several of everything.** One vault with any number of groups, each shared with different people. One vault in several locations and on any number of devices. Separate vaults remain possible and are no longer needed for sharing.
 - **Self-hosting, in three steps of effort.** No server at all: a folder on a home server or a disk, synced by whatever the person already uses. Standard storage: WebDAV or an S3-compatible bucket. The Psss endpoint: three operations that anyone can run from the published specification and reference server. Psss never hosts any of them, and all three hold only unreadable data.
 
-To verify before building: whether a `.psss` folder can show as a single item in Files and Finder (a package) and still sync as a folder in iCloud Drive.
+To verify before building: whether a `.psss` folder can show as a single item in Files and Finder (a package) and still sync as a folder in iCloud Drive. Also: an app cannot ask the system whether iCloud Keychain is on, so how Psss tells “the key has not arrived yet” from “it never will” needs a spike.
 
 ## Costs and risks
 
