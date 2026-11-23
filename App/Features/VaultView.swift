@@ -556,6 +556,7 @@ struct VaultView: View {
                              ? "Psss unlocks with Face ID, Touch ID or your device passcode. AutoFill always asks."
                              : "Psss asks for the vault password each time it unlocks, or uses Face ID or Touch ID if you turn it on.")
                     }
+                    AutoFillSetupSection()
                     Section {
                         Button("Start Over…", role: .destructive) {
                             confirmsReset = true
@@ -568,7 +569,6 @@ struct VaultView: View {
                              ? "Deletes this vault from this device and shows the welcome screen again."
                              : "Forgets this vault and shows the welcome screen again. The file stays where it is.")
                     }
-                    AutoFillSetupSection()
                 }
                 .formStyle(.grouped)
                 // The exporter belongs to the sheet that asks for it: the vault screen is busy presenting this sheet.

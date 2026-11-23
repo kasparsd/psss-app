@@ -312,6 +312,7 @@ do {
     expect("google: no automatic sign-in", r.signsInWithoutList, false)
     same("google: site is the page host", r.site.host, "accounts.google.com")
 }
+expect("passkey request note is one plain line", PasskeyRequestList.passkeyOnlyNote == "If this page only accepts a passkey, a login will not sign you in.", true)
 do {
     let pk = passkeyItem("google.com"), lg = login("google.com")
     let r = request([pk, lg], accounts)

@@ -354,10 +354,12 @@ final class AutoFillStatus {
         defer { working = false }
         switch action {
         case .askSystem:
-            // Remembered before asking: the system takes one request per 10 seconds, and a prompt that is answered by
-            // leaving the app must not be asked again by the next press.
+            // The card keeps its words until the system's prompt returns: the answer decides what it says next. The use of the
+            // prompt is remembered as soon as it returns, whatever the answer, and `working` blocks a second press meanwhile
+            // (the system takes one request per 10 seconds). A prompt answered by leaving the app returns in the same way.
+            let accepted = await system.requestToTurnOn()
             update { $0.promptUsed = true }
-            if await system.requestToTurnOn() {
+            if accepted {
                 apply(.on, announce: true)
             } else {
                 // The answer is only a yes or a no. The state says what is true now.

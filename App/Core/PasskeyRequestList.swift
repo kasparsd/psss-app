@@ -7,7 +7,17 @@ import Foundation
 /// The list holds the passkeys for the request, then what the plain login list holds: the logins saved for the site. Logins
 /// for other sites stay behind "Other Logins…" and its confirmation, exactly as in the plain list, so nothing here puts every
 /// login one tap away.
+///
+/// The system does not say whether the page also accepts a password. `ASPasskeyCredentialRequestParameters` carries the relying
+/// party, the client data hash, the user verification preference, the allowed credentials and the WebAuthn extension inputs:
+/// nothing that tells an autofill-assisted (conditional) request from a modal one. So the logins stay listed, and the list says
+/// in one line that a page which only accepts a passkey will not take a login.
 struct PasskeyRequestList: Sendable {
+    /// The line under "Logins for <site>" in a passkey request.
+    static var passkeyOnlyNote: String {
+        String(localized: "If this page only accepts a passkey, a login will not sign you in.")
+    }
+
     /// The page, read the same way as for the plain login list. When the system gave no usable service identifier it is the
     /// request's relying party, which the browser has checked against the page.
     let site: FillSite

@@ -276,6 +276,11 @@ struct FillList: View {
         passkeys == nil ? String(localized: "For \(HostDisplay.shown(host))") : String(localized: "Logins for \(HostDisplay.shown(host))")
     }
 
+    /// Only in a passkey request: a page that wants a passkey and nothing else will not take a login.
+    @ViewBuilder private var passkeyOnlyNote: some View {
+        if passkeys != nil { Text(PasskeyRequestList.passkeyOnlyNote).foregroundStyle(.secondary) }
+    }
+
     private var siteLogins: [VaultItem] {
         guard let host = site.host else { return [] }
         return items.filter { SharedVault.matches($0, host: host) }
@@ -344,6 +349,7 @@ struct FillList: View {
                     } else {
                         Section {
                             GroupLabel(text: siteLabel(host))
+                            passkeyOnlyNote
                             // Return fills the one login only when no passkey sits beside it.
                             ForEach(siteLogins) { row($0, isDefault: siteLogins.count == 1 && passkeyItems.isEmpty) }
                         }
@@ -358,6 +364,7 @@ struct FillList: View {
                     if showSiteLogins {
                         Section {
                             GroupLabel(text: siteLabel(host))
+                            passkeyOnlyNote
                             ForEach(siteLogins) { row($0) }
                         }
                     }

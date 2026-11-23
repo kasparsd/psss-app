@@ -3055,8 +3055,15 @@ final class FakeAutoFillSystem: AutoFillSystem, @unchecked Sendable {
     private(set) var reads = 0
     private(set) var requests = 0
     private(set) var settingsOpened = 0
+    /// Runs while Apple's prompt is up, before the answer comes back.
+    var whilePromptIsUp: (@Sendable () async -> Void)?
     func isEnabled() async -> Bool? { reads += 1; return enabled }
-    func requestToTurnOn() async -> Bool { requests += 1; if promptAnswer { enabled = true }; return promptAnswer }
+    func requestToTurnOn() async -> Bool {
+        requests += 1
+        await whilePromptIsUp?()
+        if promptAnswer { enabled = true }
+        return promptAnswer
+    }
     func openSettings() async -> Bool { settingsOpened += 1; return settingsOpen }
 }
 
@@ -3128,8 +3135,26 @@ func reminderDisplay(_ vault: AutoFillVault, _ reading: AutoFillReading, _ memor
     expect("autofill: the sample vault shows no card", status.reminder(for: .sample).display == .nothing)
     expect("autofill: the first press asks the system", status.action == .askSystem)
 
+    // While Apple's prompt is up the card keeps its words and the button does not fire twice. Only the answer changes the card.
+    let inFlight = status
+    final class Seen: @unchecked Sendable { var display: AutoFillReminder.Display?; var working = false; var memory: AutoFillMemory?; var requestsAfterSecondPress = 0 }
+    let seen = Seen()
+    system.whilePromptIsUp = { @Sendable in
+        await MainActor.run {
+            seen.display = inFlight.reminder(for: .real).display
+            seen.working = inFlight.working
+            seen.memory = inFlight.memory
+        }
+        await inFlight.performAction()
+        seen.requestsAfterSecondPress = system.requests
+    }
     // The person says No to Apple's prompt: the card gives the steps, and the next press opens Settings, never a second prompt.
     await status.performAction()
+    system.whilePromptIsUp = nil
+    expect("autofill: in flight the card keeps the first text", seen.display == .card(.off))
+    expect("autofill: in flight the button is busy", seen.working)
+    expect("autofill: in flight the prompt is not yet counted as used", seen.memory?.promptUsed == false)
+    check("autofill: a second press during the prompt asks nothing", "\(seen.requestsAfterSecondPress)", "1")
     check("autofill: one request", "\(system.requests)", "1")
     check("autofill: the prompt does not open Settings by itself", "\(system.settingsOpened)", "0")
     expect("autofill: declined shows the steps", status.reminder(for: .real).display == .card(.stillOff))
