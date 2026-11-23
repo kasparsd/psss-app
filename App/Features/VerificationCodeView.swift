@@ -162,7 +162,7 @@ struct VerificationCodeSheet: View {
             Image(systemName: "checkmark.circle").font(.system(size: 40)).foregroundStyle(.secondary).accessibilityHidden(true)
             Text("Code saved to \(loginName).").font(.title2.weight(.semibold))
             if fromImage {
-                Text("Delete the screenshot now. It still holds the secret.").multilineTextAlignment(.center)
+                Text("Delete the screenshot now. It still holds the setup key.").multilineTextAlignment(.center)
             }
             Button("Done") { dismiss() }
                 .buttonStyle(.borderedProminent)

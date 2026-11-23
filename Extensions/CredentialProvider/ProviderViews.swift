@@ -268,24 +268,16 @@ struct FillList: View {
     }
 
     var body: some View {
-        #if os(macOS)
-        // A system alert cannot make Cancel both the default (Return) and the cancel button (Escape), so the Mac shows its own sheet.
+        // A system alert cannot make Cancel visibly the preferred choice on iPhone and iPad (the default-action shortcut changes
+        // nothing in the iOS 26 alert), nor both the default (Return) and the cancel button (Escape) on the Mac. So all three
+        // platforms show one sheet of ours: Cancel prominent, Fill Anyway secondary.
         screen.sheet(item: $pending) { pending in
             ConfirmSheet(title: alertTitle(for: pending), lines: lines(for: pending), confirmTitle: "Fill Anyway",
                          confirm: { self.pending = nil; choose(pending.item) }, cancel: { self.pending = nil })
+            #if os(iOS)
+            .presentationDetents([.medium, .large])
+            #endif
         }
-        #else
-        screen
-            .alert(alertTitle(for: pending), isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }), presenting: pending) { pending in
-                // Cancel is the preferred button: continuing takes a deliberate choice.
-                Button("Fill Anyway") { choose(pending.item) }
-                // The default action: bold, and it answers Return on a hardware keyboard.
-                Button("Cancel", role: .cancel) {}.keyboardShortcut(.defaultAction)
-            } message: { pending in
-                // One paragraph per line, so text from the vault cannot reorder the site names beside it.
-                Text(verbatim: lines(for: pending).map(\.plain).joined(separator: "\n"))
-            }
-        #endif
     }
 
     @ViewBuilder private var screen: some View {
@@ -385,7 +377,7 @@ struct FillList: View {
         pending?.otherSite == false ? "Fill on a page that is not encrypted?" : "Fill a login from another site?"
     }
 
-    /// The lines of the confirmation, one paragraph each, in the same order on the Mac sheet and the iOS alert: the saved site,
+    /// The lines of the confirmation, one paragraph each, in the same order on every platform: the saved site,
     /// the site being signed in to, the login's name and account, then the sentences. Each line about the login is a fixed label
     /// and a value. Values from the vault (the name and the account) are in quotes, so text in them that looks like one of our
     /// labels reads as the vault's; the site names are ours and have none.
@@ -414,13 +406,14 @@ struct ConfirmLine {
     let label: String
     let value: String?
     init(_ label: String, _ value: String? = nil) { self.label = label; self.value = value }
-    /// The line as plain text, for the iOS alert.
+    /// The line as plain text.
     var plain: String { value.map { "\(label) \($0)" } ?? label }
 }
 
-#if os(macOS)
-/// A confirmation for the Mac: the safe choice is the default button (Return) and Escape also takes it. The action is on the
-/// left, Cancel at the trailing edge, as in a standard Mac alert.
+/// The confirmation before filling a login from another site or on an unencrypted page. The safe choice, Cancel, is the default
+/// button: filled and answering Return (and Escape on the Mac). "Fill Anyway" is the plain button beside or below it, never red:
+/// continuing is not a deletion. Mac: the action on the left, Cancel at the trailing edge, as in a standard Mac alert. iPhone and
+/// iPad: two full-width buttons, Cancel first.
 private struct ConfirmSheet: View {
     let title: LocalizedStringKey
     /// A line with a value is two `Text` views of one size: the label in secondary style, the value in primary.
@@ -431,19 +424,22 @@ private struct ConfirmSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            #if os(macOS)
             Text(title).font(.title2.bold())
+            #else
+            Text(title).font(.title2.bold()).padding(.top, 8)
+            #endif
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                     if let value = line.value {
-                        HStack(alignment: .firstTextBaseline, spacing: 4) {
-                            Text(verbatim: line.label).foregroundStyle(.secondary)
-                            Text(verbatim: value)
-                        }
+                        // Wraps as one paragraph, so a long value cannot push the label out of view.
+                        (Text(verbatim: line.label + " ").foregroundStyle(.secondary) + Text(verbatim: value))
                     } else {
                         Text(verbatim: line.label)
                     }
                 }
             }
+            #if os(macOS)
             HStack {
                 Spacer()
                 Button(confirmTitle, action: confirm)
@@ -451,12 +447,24 @@ private struct ConfirmSheet: View {
                 // Escape does the same as Cancel; only one button can carry each shortcut.
                 Button("Cancel", action: cancel).keyboardShortcut(.cancelAction).opacity(0).frame(width: 0).accessibilityHidden(true)
             }
+            #else
+            Spacer(minLength: 0)
+            VStack(spacing: 12) {
+                Button(action: cancel) { Text("Cancel").frame(maxWidth: .infinity) }
+                    .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.defaultAction)
+                Button(action: confirm) { Text(confirmTitle).frame(maxWidth: .infinity) }
+                    .buttonStyle(.bordered).controlSize(.large)
+            }
+            #endif
         }
         .padding(20)
+        #if os(macOS)
         .frame(width: 420)
+        #else
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        #endif
     }
 }
-#endif
 
 /// Shown when the person asks for a verification code. Only logins that have a code and belong to the site are listed: there is
 /// no way to choose a code for another site.

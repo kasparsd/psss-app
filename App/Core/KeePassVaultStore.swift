@@ -566,10 +566,13 @@ final class VaultSession {
     func unlock(credentials: KDBXCredentials) async throws {
         try await unlock { data in try KDBX.open(data, credentials: credentials) }
         syncReference()  // the AutoFill extension may have marked the saved key stale while the vault was opening
-        // Biometric unlock went off because its key went stale, not because the person turned it off: save a fresh key.
-        if reference?.biometricStale == true {
-            do { try enableBiometric() } catch { clearStale() }
-        }
+        // After every password unlock the saved key is replaced with the key just derived from the file as it is now. A key saved
+        // earlier may be stale in ways nothing has noticed yet (the password was changed elsewhere, then this unlock used the new
+        // one); waiting for a failed Face ID attempt to set a flag would leave the next attempt to fail first, in any ordering.
+        // Saving asks for no Face ID, and `BiometricKey.save` keeps the biometric access control.
+        // Biometric unlock may also be off because its key went stale, not because the person turned it off: that turns it back on.
+        guard let current = reference, current.biometricUnlock || current.biometricStale else { return }
+        do { try enableBiometric() } catch { setBiometric(false) }
     }
 
     /// Adopts the persisted reference when it is the same vault. Every change is persisted as it is made, so what is stored is

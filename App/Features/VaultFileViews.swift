@@ -50,7 +50,7 @@ private struct CredentialFields: View {
                             Button("Remove", role: .destructive) { keyFile = nil; self.keyFileName = nil }
                         }
                     }
-                    if let keyFileProblem { Text(keyFileProblem).foregroundStyle(.red) }
+                    if let keyFileProblem { ProblemText(text: keyFileProblem) }
                 }
                 .padding(.vertical, 4)
             }
@@ -109,13 +109,13 @@ struct NewVaultSheet: View {
                     Text("You enter it each time the vault unlocks. Psss cannot reset it, so keep a copy somewhere safe.")
                 }
                 if !password.isEmpty, !confirmation.isEmpty, password != confirmation {
-                    Text("The passwords do not match.").foregroundStyle(.red)
+                    ProblemText(text: String(localized: "The passwords do not match."))
                 }
                 if !importing.isEmpty {
                     Text("\(importing.count) imported logins will be added.").foregroundStyle(.secondary)
                 }
                 if working { WorkingNotice(text: "Creating your vault…") }
-                if let problem { Text(problem).foregroundStyle(.red) }
+                if let problem { ProblemText(text: problem) }
             }
             .formStyle(.grouped)
             .disabled(working)
@@ -169,7 +169,7 @@ struct OpenVaultSheet: View {
                     Text("Psss opens the file where it is and saves changes to it. It does not make a copy.")
                 }
                 if working { WorkingNotice(text: "Opening the vault…") }
-                if let problem { Text(problem).foregroundStyle(.red) }
+                if let problem { ProblemText(text: problem) }
             }
             .formStyle(.grouped)
             .disabled(working)
@@ -266,7 +266,7 @@ struct VaultPasswordView: View {
                         }
                     }
                     if let problem {
-                        Text(problem).foregroundStyle(.red)
+                        ProblemText(text: problem)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .fixedSize(horizontal: false, vertical: true)
                     } else if let notice = gate.lockNotice {
@@ -509,7 +509,7 @@ struct ChangePasswordSheet: View {
                     }
                 }
                 if working { WorkingNotice(text: "Encrypting the vault with the new password…") }
-                if let problem { Text(problem).foregroundStyle(changed ? AnyShapeStyle(.secondary) : AnyShapeStyle(.red)) }
+                if let problem { ProblemText(text: problem, secondary: changed) }
             }
             .formStyle(.grouped)
             .disabled(working)
@@ -663,5 +663,19 @@ struct LostPasswordSheet: View {
             }
         }
         .modifier(VaultSheetSize())
+    }
+}
+
+
+/// A problem or an explanation on a lock, creation or change screen: a warning symbol and the words in the primary style, or the
+/// secondary style when nothing went wrong. Red is kept for deletion.
+struct ProblemText: View {
+    let text: String
+    var secondary = false
+
+    var body: some View {
+        Label { Text(verbatim: text) } icon: { Image(systemName: "exclamationmark.triangle") }
+            .foregroundStyle(secondary ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+            .accessibilityAddTraits(.updatesFrequently)
     }
 }

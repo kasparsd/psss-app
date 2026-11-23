@@ -704,6 +704,32 @@ do {
     turnedOff.persist()
     do { try await lifecycle.unlockWithBiometrics(); failures += 1; print("FAIL biometrics used after being turned off elsewhere") } catch BiometricKeyError.invalidated { print("ok   setting changed elsewhere is read") }
     lifecycle.forget()
+
+    // The password is changed elsewhere while Face ID is on: the app locks with a notice, the person unlocks with the new
+    // password, and the next Face ID unlock must work without another password.
+    try await lifecycle.create(name: "Changed elsewhere", credentials: .init(password: "pw1"), items: [])
+    let changedID = lifecycle.reference!.id
+    try lifecycle.enableBiometric()
+    let oldKey = BiometricKey.memory[changedID]
+    let managedURL = VaultFiles.managedURL(fileName: lifecycle.reference!.fileName)
+    let elsewhereStore = KeePassVaultStore(reference: lifecycle.reference!, url: managedURL, scoped: false,
+                                           document: try KDBX.open(Data(contentsOf: managedURL), credentials: .init(password: "pw1")), fileData: try Data(contentsOf: managedURL))
+    try await elsewhereStore.changeCredentials(to: .init(password: "pw2"))
+    do { _ = try await lifecycle.store!.reloadIfChanged(); failures += 1; print("FAIL reload after a password change succeeded") } catch KDBXError.wrongCredentials { print("ok   reload reports the changed password") }
+    lifecycle.lock()
+    expect("the saved key is still the old one after the notice lock", BiometricKey.memory[changedID] == oldKey)
+    try await lifecycle.unlock(credentials: .init(password: "pw2"))
+    expect("a password unlock replaces the saved key without a failed Face ID attempt", BiometricKey.memory[changedID] != oldKey && BiometricKey.memory[changedID] == lifecycle.store!.transformedKey)
+    expect("Face ID stays on and not stale", lifecycle.reference?.biometricUnlock == true && lifecycle.reference?.biometricStale == false)
+    lifecycle.lock()
+    try await lifecycle.unlockWithBiometrics()
+    expect("Face ID opens the vault after the notice lock and the new password", lifecycle.isOpen)
+    lifecycle.lock()
+    // A password unlock with Face ID off by the person's choice saves nothing.
+    lifecycle.disableBiometric()
+    try await lifecycle.unlock(credentials: .init(password: "pw2"))
+    expect("a password unlock with Face ID off saves no key", BiometricKey.memory[changedID] == nil && lifecycle.reference?.biometricUnlock == false)
+    lifecycle.forget()
 }
 
 // The release decision for the AutoFill provider.

@@ -969,7 +969,7 @@ private struct ItemDetail: View {
                 } header: {
                     Text("Verification code setup")
                 } footer: {
-                    Text("Move this setup key to another authenticator with the secret, the link or the QR code. Anyone who has it can make your codes, so treat it like a password.")
+                    Text("Move these verification codes to another authenticator with the setup key, the link or the QR code. Anyone who has any of them can make your codes, so treat them like a password.")
                 }
             }
             if let passkey = item.passkey {
@@ -1338,7 +1338,7 @@ private struct TOTPQRSheet: View {
                     .frame(maxWidth: 300)
             }
             .padding()
-            .navigationTitle("Verification code QR code")
+            .navigationTitle("QR code")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif

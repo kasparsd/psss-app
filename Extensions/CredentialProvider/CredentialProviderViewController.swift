@@ -268,7 +268,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     private static func reason(for error: Error) -> String {
         if let store = error as? VaultStoreError {
             if case .writeFailed = store {
-                return String(localized: "The vault file could not be written, so nothing was changed. Check that this device has free space, then try again.")
+                return String(localized: "The vault file could not be written, so nothing was changed. Check that this device has free space and that the vault file is not locked or read-only, then try again.")
             }
             return store.messageInProvider
         }
