@@ -1,6 +1,6 @@
 # Psss vault format, version 1: item schema
 
-**Status: draft 2, 2026-11-23. Not reviewed.** Draft 2 answers the 16 findings of the first implementation; the [changes](#12-changes-from-draft-1) are at the end. The [byte-level specification](format-spec.md) says how a change to an item is sealed, ordered and merged, and leaves open what the fields of an item are. This document fills that in: the field names, the shape of each value, what merges as one unit, how much history is kept, and how the things the app shows (previous passwords, Added and Edited dates, Recently Deleted, tags) are read from the fields. The design reasons are in [vault format](format.md) and the interface it serves is in [items](items.md).
+**Status: draft 3, 2026-11-23. Not reviewed.** Draft 2 answered the 16 findings of the first implementation and draft 3 answers the second pass and its independent validation; the [changes](#12-changes) are at the end. The [byte-level specification](format-spec.md) says how a change to an item is sealed, ordered and merged, and leaves open what the fields of an item are. This document fills that in: the field names, the shape of each value, what merges as one unit, how much history is kept, and how the things the app shows (previous passwords, Added and Edited dates, Recently Deleted, tags) are read from the fields. The design reasons are in [vault format](format.md) and the interface it serves is in [items](items.md).
 
 Everything here sits inside the item change record of the specification, section 5.1: a map from field name to value, where each field wins or loses whole. So the main decision this document makes, over and over, is where to draw the line between fields.
 
@@ -11,9 +11,9 @@ Everything here sits inside the item change record of the specification, section
 - **Repeated fields** have a name of the form `kind/id`, where `id` is 8 random bytes in lowercase hexadecimal chosen when the entry is added. Websites, custom fields, attachments and tags are repeated fields. Two devices that each add a website offline therefore write two different fields and both survive; had websites been one list in one field, one of them would be lost.
 - **Removing** a fixed or repeated field is clearing it (specification 5.1).
 - **Order.** Repeated fields that the person can reorder carry a position `pos`: text of the characters `0` to `9` and `a` to `z`, compared bytewise, never empty and never ending in `0`. Entries are shown in order of `(pos, field name)`. To put an entry between two others a device picks any text that sorts between their positions, which always exists; to add at the end it picks one after the last. Two entries may share a position, and the field name then decides.
-- **Text a person typed** is stored as they typed it. A device normalizes titles, usernames, labels, notes, the cardholder, file names, tags and the group name to Unicode NFC when writing. It never normalizes or trims a secret: a password, a concealed custom value, a PIN or a security code is stored exactly as entered or imported.
+- **Text a person typed** is stored as they typed it. A device normalizes titles, labels, notes, the cardholder, file names, tags and the group name to Unicode NFC when writing. A username is not normalized, because a site may compare it byte for byte. It never normalizes or trims a secret: a password, a concealed custom value, a PIN or a security code is stored exactly as entered or imported.
 - **Unknown fields.** A reader keeps a field it does not know, never shows it and never clears it, and carries it along when an item moves. A later version can then add a field without an older app destroying it.
-- **A value of the wrong shape** is treated as if the field were cleared, and is kept. A map with keys this document does not define is not the wrong shape: the extra keys are kept and ignored. It is not a reason to reject the record: the record's signature and form are the specification's concern, and one bad field must not take the rest of a change with it.
+- **A value of the wrong shape** is treated as if the field were cleared, and is kept, also when the item moves. A map with keys this document does not define is not the wrong shape: the extra keys are kept and ignored. It is not a reason to reject the record: the record's signature and form are the specification's concern, and one bad field must not take the rest of a change with it.
 - **Sizes.** A text value is at most 65,536 bytes, except `notes` at 262,144. An item has at most 64 websites, 128 custom fields, 64 attachments and 64 tags. A device does not write more; a reader shows what it finds.
 
 ## 2. Fixed fields
@@ -37,7 +37,7 @@ Everything here sits inside the item change record of the specification, section
 | `edited` | milliseconds since 1970 | For an imported or moved item: the date of its last edit before it arrived (section 5). |
 | `source` | `{ 1: kind (text), 2: id (text), 3: baseline (bytes) }` | Where an imported item came from, so that a second import updates it and does not duplicate it. `kind` is for example `1password-7`, `keepass` or `csv`. `baseline` is the importer's hash of what it last imported. |
 | `password_history` | array of `[password (text), replaced (ms)]`, newest first, at most 10 | Earlier passwords that came with an import, with the dates the source gave. Written once by the importer. More than 10 entries is the wrong shape. |
-| `history_hidden` | a place in the order: `[wall_ms, counter, author, device, seq]` | Set by Clear Previous Passwords (section 4). |
+| `history_hidden` | `1` | Set by Clear Previous Passwords (section 4). What it hides follows from where its own write stands in the order, not from its value. |
 | `moved` | `{ 1: gid (bytes), 2: when (ms) }` | The item was moved to another group (section 7). |
 | `moved_from` | `{ 1: gid (bytes), 2: when (ms) }` | The item arrived from another group (section 7). |
 | `deleted` | milliseconds since 1970 | Specification 5.1. |
@@ -48,10 +48,10 @@ A password that changes on a site is one field changing. A card that is reissued
 
 | Field | Value | Notes |
 | --- | --- | --- |
-| `web/id` | `{ 1: address (text), 2: pos }` | A website of a login. The first in order is the primary one. The address is stored as entered, with `https://` added when the person gave no scheme. Matching for AutoFill is the app's and is not part of the format. |
+| `web/id` | `{ 1: address (text), 2: pos }` | A website of a login. The first in order is the primary one. The address is stored as entered, with `https://` put in front when it does not contain `://`. Matching for AutoFill is the app's and is not part of the format. |
 | `f/id` | `{ 1: label (text), 2: value (text), 3: concealed (true or false), 4: pos }` | A custom field. Label and value are one unit. A concealed value is a secret. |
 | `a/id` | `{ 1: file name (text), 2: attachment, 3: pos, 4: added (ms) }` | An attachment. Key 2 is the map of specification 5.2. Renaming writes the field again with the same attachment; replacing the file writes a new attachment with a new key. |
-| `t/id` | text | A tag. A tag is its text; two fields with the same text are one tag to the person, and removing the tag clears every such field the device holds. Tags have no position and are shown in the bytewise order of their text. If another device added the same tag at the same moment, its field may survive a removal, and the tag is then still there. |
+| `t/id` | text | A tag. A tag is its text; two fields with the same text are one tag to the person, and removing the tag clears every such field the device holds. Tags have no position and are shown in the bytewise order of their text as UTF-8. If another device added the same tag at the same moment, its field may survive a removal, and the tag is then still there. |
 
 ## 4. History and previous passwords
 
@@ -59,13 +59,14 @@ History is not a field. It is the earlier writes of a field, which the specifica
 
 | Field | Earlier writes a checkpoint keeps |
 | --- | --- |
-| `password` | The most recent ones that Previous Passwords would show, up to 10 |
+| `password` | The write just before the winning one, and for each of the first 10 entries of Previous Passwords the entry's own write and the write after it |
 | Every other field | None |
 
 - **Previous Passwords** on the detail page are built from the earlier writes of `password`, newest first, each dated by the `wall_ms` of the write that replaced it, followed by the entries of `password_history`. A write that cleared the password, or set the value the write after it also set, is not an entry. An entry equal to the current password, or to a newer entry, is left out. At most 10 are shown.
 - **Restoring** a previous password sets `password` to that value. It is a new write, and the password it replaces becomes the newest previous one.
-- **Clear Previous Passwords** sets `history_hidden` to the place of the current winning write of `password` and clears `password_history`. Every reader then leaves out writes of `password` before that place; the password that is current at the time is not hidden, and becomes a previous password when it is next replaced. This hides the earlier ones everywhere at once. They leave storage when a manager's device next writes a checkpoint, which no longer carries them, and the records it covers are deleted; until then they exist in the records. The app's wording for this action has to say so.
+- **Clear Previous Passwords** sets `history_hidden` and clears `password_history`. Take the writes of `password` that come before the winning write of `history_hidden` in the order: every reader leaves out all of them except the last, which is the password that was current when the person cleared and which becomes a previous password when it is next replaced. Because the hidden part is measured from the clearing record's own place, a clearing that is later in the order always hides at least what an earlier one hid, whatever its device had seen. This hides the earlier ones everywhere at once. They leave storage when a manager's device next writes a checkpoint, which no longer carries them, and the records it covers are deleted; until then they exist in the records. The app's wording for this action has to say so.
 - **A password changed on two devices at once.** The later write wins and the other is the newest previous password. A reader shows the app's quiet note for this when the winning write's `password_over` is not the place of the write just before it in the order: the winner was made by a device that had not seen that write. Nothing else in the format records what a device had seen, so this field is what makes the note possible.
+- **What a checkpoint cannot keep exactly.** The writes in the table are what the list and the note need, and with them the list after a checkpoint has the same entries as before. One thing can differ: when a change made earlier on an offline device arrives after the checkpoint and lands among writes that set the same password, the date shown for that entry can be later than it would have been, never earlier.
 
 ## 5. Dates
 
@@ -83,16 +84,17 @@ The specification defines `deleted` and the rule that a later edit brings an ite
 An item is in one group. Moving it is two writes, in this order:
 
 1. In the group it goes to, one record under the same `item_id` that:
-   - sets every content field the item currently has, and every unknown field;
+   - sets every content field the item currently has, every unknown field and every field whose value has the wrong shape;
    - sets `created` to the item's Added and `edited` to its Edited, so the dates survive;
    - sets `source` if the item has one;
    - sets `moved_from` to the group it leaves;
-   - sets `password_over` to `null`;
+   - sets `password_over` to the place of the winning write of `password` in the copy this group already holds, or to `null` when it holds none, so that arriving is not mistaken for a change on two devices;
+   - clears every content field that the copy this group already holds has and the arriving item does not;
    - clears `moved`, in case the item was here before and is coming back;
    - sets `deleted` only if the item is in Recently Deleted now, and clears it otherwise;
    - does not carry `password_history` or `history_hidden`. Earlier writes are not copied either, so previous passwords do not travel.
    Attachments are sealed again as new attachments, since their chunks live with a group.
-2. In the group it leaves, one record that sets `moved`.
+2. In the group it leaves, one record that sets `moved`, naming the group it went to.
 
 An item with `moved` set is not shown. It is kept for 30 days and then purged, counted on the purging device's own clock from when it accepted the record, as for a deleted item. That is what “previous passwords stay behind” means in practice. Moving it back within that time is the same two writes in the other direction.
 
@@ -130,7 +132,16 @@ Import and export use the mapping in [items](items.md#keepass-field-mapping-impl
 - Whether a group needs a colour or an icon beside its name.
 - The wording of Clear Previous Passwords, given that storage is cleaned when a manager's device next runs.
 
-## 12. Changes from draft 1
+## 12. Changes
+
+### From draft 2
+
+- **Clear Previous Passwords** is measured from the clearing record's own place in the order, so a device with an older view can no longer bring hidden passwords back (2, 4).
+- **Moving back** to a group that still holds the old copy clears what the item no longer has, and sets `password_over` from that copy so that no false note appears (7).
+- **What a checkpoint keeps** for `password` is stated exactly, with the one way a date can differ afterwards (4).
+- **Usernames are not normalized**; a website gets `https://` when it has no `://`; tags are ordered as UTF-8; a wrong-shaped value travels with a move (1, 3, 7).
+
+### From draft 1
 
 From the findings of the first implementation:
 
