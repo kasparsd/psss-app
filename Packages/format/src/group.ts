@@ -84,6 +84,8 @@ interface MState extends Snap {
   commits: Map<number, Uint8Array>;
   /** the epoch of the latest lowering record, per person (6.2: raising needs a new epoch first) */
   cutEpochs: Map<string, number>;
+  /** the key of each epoch on the chain so far: the key the record that starts it is sealed under (6.3) */
+  keys: Map<number, Uint8Array>;
 }
 /** `epoch`: the last epoch the cut reaches (6.2: the epoch of the member record; 6.4 draft 4: the epoch before the one a remove or replace record starts) */
 export interface Cut { pid: string; record: string; epoch: number; cut: Map<string, number> }
@@ -138,6 +140,10 @@ function epochProblem(r: Rec, s: MState, e: number, commit: Uint8Array, prevKey:
   if (!eq(commit, commitOf(r.gid, e, r.key))) return 'commit_mismatch';
   const prevCommit = s.commits.get(s.epoch);
   if (rules.checkPreviousKey && (!prevCommit || !eq(prevCommit, commitOf(r.gid, s.epoch, prevKey)))) return 'previous_key_mismatch';
+  // 6.3 (draft 5): K_e is new random bytes; a record that carries the old key forward rotates nothing. (r.key is K_e: the key the record is sealed under.)
+  if (rules.newKeyDiffers && eq(r.key, prevKey)) return 'new_key_repeats_an_earlier_key';
+  // 6.3 (draft 5, revised): nor the key of any earlier epoch of the group on the accepted chain.
+  if (rules.newKeyDiffersFromEarlier) for (const [ep, k] of s.keys) if (ep < s.epoch && eq(r.key, k)) return 'new_key_repeats_an_earlier_key';
   return null;
 }
 
@@ -233,7 +239,7 @@ export function resolveMembership(gid: Uint8Array, recs: Rec[]): Membership {
   const genesis = good[0]!;
   for (const g of good.slice(1)) { m.ignored.set(hex(g.id), 'duplicate_genesis'); m.duplicateGenesis.push(hex(g.id)); }
   m.minReader = genesis.payload.get(4) as number;
-  const st: MState = { epoch: 0, roles: new Map([[hex(genesis.author), 3]]), commits: new Map([[0, genesis.payload.get(3) as Uint8Array]]), cutEpochs: new Map() };
+  const st: MState = { epoch: 0, roles: new Map([[hex(genesis.author), 3]]), commits: new Map([[0, genesis.payload.get(3) as Uint8Array]]), cutEpochs: new Map(), keys: new Map([[0, genesis.key]]) };
   const snap = (r: Rec) => m.snaps.set(hex(r.id), { epoch: st.epoch, roles: new Map(st.roles) });
   m.chain.push(genesis);
   snap(genesis);
@@ -287,7 +293,7 @@ export function resolveMembership(gid: Uint8Array, recs: Rec[]): Membership {
 
 function apply(r: Rec, s: MState, m: Membership): void {
   const cutOf = (list: [Uint8Array, number][]) => new Map(list.map((c) => [hex(c[0]), c[1]] as const));
-  const startEpoch = (e: number, commit: Uint8Array) => { s.epoch = e; s.commits.set(e, commit); };
+  const startEpoch = (e: number, commit: Uint8Array) => { s.epoch = e; s.commits.set(e, commit); s.keys.set(e, r.key); };
   if (r.kind === KIND.member) {
     const pid = targetPid(r);
     const role = r.payload.get(3) as number;
@@ -414,12 +420,23 @@ export function evaluateGroup(gid: Uint8Array, all: Rec[], nowMs?: number): Grou
       if (!cur || compareKeys(c.rec.key5, cur) > 0) asked.set(hex(id), c.rec.key5);
     }
   }
-  const answered = new Set<string>();
-  for (const cp of sets) for (const pu of cp.payload.get(6) as [Uint8Array, CborValue[]][]) answered.add(hex(pu[0]));
+  // 5.4 (draft 5): answered once a complete, accepted checkpoint names the item in `purged` at or after the request's place.
+  const purgedAt = new Map<string, OrderKey>();
+  for (const cp of sets) for (const pu of cp.payload.get(6) as [Uint8Array, CborValue[]][]) {
+    const c = pu[1] as unknown as CborValue[];
+    const k: OrderKey = [c[0] as number, c[1] as number, c[2] as Uint8Array, c[3] as Uint8Array, c[4] as number];
+    const cur = purgedAt.get(hex(pu[0]));
+    if (!cur || compareKeys(k, cur) > 0) purgedAt.set(hex(pu[0]), k);
+  }
+  const answeredBy = (id: string, from: OrderKey) => { const k = purgedAt.get(id); return !!k && (!rules.answerNeedsPlace || compareKeys(k, from) >= 0); };
   if (rules.purgeUpToOwnPlace) for (const [id, k] of asked) upTo.set(id, k);
   forgetUpTo(state, upTo);
   if (!rules.purgeUpToOwnPlace) for (const id of asked.keys()) state.delete(id);
-  const hidden = [...asked.keys()].filter((id) => !answered.has(id)).sort();
+  const unansweredItems: string[] = [];
+  for (const c of content) if (c.rec.kind === KIND.purge && c.status === 'accepted') {
+    for (const id of c.rec.payload.get(1) as Uint8Array[]) if (!answeredBy(hex(id), c.rec.key5)) unansweredItems.push(hex(id));
+  }
+  const hidden = [...new Set(unansweredItems)].sort();
   return { accepted: chains.accepted, chains, membership, checkpoints: cps, completeSets: sets, covered, content, held, purgeRequests, hidden, unsupported: false, state };
 }
 

@@ -117,6 +117,8 @@ export function slotVectors(s: Scenario, minted: Minted): J {
     P(`trailing-bit-${bit}-set`, `The last character encodes one data bit and four zero bits. The same character with the trailing bit of value ${bit} set (the data bits and the check bytes are untouched): rejected (7.2, draft 4).`,
       text.slice(0, -1) + '0123456789ABCDEFGHJKMNPQRSTVWXYZ'[lastV | bit], E('bad_kit_trailing_bits', 'reject'));
   }
+  P('trailing-bits-and-check-bytes-both-wrong', 'A text that fails two checks: one data character changed (so the check bytes do not match) and a trailing bit set. The trailing bits are checked first (7.2, draft 5): bad_kit_trailing_bits.',
+    swapChar(text, 6).slice(0, -1) + '0123456789ABCDEFGHJKMNPQRSTVWXYZ'[lastV | 1], E('bad_kit_trailing_bits', 'reject'));
   P('trailing-bits-all-set', 'All four trailing bits set.', text.slice(0, -1) + '0123456789ABCDEFGHJKMNPQRSTVWXYZ'[lastV | 15], E('bad_kit_trailing_bits', 'reject'));
   P('letter-u', 'The letter U is not a Crockford character (and not a confusable).', text.slice(0, -1) + 'U', E('bad_kit_character', 'reject'));
   P('other-symbol', 'A character outside the alphabet.', text.slice(0, -1) + '#', E('bad_kit_character', 'reject'));

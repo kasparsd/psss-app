@@ -46,8 +46,21 @@ export const rules = {
   saltBeforeSignature: true,
   /** 6.4 (draft 4): the cut of a remove or replace record reaches only epochs before the one it starts (false: that epoch too) */
   cutEndsBeforeNewEpoch: true,
-  /** 5.3 (draft 4): records of one set_id that differ in author, device or parts, or two different records with one part, belong to no set */
-  strictSets: true,
+  /** 5.3 (draft 4): records of one set_id that differ in author, in device, or in parts, or two different records with one part, belong to no set (one switch each) */
+  setSameAuthor: true,
+  setSameDevice: true,
+  setSameParts: true,
+  setUniquePart: true,
+  /** 5.3: a field of a checkpoint carries at least its winning write */
+  checkpointFieldHasWrite: true,
+  /** 6.3 (draft 5): a record that starts an epoch must bring a key that differs from the previous one */
+  newKeyDiffers: true,
+  /** 6.3 (draft 5, revised): nor may it repeat the key of any earlier epoch (those before the previous one) */
+  newKeyDiffersFromEarlier: true,
+  /** 7.2 (draft 5): the trailing bits of the kit text are checked before its check bytes (false: after) */
+  kitTrailingBeforeCheck: true,
+  /** 5.4 (draft 5): a purge request is answered by a complete checkpoint that names the item at or after the request's place (false: names it at all) */
+  answerNeedsPlace: true,
   /** 5.4 (draft 4): a purge request covers the writes up to its own place in the order (false: every write of the item) */
   purgeUpToOwnPlace: true,
 };

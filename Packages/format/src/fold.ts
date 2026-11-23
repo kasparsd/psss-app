@@ -55,12 +55,14 @@ export function completeSets<T extends { setId?: Uint8Array; part?: number; part
   const bytesEq = (a?: Uint8Array, b?: Uint8Array) => (a && b ? cmpBytes(a, b) === 0 : a === b);
   for (const raw of bySet.values()) {
     let list = raw;
-    if (rules.strictSets) {
+    {
       const seen = new Set<string>();
       list = raw.filter((c) => !c.id || !seen.has(hex(c.id)) && !!seen.add(hex(c.id)));
       const first = list[0]!;
-      if (list.some((c) => !bytesEq(c.author, first.author) || !bytesEq(c.device, first.device) || c.parts !== first.parts)) continue;
-      if (list.some((c, i) => list.some((d, j) => j > i && (c.part ?? 0) === (d.part ?? 0)))) continue;
+      if (rules.setSameAuthor && list.some((c) => !bytesEq(c.author, first.author))) continue;
+      if (rules.setSameDevice && list.some((c) => !bytesEq(c.device, first.device))) continue;
+      if (rules.setSameParts && list.some((c) => c.parts !== first.parts)) continue;
+      if (rules.setUniquePart && list.some((c, i) => list.some((d, j) => j > i && (c.part ?? 0) === (d.part ?? 0)))) continue;
     }
     for (const first of list.filter((c) => (c.part ?? 0) === 0)) {
       const n = first.parts ?? 1;

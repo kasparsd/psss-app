@@ -1,6 +1,6 @@
 # @psss/format
 
-A reference implementation and test vectors for the Psss vault format, version 1, written against draft 4 of the spec.
+A reference implementation and test vectors for the Psss vault format, version 1, written against draft 5 of the spec (`docs/format-spec.md`, section 12 lists what each draft changed; the spec points here for which draft this package follows).
 It is written from `docs/format-spec.md` alone; where that document is silent, ambiguous or wrong, the code takes the most literal reading and says so in a comment that starts with a section number.
 The list of such places is in the findings report that came with this package, and each one that changes behaviour is marked "finding" in the code, the vector descriptions or both.
 
@@ -30,6 +30,8 @@ From the repository root: `scripts/test-format.sh`.
 It finds Node 24 (the `node` on `PATH` if it is 24, otherwise the newest `~/.nvm/versions/node/v24.*`), and runs the tests; it exits non-zero on any failure.
 The vector regeneration test takes about half a minute; the permutation property test about twenty seconds.
 One vector derives Argon2id at 1 GiB and runs only with `PSSS_HEAVY=1`; the mutation tests run it with the Argon2id work skipped.
+
+Current counts: 107 tests and 521 vectors (cbor 77, person 51, record 94, clock 19, fold 22, checkpoint 10, group 98, slots 88, wraps 18, chunks 21, folder 23).
 
 ## Vectors
 
@@ -88,7 +90,7 @@ Chain reasons: `gap`, `prev_mismatch`.
 Content statuses: `accepted`, `ignored:beyond_cut`, `ignored:mhead_not_on_chain`, `ignored:not_writer`, `ignored:not_manager`, `ignored:wrong_epoch`, `ignored:wrong_epoch_key`, `waits:mhead_unknown`.
 Ignored-record reasons in a group view: `lost_fork`, `off_chain`, `unreached`.
 Fork rule, the step that decided: `dropped_by_other_candidate` (step 1), `all_dropped_least` (step 1 dropped every candidate, so all are kept), `least_author_device_seq` (step 2). The note also names `decided_by`: `author`, `device` or `seq` (draft 4 ends the tuple at `seq`).
-Membership refusals (the reason a membership record is ignored): `commit_mismatch`, `wrong_header_epoch` (6.4: the header of a kind 3, 4 or 5 record does not name the epoch it starts), `previous_key_mismatch`, `wrong_epoch`, `not_a_member`, `not_membership`, `author_not_manager`, `author_not_manager_or_the_person`, `new_pid_is_member`, `raise_needs_new_epoch`, `lowering_needs_cut`, `cut_without_lowering`, `card_for_a_member`, `pid_for_a_non_member`, `genesis_epoch`, `genesis_seq`, `gid_mismatch`, `card_is_not_the_creators`, `duplicate_genesis`.
+Membership refusals (the reason a membership record is ignored): `commit_mismatch`, `wrong_header_epoch` (6.4: the header of a kind 3, 4 or 5 record does not name the epoch it starts), `new_key_repeats_an_earlier_key` (6.3, draft 5: `K_e` equals the key of any earlier epoch; renamed from `new_key_same_as_previous`), `previous_key_mismatch`, `wrong_epoch`, `not_a_member`, `not_membership`, `author_not_manager`, `author_not_manager_or_the_person`, `new_pid_is_member`, `raise_needs_new_epoch`, `lowering_needs_cut`, `cut_without_lowering`, `card_for_a_member`, `pid_for_a_non_member`, `genesis_epoch`, `genesis_seq`, `gid_mismatch`, `card_is_not_the_creators`, `duplicate_genesis`.
 Rollback reasons (`remember.check`, section 4.4): `less` (a location offers a chain with a smaller last `seq` than remembered) and `different` (the record at a remembered `seq` is another record).
 A group whose genesis `min_reader` is above the supported version 1 is reported as `unsupported` with an empty view.
 
@@ -137,7 +139,15 @@ A boundary no vector notices is one an implementation can get wrong unnoticed.
 | `checkHeaderEpoch` | 6.4 | `false`: the header of a record of kind 3, 4 or 5 not required to name the epoch it starts | `group/epoch-sealed-under-old-key-with-old-epoch-is-refused`, `group/remove-sealed-under-old-key-with-old-epoch-is-refused`, `group/replace-sealed-under-old-key-with-old-epoch-is-refused` |
 | `saltBeforeSignature` | 4.1, 9 | `false`: the salt checked after the author and the signature | `record/open/order-salt-before-signature`, `record/open/order-salt-before-author`, `record/open/moved-header-new-salt` |
 | `cutEndsBeforeNewEpoch` | 6.4 | `false`: the cut of a remove or replace record reaches the epoch it starts too | `group/removed-person-added-again-writes-at-once` |
-| `strictSets` | 5.3 | `false`: parts of a set not required to share author, device and parts, or to be unique | `group/checkpoint-set-parts-by-different-authors`, `group/checkpoint-set-parts-on-different-devices`, `group/checkpoint-set-with-a-record-that-has-another-parts`, `group/checkpoint-set-with-two-different-part-1-records` |
+| `setSameAuthor` | 5.3 | `false`: parts of a set not required to have one author | `group/checkpoint-set-parts-by-different-authors` |
+| `setSameDevice` | 5.3 | `false`: parts of a set not required to have one device | `group/checkpoint-set-parts-on-different-devices` |
+| `setSameParts` | 5.3 | `false`: parts of a set not required to agree on `parts` | `group/checkpoint-set-with-a-record-that-has-another-parts` |
+| `setUniquePart` | 5.3 | `false`: two different records with one part not refused | `group/checkpoint-set-with-two-different-part-1-records` |
+| `checkpointFieldHasWrite` | 5.3 | `false`: a checkpoint field with no writes accepted | `checkpoint/field-with-no-writes-is-malformed` |
+| `newKeyDiffersFromEarlier` | 6.3 | `false`: a record that starts an epoch may repeat the key of an epoch before the previous one | `group/epoch-new-key-equal-to-the-key-two-epochs-back-is-refused`, `group/remove-new-key-equal-to-the-key-two-epochs-back-is-refused`, `group/replace-new-key-equal-to-the-key-two-epochs-back-is-refused` |
+| `newKeyDiffers` | 6.3 | `false`: a record that starts an epoch may carry the previous key forward as the new one | `group/epoch-new-key-equal-to-the-previous-one-is-refused`, `group/remove-new-key-equal-to-the-previous-one-is-refused`, `group/replace-new-key-equal-to-the-previous-one-is-refused` |
+| `kitTrailingBeforeCheck` | 7.2 | `false`: the kit check bytes tested before the trailing bits | `kit/parse-trailing-bits-and-check-bytes-both-wrong` |
+| `answerNeedsPlace` | 5.4 | `false`: a purge request answered by a checkpoint that names the item at any place | `group/purge-request-checkpoint-purges-before` |
 | `purgeUpToOwnPlace` | 5.4 | `false`: a purge request hides every write of the item, not only those up to its own place | `group/purge-request-then-a-later-write` |
 
 Draft 4 removed the `record_id` comparison from the fork rule: two candidates with the same author, device and seq would be a fork of one chain, and neither is accepted (`group/fork-2-same-author-device-seq-is-a-chain-fork`).
@@ -167,4 +177,4 @@ The salt derivation and the kit check bytes were also recomputed in Python (`has
 - Nesting depth counts the outermost container as level 1 (spec draft 3 says so).
 - The 1 GiB Argon2id vector is skipped unless `PSSS_HEAVY` is set.
 - The `S < L` check is covered only by the named vectors above, not by a numeric mutation.
-- A reader that holds only part of a checkpoint set is covered by the vectors named for `strictSets`; which of the records of an incomplete set a real device would show the person is not part of the format.
+- Which of the records of an incomplete checkpoint set a real device would show the person is not part of the format. The four conditions for a set (one author, one device, one `parts`, no part twice) each have their own rule mutation and vector.

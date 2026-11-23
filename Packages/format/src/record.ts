@@ -239,7 +239,7 @@ export function checkPayload(kind: number, p: CMap): CMap {
         for (const [name, ws] of it[1]) {
           if (typeof name !== 'string') throw bad('field');
           const list = sortedList(ws, 'writes');
-          if (list.length === 0) throw bad('a field carries at least its winning write');
+          if (rules.checkpointFieldHasWrite && list.length === 0) throw bad('a field carries at least its winning write');
           for (const w of list) {
             if (!Array.isArray(w) || (w[0] === 1 ? w.length !== 3 || !clockShape(w[1]) : w[0] === 0 ? w.length !== 2 || !clockShape(w[1]) : true)) throw bad('write');
           }

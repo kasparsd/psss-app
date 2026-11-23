@@ -969,6 +969,20 @@
       }
     },
     {
+      "name": "kit/parse-trailing-bits-and-check-bytes-both-wrong",
+      "description": "A text that fails two checks: one data character changed (so the check bytes do not match) and a trailing bit set. The trailing bits are checked first (7.2, draft 5): bad_kit_trailing_bits.",
+      "type": "kit.parse",
+      "input": {
+        "text": "RK1-JFAY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0D-2YAH"
+      },
+      "expected": {
+        "error": {
+          "code": "bad_kit_trailing_bits",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
       "name": "kit/parse-trailing-bits-all-set",
       "description": "All four trailing bits set.",
       "type": "kit.parse",

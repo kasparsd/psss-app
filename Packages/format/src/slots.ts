@@ -145,12 +145,14 @@ export function kitFromText(text: string): Uint8Array {
     if (v < 0) throw new FormatError('bad_kit_character');
     bits = (bits << 5n) | BigInt(v);
   }
-  if (rules.checkKitTrailingBits && (bits & 15n) !== 0n) throw new FormatError('bad_kit_trailing_bits');
+  const trailingBad = rules.checkKitTrailingBits && (bits & 15n) !== 0n;
+  if (trailingBad && rules.kitTrailingBeforeCheck) throw new FormatError('bad_kit_trailing_bits');
   bits >>= 4n;
   const out = new Uint8Array(22);
   for (let i = 21; i >= 0; i--) { out[i] = Number(bits & 255n); bits >>= 8n; }
   const kit = out.slice(0, 20);
   if (rules.checkKitCheckBytes && !eq(out.slice(20), kitCheck(kit))) throw new FormatError('bad_kit_check');
+  if (trailingBad) throw new FormatError('bad_kit_trailing_bits');
   return kit;
 }
 

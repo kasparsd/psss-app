@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { cmp } from '../src/bytes.ts';
 import { cmap, type CborValue } from '../src/cbor.ts';
-import { checkpointItems, fold } from '../src/fold.ts';
+import { checkpointItems, checkpointPayload, fold } from '../src/fold.ts';
 import { commitOf, gidOf, makeCard } from '../src/keys.ts';
 import { KIND, type Rec } from '../src/record.ts';
 import { BASE_MS, Scenario, bytesOf, itemId } from '../test/scenario.ts';
@@ -204,10 +204,48 @@ export function groupVectors(): J {
       const labels = { g, addBob, bad };
       const v = groupVector(o, `${kind}-header-names-new-epoch-but-sealed-under-old-key`, `A ${label} record whose header names epoch 1 but which is sealed under K_0 (the reader holds both keys for epoch 1, so it opens), carrying the commitment to the real K_1: the commitment does not match the key the record was sealed under, so it is ignored (commit_mismatch).`, s, labels);
       expectGroup(v, labels, { g: 'chain', addBob: 'chain', bad: 'ignored:commit_mismatch' });
+      void 0;
+    }
+    { // (c) draft 5: the header names the new epoch, the record is sealed under K_(e-1) and commits to it as K_e; the reader holds that key for epoch 1
+      const s = new Scenario();
+      const g = s.genesis('a1'); const addBob = s.setRole('alice', 'a1', 'bob', 2, { card: true });
+      const head = s.mhead!;
+      s.key(1);
+      const bad = build({ epoch: 1, key: s.key(0), commitKey: s.key(0) }, s, head);
+      const good = build({ epoch: 1, key: s.key(1) }, s, head);
+      assert(s.keyList().some((k) => k.epoch === 1 && k.key === H(s.key(0))), 'the reader holds K_0 for epoch 1');
+      const labels = { g, addBob, bad, good };
+      const v = groupVector(o, `${kind}-new-key-equal-to-the-previous-one-is-refused`, `A ${label} record whose header names epoch 1, sealed under K_0 and committing to K_0 as the key of epoch 1, with K_0 as the previous key; the reader holds K_0 for epoch 1 (as it would after reading this very record), so every other check passes: the epoch, the commitment, the previous key. It is refused because K_e equals K_(e-1) (6.3, draft 5): a record that carried the old key forward would look like a rotation and rotate nothing. A valid ${kind} at the same mprev with a new key continues the chain.`, s, labels);
+      expectGroup(v, labels, { g: 'chain', addBob: 'chain', bad: 'ignored:new_key_repeats_an_earlier_key', good: 'chain' });
+    }
+    {
+      const s = new Scenario();
+      const g = s.genesis('a1'); s.setRole('alice', 'a1', 'bob', 2, { card: true });
+      const head = s.mhead!;
+      s.key(1);
       if (kind === 'remove') o.add('membership/remove-sealed-under-old-key-with-new-epoch-in-header-does-not-open-with-the-new-key', 'The same kind of record opened by a reader that holds K_0 for epoch 0 and K_1 for epoch 1 only: the header names epoch 1, K_1 does not open it, and it is discarded (bad_tag).', 'record.open',
         { keys: s.keyList().filter((k) => !(k.epoch === 1 && k.key === H(s.key(0)))), sealed: H(s.raw('alice', 'a1', KIND.remove, cmap([[1, head], [2, s.person('bob').pid], [3, []], [4, 1], [5, commitOf(s.gid, 1, s.key(1))], [6, s.key(0)]]), { epoch: 1, key: s.key(0) })) },
         E('bad_tag', 'discard'));
     }
+  }
+
+  // 6.3 (draft 5, revised): the key of a new epoch differs from the key of every earlier epoch, not only the previous one.
+  for (const kind of ['epoch', 'remove', 'replace'] as const) {
+    const label = kind === 'epoch' ? 'epoch (kind 3)' : kind === 'remove' ? 'remove (kind 5)' : 'replace (kind 4)';
+    const s = new Scenario();
+    const g = s.genesis('a1'); const addBob = s.setRole('alice', 'a1', 'bob', 2, { card: true });
+    const e1 = s.newEpoch('alice', 'a1', 1);
+    s.key(2);
+    const make = (key: Uint8Array, commitKey: Uint8Array) => keep(s, () => at(s, e1.id, 1, () => {
+      const f = { mprev: e1.id, prevKey: s.key(1), epoch: 2, key, commitKey };
+      return kind === 'epoch' ? s.newEpoch('alice', 'a1', 2, f) : kind === 'remove' ? s.remove('alice', 'a1', 'bob', 2, { ...f, cut: [] }) : s.replace('alice', 'a1', 'bob', 'bob2', 2, { ...f, cut: [] });
+    }));
+    const bad = make(s.key(0), s.key(0));
+    const good = make(s.key(2), s.key(2));
+    assert(s.keyList().some((k) => k.epoch === 2 && k.key === H(s.key(0))), 'the reader holds K_0 for epoch 2');
+    const labels = { g, addBob, e1, bad, good };
+    const v = groupVector(o, `${kind}-new-key-equal-to-the-key-two-epochs-back-is-refused`, `Epoch 1 is started by a valid epoch record. A ${label} record then starts epoch 2 with header epoch 2, sealed under K_0 and committing to K_0, with the correct previous key K_1: the reader holds K_0 for epoch 2, and the previous-key check and the commitment pass. K_2 would equal the key of epoch 0, two epochs back, so it is refused (6.3, draft 5). A valid ${kind} with a new key at the same mprev continues the chain.`, s, labels);
+    expectGroup(v, labels, { g: 'chain', addBob: 'chain', e1: 'chain', bad: 'ignored:new_key_repeats_an_earlier_key', good: 'chain' });
   }
 
   // ------------------------------------------------------------------ the fork rule (6.5): two steps
@@ -656,9 +694,9 @@ export function groupVectors(): J {
     }
     { // another author
       const { s, g, addBob, w3, w5, names, part, w1, w2 } = mk();
-      const p0 = part('bob', 'b1', 0, 2, [w1], [['alice', 'a1', w3]]); const p1 = part('alice', 'a2', 1, 2, [w2, w3]);
+      const p0 = part('bob', 'b1', 0, 2, [w1], [['alice', 'a1', w3]]); const p1 = part('alice', 'b1', 1, 2, [w2, w3]);
       const labels = { g, addBob, p0, p1, w5 };
-      const v = groupVector(o, 'checkpoint-set-parts-by-different-authors', `Part 0 is written by bob and part 1, with the same set_id and parts, by alice. Records that share a set_id and differ in author belong to no set. ${NOT}`, s, labels);
+      const v = groupVector(o, 'checkpoint-set-parts-by-different-authors', `Part 0 is written by bob and part 1, with the same set_id and parts, by alice, who uses the same device_id (b1) as bob: two different chains with one device id, so the records differ in author and in nothing else. Records that share a set_id and differ in author belong to no set. ${NOT}`, s, labels);
       expectGroup(v, labels, { g: 'chain', addBob: 'chain', p0: 'checkpoint:accepted', p1: 'checkpoint:accepted', w5: 'waits:gap' }, folded, names);
       assert.deepEqual(v.expected.complete_checkpoint_sets, []); assert.deepEqual(v.expected.covered, {});
     }
@@ -696,6 +734,15 @@ export function groupVectors(): J {
       expectGroup(v, labels, { g: 'chain', addBob: 'chain', p0: 'checkpoint:accepted', p1: 'checkpoint:accepted', p1again: 'checkpoint:accepted', w5: 'accepted' }, whole, names);
     }
   }
+  { // a field of a checkpoint carries at least its winning write (5.3)
+    const s = new Scenario();
+    const g = s.genesis('a1');
+    const mkCp = (writes: CborValue[]) => s.raw('alice', 'a1', KIND.checkpoint, checkpointPayload([[itemId('a'), new Map([['title', writes]]) as CborValue]], [], [], undefined), {});
+    const w: CborValue = [1, [BASE_MS, 0, s.person('alice').pid, s.device('a1'), 1], 'T'];
+    o.add('checkpoint/field-with-one-write-opens', 'A checkpoint whose field "title" carries one write: well formed.', 'record.open', { keys: s.keyList(), sealed: H(mkCp([w])) });
+    o.add('checkpoint/field-with-no-writes-is-malformed', 'The same checkpoint with an empty array of writes for "title" (the same bytes otherwise): a field carries at least its winning write, so the payload is malformed and the record is discarded (bad_payload).', 'record.open', { keys: s.keyList(), sealed: H(mkCp([])) }, E('bad_payload', 'discard'));
+    void g;
+  }
   { // purge request (5.4)
     const s = new Scenario();
     const g = s.genesis('a1'); const addBob = s.setRole('alice', 'a1', 'bob', 2, { card: true }); const addCarol = s.setRole('alice', 'a1', 'carol', 1, { card: true });
@@ -709,11 +756,21 @@ export function groupVectors(): J {
     expectGroup(v1, hidden, { g: 'chain', addBob: 'chain', addCarol: 'chain', s1: 'accepted', s2: 'accepted', other: 'accepted', req: 'accepted' }, { i1: { deleted: false, fields: { title: 'kept' } } }, names);
     assert.deepEqual(v1.expected.hidden, [H(sec)]);
     assert.equal(v1.expected.purge_requests.length, 1);
-    const cp = at(s, addBob.id, 0, () => s.checkpoint('alice', 'a1', [], [['bob', 'b1', req]], [[sec, s2.key5]], { mhead: addCarol.id }));
+    const cp = at(s, addBob.id, 0, () => s.checkpoint('alice', 'a1', [], [['bob', 'b1', req]], [[sec, req.key5]], { mhead: addCarol.id }));
     const answered = { ...hidden, cp };
-    const v2 = groupVector(o, 'purge-request-answered-by-a-managers-checkpoint', 'The manager\'s device answers with a checkpoint whose `purged` names the item up to its last write: the writes are forgotten and the request is answered, so nothing is hidden any more and the item is gone.', s, answered);
+    const v2 = groupVector(o, 'purge-request-answered-by-a-managers-checkpoint', 'The manager\'s device answers with a checkpoint whose `purged` names the item at the request\'s own place in the order: the writes are forgotten and the request is answered (5.4, draft 5), so nothing is hidden any more and the item is gone.', s, answered);
     expectGroup(v2, answered, { g: 'chain', addBob: 'chain', addCarol: 'chain', s1: 'accepted', s2: 'accepted', other: 'accepted', req: 'accepted', cp: 'checkpoint:accepted' }, { i1: { deleted: false, fields: { title: 'kept' } } }, names);
     assert.deepEqual(v2.expected.hidden, []);
+    // a checkpoint that names the item at a place before the request does not answer it; at the request's place or after, it does
+    for (const [nm, place, answered, why] of [['before', s2.key5, false, 'at the place of bob\'s last write, which is before the request: the writes up to that place are forgotten but the request is not answered (it covers up to its own place), so it is still listed as hidden'],
+                                              ['at-the-place', req.key5, true, 'at exactly the request\'s place: answered'],
+                                              ['after', [req.key5[0] + 1, 0, req.key5[2], req.key5[3], req.key5[4]] as Rec['key5'], true, 'after the request\'s place: answered']] as const) {
+      const c = at(s, addBob.id, 0, () => s.checkpoint('alice', `ck-${nm}`, [], [['bob', 'b1', req]], [[sec, place]], { mhead: addCarol.id }));
+      const set = { ...hidden, c };
+      const v = groupVector(o, `purge-request-checkpoint-purges-${nm}`, `A manager's checkpoint whose \`purged\` names the item ${why}.`, s, set);
+      expectGroup(v, set, { g: 'chain', addBob: 'chain', addCarol: 'chain', s1: 'accepted', s2: 'accepted', other: 'accepted', req: 'accepted', c: 'checkpoint:accepted' }, { i1: { deleted: false, fields: { title: 'kept' } } }, names);
+      assert.deepEqual(v.expected.hidden, answered ? [] : [H(sec)]);
+    }
     const t = new Scenario();
     const tg = t.genesis('a1'); const tBob = t.setRole('alice', 'a1', 'bob', 2, { card: true }); const tCarol = t.setRole('alice', 'a1', 'carol', 1, { card: true });
     const t1 = t.item('bob', 'b1', sec, [['password', 'first']]);
