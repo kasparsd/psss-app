@@ -391,9 +391,73 @@ enum OnePasswordPIF {
             undefined = decoded.undefined
             fellBack = true
         }
-        if let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] { return (object, fellBack, undefined) }
-        if let object = (try? JSONSerialization.jsonObject(with: escapeControlCharacters(data))) as? [String: Any] { return (object, fellBack, undefined) }
+        // Foundation drops a U+FEFF that opens a string, as if it were a byte order mark. Inside a value it is a character like any
+        // other (a password can start with one), so each is swapped for a stand-in first and swapped back in what was read.
+        let (guarded, stand) = protectingByteOrderMarks(data)
+        func restored(_ object: [String: Any]) -> [String: Any] {
+            guard let stand else { return object }
+            return restore(object, from: stand) as? [String: Any] ?? object
+        }
+        if let object = (try? JSONSerialization.jsonObject(with: guarded)) as? [String: Any] { return (restored(object), fellBack, undefined) }
+        if let object = (try? JSONSerialization.jsonObject(with: escapeControlCharacters(guarded))) as? [String: Any] { return (restored(object), fellBack, undefined) }
         return nil
+    }
+
+    /// Replaces every U+FEFF inside a JSON string (raw, or written `\uFEFF`) with a noncharacter that the line does not hold, and
+    /// returns it. A line with no U+FEFF is returned as it is.
+    private static func protectingByteOrderMarks(_ data: Data) -> (Data, Unicode.Scalar?) {
+        let raw: [UInt8] = [0xEF, 0xBB, 0xBF]
+        var has = data.range(of: Data(raw)) != nil
+        if !has, data.range(of: Data("\\u".utf8)) != nil {
+            let lower = String(decoding: data, as: UTF8.self).lowercased()
+            has = lower.contains("\\ufeff")
+        }
+        guard has else { return (data, nil) }
+        // A noncharacter (U+FDD0 to U+FDEF) that neither appears in the line nor is written as an escape.
+        let text = String(decoding: data, as: UTF8.self).lowercased()
+        guard let stand = (0xFDD0...0xFDEF).lazy.compactMap({ Unicode.Scalar($0) })
+            .first(where: { !text.unicodeScalars.contains($0) && !text.contains(String(format: "\\u%04x", $0.value)) }) else { return (data, nil) }
+        let replacement = Array(String(Character(stand)).utf8)
+        var out = Data(capacity: data.count)
+        let bytes = [UInt8](data)
+        var inString = false
+        var i = 0
+        while i < bytes.count {
+            let byte = bytes[i]
+            if inString {
+                if byte == UInt8(ascii: "\\") {
+                    if i + 5 < bytes.count, bytes[i + 1] == UInt8(ascii: "u"),
+                       String(decoding: bytes[(i + 2)...(i + 5)], as: UTF8.self).lowercased() == "feff" {
+                        out.append(contentsOf: replacement); i += 6; continue
+                    }
+                    out.append(byte)
+                    if i + 1 < bytes.count { out.append(bytes[i + 1]) }
+                    i += 2
+                    continue
+                }
+                if byte == UInt8(ascii: "\"") { inString = false }
+                else if byte == 0xEF, i + 2 < bytes.count, bytes[i + 1] == 0xBB, bytes[i + 2] == 0xBF {
+                    out.append(contentsOf: replacement); i += 3; continue
+                }
+            } else if byte == UInt8(ascii: "\"") { inString = true }
+            out.append(byte)
+            i += 1
+        }
+        return (out, stand)
+    }
+
+    private static func restore(_ value: Any, from stand: Unicode.Scalar) -> Any {
+        let mark = String(Character(stand))
+        func fix(_ text: String) -> String { text.contains(mark) ? text.replacingOccurrences(of: mark, with: "\u{FEFF}") : text }
+        switch value {
+        case let text as String: return fix(text)
+        case let list as [Any]: return list.map { restore($0, from: stand) }
+        case let object as [String: Any]:
+            var out: [String: Any] = [:]
+            for (key, inner) in object { out[fix(key)] = restore(inner, from: stand) }
+            return out
+        default: return value
+        }
     }
 
     private static func escapeControlCharacters(_ data: Data) -> Data {

@@ -227,6 +227,38 @@ func generateLarge(count: Int, attachmentFiles: Int, attachmentBytes: Int, at di
     }
 }
 
+// MARK: A big group of alike items, before the large export so the peak memory it reports is its own
+
+do {
+    // 3,000 items that share one internal ID, one title, one site and one user name, told apart by their passwords. A second import
+    // meets 3,000 entries it cannot weigh one by one, so it pairs them in order and says so in one line.
+    let count = 3000
+    var group = planOf((0..<count).map { mk("1password:BIGGROUP", "Alike", password: "pw-\($0)") })
+    group.separateSharedIdentifiers()
+    var vault = try emptyVault("Alike group")
+    let before = peakResidentMB()
+    let firstStart = Date()
+    let first = try vault.apply(group)
+    let firstSeconds = Date().timeIntervalSince(firstStart)
+    check("alike 3000: the first import adds every item", "\(first.addedCount) \(allEntries(vault).count)", "\(count) \(count)")
+    let afterFirst = try XMLTree.serialize(vault.root)
+    let secondStart = Date()
+    let preview = vault.preview(group)
+    let second = try vault.apply(group)
+    let secondSeconds = Date().timeIntervalSince(secondStart)
+    let growth = peakResidentMB() - before
+    print("note a group of \(count) alike items: first import \(String(format: "%.1f", firstSeconds)) s, preview and second import \(String(format: "%.1f", secondSeconds)) s, peak memory grew by \(growth) MB")
+    check("alike 3000: the second import of the same export changes nothing", "\(second.needsWrite) \(preview.needsWrite) \(second.duplicatesSkipped) \(XMLTree.serialize(vault.root) == afterFirst)", "false false \(count) true")
+    check("alike 3000: it says once that the group was matched in order", details(second, .pairingLimit), "Alike: \(count) items look the same and share one internal ID in 1Password, which is too many to match one by one with what is already here, so they were matched in the order of the export. If you changed any of them here, check them.")
+    expect("alike 3000: each import stays under 10 s", firstSeconds < 10 && secondSeconds < 10)
+    expect("alike 3000: the extra peak memory stays under 100 MB", growth < 100)
+    // A reordered export meets the same entries by their own identifiers, so each entry keeps its item.
+    var shuffled = group
+    shuffled.items.reverse()
+    let third = try vault.apply(shuffled)
+    check("alike 3000: the same items in another order change nothing", "\(third.needsWrite) \(XMLTree.serialize(vault.root) == afterFirst)", "false true")
+}
+
 let largeCount = Int(ProcessInfo.processInfo.environment["PSSS_IMPORT_LARGE_ITEMS"] ?? "") ?? 50_000
 let largeFiles = Int(ProcessInfo.processInfo.environment["PSSS_IMPORT_LARGE_FILES"] ?? "") ?? 10
 let largeFileBytes = Int(ProcessInfo.processInfo.environment["PSSS_IMPORT_LARGE_FILE_MB"] ?? "") ?? 5
@@ -1329,7 +1361,7 @@ do {
     third.items[0].fields = third.items[0].fields.map { var f = $0; if f.role == .notes { f.value = "notes from the source" }; return f }
     let overwrite = try vault.apply(third)
     check("update: a field changed in both places is overwritten and the item is named", overwrite.issues.filter { $0.kind == .updatedOverwrote }.map { "\($0.item ?? "-"): \($0.detail)" }.joined(),
-          "Example Mail: it changed in 1Password, so your edit to Notes here was replaced with the new value. The earlier value is in the history of this item.")
+          "Example Mail: it changed in 1Password, so your edit to Notes here was replaced with the new value. Psss kept the earlier value.")
     check("update: with the source's value", strings(entry(vault, "Example Mail")!)["Notes"]?.value ?? "", "notes from the source")
     check("update: and the version that had the person's notes is in the history", "\(historyPasswords(entry(vault, "Example Mail")!).count)", "2")
     // A field the person changed and the source did not is left alone.
@@ -1379,7 +1411,7 @@ do {
           "My own title | - | 0")
     check("merge: the same site with another path is not a conflict, and the notes stay", "\(strings(mine)["URL"]?.value ?? "-") \(strings(mine)["URL (1Password)"] == nil) \(strings(mine)["Notes"]?.value ?? "-")", "https://hist.example.com/login true my notes")
     check("merge: the password is the one both had", strings(mine)["Password"]?.value ?? "", "current-a")
-    check("merge: the older passwords come in, and the version before the merge is the newest record", "\(historyPasswords(mine))", "[\"old-a1\", \"old-a2\", \"current-a\"]")
+    check("merge: the older passwords come in, and no record repeats the unchanged version", "\(historyPasswords(mine))", "[\"old-a1\", \"old-a2\"]")
     check("merge: the source is the 1Password identifier", KeePassImport.sourceID(of: mine) ?? "", "1password:\(uid(0x7001))")
     check("merge: the creation date is the earlier one", mine.child("Times")?.child("CreationTime")?.text ?? "", iso(1_700_000_000 - 5_000_000))
     let mergeAgain = try merge.apply(hist)
@@ -1471,7 +1503,7 @@ do {
           "\(secrets.password) | \(secrets.issues.first { $0.kind == .secretChanged }?.item ?? "-") | \(said.first ?? "-")",
           "pass | SecretSite | the password contained characters that cannot be stored and was changed. Check it in 1Password before you rely on it.")
     check("n1: a one-time code and a hidden field are named too", said.dropFirst().joined(separator: " | "),
-          "the one-time code contained characters that cannot be stored and was changed. Check it in 1Password before you rely on it. | the hidden field Hidden contained characters that cannot be stored and was changed. Check it in 1Password before you rely on it.")
+          "the verification code setup contained characters that cannot be stored and was changed. Check it in 1Password before you rely on it. | the hidden field Hidden contained characters that cannot be stored and was changed. Check it in 1Password before you rely on it.")
     check("n1: the title, notes and a plain field are cleaned without a word", "\(secrets.title) \(secrets.first(.notes) ?? "") \(secrets.issues.filter { $0.kind != .secretChanged }.count)", "SecretSite notes 0")
     check("n1: the plan counts them as a separate number", "\(planOf([secrets]).summary.secretsChanged) \(try emptyVault().preview(planOf([secrets])).secretsChanged)", "3 3")
     var card = ImportItem(sourceID: nil, kind: .card, title: "Card", fields: [ImportField(.cardNumber, value: "4111\u{FFFE}", concealed: true), ImportField(.pin, value: "\u{FFFF}", concealed: true), ImportField(.securityCode, value: "1\u{1}2", concealed: true)], created: now, modified: now)
@@ -1619,7 +1651,7 @@ do {
     try binned.apply(planOf([mk("1password:R1", "Binned", password: "p1")]))
     moveToBin(binned, "Binned")
     let binSummary = try binned.apply(planOf([mk("1password:R1", "Binned", password: "p2")]))
-    check("bin: changed in the source, it is skipped and reported", "\(binSummary.itemCount) \(allEntries(binned).count) \(details(binSummary, .inRecycleBin))", "0 1 Binned: it is in Recently Deleted, so it was not imported again. Restore it there if you want it back.")
+    check("bin: changed in the source, it is skipped and reported", "\(binSummary.itemCount) \(allEntries(binned).count) \(details(binSummary, .inRecycleBin))", "0 1 Binned: you deleted it here earlier, so it was not imported again. The deleted copy was left as it is.")
     let binSame = try binned.apply(planOf([mk("1password:R1", "Binned", password: "p1")]))
     check("bin: unchanged, it is skipped and reported too", "\(binSame.itemCount) \(issueCount(binSame.issues, .inRecycleBin))", "0 1")
     var handMade = try emptyVault()
@@ -1649,7 +1681,7 @@ do {
     fileNode.children.append(XNode("Binary", children: [XNode("Key", text: "mine.txt"), XNode("Value", attributes: [("Ref", ownRef)])]))
     fileNode.children.first { $0.name == "Binary" && $0.child("Key")?.text == "three.txt" }!.child("Value")!.setAttribute("Ref", ownRef)
     let fileSummary = try files.apply(planOf([mk("1password:A1", "Files", attachments: [a1])]))
-    check("files: the removed ones go, the person's own and the changed one stay, and nothing is reported", "\(binaryNames(entry(files, "Files")!).joined(separator: ",")) \(fileSummary.updated) \(fileSummary.issues.count)", "mine.txt,one.txt,three.txt 1 1")
+    check("files: the removed ones go, the person's own and the changed one stay, and one line says what was removed", "\(binaryNames(entry(files, "Files")!).joined(separator: ",")) \(fileSummary.updated) \(fileSummary.issues.count)", "mine.txt,one.txt,three.txt 1 1")
     check("files: the removal is listed by item and file name", fileSummary.removedAttachments.map { "\($0.item): \($0.file)" }.joined(), "Files: two.txt")
     check("files: a removed attachment makes the import unclean even with no issue to read", "\(fileSummary.isClean) \(fileSummary.secretsChanged) \(fileSummary.removedAttachments.count)", "false 0 1")
     check("files: the removal is said in one line with the file names", details(fileSummary, .attachmentRemoved), "Files: an attachment removed in 1Password was removed here too: two.txt")
@@ -1684,7 +1716,7 @@ do {
     entry(conflictVault, "Own")!.children.append(XNode("String", children: [XNode("Key", text: "Pin"), XNode("Value", text: "1111")]))
     let conflictSummary = try conflictVault.apply(planOf([mk("1password:C1", "Own", extra: [ImportField(.custom, label: "Pin", value: "9999", concealed: true)])]))
     check("noise: a custom field with the same label and another value is the one conflict", "\(strings(entry(conflictVault, "Own")!)["Pin"]?.value ?? "") \(strings(entry(conflictVault, "Own")!)["Pin (1Password)"]?.value ?? "") | \(details(conflictSummary, .mergeConflict))",
-          "1111 9999 | Own: the vault already had a different value for Pin, so it was kept. The value from 1Password was saved in a field whose name ends in (1Password).")
+          "1111 9999 | Own: the vault already had a different value for Pin, so it was kept. Psss also kept the value from 1Password.")
 
     // Behaviour 8: a different one-time code is kept apart and reported as not in use.
     var codes = try emptyVault()
@@ -1909,8 +1941,8 @@ do {
         loginJSON(n, "Coded \(n)", user: "u", password: "p\(n)", site: "code\(n).example.net", extra: ",\"sections\":[{\"title\":\"\",\"name\":\"s\",\"fields\":[{\"k\":\"concealed\",\"n\":\"TOTP_x\",\"v\":\"\(value)\",\"t\":\"\"}]}]")
     }
     let codes = try OnePasswordPIF.plan(from: try writeExport("blank-codes", [codeRecord(41, "   "), codeRecord(42, "\\u000b"), codeRecord(43, "\\u000c \\u000b")]), now: now)
-    check("codes: spaces only is left out and reported once", "\(codes.items[0].first(.code) == nil) \(details(codes.summary, .secretSpaces))", "true Coded 41: the one-time code was only spaces and was left out. Set it up again from the site if you need one.")
-    check("codes: a code of only U+000B is reported as not storable and is no code", "\(codes.items[1].first(.code) == nil) \(codes.items[1].issues.filter { $0.kind == .secretChanged }.map(\.detail))", "true [\"the one-time code could not be stored at all. Check it in 1Password before you rely on it.\"]")
+    check("codes: spaces only is left out and reported once", "\(codes.items[0].first(.code) == nil) \(details(codes.summary, .secretSpaces))", "true Coded 41: the verification code setup was only spaces and was left out. Set the code up again from the site if you need one.")
+    check("codes: a code of only U+000B is reported as not storable and is no code", "\(codes.items[1].first(.code) == nil) \(codes.items[1].issues.filter { $0.kind == .secretChanged }.map(\.detail))", "true [\"the verification code setup could not be stored at all. Check it in 1Password before you rely on it.\"]")
     check("codes: spaces next to unstorable characters is reported as changed, and is no code", "\(codes.items[2].first(.code) == nil) \(codes.items[2].issues.filter { $0.kind == .secretChanged }.count)", "true 1")
     var spacedHistory = mk("1password:SH", "Spaced history")
     spacedHistory.history = [ImportRevision(password: "  ", date: now.addingTimeInterval(-10)), ImportRevision(password: "real", date: now.addingTimeInterval(-5))]
@@ -2010,6 +2042,8 @@ do {
 
 // MARK: Round 6: alike items, random sequences (D1)
 
+let ALIKE_DEFAULT_SEEDS = 12
+
 struct SeededRandom {
     var state: UInt64
     mutating func next() -> Int { state = state &* 6364136223846793005 &+ 1442695040888963407; return Int(truncatingIfNeeded: state >> 33) }
@@ -2022,21 +2056,46 @@ func liveMarkers(_ document: KDBXDocument) -> [String] {
     KeePassImport.known(in: document).filter { !$0.existing.inRecycleBin }.compactMap(\.existing.sourceID)
 }
 
+/// The number of history records of each entry, by entry identifier.
+func historySizes(_ document: KDBXDocument) -> [String: Int] {
+    var sizes: [String: Int] = [:]
+    for node in allEntries(document) { sizes[node.child("UUID")?.text ?? "", default: 0] = node.child("History")?.children(named: "Entry").count ?? 0 }
+    return sizes
+}
+func stringMap(_ node: XNode) -> [String: String] {
+    var map: [String: String] = [:]
+    for string in node.children(named: "String") { if let key = string.child("Key")?.text { map[key] = string.child("Value")?.text ?? "" } }
+    return map
+}
+/// A history record that says exactly what the entry says now is a copy that adds nothing. Nil when there is none among the new ones.
+func spuriousHistory(_ document: KDBXDocument, before: [String: Int]) -> String? {
+    for node in allEntries(document) {
+        let id = node.child("UUID")?.text ?? ""
+        let records = node.child("History")?.children(named: "Entry") ?? []
+        guard records.count > (before[id] ?? 0) else { continue }
+        let now = stringMap(node)
+        for record in records.suffix(records.count - (before[id] ?? 0)) where stringMap(record) == now {
+            return "a history record repeats the entry exactly (\(now["Title"] ?? "")/\(now["Password"] ?? ""))"
+        }
+    }
+    return nil
+}
+
 func describeAlike(_ document: KDBXDocument) -> [String] {
     KeePassImport.known(in: document).map { k in
         "\(EntryMapping.string(k.node, "Title") ?? ""):\(k.existing.password):\((k.existing.sourceID ?? "-").suffix(12)):h[\((k.node.child("History")?.children(named: "Entry") ?? []).map { EntryMapping.string($0, "Password") ?? "" }.joined(separator: ","))]"
     }
 }
 
-do {
+func alikeRun(seeds: [Int], modes: [Bool]) throws -> (failures: [String], steps: Int, lost: Int) {
     // After every import, importing the same export again changes nothing and every live entry has its own marker.
     let pool = ["", "p1", "p2", "p3"]
     struct Row { var title: String; var password: String; var note: String }
     var failures: [String] = []
     var steps = 0
     var lost = 0
-    for csv in [false, true] {
-        for seed in (Int(ProcessInfo.processInfo.environment["PSSS_ALIKE_FROM"] ?? "") ?? 1)...(Int(ProcessInfo.processInfo.environment["PSSS_ALIKE_SEEDS"] ?? "") ?? 4) {
+    for csv in modes {
+        for seed in seeds {
             var random = SeededRandom(state: UInt64(seed * 7919 + (csv ? 1 : 0)))
             var document = try emptyVault()
             var rows: [Row] = []
@@ -2099,7 +2158,9 @@ do {
                     }.joined(separator: " ")
                 }
                 let res1 = describeResolution(KeePassImport.resolve(first, in: document).items)
+                let historyBefore = historySizes(document)
                 let firstSummary = try document.apply(first)
+                if let spurious = spuriousHistory(document, before: historyBefore) { failures.append("\(csv ? "csv" : "1pif") seed \(seed) step \(step): \(spurious)") }
                 let mid = describeAlike(document)
                 steps += 1
                 if fresh {
@@ -2136,9 +2197,79 @@ do {
             }
         }
     }
-    check("alike property: no second import changed anything and no marker was held twice", failures.prefix(6).joined(separator: "\n"), "")
-    check("alike property: no incoming password was lost when nobody edited in Psss", "\(lost)", "0")
-    expect("alike property: at least three thousand steps ran", steps >= 3000)
+    return (failures, steps, lost)
+}
+
+do {
+    // Seeds of the random sequences. The default covers the seeds that once failed (11, 79, 81) and as many more as keep the run short.
+    let environment = ProcessInfo.processInfo.environment
+    let from = Int(environment["PSSS_ALIKE_FROM"] ?? "") ?? 1
+    let to = Int(environment["PSSS_ALIKE_SEEDS"] ?? "") ?? ALIKE_DEFAULT_SEEDS
+    let run = try alikeRun(seeds: Array(from...max(from, to)), modes: [false, true])
+    check("alike property: no second import changed anything and no marker was held twice", run.failures.prefix(6).joined(separator: "\n"), "")
+    check("alike property: no incoming password was lost when nobody edited in Psss", "\(run.lost)", "0")
+    expect("alike property: at least three thousand steps ran", run.steps >= 3000)
+}
+
+// MARK: Pairing alike items is a function of what the entries were written from
+
+do {
+    let run = try alikeRun(seeds: [11, 79, 81], modes: [false])
+    check("alike regression: seeds 11, 79 and 81 (once failing at steps 394, 990 and 837) run clean through all their steps", run.failures.prefix(3).joined(separator: "\n"), "")
+    expect("alike regression: all three ran their full thousand steps", run.steps >= 3000)
+}
+
+do {
+    func rows(_ list: [(String, String)]) -> ImportPlan {
+        var p = planOf(list.map { mk("1password:RED", $0.0, password: $0.1) })
+        p.separateSharedIdentifiers()
+        return p
+    }
+    func hand() throws -> KDBXDocument {
+        var document = try emptyVault()
+        _ = try document.apply(try csvPlan("title,url,username,password\nPre 0,site.example.net,u,p1\n"))
+        entriesTitled(document, "Pre 0").first?.children.removeAll { $0.name == "CustomData" }
+        return document
+    }
+    func setPassword(_ node: XNode, _ value: String) {
+        node.children(named: "String").first { $0.child("Key")?.text == "Password" }?.child("Value")?.text = value
+    }
+    func holder(_ document: KDBXDocument, _ password: String, not title: String? = nil) -> XNode? {
+        allEntries(document).first { EntryMapping.string($0, "Password") == password && EntryMapping.string($0, "Title") != title }
+    }
+    /// Applies twice; the second time nothing may change, and the person's edits stay unless the item changed in the source.
+    func twice(_ name: String, _ document: inout KDBXDocument, _ plan: ImportPlan, overwrites: Int) throws {
+        let sizes = historySizes(document)
+        let first = try document.apply(plan)
+        let spurious = spuriousHistory(document, before: sizes) ?? "none"
+        let afterFirst = XMLTree.serialize(document.root)
+        let second = try document.apply(plan)
+        check("\(name): the second apply of the same export changes nothing", "\(second.needsWrite) \(XMLTree.serialize(document.root) == afterFirst) \(issueCount(second.issues, .updatedOverwrote))", "false true 0")
+        check("\(name): an edit is replaced only for an item that changed in the source", "\(issueCount(first.issues, .updatedOverwrote))", "\(overwrites)")
+        check("\(name): no history record repeats the entry", spurious, "none")
+        let markers = liveMarkers(document)
+        expect("\(name): every entry has its own identifier", Set(markers).count == markers.count)
+    }
+
+    // The reduced cases: a hand-made entry joins a group of alike items, then the person edits two entries so that two hold p1.
+    for (name, blank, other) in [("reduced A", "p2", "p3"), ("reduced B", "p1", "p2"), ("reduced C", "p3", "p2")] {
+        var document = try hand()
+        _ = try document.apply(rows([("T1", "p2"), ("T1", "p1"), ("T1", "p3")]))
+        // Blank one entry and give another the password p1.
+        let blanked = allEntries(document).first { EntryMapping.string($0, "Password") == blank }!
+        setPassword(blanked, "")
+        if let target = allEntries(document).first(where: { EntryMapping.string($0, "Password") == other && $0 !== blanked }) { setPassword(target, "p1") }
+        let edited = XMLTree.serialize(document.root)
+        // The same items in another order: nothing changed in the source, so nothing changes here.
+        try twice(name, &document, rows([("T1", "p3"), ("T1", "p2"), ("T1", "p1")]), overwrites: 0)
+        check("\(name): the person's edits are still there", XMLTree.serialize(document.root) == edited ? "same" : "changed", "same")
+    }
+    // A password that really changed in the source replaces the person's edit of it, and only that one.
+    var changed = try hand()
+    _ = try changed.apply(rows([("T1", "p2"), ("T1", "p1"), ("T1", "p3")]))
+    setPassword(allEntries(changed).first { EntryMapping.string($0, "Password") == "p2" }!, "")
+    try twice("reduced D", &changed, rows([("T1", "p4"), ("T1", "p1"), ("T1", "p3")]), overwrites: 1)
+    check("reduced D: the item that changed took the entry, the others kept theirs", allEntries(changed).compactMap { EntryMapping.string($0, "Password") }.sorted().joined(separator: ","), "p1,p3,p4")
 }
 
 // MARK: Round 6: nothing to read is nothing stored (D2)
@@ -2157,7 +2288,7 @@ do {
         let item = item(blank, title)!
         check("empty dates: \(title) stores nothing and reports nothing", "\(item.fields.filter { $0.value == "/" || $0.role == .expiry || $0.label.lowercased().contains("valid") || $0.label.lowercased().contains("expir") }.count) \(item.issues.count)", "0 0")
     }
-    check("empty dates: a year with no month is still kept as written and reported", "\(item(blank, "One part")!.fields.contains { $0.value == "/2030" }) \(issueCount(item(blank, "One part")!.issues, .unreadableValue))", "true 1")
+    check("empty dates: a year with no month is kept as a lone year, never as /2030, and reported", "\(item(blank, "One part")!.fields.contains { $0.value == "2030" }) \(item(blank, "One part")!.fields.contains { $0.value.contains("/") }) \(issueCount(item(blank, "One part")!.issues, .unreadableValue))", "true false 1")
     check("empty dates: the plan is clean for the first three", "\(blank.items.prefix(3).flatMap(\.issues).count)", "0")
 }
 
@@ -2234,6 +2365,141 @@ do {
     richTwins.separateSharedIdentifiers()
     let richSummary = try noteVault.apply(richTwins)
     check("twins: a rich item with notes is merged into the matching entry", "\(richSummary.merged) \(allEntries(noteVault).count) \(strings(entry(noteVault, "Note login")!)["Notes"]?.value ?? "-")", "1 2 kept notes")
+}
+
+// MARK: Round 7: names in messages, dates, characters inside values, emptied secrets
+
+do {
+    // Every key a message can name is spelled the way the app shows it, once.
+    var vault = try emptyVault()
+    func labelled(_ user: String, _ password: String, _ site: String, _ extraSite: String, _ notes: String, _ code: String) -> ImportItem {
+        mk("1password:LBL", "Label item", user: user, password: password, site: site,
+           extra: [ImportField(.website, value: extraSite), ImportField(.notes, value: notes), ImportField(.code, value: code, concealed: true)])
+    }
+    _ = try vault.apply(planOf([labelled("u1", "p1", "one.example.net", "extra.example.net", "n1", "JBSWY3DPEHPK3PXP")]))
+    let node = entry(vault, "Label item")!
+    for key in ["UserName", "Password", "URL", "Notes", "otp", "KP2A_URL"] {
+        node.children(named: "String").first { $0.child("Key")?.text == key }?.child("Value")?.text = "mine-\(key)"
+    }
+    let named = try vault.apply(planOf([labelled("u2", "p2", "two.example.net", "other.example.net", "n2", "KRSXG5CTMVRXEZLU")]))
+    check("labels: every edited field is named as the app shows it, once", details(named, .updatedOverwrote),
+          "Label item: it changed in 1Password, so your edit to Username, Password, Website, Notes, Verification code here was replaced with the new value. Psss kept the earlier value.")
+    // A card's fields are a cardholder and a card number.
+    var cards = try emptyVault()
+    var card = ImportItem(sourceID: "1password:CARDL", kind: .card, title: "Label card",
+                          fields: [ImportField(.cardholder, value: "Holder A"), ImportField(.cardNumber, value: "4000000000000002", concealed: true)], created: now, modified: now)
+    _ = try cards.apply(planOf([card]))
+    let cardNode = entry(cards, "Label card")!
+    for key in ["UserName", "Password"] { cardNode.children(named: "String").first { $0.child("Key")?.text == key }?.child("Value")?.text = "mine" }
+    card.fields = [ImportField(.cardholder, value: "Holder B"), ImportField(.cardNumber, value: "4000000000000010", concealed: true)]
+    check("labels: a card names its cardholder and card number", details(try cards.apply(planOf([card])), .updatedOverwrote),
+          "Label card: it changed in 1Password, so your edit to Cardholder, Card number here was replaced with the new value. Psss kept the earlier value.")
+}
+
+do {
+    func card(_ n: Int, _ title: String, _ secure: String) -> String {
+        "{\"uuid\":\"DATE\(n)\",\"typeName\":\"wallet.financial.CreditCard\",\"title\":\"\(title)\",\"createdAt\":1700000000,\"updatedAt\":1700500000,\"secureContents\":{\"ccnum\":\"4000000000000002\",\(secure)}}"
+    }
+    func section(_ value: String, name: String = "expiry") -> String { "\"sections\":[{\"title\":\"\",\"fields\":[{\"k\":\"monthYear\",\"n\":\"\(name)\",\"t\":\"Expiry date\",\"v\":\(value)}]}]" }
+    let cases: [(String, String)] = [
+        ("flat zero month", "\"expiry_mm\":\"0\""), ("flat zero month number", "\"expiry_mm\":0"), ("flat zero both", "\"expiry_mm\":0,\"expiry_yy\":0"),
+        ("flat zero both text", "\"expiry_mm\":\"00\",\"expiry_yy\":\"0\""), ("object zero both", section("{\"month\":0,\"year\":0}")),
+        ("number zero", section("0")), ("flat lone year", "\"expiry_mm\":\"\",\"expiry_yy\":\"2030\""), ("flat zero month with year", "\"expiry_mm\":0,\"expiry_yy\":2030"),
+        ("object zero month", section("{\"month\":0,\"year\":2030}")), ("object lone month", section("{\"month\":7,\"year\":0}")),
+        ("number zero month", section("203000")), ("number zero year", section("7")), ("flat lone month", "\"expiry_mm\":\"07\""),
+        ("flat fraction month", "\"expiry_mm\":\"1.5\",\"expiry_yy\":\"2027\""), ("flat fraction year", "\"expiry_mm\":\"3\",\"expiry_yy\":\"2027.9\""),
+        ("object fraction", section("{\"month\":1.5,\"year\":2027}")), ("number fraction", section("202701.5")),
+        ("object whole", section("{\"month\":\"07\",\"year\":2027}")), ("flat whole", "\"expiry_mm\":\"7\",\"expiry_yy\":\"2027\""), ("number whole", section("202707")),
+    ]
+    let dates = try OnePasswordPIF.plan(from: try writeExport("round7-dates", cases.enumerated().map { card($0.offset, $0.element.0, $0.element.1) }), now: now)
+    func stored(_ title: String) -> String {
+        let found = item(dates, title)!
+        return found.fields.filter { $0.role == .expiry || $0.role == .custom }.map(\.value).joined(separator: "|") + " # " + found.issues.filter { $0.kind == .unreadableValue }.map(\.detail).joined(separator: "|")
+    }
+    for title in ["flat zero month", "flat zero month number", "flat zero both", "flat zero both text", "object zero both", "number zero"] {
+        check("dates: \(title) is no date, stored nothing and said nothing", stored(title), " # ")
+    }
+    let incomplete = "the expiry date is incomplete in 1Password and was saved as written"
+    check("dates: a lone year is 2030 in every path", ["flat lone year", "flat zero month with year", "object zero month", "number zero month"].map { stored($0) }.joined(separator: " ; "),
+          Array(repeating: "2030 # \(incomplete)", count: 4).joined(separator: " ; "))
+    check("dates: a lone month is 07 in every path", ["flat lone month", "object lone month", "number zero year"].map { stored($0) }.joined(separator: " ; "),
+          Array(repeating: "07 # \(incomplete)", count: 3).joined(separator: " ; "))
+    let unread = "the \u{2018}Expiry date\u{2019} could not be read, so it was saved as text exactly as written"
+    check("dates: a fraction is kept as written and not rounded", ["flat fraction month", "flat fraction year", "object fraction", "number fraction"].map { stored($0) }.joined(separator: " ; "),
+          "1.5/2027 # \(unread) ; 03/2027.9 # \(unread) ; 1.5/2027 # \(unread) ; 202701.5 # \(unread)")
+    check("dates: a whole month and year are the expiry in every path", ["object whole", "flat whole", "number whole"].map { stored($0) }.joined(separator: " ; "), Array(repeating: "07/27 # ", count: 3).joined(separator: " ; "))
+    var slashed: [String] = []
+    for title in cases.map(\.0) { for field in item(dates, title)!.fields where field.value.hasPrefix("/") || field.value.hasSuffix("/") { slashed.append("\(title): \(field.value)") } }
+    check("dates: no stored value starts or ends with a slash", slashed.joined(separator: ", "), "")
+}
+
+do {
+    // A character U+FEFF inside a value is a character. Only one at the very start of the file is a byte order mark.
+    let bom = "\u{FEFF}"
+    let records = [
+        loginJSON(1, "Raw start", user: "u", password: bom + "pw1", site: "bom.example.net"),
+        loginJSON(2, "Escaped start", user: "u", password: "\\uFEFFpw2", site: "bom.example.net"),
+        loginJSON(3, "Inside", user: "u", password: "pw" + bom + "3", site: "bom.example.net"),
+        loginJSON(4, "Trailing", user: "u", password: "pw4" + bom, site: "bom.example.net"),
+        loginJSON(5, "Only one", user: "u", password: bom, site: "bom.example.net"),
+        noteJSON(6, "Note start", notes: bom + "note", extra: ""),
+    ]
+    let url = try writeExport("round7-bom", records)
+    let plan = try OnePasswordPIF.plan(from: url, now: now)
+    func scalars(_ text: String?) -> String { (text ?? "-").unicodeScalars.map { String($0.value, radix: 16) }.joined(separator: " ") }
+    check("bom: a password that starts with U+FEFF keeps it (raw and escaped)", "\(scalars(item(plan, "Raw start")?.password)) | \(scalars(item(plan, "Escaped start")?.password))", "feff 70 77 31 | feff 70 77 32")
+    check("bom: one inside, one at the end and one alone are kept", "\(scalars(item(plan, "Inside")?.password)) | \(scalars(item(plan, "Trailing")?.password)) | \(scalars(item(plan, "Only one")?.password))", "70 77 feff 33 | 70 77 34 feff | feff")
+    check("bom: a note that starts with it keeps it", scalars(item(plan, "Note start")?.first(.notes)), "feff 6e 6f 74 65")
+    check("bom: and nothing is reported", "\(plan.items.flatMap(\.issues).count)", "0")
+    var vault = try emptyVault()
+    _ = try vault.apply(plan)
+    let back = try reopen(vault)
+    check("bom: the vault file holds it too", scalars(entry(back, "Raw start").flatMap { EntryMapping.string($0, "Password") }), "feff 70 77 31")
+    // A byte order mark at the very start of the file is dropped, as before.
+    let withMark = work.appendingPathComponent("round7-bom-file.1pif")
+    try? fm.removeItem(at: withMark)
+    try fm.createDirectory(at: withMark, withIntermediateDirectories: true)
+    try (Data([0xEF, 0xBB, 0xBF]) + Data((records[0] + "\n" + separatorLine).utf8)).write(to: withMark.appendingPathComponent("data.1pif"))
+    let marked = try OnePasswordPIF.plan(from: withMark, now: now)
+    check("bom: one at the start of the file is dropped and the password keeps its own", "\(marked.items.count) \(scalars(marked.items.first?.password)) \(marked.skipped.unreadable)", "1 feff 70 77 31 0")
+}
+
+do {
+    // A source that empties the password or drops the code setup says so; other dropped fields follow the source quietly.
+    func login7(_ password: String, notes: String, code: String?) -> ImportItem {
+        var fields = [ImportField(.username, value: "u"), ImportField(.password, value: password, concealed: true), ImportField(.website, value: "empty.example.net")]
+        if !notes.isEmpty { fields.append(ImportField(.notes, value: notes)) }
+        if let code { fields.append(ImportField(.code, value: code, concealed: true)) }
+        return ImportItem(sourceID: "1password:EMP", kind: .login, title: "Emptied", fields: fields, created: now, modified: now)
+    }
+    let cases: [(String, ImportItem, String)] = [
+        ("password", login7("", notes: "n", code: "JBSWY3DPEHPK3PXP"),
+         "Emptied: the password is empty in 1Password now, so it was emptied here too. Psss kept the earlier value."),
+        ("setup key", login7("p1", notes: "n", code: nil),
+         "Emptied: the verification code setup was removed in 1Password, so it was removed here too. Psss kept the earlier value."),
+        ("both", login7("", notes: "n", code: nil),
+         "Emptied: the password and the verification code setup are empty in 1Password now, so they were emptied here too. Psss kept the earlier values."),
+        ("notes only", login7("p1", notes: "", code: "JBSWY3DPEHPK3PXP"), ""),
+    ]
+    for (name, changed, line) in cases {
+        var vault = try emptyVault()
+        _ = try vault.apply(planOf([login7("p1", notes: "n", code: "JBSWY3DPEHPK3PXP")]))
+        let summary = try vault.apply(planOf([changed]))
+        check("emptied: \(name): the line, one per item", details(summary, .secretEmptied), line)
+        check("emptied: \(name): the entry follows the source and the old version is kept", "\(summary.updated) \(historyPasswords(entry(vault, "Emptied")!).last ?? "-")", "1 p1")
+        let again = try vault.apply(planOf([changed]))
+        check("emptied: \(name): again changes nothing and says nothing", "\(again.needsWrite) \(issueCount(again.issues, .secretEmptied))", "false 0")
+    }
+}
+
+do {
+    // A CSV login that looks like an earlier one with another title is told once, in the look-alike line, not twice. The plan has no
+    // separate rule for this: two lines for one cause would only repeat each other, and the look-alike line already says it was added
+    // separately. The login is still counted as a similar one.
+    var vault = try emptyVault()
+    _ = try vault.apply(try csvPlan("title,url,username,password\nFirst title,twin.example.net,u,p1\n"))
+    let summary = try vault.apply(try csvPlan("title,url,username,password\nOther title,twin.example.net,u,p2\n"))
+    check("look-alike: one line, the look-alike one, and the login still counts as similar", "\(issueCount(summary.issues, .looksLikeExisting)) \(issueCount(summary.issues, .similarLogin)) \(summary.similarAdded) \(allEntries(vault).count)", "1 0 1 2")
 }
 
 // MARK: Round 6: every kind of issue, by construction
@@ -2412,7 +2678,7 @@ do {
     }
     var rawNames: [String] = []
     for issue in made {
-        for name in ["validFrom", "expiry_mm", "expiry_yy", "validFrom_mm", "ccnum", "cvv", "pop_", "smtp_", "reg_code"] where issue.detail.contains(name) {
+        for name in ["validFrom", "expiry_mm", "expiry_yy", "validFrom_mm", "ccnum", "cvv", "pop_", "smtp_", "reg_code", "UserName", "KP2A", "One-time", "TOTP", "Recently Deleted", "(1Password)", "history of this item"] where issue.detail.contains(name) {
             rawNames.append("\(issue.kind.rawValue): \(name) in \(issue.detail)")
         }
     }

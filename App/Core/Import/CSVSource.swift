@@ -72,7 +72,7 @@ enum CSVSource {
                 else {
                     fields.append(ImportField(.custom, label: "One-time code", value: code, concealed: true))
                     issues.append(ImportIssue(kind: .unreadableCode, item: rowTitle.isEmpty ? nil : rowTitle,
-                                              detail: String(localized: "the one-time code could not be read. It was saved as written in the field \u{2018}One-time code\u{2019}, hidden; set it up again from the site.")))
+                                              detail: String(localized: "the verification code setup could not be read. Psss kept it as written; set the code up again from the site.")))
                 }
             }
             if !value(notes).isEmpty { fields.append(ImportField(.notes, value: value(notes))) }

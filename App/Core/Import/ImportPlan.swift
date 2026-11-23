@@ -74,7 +74,7 @@ struct ImportIssue: Sendable, Equatable {
         case attachmentTooLarge, attachmentsTotalLimit, attachmentLimitPerItem, attachmentRejected
         case historyTrimmed, similarLogin, skippedRow, windowsExport
         case dateMissing, unreadableValue, attachmentSkipped, tagsChanged, updatedOverwrote, mergeConflict
-        case secretChanged, secretSpaces, looksLikeExisting, textEmptied, foldersFlattened, sharedIdentifier, deletedNotImported, inRecycleBin, trashedInSource, notesCombined, codeNotInUse, attachmentRemoved
+        case secretChanged, secretSpaces, looksLikeExisting, textEmptied, foldersFlattened, sharedIdentifier, deletedNotImported, inRecycleBin, trashedInSource, notesCombined, codeNotInUse, attachmentRemoved, secretEmptied, pairingLimit
     }
 
     var kind: Kind
@@ -359,7 +359,7 @@ extension ImportItem {
                     case .cardNumber: name = "card number"
                     case .pin: name = "PIN"
                     case .securityCode: name = "security code"
-                    case .code: name = "one-time code"
+                    case .code: name = "verification code setup"
                     default: name = field.label.isEmpty ? "hidden field" : "hidden field \(clean(field.label))"
                     }
                     secret(name, empty: value.isEmpty)
@@ -375,7 +375,7 @@ extension ImportItem {
                 case .cardNumber: name = "card number"
                 case .pin: name = "PIN"
                 case .securityCode: name = "security code"
-                case .code: name = "one-time code"
+                case .code: name = "verification code setup"
                 default: name = field.label.isEmpty ? "hidden field" : "hidden field \(clean(field.label))"
                 }
                 found.append(ImportIssue(kind: .secretSpaces, item: shown.isEmpty ? nil : shown,

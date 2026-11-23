@@ -160,7 +160,7 @@ enum PlanBuilder {
                         codes.append((text, ImportText.clean(field.section)))
                     } else if ImportText.clean(text) == text {
                         // Spaces are not a code: it is left out, and the item says so.
-                        issue(.secretSpaces, String(localized: "the one-time code was only spaces and was left out. Set it up again from the site if you need one."))
+                        issue(.secretSpaces, String(localized: "the verification code setup was only spaces and was left out. Set the code up again from the site if you need one."))
                     } else {
                         // Characters the file cannot hold: kept as it is so that cleaning reports it like any other secret.
                         blankCodes.append(ImportField(.code, value: text, concealed: true))
@@ -174,7 +174,7 @@ enum PlanBuilder {
             if rendered.unreadable || field.raw {
                 let shown = field.title.isEmpty ? displayName(field.name) : field.title
                 unreadableValues.append(shown)
-                if field.incomplete { incompleteDates.insert(shown) }
+                if field.incomplete || rendered.incomplete { incompleteDates.insert(shown) }
             }
             if kind == .card, !rendered.unreadable, !field.raw {
                 switch field.name {
@@ -203,21 +203,13 @@ enum PlanBuilder {
                     // The pair is read once, at its month; a year without a month is read at the year.
                     if key.hasSuffix("_yy"), flat[base + "_mm"] != nil { continue }
                     guard !seen.contains(base) else { continue }
-                    let month = flat[base + "_mm"], year = flat[base + "_yy"]
-                    if let month, let year, let m = Value.integer(month, in: 1...12), var yyyy = Value.integer(year, in: 0...9999), yyyy > 0 {
-                        if yyyy < 100 { yyyy += 2000 }
-                        ingest(SectionField(section: "", name: base, title: "", kind: "monthYear", value: NSNumber(value: yyyy * 100 + m)))
-                        continue
+                    // Zero or empty is no part; a lone part is kept as written and reported; a fraction is not a month or a year.
+                    switch Value.monthYear(month: flat[base + "_mm"], year: flat[base + "_yy"]) {
+                    case .none: seen.insert(base)
+                    case .ok(let year, let month): ingest(SectionField(section: "", name: base, title: "", kind: "monthYear", value: NSNumber(value: year * 100 + month)))
+                    case .lone(let text): ingest(SectionField(section: "", name: base, title: displayName(base), kind: "", value: text, raw: true, incomplete: true))
+                    case .unreadable(let text): ingest(SectionField(section: "", name: base, title: displayName(base), kind: "", value: text, raw: true))
                     }
-                    let monthText = Value.scalarText(month) ?? "", yearText = Value.scalarText(year) ?? ""
-                    // Nothing to read in either part means no date: nothing is stored and nothing is reported.
-                    if monthText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, yearText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        seen.insert(base)
-                        continue
-                    }
-                    let text = month != nil && year != nil ? "\(monthText)/\(yearText)" : monthText + yearText
-                    let partial = monthText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || yearText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ingest(SectionField(section: "", name: base, title: displayName(base), kind: "", value: text, raw: true, incomplete: partial))
                     continue
                 }
                 guard !seen.contains(key) else { continue }
@@ -247,10 +239,10 @@ enum PlanBuilder {
             if case .setup = TOTP.parse(code.text) {
                 if kind == .login, codeValue == nil { codeValue = code.text; continue }
                 if kind == .login {
-                    issue(.extraCode, String(localized: "a second one-time code was saved in the field \u{2018}\(label)\u{2019}. It is not used for signing in."))
+                    issue(.extraCode, String(localized: "it has a second verification code setup. Psss kept it, but it is not used for signing in."))
                 }
             } else {
-                issue(.unreadableCode, String(localized: "the one-time code could not be read. It was saved as written in the field \u{2018}\(label)\u{2019}, hidden; set it up again from the site."))
+                issue(.unreadableCode, String(localized: "the verification code setup could not be read. Psss kept it as written; set the code up again from the site."))
             }
             addCustom(Custom(name: "", label: label, section: "", value: code.text, concealed: true))
         }
@@ -366,7 +358,7 @@ enum PlanBuilder {
 
     /// The text and protection of a field by its kind, or nil when it is empty. `unreadable` is set when a date or month and year
     /// could not be read, so the raw text is kept instead.
-    private static func render(_ field: SectionField, typeName: String, shortYear: Bool) -> (text: String, concealed: Bool, unreadable: Bool)? {
+    private static func render(_ field: SectionField, typeName: String, shortYear: Bool) -> (text: String, concealed: Bool, unreadable: Bool, incomplete: Bool)? {
         guard let value = field.value, !(value is NSNull) else { return nil }
         // A date or month and year whose parts are all empty has nothing to read: nothing is stored and nothing is reported.
         if ["date", "monthYear"].contains(field.kind), let parts = value as? [String: Any],
@@ -374,17 +366,32 @@ enum PlanBuilder {
         let concealed = field.kind == "concealed" || isSecretName(field.name, typeName: typeName)
         var text: String
         var unreadable = false
+        var incomplete = false
         let raw = Value.scalarText(value) ?? Value.compactJSON(value)
         switch field.kind {
         case "date":
             // A date of 0 is a real date (1970-01-01) as long as the field has a value key, which this function has checked.
             if let day = Value.day(value) { text = day } else { text = raw; unreadable = true }
         case "monthYear":
-            // Zero means empty.
-            if !(value is [String: Any]), Value.number(value) == 0 { return nil }
-            if let (year, month) = Value.yearMonth(value) {
+            let result: Value.MonthYear
+            var written = raw
+            if let parts = value as? [String: Any], parts["month"] != nil || parts["year"] != nil {
+                result = Value.monthYear(month: parts["month"], year: parts["year"])
+                written = ""
+            } else if let n = Value.number(value) {
+                // Zero means empty. A number is YYYYMM; with a zero month or year it holds one part only.
+                if n == 0 { return nil }
+                if n == n.rounded(.down), n > 0, n <= 999_912 {
+                    result = Value.monthYear(month: Int(n) % 100, year: Int(n) / 100)
+                } else { result = .unreadable(raw) }
+            } else { result = .unreadable(raw) }
+            switch result {
+            case .none: return nil
+            case .ok(let year, let month):
                 text = shortYear ? String(format: "%02d/%02d", month, year % 100) : String(format: "%02d/%04d", month, year)
-            } else { text = raw; unreadable = true }
+            case .lone(let part): text = part; unreadable = true; incomplete = true
+            case .unreadable(let part): text = written.isEmpty ? part : written; unreadable = true
+            }
         default:
             if let dictionary = value as? [String: Any], field.kind == "address" || Value.looksLikeAddress(dictionary) {
                 text = Value.addressText(dictionary)
@@ -394,8 +401,8 @@ enum PlanBuilder {
         }
         // A secret is never trimmed: a value of only spaces is kept as it is (and reported), and only an empty one is skipped.
         let secret = concealed || (typeName.hasPrefix("wallet.financial.CreditCard") && ["ccnum", "cvv", "pin"].contains(field.name))
-        if secret { return text.isEmpty ? nil : (text, concealed, unreadable) }
-        return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : (text, concealed, unreadable)
+        if secret { return text.isEmpty ? nil : (text, concealed, unreadable, incomplete) }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : (text, concealed, unreadable, incomplete)
     }
 
     /// Reads JSON values the way 1Password writes them, which is loosely: a month can be a number or a string.
@@ -419,9 +426,9 @@ enum PlanBuilder {
         /// A whole number inside a range, from a number or string. Nil when it is not whole or out of the range.
         static func integer(_ any: Any?, in range: ClosedRange<Int>) -> Int? {
             guard let d = number(any) else { return nil }
-            let whole = d.rounded(.down)
-            guard whole >= Double(range.lowerBound), whole <= Double(range.upperBound) else { return nil }
-            return Int(whole)
+            // A fraction is not a whole number, and is not rounded into one.
+            guard d == d.rounded(.down), d >= Double(range.lowerBound), d <= Double(range.upperBound) else { return nil }
+            return Int(d)
         }
 
         /// Text for a string, number or boolean. Nil for objects, arrays and null.
@@ -482,6 +489,55 @@ enum PlanBuilder {
             let m = Int(mp < 10 ? mp + 3 : mp - 9)
             let y = Int(yoe + era * 400) + (m <= 2 ? 1 : 0)
             return (y, m, d)
+        }
+
+        /// What a month and a year make together, however loosely they were written.
+        enum MonthYear: Equatable {
+            /// Both parts are empty or zero: there is no date.
+            case none
+            case ok(year: Int, month: Int)
+            /// Only one part is there: as text, a two-digit month or a four-digit year.
+            case lone(String)
+            /// Both parts are there but not a month and a year (a fraction, a month of 13): the parts as written.
+            case unreadable(String)
+        }
+
+        private enum Part { case absent, whole(Int), other(String) }
+
+        private static func part(_ any: Any?) -> Part {
+            guard let any, !(any is NSNull) else { return .absent }
+            if let text = any as? String, text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return .absent }
+            if let n = number(any) {
+                if n == 0 { return .absent }
+                if n == n.rounded(.down), abs(n) < 1e15 { return .whole(Int(n)) }
+            }
+            return .other((scalarText(any) ?? compactJSON(any)).trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+
+        /// The one rule for a month and a year, whether they come as flat keys, as an object or as a `YYYYMM` number. Zero and empty
+        /// are absent. A fraction is unreadable, never rounded.
+        static func monthYear(month: Any?, year: Any?) -> MonthYear {
+            let m = part(month), y = part(year)
+            func monthValue(_ p: Part) -> Int? { if case .whole(let n) = p, (1...12).contains(n) { return n }; return nil }
+            func yearValue(_ p: Part) -> Int? { if case .whole(let n) = p, (1...9999).contains(n) { return n < 100 ? n + 2000 : n }; return nil }
+            func text(_ p: Part, isMonth: Bool) -> String {
+                switch p {
+                case .absent: return ""
+                case .whole(let n):
+                    if isMonth, let v = monthValue(p) { return String(format: "%02d", v) }
+                    if !isMonth, let v = yearValue(p) { return String(v) }
+                    return String(n)
+                case .other(let t): return t
+                }
+            }
+            switch (m, y) {
+            case (.absent, .absent): return .none
+            case (.absent, _): return .lone(text(y, isMonth: false))
+            case (_, .absent): return .lone(text(m, isMonth: true))
+            default:
+                if let mv = monthValue(m), let yv = yearValue(y) { return .ok(year: yv, month: mv) }
+                return .unreadable("\(text(m, isMonth: true))/\(text(y, isMonth: false))")
+            }
         }
 
         /// `YYYYMM` as a year and a month, or nil when it is not a whole number or the month is not 1 to 12 or the year not 1 to 9999.

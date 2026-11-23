@@ -41,6 +41,21 @@ enum KeePassImport {
         Int(document.root.child("Meta")?.child("HistoryMaxItems")?.text ?? "") ?? 10
     }
 
+    /// The name the app shows for a stored key: what a message says when it names a field. Keys the app does not rename (a custom
+    /// field's own name, a PIN, a security code) are shown as they are.
+    static func displayLabel(_ key: String, kind: ImportItemKind) -> String {
+        switch key {
+        case "Title": return "Title"
+        case "UserName": return kind == .card ? "Cardholder" : "Username"
+        case "Password": return kind == .card ? "Card number" : "Password"
+        case "URL": return "Website"
+        case "Notes": return "Notes"
+        case "otp": return "Verification code"
+        case EntryMapping.cardExpiryKey: return "Expiry"
+        default: return key.hasPrefix("KP2A_URL") ? "Website" : key
+        }
+    }
+
     /// The revisions that fit under the vault's limit, newest kept, and how many were left out.
     static func kept(_ item: ImportItem, limit: Int) -> (revisions: [ImportRevision], dropped: Int) {
         guard limit >= 0, item.history.count > limit else { return (item.history, 0) }
@@ -79,7 +94,7 @@ enum KeePassImport {
                 continue
             case .inRecycleBin:
                 summary.issues.append(ImportIssue(kind: .inRecycleBin, item: title,
-                                                  detail: String(localized: "it is in Recently Deleted, so it was not imported again. Restore it there if you want it back.")))
+                                                  detail: String(localized: "you deleted it here earlier, so it was not imported again. The deleted copy was left as it is.")))
                 continue
             case .deletedByPerson:
                 summary.deletedNotImported += 1
@@ -105,7 +120,17 @@ enum KeePassImport {
                 summary.historyEntries += change.historyAdds.count
                 if !change.overwritten.isEmpty {
                     summary.issues.append(ImportIssue(kind: .updatedOverwrote, item: title,
-                                                      detail: String(localized: "it changed in 1Password, so your edit to \(change.overwritten.joined(separator: ", ")) here was replaced with the new value. The earlier value is in the history of this item.")))
+                                                      detail: String(localized: "it changed in 1Password, so your edit to \(change.overwritten.joined(separator: ", ")) here was replaced with the new value. Psss kept the earlier value.")))
+                }
+                if !change.emptiedSecrets.isEmpty {
+                    let both = change.emptiedSecrets.count > 1
+                    let what = change.emptiedSecrets.joined(separator: " and the ")
+                    let detail = both
+                        ? String(localized: "the \(what) are empty in 1Password now, so they were emptied here too. Psss kept the earlier values.")
+                        : change.emptiedSecrets[0] == "verification code setup"
+                            ? String(localized: "the verification code setup was removed in 1Password, so it was removed here too. Psss kept the earlier value.")
+                            : String(localized: "the \(what) is empty in 1Password now, so it was emptied here too. Psss kept the earlier value.")
+                    summary.issues.append(ImportIssue(kind: .secretEmptied, item: title, detail: detail))
                 }
                 summary.issues += item.issues
                 continue
@@ -115,7 +140,7 @@ enum KeePassImport {
                 summary.historyEntries += change.historyAdds.count
                 if !change.conflicts.isEmpty {
                     summary.issues.append(ImportIssue(kind: .mergeConflict, item: title,
-                                                      detail: String(localized: "the vault already had a different value for \(change.conflicts.joined(separator: ", ")), so it was kept. The value from 1Password was saved in a field whose name ends in (1Password).")))
+                                                      detail: String(localized: "the vault already had a different value for \(change.conflicts.joined(separator: ", ")), so it was kept. Psss also kept the value from 1Password.")))
                 }
                 if change.notesCombined {
                     summary.issues.append(ImportIssue(kind: .notesCombined, item: title,
@@ -123,7 +148,7 @@ enum KeePassImport {
                 }
                 if change.codeNotInUse {
                     summary.issues.append(ImportIssue(kind: .codeNotInUse, item: title,
-                                                      detail: String(localized: "it already had another one-time code, so the one from 1Password was saved in the field \u{2018}One-time code (1Password)\u{2019}. It is not used for signing in.")))
+                                                      detail: String(localized: "it already had a verification code, so the one from 1Password was kept apart and is not used for signing in")))
                 }
                 summary.issues += item.issues
                 continue
@@ -214,6 +239,8 @@ enum KeePassImport {
         var overwritten: [String] = []
         /// Labels of fields a merge left alone because they held another value.
         var conflicts: [String] = []
+        /// Secrets an update emptied or removed because the source did: "password", "card number", "verification code setup".
+        var emptiedSecrets: [String] = []
         var creation: Date?
         var baseline: Baseline
 
@@ -374,7 +401,10 @@ enum KeePassImport {
                 change.keepSource = outcome.keepsIdentifier.contains(position)
                 // Nothing to change in the entry still needs a write when its hashes are old, or when it is now matched under a new
                 // identifier.
+                // It also needs one when the entry was last written from another version of the item, so that it is paired with this
+                // version the next time without having to be worked out again.
                 let rewrites = known[index].existing.baselineStale || outcome.matchedByFields[position] != nil
+                    || !known[index].existing.holds(item.fingerprint)
                 out.append(!change.isEmpty ? .update(change) : rewrites ? .refresh(change) : .skip)
             case .merge(let index):
                 out.append(.merge(diff(item, known: known[index], merge: true, protected: protected, binaries: document.binaries, limit: limit)))
@@ -399,6 +429,11 @@ enum KeePassImport {
             }
             issues.append(ImportIssue(kind: .sharedIdentifier, item: title.isEmpty ? nil : title,
                                       detail: String(localized: "its title or site changed in 1Password since the last import, so it was matched to the entry it had before instead of being added again")))
+        }
+        for group in outcome.pairedByOrder {
+            let title = plan.items[group.position].title
+            issues.append(ImportIssue(kind: .pairingLimit, item: title.isEmpty ? nil : title,
+                                      detail: String(localized: "\(group.count) items look the same and share one internal ID in 1Password, which is too many to match one by one with what is already here, so they were matched in the order of the export. If you changed any of them here, check them.")))
         }
         if !plan.trashedSources.isEmpty {
             var live = Set<String>()
@@ -635,7 +670,7 @@ enum KeePassImport {
             used.insert(candidate)
             return candidate
         }
-        func shown(_ key: String) -> String { key == "otp" ? "One-time code" : key == "KP2A_URL" || key.hasPrefix("KP2A_URL_") ? "Website" : key }
+        func shown(_ key: String) -> String { displayLabel(key, kind: item.kind) }
 
         for pair in rendered.pairs {
             let key = pair.key
@@ -668,7 +703,7 @@ enum KeePassImport {
                     // The same site with another path is the same site: the match was made on it.
                     if ImportDuplicates.host(now) != ImportDuplicates.host(pair.value) {
                         change.sets.append(Pair(key: freeLabel("Website (1Password)"), value: pair.value, protected: pair.protected))
-                        change.conflicts.append("Website")
+                        if !change.conflicts.contains("Website") { change.conflicts.append("Website") }
                     }
                 case "Title":
                     // A title is not worth a conflict: the entry's own stays unless it is only its site.
@@ -684,12 +719,14 @@ enum KeePassImport {
                     change.codeNotInUse = true
                 default:
                     change.sets.append(Pair(key: freeLabel("\(shown(key)) (1Password)"), value: pair.value, protected: pair.protected))
-                    change.conflicts.append(shown(key))
+                    if !change.conflicts.contains(shown(key)) { change.conflicts.append(shown(key)) }
                 }
             } else {
                 // Only a field the source changed is written. One the source left alone keeps what the person made of it.
                 if let known = before?.fields[key], known == fieldHash(entryID, key, pair.value) { continue }
-                if let known = before?.fields[key], known != fieldHash(entryID, key, now) { change.overwritten.append(shown(key)) }
+                if key == "Password", !now.isEmpty, pair.value.isEmpty { change.emptiedSecrets.append(item.kind == .card ? "card number" : "password") }
+                if let known = before?.fields[key], known != fieldHash(entryID, key, now), key != EntryMapping.typeKey,
+                   !change.overwritten.contains(shown(key)) { change.overwritten.append(shown(key)) }
                 change.sets.append(pair)
             }
         }
@@ -697,7 +734,10 @@ enum KeePassImport {
         if !merge, let before {
             let live = Set(rendered.pairs.map(\.key))
             for (key, hash) in before.fields.sorted(by: { $0.key < $1.key }) where !live.contains(key) {
-                if let now = current[key], fieldHash(entryID, key, now) == hash { change.removes.append(key) }
+                if let now = current[key], fieldHash(entryID, key, now) == hash {
+                    change.removes.append(key)
+                    if key == "otp", !now.isEmpty { change.emptiedSecrets.append("verification code setup") }
+                }
             }
         }
         // What the source said, not what the entry holds: a value the person changed then still differs from it next time.
@@ -932,7 +972,8 @@ enum KeePassImport {
         let snapshot = entry.deepCopy()
         snapshot.children.removeAll { $0.name == "History" }
         var records = history.children
-        if change.isMerge || !change.sets.isEmpty || !change.removes.isEmpty || change.tags != nil || !change.attachments.isEmpty || !change.removedFiles.isEmpty { records.append(snapshot) }
+        // A version that says what the entry says now (a merge that only adds the source's identifier) is not worth a record.
+        if !change.sets.isEmpty || !change.removes.isEmpty || change.tags != nil || !change.attachments.isEmpty || !change.removedFiles.isEmpty { records.append(snapshot) }
         for revision in change.historyAdds {
             let old = snapshot.deepCopy()
             old.children.first { $0.name == "String" && $0.child("Key")?.text == "Password" }?.child("Value")?.text = ImportText.clean(revision.password)

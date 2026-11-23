@@ -106,6 +106,9 @@ enum ImportDuplicates {
         var keepsIdentifier: Set<Int>
         var similar: [Int: SimilarReason]
         var looksLike: [Int: LooksLike]
+        /// Groups of alike items too large to weigh one against the other: the position of the first item and the group's size.
+        /// They were paired with the entries by order.
+        var pairedByOrder: [(position: Int, count: Int)] = []
     }
 
     static func classify(_ plan: ImportPlan, against existing: [Existing], deleted: Set<String> = []) -> [Decision] {
@@ -182,6 +185,7 @@ enum ImportDuplicates {
         var tied = Set<Int>()
         var paired: [Int: Int] = [:]
         var keeps = Set<Int>()
+        var limited: [(position: Int, count: Int)] = []
         var groups: [String: [Int]] = [:]
         for (position, item) in plan.items.enumerated() { if let base = item.sharedBase { groups[base, default: []].append(position) } }
         for (base, members) in groups {
@@ -196,69 +200,22 @@ enum ImportDuplicates {
                 if let id = item.sourceID, let index = byID[id], !existing[index].inRecycleBin { claimed.insert(index) } else { open.append(position) }
             }
             // The alike ones first, among the entries that carry their digest.
-            for (digest, positions) in alike {
-                var candidates = (byBase[base] ?? []).filter { !claimed.contains($0) && suffixDigest(existing[$0].sourceID) == digest }
-                var scored: [(score: Int, position: Int, entry: Int)] = []
-                for position in positions {
-                    if let id = plan.items[position].sourceID, let index = byID[id], existing[index].inRecycleBin { continue }
-                    let item = plan.items[position]
-                    let password = ImportText.clean(item.password)
-                    var pairs: [KeePassImport.Pair] = []
-                    if details != nil { pairs = KeePassImport.render(item, protected: []).pairs }
-                    for index in candidates {
-                        var score = 0
-                        if let details {
-                            let detail = details(index)
-                            // An empty password says nothing about which entry it was. A password an entry holds now counts for more than
-                            // one it only held earlier.
-                            if !password.isEmpty {
-                                if existing[index].password == password { score += 2000 } else if detail.history.contains(password) { score += 1000 }
-                            }
-                            for pair in pairs where detail.fieldHashes[pair.key] == KeePassImport.fieldHash(existing[index].entryID, pair.key, pair.value) { score += 1 }
-                        }
-                        scored.append((score, position, index))
-                    }
+            for digest in alike.keys.sorted() {
+                let positions = alike[digest] ?? []
+                let candidates = (byBase[base] ?? []).filter { !claimed.contains($0) && suffixDigest(existing[$0].sourceID) == digest }
+                let eligible = positions.filter { position in
+                    if let id = plan.items[position].sourceID, let index = byID[id], existing[index].inRecycleBin { return false }
+                    return true
                 }
-                scored.sort { a, b in
-                    if a.score != b.score { return a.score > b.score }
-                    if a.position != b.position { return a.position < b.position }
-                    return a.entry < b.entry
+                let pairs: [Int: Int]
+                if eligible.count * candidates.count <= pairingBound {
+                    pairs = optimalPairing(plan, eligible, candidates, existing, details)
+                } else {
+                    pairs = orderedPairing(plan, eligible, candidates, existing, byID)
+                    if let first = eligible.first { limited.append((first, positions.count)) }
                 }
-                var taken = Set<Int>()
-                for pick in scored where pick.score > 0 && paired[pick.position] == nil && !taken.contains(pick.entry) {
-                    paired[pick.position] = pick.entry
-                    taken.insert(pick.entry)
-                }
-                // A greedy pick can take an entry that fits another item better. Swapping two picks, or moving a pick to a free
-                // entry, while the total fit grows settles on the pairing that a second import finds again.
-                var weight: [Int: [Int: Int]] = [:]
-                for pick in scored where pick.score > 0 { weight[pick.position, default: [:]][pick.entry] = pick.score }
-                let pickedPositions = positions.filter { paired[$0] != nil }
-                var pass = 0, improved = true
-                while improved, pass < 20, pickedPositions.count <= 64 {
-                    improved = false; pass += 1
-                    for p in pickedPositions {
-                        for q in pickedPositions where p < q {
-                            guard let e = paired[p], let f = paired[q] else { continue }
-                            let now = (weight[p]?[e] ?? 0) + (weight[q]?[f] ?? 0)
-                            guard let pf = weight[p]?[f], let qe = weight[q]?[e], pf + qe > now else { continue }
-                            paired[p] = f; paired[q] = e; improved = true
-                        }
-                        guard let e = paired[p] else { continue }
-                        for g in candidates where !pickedPositions.contains(where: { paired[$0] == g }) {
-                            if let wg = weight[p]?[g], wg > (weight[p]?[e] ?? 0) { paired[p] = g; improved = true; break }
-                        }
-                    }
-                }
-                taken = Set(pickedPositions.compactMap { paired[$0] })
-                candidates.removeAll { taken.contains($0) }
-                for position in positions where paired[position] == nil && !candidates.isEmpty {
-                    if let id = plan.items[position].sourceID, let index = byID[id], existing[index].inRecycleBin { continue }
-                    paired[position] = candidates.removeFirst()
-                }
-                for position in positions where paired[position] != nil { keeps.insert(position) }
-                claimed.formUnion(taken)
-                claimed.formUnion(positions.compactMap { paired[$0] })
+                for (position, index) in pairs { paired[position] = index; keeps.insert(position) }
+                claimed.formUnion(pairs.values)
             }
             var candidates = (byBase[base] ?? []).filter { !claimed.contains($0) }
             defer { groupClaimed[base] = claimed }
@@ -419,7 +376,121 @@ enum ImportDuplicates {
             buildSets()
             result = sweep()
         }
-        return Outcome(decisions: result.decisions, matchedByFields: result.matched, keepsIdentifier: keeps, similar: result.similar, looksLike: result.looksLike)
+        return Outcome(decisions: result.decisions, matchedByFields: result.matched, keepsIdentifier: keeps, similar: result.similar, looksLike: result.looksLike,
+                       pairedByOrder: limited.sorted { $0.position < $1.position })
+    }
+
+    // MARK: Pairing items that are alike with entries
+
+    /// The most (items times entries) that are weighed one against the other. Above it a group is paired by order. 40,000 is a group
+    /// of 200 alike items: a few hundred thousand fingerprints and a table of a few hundred kilobytes, well under a second.
+    static let pairingBound = 40_000
+
+    /// What an item and an entry say about each other. An item whose content is exactly what the entry was last imported from is
+    /// worth more than every other sign together (there are at most `pairingBound` of those), so an entry stays with the item it
+    /// was written from, however the person edited it since and however the export is ordered. After that a password the entry holds
+    /// now counts for more than one it only held earlier, and each field that still has the value it was written with counts one.
+    private static let exactWeight = 1_000_000
+
+    /// A pairing of items with entries that maximises the total weight (the Hungarian method, so no item loses its best entry to a
+    /// tie that another item could have broken). Ties go to the earlier item and the earlier entry, so the result is a function of the
+    /// plan and the vault alone. Only pairs with some sign of belonging together are kept; the rest is paired by order.
+    static func optimalPairing(_ plan: ImportPlan, _ positions: [Int], _ candidates: [Int], _ existing: [Existing],
+                               _ details: ((Int) -> EntryDetail)?) -> [Int: Int] {
+        guard !positions.isEmpty, !candidates.isEmpty else { return [:] }
+        // What is asked of an entry once, not once per item.
+        var entryDetail: [EntryDetail?] = []
+        for index in candidates { entryDetail.append(details?(index)) }
+        var weight = [[Int]](repeating: [Int](repeating: 0, count: candidates.count), count: positions.count)
+        for (row, position) in positions.enumerated() {
+            let item = plan.items[position]
+            let password = ImportText.clean(item.password)
+            let fingerprint = item.fingerprint
+            let pairs = details != nil ? KeePassImport.render(item, protected: []).pairs : []
+            for (column, index) in candidates.enumerated() {
+                var score = 0
+                if existing[index].holds(fingerprint) { score += exactWeight }
+                if let detail = entryDetail[column] {
+                    // An empty password says nothing about which entry it was.
+                    if !password.isEmpty {
+                        if existing[index].password == password { score += 2000 } else if detail.history.contains(password) { score += 1000 }
+                    }
+                    for pair in pairs where detail.fieldHashes[pair.key] == KeePassImport.fieldHash(existing[index].entryID, pair.key, pair.value) { score += 1 }
+                }
+                weight[row][column] = score
+            }
+        }
+        var out: [Int: Int] = [:]
+        for (row, column) in assign(weight) where weight[row][column] > 0 { out[positions[row]] = candidates[column] }
+        // Whatever shows no sign of belonging anywhere takes the entries that are left, in order.
+        let taken = Set(out.values)
+        var free = candidates.filter { !taken.contains($0) }[...]
+        for position in positions where out[position] == nil {
+            guard let entry = free.popFirst() else { break }
+            out[position] = entry
+        }
+        return out
+    }
+
+    /// The pairs (row, column) of the assignment with the greatest total weight, every row of the smaller side placed. Rows and
+    /// columns are tried in order, so equal totals resolve the same way every time.
+    static func assign(_ weight: [[Int]]) -> [(Int, Int)] {
+        let rows = weight.count, columns = weight.first?.count ?? 0
+        guard rows > 0, columns > 0 else { return [] }
+        // The method places every row, so the smaller side is the rows.
+        let transposed = rows > columns
+        let n = transposed ? columns : rows, m = transposed ? rows : columns
+        func cost(_ i: Int, _ j: Int) -> Int { -(transposed ? weight[j - 1][i - 1] : weight[i - 1][j - 1]) }
+        var u = [Int](repeating: 0, count: n + 1), v = [Int](repeating: 0, count: m + 1)
+        var p = [Int](repeating: 0, count: m + 1), way = [Int](repeating: 0, count: m + 1)
+        for i in 1...n {
+            p[0] = i
+            var j0 = 0
+            var minimum = [Int](repeating: Int.max, count: m + 1)
+            var used = [Bool](repeating: false, count: m + 1)
+            repeat {
+                used[j0] = true
+                let i0 = p[j0]
+                var delta = Int.max, j1 = 0
+                for j in 1...m where !used[j] {
+                    let current = cost(i0, j) - u[i0] - v[j]
+                    if current < minimum[j] { minimum[j] = current; way[j] = j0 }
+                    if minimum[j] < delta { delta = minimum[j]; j1 = j }
+                }
+                for j in 0...m {
+                    if used[j] { u[p[j]] += delta; v[j] -= delta } else if minimum[j] != Int.max { minimum[j] -= delta }
+                }
+                j0 = j1
+            } while p[j0] != 0
+            repeat {
+                let j1 = way[j0]
+                p[j0] = p[j1]
+                j0 = j1
+            } while j0 != 0
+        }
+        var out: [(Int, Int)] = []
+        for j in 1...m where p[j] != 0 { out.append(transposed ? (j - 1, p[j] - 1) : (p[j] - 1, j - 1)) }
+        return out.sorted { $0.0 < $1.0 }
+    }
+
+    /// The pairing for a group too large to weigh: an item takes the entry that carries its own identifier, and the rest take the
+    /// remaining entries in the order of the vault. Linear in the size of the group.
+    static func orderedPairing(_ plan: ImportPlan, _ positions: [Int], _ candidates: [Int], _ existing: [Existing],
+                               _ byID: [String: Int]) -> [Int: Int] {
+        var out: [Int: Int] = [:]
+        var taken = Set<Int>()
+        let open = Set(candidates)
+        for position in positions {
+            if let id = plan.items[position].sourceID, let index = byID[id], open.contains(index), taken.insert(index).inserted { out[position] = index }
+        }
+        var next = 0
+        for position in positions where out[position] == nil {
+            while next < candidates.count, taken.contains(candidates[next]) { next += 1 }
+            guard next < candidates.count else { break }
+            out[position] = candidates[next]
+            taken.insert(candidates[next])
+        }
+        return out
     }
 
     static func host(_ website: String) -> String { SiteMatch.normalizedHost(website) }
