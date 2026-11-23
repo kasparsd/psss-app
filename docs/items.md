@@ -26,7 +26,7 @@ Across types, support nested groups, tags, item expiration, custom fields with p
 - [x] Prototype creating, viewing and editing all four item types and picking a card in a demo checkout.
 - [x] Define the passkey and verification-code field mappings and check them in KeePassXC (`scripts/test-kdbx.sh`). Strongbox is not checked.
 - [ ] Define and fixture-test field names, protection flags, type metadata and OTP mappings across Strongbox and KeePassXC.
-- [ ] Build group navigation, attachment add/extract and expiration. Keep history stored and defer its interface; “Recently deleted” covers undo.
+- [ ] Build group navigation, attachment add/extract and expiration. The read-only detail sections (Other fields, Attachments, Previous passwords, dates) and Recently Deleted are approved (2026-11-23) and planned in [approved-screens](plans/approved-screens.md); editing and adding fields and attachments is not.
 - [ ] Validate assisted checkout fills and show tested browser coverage per field and surface.
 
 ## KeePass field mapping (implemented 2026-11-22)
@@ -130,10 +130,10 @@ KDBX keeps earlier versions as whole copies of the entry under `History`, bounde
 - **When.** A revision is made when stored content changes, judged over every field. A change within ten minutes of the last one that touches no secret is folded into it. A changed password, code, card number or passkey always makes a revision, including one saved by the AutoFill extension.
 - **What.** The whole entry, as the format does. It is what other KeePass apps read and what merge needs. No diffs.
 - **Bounds.** The file's `HistoryMaxItems`, plus `HistoryMaxSize`, oldest first.
-- **Deleting.** Deleting moves the item to the standard Recycle Bin group, which is what “Recently Deleted” shows. Psss purges items older than 30 days when the vault opens and records them in `DeletedObjects`. Other KeePass apps show the bin and do not purge it, and the interface says so.
-- **Showing it.** No history table. The detail page gets a “Previous passwords” section only when an earlier, different password exists: each row says “Replaced 3 Nov 2026” with labeled Show, Copy and Restore. Consecutive versions with the same password are one row.
-- **Restore.** Restoring puts that password back through the normal save, so it is itself a revision and the replaced password joins the list.
-- **Privacy.** Old passwords stay in the file. The section says so and offers a labeled “Clear Previous Passwords”. Rollback copies and iCloud's older versions may still hold them, and the copy does not promise otherwise.
+- **Deleting.** Decided 2026-11-23: nothing is deleted outright, as in Photos. Deleting an item moves it to the standard Recycle Bin group, which is what “Recently Deleted” shows, with no confirmation and a 10-second Undo (mock `Design/Mocks/recently-deleted.html`, plan [approved-screens](plans/approved-screens.md)). Psss purges items older than 30 days when the vault opens and records them in `DeletedObjects`. Other KeePass apps show the bin and do not purge it, and the interface says so once, under the list and in the empty state. Deleting for good (“Delete Now…” for one item, “Delete All…” for all, the count on the button) always confirms once, says the item cannot be recovered and that backup copies of the vault may still hold it. Rejected: a confirmation on Delete (it asks about something that can be undone and teaches people to click through), no confirmation for one item deleted for good (the one irreversible step), typing a word to confirm (too heavy), calling the bulk button “Empty” (a bin word) or “Delete Everything” (loud). An item in Recently Deleted opens read-only, with Show and Copy for secrets and no Edit (“To change this item, restore it first.”): looking is harmless and often why the person came, editing a deleted item makes no sense. A failed Restore reuses the conflict alert. Recently Deleted is the last row of the vault section in the sidebar and the last pill on iPhone. Rejected: a Filters entry (Filters are traits of live items), a row in Setup (hidden, and needed in a panic) and a search scope (not discoverable).
+- **Showing it.** Approved 2026-11-23 (mock `Design/Mocks/item-detail.html`). No history table. The detail page gets a “Previous passwords” section only when an earlier, different password exists: each row says “Replaced 3 Nov 2026” with labeled Show, Copy and Restore. Consecutive versions with the same password are one row. The section is shown by default whenever an earlier, different password exists, with every value hidden until Show. Rejected: collapsing it behind a disclosure row (that hides Restore, the safety net when an AutoFill update saved a wrong password) and a setting to turn it off (a setting for a safe default).
+- **Restore.** Restoring puts that password back through the normal save, so it is itself a revision and the replaced password joins the list. It is one tap with no confirmation, because Restore on the row it creates undoes it; a short message (“Password restored. The one it replaced is in Previous passwords.”, about three seconds) names what happened. Rejected: confirming first, and requiring Show first.
+- **Privacy.** Old passwords stay in the file. The section says so and offers a labeled “Clear Previous Passwords”, which always confirms once, names the item and the count, and says it cannot be recovered and that backup copies of the vault may still hold the passwords. Rollback copies and iCloud's older versions may still hold them, and the copy does not promise otherwise. Rejected: no confirmation (irreversible), and a switch that turns history off (a feature, not a screen). Cards, secure notes and custom items never show Previous passwords: the history of the password field is defined only for a login (revisit after the field model).
 - **Sync.** Entry-level merge needs every content change to advance `LastModificationTime` (never backward on a slow clock), the two histories combined, and a deletion to win only when it is later than the last edit. Keeping usage out of the file is what makes this workable.
 
 “Password last changed” needs no new storage: it is the oldest history version that still has the current password.
@@ -149,7 +149,7 @@ The file has `CreationTime` and `LastModificationTime` for every entry. The code
 | 1Password 1PUX | `createdAt` | `updatedAt` |
 | Apple Passwords and browser CSV | None in the export, so the import time | The import time |
 
-Display, the same on iPhone, iPad and Mac: one last section on the detail page with two passive rows, below the fields and never beside an action. Body size with a secondary-colour value, read by VoiceOver as one element each, no copy control.
+Display (approved 2026-11-23, mock `Design/Mocks/item-detail.html`), the same on iPhone, iPad and Mac: one last section on the detail page with two passive rows, below the fields and never beside an action (rejected: dates under the header, beside the actions people use most). The Edited date moves after Restore and after Clear Previous Passwords, since both write the entry; the page does not claim it is an edit of the content. Body size with a secondary-colour value, read by VoiceOver as one element each, no copy control.
 
 | State | Copy |
 | --- | --- |
@@ -158,11 +158,21 @@ Display, the same on iPhone, iPad and Mac: one last section on the detail page w
 | Imported from CSV | “Added 23 Nov 2026”, the import date, which is true: it was added to this vault then |
 | A date is missing | That row is hidden. With both missing the section is hidden. Never “Unknown” |
 
-Dates are absolute and follow the person's locale (day, abbreviated month, year, and the time on the edited row). Relative wording such as “3 days ago” goes stale on screen and reads worse in VoiceOver.
+Dates are absolute and follow the person's locale (day, abbreviated month, year, and the time on the edited row). Relative wording such as “3 days ago” goes stale on screen and reads worse in VoiceOver. The one exception, approved 2026-11-23, is a Recently Deleted row, which says “Deleted 3 days ago” (it answers “was it me?”) beside the absolute “removed for good on 20 Dec”, the date that matters and does not go stale. Rejected for those rows: absolute only, relative only. Rejected for Added and Edited: relative, and the file words “Created” and “Modified”. “Added” stays true for imports.
+
+### Detail page additions, approved 2026-11-23
+
+Mock `Design/Mocks/item-detail.html`, plan [approved-screens](plans/approved-screens.md) package B. Order at the bottom of a login's page: Other fields, Attachments, Previous passwords, then the dates, always last. Each section appears only when it has content, so a login with none of it shows only “Added 23 Nov 2026”. Rejected order: Previous passwords above Other fields (more useful, but only some logins have it, so the stable sections go first).
+
+- **Other fields and Attachments are read-only.** Other fields show each custom field's own name and value, hidden values behind Show, with labeled Show and Copy. Footer: “Psss shows these fields but cannot edit them yet. They stay in the vault.” Attachments list name and size with a labeled “Save…”. Footer: “Save… puts a copy of the file where you choose. The copy is not encrypted.” Attachments are never opened or decrypted anywhere else. Rejected: hiding them until editing exists (imported data would be invisible), and showing them as editable and failing on save. Not promised, so not built: editing, adding and removing other fields and attachments, and tags.
+- **Cards, secure notes and custom items** get Other fields and Attachments, never Previous passwords.
+- **Labeled buttons.** The new rows use text buttons (Show, Copy, Restore, Save…), not the quiet copy glyph of today's rows, following the visible-actions rule. Rejected: Copy as an icon, Restore in a menu. Today's rows are unchanged for now; whether to relabel them is open.
+- **Row layout.** Mac and wide iPad: label and value left, buttons right on one line. iPhone and narrow iPad: buttons on their own line under the value, each at least 44 pt tall. Save… opens the system file saver on iPhone and iPad and a save panel on Mac.
+- **Departures from Apple's guidance**, recorded in [experience](experience.md#approved-mocks-2026-11-23): section headers and footers at body size, several buttons in one row, and a plain red “Clear Previous Passwords” row.
 
 ### Built so far (2026-11-23)
 
-In the codec and the store, with no screen yet: created and edited dates on every item; history with the ten-minute folding rule, a reader for previous passwords, restore and clear; the Recycle Bin (move, list, restore, delete permanently, empty, purge after 30 days when the app unlocks, never in the AutoFill extension); every change all-or-nothing, so a failed write leaves nothing behind in memory; attachments nothing refers to dropped on save. An entry's deletion time is the latest evidence there is, including the folder it was deleted with, and without readable evidence nothing is purged automatically. The app's delete button still deletes permanently, and says so, until the Recently Deleted screen is designed and approved. Reserved `PSSS_` fields now also include `PSSS_PASSKEY_CREATED`, `PSSS_DELETED_FROM`, `PSSS_DELETED_AT`, `PSSS_SOURCE`, `PSSS_IMPORT_HASHES` and, in the vault's Meta data, `PSSS_DELETED_SOURCES`.
+In the codec and the store, with no screen yet: created and edited dates on every item; history with the ten-minute folding rule, a reader for previous passwords, restore and clear; the Recycle Bin (move, list, restore, delete permanently, empty, purge after 30 days when the app unlocks, never in the AutoFill extension); every change all-or-nothing, so a failed write leaves nothing behind in memory; attachments nothing refers to dropped on save. An entry's deletion time is the latest evidence there is, including the folder it was deleted with, and without readable evidence nothing is purged automatically. The app's delete button still deletes permanently, and its confirmation says so, until the approved Recently Deleted work is built (package A of [approved-screens](plans/approved-screens.md)); from then Delete Item moves the item to Recently Deleted with Undo and the permanent delete is Delete Now. Reserved `PSSS_` fields now also include `PSSS_PASSKEY_CREATED`, `PSSS_DELETED_FROM`, `PSSS_DELETED_AT`, `PSSS_SOURCE`, `PSSS_IMPORT_HASHES` and, in the vault's Meta data, `PSSS_DELETED_SOURCES`.
 
 Known limits: rapid automated saves push an entry's modification time one second ahead per save, since KDBX 4 stores whole seconds; and each save rewrites the whole file, about 0.18 s at 5,000 entries.
 
@@ -170,11 +180,11 @@ Known limits: rapid automated saves push an entry's modification time one second
 
 1. Dates on the model, `Times` for entries that lack it, base64 times for KDBX 4, the passkey's own date. Additive, safe now.
 2. History: size limit, folding rapid edits, a reader for previous passwords, restore, a complete `sameContent`. Codec work, safe now, and merge depends on it.
-3. Recycle Bin, the 30-day purge and the duplicate-identifier fix. Codec now; the Recently Deleted screen after the gate.
+3. Recycle Bin, the 30-day purge and the duplicate-identifier fix. Codec done; the Recently Deleted screen is approved (2026-11-23) and planned.
 4. The field-based `VaultItem` and its mapping, hostless tests first. It touches the store, the importer, the provider and the views, so it goes in when nothing else is in flight.
 5. Several websites, with matching and identity registration.
 6. Verification code parameters, card validation and expiry forms, more card networks. Independent, safe now.
-7. Editor and detail controls: Add Field, custom fields, attachments, the dates section, Previous passwords, the generator. After the gate and an approved mock.
+7. Editor and detail controls. Approved 2026-11-23 and planned in [approved-screens](plans/approved-screens.md), to build: the read-only dates section, Other fields, Attachments and Previous passwords on the detail page. Still needing a mock: Add Field, editing custom fields and attachments, the generator.
 8. 1PUX import with dates (M2).
 9. Entry-level merge (S4), after steps 1 and 2.
 
@@ -185,10 +195,9 @@ Every new mapping gets a round trip through KeePassXC in `scripts/test-kdbx.sh`.
 | Decision | Recommended |
 | --- | --- |
 | Card number in `Password` and cardholder in `UserName`, or named custom strings | Keep them, for KeePass interop. Add security code and PIN as protected custom strings |
-| Show previous passwords before M2 | Yes, as the small section above. The history and Recycle Bin work makes it cheap |
 | Several websites per login in 1.0 | Yes. Imports and KeePassXC files already have them |
 | What “Add Field” offers | Website, Text, Secret, Verification code, Attachment. No Date, Phone, Email or Address |
-| Date labels | “Added” and “Edited”. “Added” stays true for imports |
 | Write KDBX 4 times as base64 | Yes, with the KeePassXC round trip checking dates |
-| Delete to the Recycle Bin with a 30-day purge | Yes, and say that other KeePass apps keep showing the bin |
 | System content types on the editor's own fields | Not until a device test shows no keyboard suggestions |
+
+Closed on 2026-11-23 by the approved mocks: show previous passwords (yes, by default, values hidden), the date labels “Added” and “Edited”, and deleting to the Recycle Bin with a 30-day purge, saying that other KeePass apps keep showing the bin. Still open: the five rows above.
