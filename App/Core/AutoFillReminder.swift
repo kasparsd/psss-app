@@ -29,8 +29,9 @@ enum AutoFillVault: Equatable, Sendable { case none, sample, real }
 
 /// What this device remembers, per device and never in the vault file: another device must not inherit any of it.
 struct AutoFillMemory: Codable, Equatable, Sendable {
-    /// Later was chosen. Cleared whenever AutoFill is seen on, so the card returns if it is later turned off.
-    var hidden = false
+    /// When Later was chosen. The card stays away for `AutoFillReminder.snoozeInterval` from then, and returns if AutoFill is
+    /// still off. Cleared whenever AutoFill is seen on.
+    var snoozedAt: Date?
     /// The system's own prompt has been used for this stretch of AutoFill being off. It is asked for once; afterwards the
     /// button opens Settings. Cleared when AutoFill is seen on, so a later switch-off can be asked about once more.
     var promptUsed = false
@@ -38,6 +39,13 @@ struct AutoFillMemory: Codable, Equatable, Sendable {
     var seenOn = false
     /// The latest reading was off. A reading of on after it is news: the confirmation is shown once.
     var lastSeenOff = false
+
+    /// Whether Later still holds at `now`. A date in the future (the clock was set back) does not hold.
+    func isSnoozed(at now: Date) -> Bool {
+        guard let snoozedAt else { return false }
+        let elapsed = now.timeIntervalSince(snoozedAt)
+        return elapsed >= 0 && elapsed < AutoFillReminder.snoozeInterval
+    }
 
     /// Records a reading. Returns true when AutoFill has just come on after it was last seen off.
     @discardableResult
@@ -47,7 +55,7 @@ struct AutoFillMemory: Codable, Equatable, Sendable {
             let cameOn = lastSeenOff
             seenOn = true
             lastSeenOff = false
-            hidden = false
+            snoozedAt = nil
             promptUsed = false
             return cameOn
         case .off:
@@ -89,6 +97,13 @@ struct AutoFillReminder: Equatable, Sendable {
     var memory: AutoFillMemory
     /// AutoFill was found on after it was off, and Done has not been chosen. Lasts until the app is closed.
     var confirmationPending = false
+    /// The time the snooze is judged against. Injected so a test can move it.
+    var now = Date()
+
+    /// How long Later keeps the card away (owner, 2026-11-23: Later snoozes, it does not hide for good). A week: long enough
+    /// not to nag a person who is busy or still deciding, short enough that a reminder about a switch that does nothing until it
+    /// is on is not forgotten.
+    static let snoozeInterval: TimeInterval = 7 * 24 * 60 * 60
 
     /// A real vault only, and never an alert, a badge or a notification: this is plain content in the list.
     var display: Display {
@@ -97,7 +112,7 @@ struct AutoFillReminder: Equatable, Sendable {
         case .on:
             return confirmationPending ? .confirmation : .nothing
         case .off:
-            if memory.hidden { return .nothing }
+            if memory.isSnoozed(at: now) { return .nothing }
             if memory.promptUsed { return .card(.stillOff) }
             return .card(memory.seenOn ? .offAgain : .off)
         case .notRead, .unreadable:
@@ -113,7 +128,7 @@ struct AutoFillReminder: Equatable, Sendable {
     }
 
     /// The last line of the empty vault. While the card shows, or AutoFill is on, it is the short line about saving from
-    /// Safari. When AutoFill is off and the card is hidden, the longer line that says to turn it on stays.
+    /// Safari. When AutoFill is off and the card is snoozed, the longer line that says to turn it on stays.
     var emptyVaultOffersSaving: Bool { !(vault == .real && reading == .off && display == .nothing) }
 }
 
@@ -176,7 +191,7 @@ struct AutoFillCopy: Equatable, Sendable {
 
     var laterLabel: String { String(localized: "Later") }
     var doneLabel: String { String(localized: "Done") }
-    var hiddenNotice: String { String(localized: "Reminder hidden. AutoFill stays in Setup.") }
+    var laterNotice: String { String(localized: "Psss will remind you in a week. AutoFill stays in Setup.") }
 
     // MARK: Alert when Settings did not open
 
@@ -309,8 +324,8 @@ final class AutoFillStatus {
     private(set) var memory: AutoFillMemory
     /// AutoFill was found on after it was off. Shown once, in place of the card, until Done. Not kept across launches.
     private(set) var confirmationPending = false
-    /// The line that says where a hidden card went. Goes away by itself.
-    private(set) var hiddenNoticeShown = false
+    /// The line that says the card will come back and where AutoFill stays meanwhile. Goes away by itself.
+    private(set) var laterNoticeShown = false
     /// A system call is running. The button ignores a second press.
     private(set) var working = false
     /// Settings could not be opened. The vault screen shows one alert for it, then clears this.
@@ -318,10 +333,12 @@ final class AutoFillStatus {
 
     @ObservationIgnored private let system: any AutoFillSystem
     @ObservationIgnored private let store: any AutoFillMemoryStore
+    @ObservationIgnored private let clock: @Sendable () -> Date
 
-    init(system: any AutoFillSystem, store: any AutoFillMemoryStore) {
+    init(system: any AutoFillSystem, store: any AutoFillMemoryStore, clock: @escaping @Sendable () -> Date = { Date() }) {
         self.system = system
         self.store = store
+        self.clock = clock
         memory = store.load()
     }
 
@@ -335,7 +352,7 @@ final class AutoFillStatus {
     }
 
     func reminder(for vault: AutoFillVault) -> AutoFillReminder {
-        AutoFillReminder(vault: vault, reading: reading, memory: memory, confirmationPending: confirmationPending)
+        AutoFillReminder(vault: vault, reading: reading, memory: memory, confirmationPending: confirmationPending, now: clock())
     }
 
     /// What the main button does now, in the card and in Setup.
@@ -372,13 +389,14 @@ final class AutoFillStatus {
         }
     }
 
-    /// Later: for good on this device, until AutoFill is seen on.
-    func hide() {
-        update { $0.hidden = true }
-        hiddenNoticeShown = true
+    /// Later: the card comes back after `AutoFillReminder.snoozeInterval` if AutoFill is still off. Seeing AutoFill on ends it.
+    func snooze() {
+        let now = clock()
+        update { $0.snoozedAt = now }
+        laterNoticeShown = true
     }
 
-    func dismissHiddenNotice() { hiddenNoticeShown = false }
+    func dismissLaterNotice() { laterNoticeShown = false }
     func dismissConfirmation() { confirmationPending = false }
 
     private static func makeReading(from enabled: Bool?) -> AutoFillReading {

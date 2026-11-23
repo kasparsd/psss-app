@@ -1242,7 +1242,7 @@ struct VaultView: View {
         // Under the pills, which are the first row of the list on iPhone: the empty state must not cover or catch their taps.
         .padding(.top, pillsInList ? pillsHeight : 0)
         }
-        .overlay(alignment: .bottom) { AutoFillHiddenNotice() }
+        .overlay(alignment: .bottom) { AutoFillLaterNotice() }
         #if os(iOS)
         // Keep the title and the New button on screen while search is active.
         .searchPresentationToolbarBehavior(.avoidHidingContent)

@@ -40,7 +40,7 @@ struct AutoFillCard: View {
                     Button(copy.buttonLabel(reminder.action)) { Task { await autoFill.performAction() } }
                         .buttonStyle(.borderedProminent)
                         .disabled(autoFill.working)
-                    Button(copy.laterLabel) { autoFill.hide() }
+                    Button(copy.laterLabel) { autoFill.snooze() }
                         .buttonStyle(.borderless)
                 }
             case .confirmation:
@@ -84,17 +84,17 @@ struct AutoFillCard: View {
     }
 }
 
-/// The one line that says where a hidden card went. It goes away by itself, and OK closes it sooner.
-struct AutoFillHiddenNotice: View {
+/// The one line that says the card will come back and where AutoFill stays meanwhile. It goes away by itself, and OK closes it sooner.
+struct AutoFillLaterNotice: View {
     @Environment(AutoFillStatus.self) private var autoFill
 
     var body: some View {
         let copy = AutoFillCopy(device: .current)
         Group {
-            if autoFill.hiddenNoticeShown {
+            if autoFill.laterNoticeShown {
                 HStack(spacing: 12) {
-                    Text(copy.hiddenNotice).fixedSize(horizontal: false, vertical: true)
-                    Button("OK") { autoFill.dismissHiddenNotice() }
+                    Text(copy.laterNotice).fixedSize(horizontal: false, vertical: true)
+                    Button("OK") { autoFill.dismissLaterNotice() }
                         .buttonStyle(.borderless)
                 }
                 .padding(.vertical, 8)
@@ -105,14 +105,14 @@ struct AutoFillHiddenNotice: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 12)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
-                .onAppear { AccessibilityNotification.Announcement(copy.hiddenNotice).post() }
+                .onAppear { AccessibilityNotification.Announcement(copy.laterNotice).post() }
                 .task {
                     try? await Task.sleep(for: .seconds(6))
-                    autoFill.dismissHiddenNotice()
+                    autoFill.dismissLaterNotice()
                 }
             }
         }
-        .animation(.default, value: autoFill.hiddenNoticeShown)
+        .animation(.default, value: autoFill.laterNoticeShown)
     }
 }
 

@@ -3125,7 +3125,21 @@ func reminderDisplay(_ vault: AutoFillVault, _ reading: AutoFillReading, _ memor
     expect("autofill: on shows nothing unless the confirmation is pending", reminderDisplay(.real, .on) == .nothing)
     expect("autofill: on with the confirmation pending shows it", reminderDisplay(.real, .on, confirming: true) == .confirmation)
     expect("autofill: a pending confirmation is not shown while it is off", reminderDisplay(.real, .off, confirming: true) == .card(.off))
-    expect("autofill: hidden removes the card", reminderDisplay(.real, .off, AutoFillMemory(hidden: true)) == .nothing)
+    expect("autofill: Later removes the card", reminderDisplay(.real, .off, AutoFillMemory(snoozedAt: Date())) == .nothing)
+    // Later snoozes: hidden right after, hidden just before the interval, shown at and after it, never while AutoFill is on.
+    let laterAt = Date(timeIntervalSince1970: 1_800_000_000), week = AutoFillReminder.snoozeInterval
+    func laterDisplay(after seconds: TimeInterval, _ reading: AutoFillReading = .off, confirming: Bool = false) -> AutoFillReminder.Display {
+        AutoFillReminder(vault: .real, reading: reading, memory: AutoFillMemory(snoozedAt: laterAt), confirmationPending: confirming, now: laterAt.addingTimeInterval(seconds)).display
+    }
+    check("autofill: the snooze is seven days", "\(week)", "\(7.0 * 24 * 60 * 60)")
+    expect("autofill: hidden right after Later", laterDisplay(after: 0) == .nothing)
+    expect("autofill: hidden just before the interval", laterDisplay(after: week - 1) == .nothing)
+    expect("autofill: shown when the interval has passed", laterDisplay(after: week) == .card(.off))
+    expect("autofill: shown long after the interval", laterDisplay(after: week * 5) == .card(.off))
+    expect("autofill: a clock set back before Later does not hide it", laterDisplay(after: -60) == .card(.off))
+    expect("autofill: never shown once AutoFill is on", laterDisplay(after: week * 2, .on) == .nothing && laterDisplay(after: 0, .on) == .nothing)
+    expect("autofill: the empty vault line follows the snooze", !AutoFillReminder(vault: .real, reading: .off, memory: AutoFillMemory(snoozedAt: laterAt), confirmationPending: false, now: laterAt).emptyVaultOffersSaving
+        && AutoFillReminder(vault: .real, reading: .off, memory: AutoFillMemory(snoozedAt: laterAt), confirmationPending: false, now: laterAt.addingTimeInterval(week)).emptyVaultOffersSaving)
     expect("autofill: after the system prompt the card gives the steps", reminderDisplay(.real, .off, AutoFillMemory(promptUsed: true)) == .card(.stillOff))
     expect("autofill: seen on before reads off again", reminderDisplay(.real, .off, AutoFillMemory(seenOn: true)) == .card(.offAgain))
     expect("autofill: the steps win over off again", reminderDisplay(.real, .off, AutoFillMemory(promptUsed: true, seenOn: true)) == .card(.stillOff))
@@ -3133,15 +3147,15 @@ func reminderDisplay(_ vault: AutoFillVault, _ reading: AutoFillReading, _ memor
     expect("autofill: Settings once the prompt was used", AutoFillReminder.action(reading: .off, promptUsed: true) == .openSettings)
     expect("autofill: Setup opens Settings while on", AutoFillReminder.action(reading: .on, promptUsed: false) == .openSettings)
     expect("autofill: Setup opens Settings when it cannot tell", AutoFillReminder.action(reading: .unreadable, promptUsed: false) == .openSettings)
-    let hiddenOff = AutoFillReminder(vault: .real, reading: .off, memory: AutoFillMemory(hidden: true), confirmationPending: false)
-    expect("autofill: empty vault keeps the long line only when off with the card hidden", !hiddenOff.emptyVaultOffersSaving)
+    let hiddenOff = AutoFillReminder(vault: .real, reading: .off, memory: AutoFillMemory(snoozedAt: Date()), confirmationPending: false)
+    expect("autofill: empty vault keeps the long line only when off with the card snoozed", !hiddenOff.emptyVaultOffersSaving)
     expect("autofill: empty vault short line while the card shows", AutoFillReminder(vault: .real, reading: .off, memory: AutoFillMemory(), confirmationPending: false).emptyVaultOffersSaving)
     expect("autofill: empty vault short line while on", AutoFillReminder(vault: .real, reading: .on, memory: AutoFillMemory(), confirmationPending: false).emptyVaultOffersSaving)
 
     // What a reading does to the memory.
-    var memory = AutoFillMemory(hidden: true, promptUsed: true)
+    var memory = AutoFillMemory(snoozedAt: Date(), promptUsed: true)
     expect("autofill: the first on is not news", !memory.observe(.on))
-    expect("autofill: on clears hidden and the used prompt, and is remembered", !memory.hidden && !memory.promptUsed && memory.seenOn && !memory.lastSeenOff)
+    expect("autofill: on clears the snooze and the used prompt, and is remembered", memory.snoozedAt == nil && !memory.promptUsed && memory.seenOn && !memory.lastSeenOff)
     memory.observe(.off)
     expect("autofill: off is remembered", memory.lastSeenOff)
     memory.observe(.unreadable)
@@ -3168,7 +3182,10 @@ func reminderDisplay(_ vault: AutoFillVault, _ reading: AutoFillReading, _ memor
     // The status object, with stand-ins for the system and for this device's memory.
     let system = FakeAutoFillSystem()
     let device = InMemoryAutoFillMemory()
-    var status = AutoFillStatus(system: system, store: device)
+    // The status reads its time from a clock the test moves.
+    final class TestClock: @unchecked Sendable { var now = Date(timeIntervalSince1970: 1_800_000_000) }
+    let testClock = TestClock()
+    var status = AutoFillStatus(system: system, store: device, clock: { testClock.now })
     check("autofill: starts unread", "\(status.reading)", "notRead")
     expect("autofill: nothing before the first reading", status.reminder(for: .real).display == .nothing)
 
@@ -3210,24 +3227,35 @@ func reminderDisplay(_ vault: AutoFillVault, _ reading: AutoFillReading, _ memor
     expect("autofill: Settings that did not open raise the alert flag", status.settingsDidNotOpen)
     status.settingsDidNotOpen = false
 
-    // Hide: gone at once, kept on this device, stays gone while it is off.
-    status.hide()
-    expect("autofill: hide removes the card", status.reminder(for: .real).display == .nothing)
-    expect("autofill: hide says where it went", status.hiddenNoticeShown)
-    status.dismissHiddenNotice()
-    expect("autofill: the notice goes", !status.hiddenNoticeShown)
-    expect("autofill: hidden is kept on this device", device.load().hidden)
+    // Later: gone at once, kept on this device with its date, stays gone for the interval, then returns while it is off.
+    status.snooze()
+    expect("autofill: Later removes the card", status.reminder(for: .real).display == .nothing)
+    expect("autofill: Later says it will come back", status.laterNoticeShown)
+    check("autofill: the notice names the week", AutoFillCopy(device: .iPhone).laterNotice, "Psss will remind you in a week. AutoFill stays in Setup.")
+    status.dismissLaterNotice()
+    expect("autofill: the notice goes", !status.laterNoticeShown)
+    check("autofill: the snooze date is kept on this device", "\(device.load().snoozedAt == testClock.now)", "true")
     await status.refresh()
-    expect("autofill: still hidden after another look while off", status.reminder(for: .real).display == .nothing)
-    expect("autofill: the hidden card leaves the long empty-vault line", !status.reminder(for: .real).emptyVaultOffersSaving)
+    expect("autofill: still snoozed after another look while off", status.reminder(for: .real).display == .nothing)
+    expect("autofill: the snoozed card leaves the long empty-vault line", !status.reminder(for: .real).emptyVaultOffersSaving)
+    testClock.now = testClock.now.addingTimeInterval(AutoFillReminder.snoozeInterval - 1)
+    expect("autofill: still snoozed just before the interval", status.reminder(for: .real).display == .nothing)
+    // Another launch with the same memory sees the same snooze.
+    status = AutoFillStatus(system: system, store: device, clock: { testClock.now })
+    await status.refresh()
+    expect("autofill: a new launch keeps the snooze", status.reminder(for: .real).display == .nothing)
+    testClock.now = testClock.now.addingTimeInterval(1)
+    expect("autofill: the card returns when the interval has passed", status.reminder(for: .real).display == .card(.stillOff))
+    status.snooze()
+    expect("autofill: a second Later snoozes again", status.reminder(for: .real).display == .nothing)
 
-    // Another launch with the same memory: still hidden, and AutoFill is turned on while away.
-    status = AutoFillStatus(system: system, store: device)
+    // AutoFill is turned on while away: the confirmation shows once and the snooze is gone for good.
+    status = AutoFillStatus(system: system, store: device, clock: { testClock.now })
     check("autofill: a new launch starts unread", "\(status.reading)", "notRead")
     system.enabled = true
     await status.refresh()
     expect("autofill: found on after it was off shows the confirmation once", status.reminder(for: .real).display == .confirmation)
-    expect("autofill: on clears hidden and the used prompt on this device", !device.load().hidden && !device.load().promptUsed && device.load().seenOn)
+    expect("autofill: on clears the snooze and the used prompt on this device", device.load().snoozedAt == nil && !device.load().promptUsed && device.load().seenOn)
     expect("autofill: the sample vault shows no confirmation", status.reminder(for: .sample).display == .nothing)
     status.dismissConfirmation()
     expect("autofill: Done removes the confirmation", status.reminder(for: .real).display == .nothing)
