@@ -51,7 +51,7 @@ export const StarIcon = () => (
 );
 // Tab glyphs
 export const AllGlyph = () => (
-  <svg {...base}><rect x="4" y="4" width="16" height="4.5" rx="1.5" /><rect x="4" y="10" width="16" height="4.5" rx="1.5" /><rect x="4" y="16" width="16" height="4" rx="1.5" /></svg>
+  <svg {...base}><rect x="3.5" y="9" width="13" height="11.5" rx="2.5" /><path d="M7 6h10.5a3 3 0 0 1 3 3v8.5" /></svg>
 );
 export const CodesGlyph = () => (
   <svg {...base}><circle cx="12" cy="12" r="8.5" /><path d="M12 7v5l3.2 1.8" /></svg>

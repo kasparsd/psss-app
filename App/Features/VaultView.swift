@@ -148,7 +148,7 @@ private enum VaultCategory: Hashable {
         switch self {
         case .recent: "clock"
         case .mostUsed: "star"
-        case .allItems: "tray.full"
+        case .allItems: "square.stack"
         case .codes: VaultPlace.codes.symbol
         case .cards: VaultPlace.cards.symbol
         case .kind(let kind): kind.symbol

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Item } from '../data';
 import { ChevronIcon } from '../icons';
-import { FieldRow } from './FieldRow';
 import { InfoButton, topics } from './InfoButton';
 
 export function ItemIcon({ item, big }: { item: Pick<Item, 'name' | 'color'>; big?: boolean }) {
@@ -78,32 +77,6 @@ export function CodesCountdown({ seconds = 18, period = 30, bubble }: { seconds?
       <span className="ring" style={{ ['--p' as string]: `${Math.round((seconds / period) * 100)}%` }} />
       New codes in {seconds} s
       <InfoButton topic={topics.codes} open={bubble} />
-    </div>
-  );
-}
-
-/** A card on the iPhone Cards tab: its fields on screen, each with a copy icon. */
-export function CardEntry({ item, copied, shown }: { item: Item; copied?: string; shown?: string[] }) {
-  if (item.expired) {
-    return (
-      <div className="grp">
-        <ListRow item={item} sub={<span style={{ whiteSpace: "normal" }}>Expired in March 2025. Open it to update or delete it.</span>} trailing={<Chevron />} />
-      </div>
-    );
-  }
-  return (
-    <div className="grp cardgrp">
-      <div className="head">
-        <ItemIcon item={item} />
-        <div className="grow">
-          <div className="trunc">{item.name}</div>
-          <div className="s trunc">{item.account}</div>
-        </div>
-        <Chevron />
-      </div>
-      {item.fields.map((f) => (
-        <FieldRow key={f.label} {...f} copied={copied === f.label} shown={shown?.includes(f.label)} />
-      ))}
     </div>
   );
 }

@@ -38,8 +38,8 @@ export const Section = ({ title, children }: { title: string; children?: ReactNo
 );
 
 /** What changed on this page compared with the earlier static mock. */
-export const ChangeNote = ({ children }: { children: ReactNode }) => (
-  <div className="note"><strong>Changed from the static mock.</strong> {children}</div>
+export const ChangeNote = ({ children, title = "Changed from the static mock." }: { children: ReactNode; title?: string }) => (
+  <div className="note"><strong>{title}</strong> {children}</div>
 );
 
 export const Frames = ({ children }: { children: ReactNode }) => <div className="frames">{children}</div>;

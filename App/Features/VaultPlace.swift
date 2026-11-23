@@ -18,7 +18,7 @@ enum VaultPlace: Int, CaseIterable, Identifiable, Hashable {
 
     var symbol: String {
         switch self {
-        case .all: "key"
+        case .all: "square.stack"
         case .codes: "lock.badge.clock"
         case .cards: "creditcard"
         }

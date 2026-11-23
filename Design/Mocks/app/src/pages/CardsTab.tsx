@@ -1,6 +1,6 @@
 import { Against, Approved, ChangeNote, Clarity, Decisions, Frame, Frames, Page, Section } from '../components/page';
 import { DeviceProvider, DeviceView, PageDeviceSwitch } from '../components/DeviceSwitcher';
-import { PhoneCards } from '../screens/PhoneScreens';
+import { PhoneCards, PhoneItem } from '../screens/PhoneScreens';
 import { renderDevice } from '../screens/render';
 
 export function CardsTab() {
@@ -8,33 +8,36 @@ export function CardsTab() {
     <DeviceProvider>
       <Page
         title="Cards tab"
-        status={<><Approved /> as drawn. Being built. Extends the approved <a href="#/tab-bar-and-codes">tab bar and Codes</a> page.</>}
+        status={<><Approved /> (revised: rows that open the card's page). Not built yet; the earlier version (every card's fields on the tab) was approved and built. Extends the approved <a href="#/tab-bar-and-codes">tab bar and Codes</a> page.</>}
       >
         <Clarity
           items={[
-            ['Which thing?', 'The payment cards saved in their vault, each with the fields a checkout asks for.'],
-            ['What must they give?', 'Nothing. Each field has its own copy icon, so number, expiry, security code and name can be copied one after another without opening the card.'],
+            ['Which thing?', 'The payment cards saved in their vault. One row per card: its name, then the brand, last four digits and expiry.'],
+            ['What must they give?', 'One tap on the card. Its page has a copy icon on every field (number, expiry, security code, name), so a checkout is: open the card, copy, copy, copy, back.'],
             ['What can go wrong?', 'The card has expired; a field was never filled in; there are no cards yet.'],
-            ['How do they leave?', 'Any other tab. Copying changes nothing; each copy leaves the clipboard after 60 seconds, as passwords do.'],
+            ['How do they leave?', 'Back to the list, or any other tab. Copying changes nothing; each copy leaves the clipboard after 60 seconds, as passwords do.'],
           ]}
-          intro={<p>Before this tab, the same fields were only on the card's page: open the card, copy, go back, next card. The tab puts every card's fields on one screen.</p>}
+          intro={<p>The approved tab put every card's fields on one screen. With more than two cards that is a long scroll to find the right one, and the second line (“Visa ending 4417”) repeated the masked number below it. The list now only helps you find the card; the card's page does the copying, as on Mac and iPad.</p>}
         />
-        <ChangeNote>
-          The card fields now use the shared field row from <a href="#/copy-icons">Copy icons</a>: a copy icon instead of a labelled Copy button, the checkmark and the shared “Number copied” pill instead of an in-row “Copied”, and an eye after the dots. The tab is called “All, Codes, Cards” (not “Vault”). The Mac and iPad frame is the current Toolbar and Edit layout. Sample cards: Everyday Visa, Travel Mastercard (no security code), Business Amex, Old Visa (expired).
+        <ChangeNote title="Changed from the approved version.">
+          No field rows on the tab, no copy icons in the list, and the second line is “Visa •• 4417 · 08/28” (brand, last four, expiry) instead of “Visa ending 4417”. Expanding a card in place was considered and not drawn (see decisions). The Mac and iPad list uses the same row. Sample cards: Everyday Visa, Travel Mastercard (no security code), Business Amex, Old Visa (expired).
         </ChangeNote>
 
         <Section title="1. iPhone" />
         <Frames>
-          <Frame phone label="A. Cards tab" caption="Every card, its fields on screen, each with a copy icon. The number shows its last four digits and the security code shows dots; copying works without revealing them, and the eye shows a value when the person wants to read it. A field that was never filled in has no row (the Mastercard has no security code saved).">
+          <Frame phone label="A. Cards tab" caption="One row per card, last used first. The second line is what you scan for: brand, last four digits, expiry. The whole row opens the card; there is no second tap target in it.">
             <PhoneCards />
           </Frame>
-          <Frame phone label="B. Just copied" caption="The icon becomes a checkmark and the shared pill names what was copied, for about two seconds, with a haptic, the same as on the card's page. Copying counts as using the card, so it leads the list next time; the list never reorders while on screen.">
-            <PhoneCards variant="copied" />
+          <Frame phone label="B. The card's page" caption="Opened from the Cards tab, so Back says “Cards” and the Cards tab stays selected. Every field has its copy icon; number and security code stay masked until the eye.">
+            <PhoneItem id={6} from="cards" />
           </Frame>
-          <Frame phone label="C. An expired card" caption="Expired cards drop to the end, folded to one row with no copy icons, so an old number is not pasted by mistake. The card's page still has everything.">
+          <Frame phone label="C. Just copied" caption="Copying the number: the checkmark and the shared “Number copied” pill, for about two seconds, with a haptic. Copying counts as using the card, so it leads the list next time; the list never reorders while on screen.">
+            <PhoneItem id={6} from="cards" copied="Number" pill="Number copied" />
+          </Frame>
+          <Frame phone label="D. An expired card" caption="Expired cards sort last under “Expired”, the second line says when it expired. Its page still has everything, to update or delete it.">
             <PhoneCards variant="expired" />
           </Frame>
-          <Frame phone label="D. No cards yet" caption="“Add card” opens the editor for a new card. The tab is always present, like Codes.">
+          <Frame phone label="E. No cards yet" caption="“Add card” opens the editor for a new card. The tab is always present, like Codes.">
             <PhoneCards variant="empty" />
           </Frame>
         </Frames>
@@ -43,14 +46,14 @@ export function CardsTab() {
         <PageDeviceSwitch />
         <div className="frames">
           <DeviceView
-            label="E. Cards on every device"
+            label="F. Cards on every device"
             initial="mac"
             caption={{
               iphone: 'The iPhone tab, as in A.',
               ipad: 'iPad regular width matches the Mac. Compact width uses the iPhone tab bar with the Cards tab.',
-              mac: 'Cards is chosen in the toolbar control or the sidebar, selected in both; the card\'s page sits beside the list, so every field is one click away already. The only changes are the name (“Credit cards” becomes “Cards”, as on iPhone) and the order: expired cards sort last.',
+              mac: 'The same rows in the list column, with the card\'s page beside it. Only the second line changes, so the list reads the same on every device.',
             }}
-            render={(d) => renderDevice(d, <PhoneCards />, { side: 'cards' })}
+            render={(d) => renderDevice(d, <PhoneCards />, { side: 'cards', sel: 6 })}
           />
         </div>
 
@@ -58,41 +61,29 @@ export function CardsTab() {
         <Decisions
           items={[
             {
-              decision: <>Cards becomes a third tab on iPhone: All, Codes, Cards, then search.</>,
-              rejected: <>copy buttons inside the rows of the Cards pill; leaving it to the card's page.</>,
-              why: <>A checkout asks for four fields in a row, and before this each card meant open, copy, back. A pill whose rows suddenly carry buttons would be a surprise, the reason Codes became a tab. Honest caveat: people pay less often than they enter codes, so this tab is used less than Codes.</>,
+              decision: <>The Cards tab lists one row per card; tapping a row opens the card's page, where every field has a copy icon.</>,
+              rejected: <>every card's fields on the tab (the approved version); a card that expands in place, with a separate tap target for its page.</>,
+              why: <>Rows are easy to scan and behave like All and Codes, and like Cards on Mac and iPad. The card's page already copies every field, so a checkout costs one extra tap, not one per field. Expanding in place would add a third way rows behave on iPhone and two tap targets in one row, which people hit by mistake and cannot tell apart.</>,
             },
             {
-              decision: <>Each field is the shared field row, with a copy icon, as on the card's page.</>,
-              rejected: <>a row of four small buttons per card; a labelled Copy on every row (superseded by the approved copy icons).</>,
-              why: <>Rows fit a phone at body size, need no new pattern, and keep each field's value (masked) visible so the person knows which one they copy.</>,
+              decision: <>The second line is brand, last four digits and expiry: “Visa •• 4417 · 08/28”. Expired cards say “Expired 03/25”.</>,
+              rejected: <>“Visa ending 4417” (repeats the masked number, says nothing about expiry).</>,
+              why: <>These are what you check at a checkout to pick the right card, and none of them is secret enough to hide in a list.</>,
             },
             {
-              decision: <>Number and security code stay masked here until the eye is pressed, as on the card's page; copying never needs the eye. (Changed from the earlier draft, which had no Show on this screen: the eye is part of the shared row, so the screen stays consistent.)</>,
-            },
-            {
-              decision: <>Order: last used first, expired cards last and folded with no copy icons.</>,
+              decision: <>Order: last used first, expired cards last under “Expired”.</>,
               why: <>Cards are few, and the one you used last is usually the one you want. An expired number pasted into a checkout only fails later.</>,
             },
             {
-              decision: <>The Cards pill leaves the iPhone pill row, and “Credit cards” is called “Cards” everywhere.</>,
-              why: <>One way to reach it, one name. Debit and gift cards are not credit cards.</>,
+              decision: <>The same row on iPhone, iPad and Mac (shared view).</>,
             },
             {
-              decision: <>Mac and iPad at regular width are unchanged apart from the name and the order.</>,
-              why: <>The list and the card's page are side by side there, so a new view would add nothing.</>,
-            },
-            {
-              decision: <>The security code row appears once cards can store one. It is a protected field in the card fields in items (KeePass-compatible) and has shipped; a card without one simply has no row.</>,
-            },
-            {
-              decision: <>Tab count: three plus search now. A future Security tab would make five, Apple's limit on iPhone; when the audit ships, decide whether it is a tab or a section in All.</>,
-              why: <>Keeps room without promising it.</>,
+              decision: <>Unchanged from the approved version: Cards is a tab on iPhone (All, Codes, Cards, then search), the Cards pill is gone, “Credit cards” is called “Cards” everywhere, and the security code is an optional protected field.</>,
             },
           ]}
         />
         <Against>
-          <li>None. A standard tab with grouped rows. Three content tabs plus search is within Apple's three to five.</li>
+          <li>None. A standard list with rows that push a detail page.</li>
         </Against>
       </Page>
     </DeviceProvider>

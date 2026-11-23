@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { byId, cardItems } from '../data';
 import { BackIcon, ClockIcon, GearIcon, StarIcon } from '../icons';
 import { ItemCard } from '../components/ItemCard';
-import { CardEntry, Chevron, CodeRow, CodesCountdown, EmptyState, ListRow } from '../components/Rows';
+import { Chevron, CodeRow, CodesCountdown, EmptyState, ListRow } from '../components/Rows';
 import { IPhone } from '../components/devices';
 
 /** Top bar: Setup at the leading end on the All tab, labelled actions at the trailing end. */
@@ -87,7 +87,7 @@ export function PhoneCodes({ variant = 'normal' }: { variant?: CodesVariant }) {
             </div>
           </>
         )}
-        <div className="sec" style={{ padding: '2px 4px 6px' }}>All codes</div>
+        {recent.length > 0 && <div className="sec" style={{ padding: '2px 4px 6px' }}>All codes</div>}
         <div className="grp">
           {rest.map((it) => <CodeRow key={it.id} item={it} />)}
         </div>
@@ -97,9 +97,9 @@ export function PhoneCodes({ variant = 'normal' }: { variant?: CodesVariant }) {
   );
 }
 
-export type CardsVariant = 'normal' | 'copied' | 'expired' | 'empty';
+export type CardsVariant = 'normal' | 'expired' | 'empty';
 
-/** Cards tab: every card, its fields on screen, each with a copy icon. */
+/** Cards tab: one row per card to scan; a tap opens the card's page, as everywhere else. */
 export function PhoneCards({ variant = 'normal' }: { variant?: CardsVariant }) {
   if (variant === 'empty') {
     return (
@@ -111,27 +111,30 @@ export function PhoneCards({ variant = 'normal' }: { variant?: CardsVariant }) {
     );
   }
   const live = cardItems.filter((c) => !c.expired);
-  const shown = variant === 'expired' ? [live[0]] : variant === 'copied' ? live.slice(0, 2) : live.slice(0, 2);
+  const expired = cardItems.filter((c) => c.expired);
   return (
-    <IPhone tab="cards" pill={variant === 'copied' ? 'Number copied' : undefined}>
+    <IPhone tab="cards">
       <Nav right={<Add />} />
       <Title>Cards</Title>
       <div className="pbody tabpad">
-        {shown.map((c, i) => <CardEntry key={c.id} item={c} copied={variant === 'copied' && i === 0 ? 'Number' : undefined} />)}
+        <div className="grp">
+          {live.map((c) => <ListRow key={c.id} item={c} trailing={<Chevron />} />)}
+        </div>
         {variant === 'expired' && (
           <>
             <div className="sec" style={{ padding: '2px 4px 6px' }}>Expired</div>
-            <CardEntry item={byId(9)} />
+            <div className="grp">
+              {expired.map((c) => <ListRow key={c.id} item={c} trailing={<Chevron />} />)}
+            </div>
           </>
         )}
-        {variant !== 'expired' && <div className="hint">Tap a copy icon beside a field. Tap the card's name to open it.</div>}
       </div>
     </IPhone>
   );
 }
 
 /** An item page, or its editor. The editor has no tab bar. */
-export function PhoneItem({ id = 1, mode = 'view', shown, copied, pill }: { id?: number; mode?: 'view' | 'edit'; shown?: string[]; copied?: string; pill?: string }) {
+export function PhoneItem({ id = 1, mode = 'view', shown, copied, pill, from = 'all' }: { id?: number; mode?: 'view' | 'edit'; shown?: string[]; copied?: string; pill?: string; from?: 'all' | 'cards' }) {
   const item = byId(id);
   if (mode === 'edit') {
     return (
@@ -144,9 +147,9 @@ export function PhoneItem({ id = 1, mode = 'view', shown, copied, pill }: { id?:
     );
   }
   return (
-    <IPhone tab="all" pill={pill}>
+    <IPhone tab={from} pill={pill}>
       <Nav
-        left={<button className="btn plain" style={{ paddingLeft: 0 }}><span style={{ display: 'inline-flex', width: 14, height: 14 }}><BackIcon /></span>All</button>}
+        left={<button className="btn plain" style={{ paddingLeft: 0 }}><span style={{ display: 'inline-flex', width: 14, height: 14 }}><BackIcon /></span>{from === 'cards' ? 'Cards' : 'All'}</button>}
         right={<button className="btn">Edit</button>}
       />
       <div className="pbody tabpad" style={{ overflow: 'auto' }}>
