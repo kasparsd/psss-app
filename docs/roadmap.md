@@ -61,7 +61,7 @@ Work that cannot move without the owner, most blocking first.
 5. **Decisions** listed under Open decisions: the five field-model choices still open in [items](items.md#open-decisions) (three were closed by the approved mocks), what a CSV re-import does when a title or site changed, whether a merge may append imported notes, and attachments on iPhone given their memory cost.
 6. **Which browsers and devices the first family users have,** which decides whether the browser extension comes back into scope.
 7. **Answers to the open questions** the mocks did not settle, listed at the end of [approved screens](plans/approved-screens.md#open-questions-the-mocks-did-not-settle). The first one (what the Welcome button does before any vault exists) blocks the import screens.
-8. **Approval of the three vault format mocks** in `Design/Mocks/` (drawn 2026-11-23, not approved): creating a vault and adding a second device, locations with backup and self-hosting, and family sharing. Each page ends with its decisions and open questions. They decide the words “location”, “backup copy” and “recovery kit”, whether iCloud is on by default, whether a vault password is required, and the member roles. Redrawn the same day after the owner's first look: no password or recovery kit at creation, and sharing by group inside one vault. The redraw recommends dropping two-of-three recovery pieces and asks whether the vault still needs a name. Nothing in [vault format](format.md#what-a-person-sees-locations-backup-and-self-hosting) is built until then.
+8. ~~Approval of the three vault format mocks.~~ Done 2026-11-23: creating a vault and a second device, locations with backup and self-hosting, and sharing by group, with every decision on them, and with two-of-three recovery pieces dropped. The decisions and the questions still open are in [vault format](format.md#approved-with-the-mocks-2026-11-23). The screens are built after the record-log store exists.
 
 ## M0 · Risk burn-down
 
@@ -155,7 +155,7 @@ Goal: five people outside the project fill, save and find a login without guidan
 2. Credit card checkout fill beyond single fields, per verified surface.
 3. Breach and weak-password checks computed on device.
 4. Entry history interface, Apple Watch, 1Password 8 (1PUX) and OPVault import.
-5. Family sharing (shared vaults, split-key recovery) and remote storage over WebDAV or S3-compatible endpoints, designed in [vaults](vaults.md#family-sharing-and-remote-storage-design-2026-11-23). Needs S4, S6 and S7 first. On the [record log](format.md) sharing is membership records and a `CKShare` on the vault's zone, and remote storage is a second transport.
+5. Family sharing (shared groups in one vault) and remote storage over WebDAV or S3-compatible endpoints, designed in [vaults](vaults.md#family-sharing-and-remote-storage-design-2026-11-23). Needs S4, S6 and S7 first. On the [record log](format.md) sharing is membership records and a `CKShare` on the vault's zone, and remote storage is a second transport.
 6. Teams, SSH keys, Windows, Android, web, hosted sync. Not planned. Revisit only with evidence of demand.
 
 ## Open decisions
@@ -198,7 +198,8 @@ Goal: five people outside the project fill, save and find a login without guidan
 | 2026-11-23 | Identifiers moved from the `local.kdbox.prototype` working name to `app.psss` (app `app.psss.Psss`, extensions `.CredentialProvider` and `.Safari`, App Group `group.app.psss` on iOS and `$(TeamIdentifierPrefix)app.psss` on Mac), after psss.app was registered. Xcode project, schemes and targets renamed to Psss. | Owner. |
 | 2026-11-23 | The vault format is a log of immutable, encrypted, signed records with an open specification; KDBX is import and export. Reverses “KDBX is the canonical storage format” of the same day and “no custom crypto protocol”. Reason: the intended user expects Apple-grade sync and family sharing, a single mutable file fights both, and no existing open format gives both without a server. | Owner. [vault format](format.md). |
 | 2026-11-23 | Sharing is by group inside one vault, not by separate vaults: an item is shared by moving it into a group, as in Apple Passwords. No key or member list per item. Reverses “per vault, not per item”. | Owner. [vault format](format.md#vaults-and-groups). |
-| 2026-11-23 | No password or recovery kit is asked for when a vault is created. iCloud Keychain holds the person's key by default; a vault password and a recovery kit are optional under Advanced. The vault is then as safe as the Apple Account and device passcode. Awaits approval with the mocks. | Owner. [vault format](format.md#keys). |
+| 2026-11-23 | No password or recovery kit is asked for when a vault is created. iCloud Keychain holds the person's key by default; a vault password and a recovery kit are optional under Advanced. The vault is then as safe as the Apple Account and device passcode. | Owner. [vault format](format.md#keys). |
+| 2026-11-23 | The three vault format mocks and every decision on them are approved. Split-key recovery (two of three) is dropped for groups and not planned for a person: keys come back through the Apple Account and a second manager covers a group. | Owner. [vault format](format.md#approved-with-the-mocks-2026-11-23). |
 
 ## Platform gaps
 

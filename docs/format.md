@@ -20,7 +20,7 @@ The earlier decision said to reopen only for an existing, proven alternative tha
 3. **Untrusted storage.** iCloud, a file server or a self-hosted machine holds ciphertext only and cannot forge or silently change a record.
 4. **One format, any transport.** The same vault works in CloudKit, in a plain folder (iCloud Drive, Syncthing, Nextcloud, a USB stick) and behind a minimal server.
 5. **Cheap for the AutoFill extension.** Small reads, no password hashing, low memory.
-6. **Recovery.** Password, device key, printed recovery kit and the Shamir splits already planned for families.
+6. **Recovery.** The Apple Account by default, and optionally a vault password, a printed recovery kit and approval from another device.
 7. **Implementable anywhere.** Standard primitives only, a specification of a few pages, published test vectors and a reference command-line tool for macOS, Windows and Linux.
 8. **A way out.** A KDBX copy can always be exported, and KDBX files can always be imported.
 9. **Open.** The format and the sync protocol are published and free to implement.
@@ -87,7 +87,7 @@ The record is serialized in deterministic CBOR (RFC 8949, section 4.2), padded t
 Three layers, and one operation throughout: wrap a 32-byte key to a recipient.
 
 ```
-unlock secret   iCloud Keychain · device key · vault password (Argon2id) · recovery kit · Shamir shares
+unlock secret   iCloud Keychain · device key · vault password (Argon2id) · recovery kit
   └─ person key      one per person, wrapped once per unlock secret
        └─ vault key      one per vault and epoch, wrapped once per member
             └─ record key    derived per record with HKDF
@@ -97,7 +97,7 @@ unlock secret   iCloud Keychain · device key · vault password (Argon2id) · re
 - **Changing the vault password** rewrites one wrapped key. Nothing is re-encrypted.
 - **iCloud Keychain holds the person key by default on Apple devices** (asked for by the owner, 2026-11-23). It is one more wrapped copy, so the format does not depend on it. A new device on the same Apple Account has the key as soon as the keychain arrives, with no approval step and nothing to type. Protection is then exactly that of Apple Passwords: the Apple Account, the device passcode and Apple's own recovery. Without iCloud Keychain, and on Windows and Linux, a device is let in by approving it on one that is already in, or with the vault password or recovery kit.
 - **A vault password and a recovery kit are optional,** under Advanced. They matter to someone who wants a way in that does not go through their Apple Account: a non-Apple device, a backup kept elsewhere, or losing the account itself. A kit alone does not survive losing the Apple Account, because the iCloud copy of the vault goes with the account: it has to be paired with a copy somewhere else, on a device, in a folder or server location, or in a backup file. The app says so once, plainly, and does not nag.
-- **Recovery** adds more wrapped copies of the person key: a printed kit, or Shamir shares held as the [family design](vaults.md#family-sharing-and-remote-storage-design-2026-11-23) lays out.
+- **Recovery** adds more wrapped copies of the person key: a printed kit, which belongs to the person and not to a group. Splitting a key between several holders (Shamir shares, “two of three”) was dropped by the owner on 2026-11-23: each person's key comes back through their own Apple Account, and another manager can let a member back into a group. The remaining risk is a group with one manager who loses their account, and the answer is a second manager.
 
 **Primitives, fixed per format version with no negotiation:** HPKE (RFC 9180) for wrapping to a public key, Argon2id for the password, HKDF-SHA256, ChaCha20-Poly1305, Ed25519, SHA-256. All but Argon2id are in CryptoKit, libsodium and the common libraries on every platform. A new algorithm means a new format version, not an option flag.
 
@@ -123,7 +123,7 @@ The specification defines records. A transport needs only three operations: list
 
 ## What a person sees: locations, backup and self-hosting
 
-Proposed on 2026-11-23 and drawn in `Design/Mocks/` (see the roadmap below). None of it is approved or built. The words “record”, “log”, “CloudKit” and “transport” never appear in the app; a person sees a vault and the places it is kept.
+**Approved by the owner on 2026-11-23 with the three mock pages in `Design/Mocks/`, and not built.** The words “record”, “log”, “CloudKit” and “transport” never appear in the app; a person sees a vault, its groups and the places it is kept.
 
 **A vault has one or more locations.** Each location holds the same vault, and Psss keeps them in step.
 
@@ -143,6 +143,21 @@ Proposed on 2026-11-23 and drawn in `Design/Mocks/` (see the roadmap below). Non
 - **Self-hosting, in three steps of effort.** No server at all: a folder on a home server or a disk, synced by whatever the person already uses. Standard storage: WebDAV or an S3-compatible bucket. The Psss endpoint: three operations that anyone can run from the published specification and reference server. Psss never hosts any of them, and all three hold only unreadable data.
 
 To verify before building: whether a `.psss` folder can show as a single item in Files and Finder (a package) and still sync as a folder in iCloud Drive. Also: an app cannot ask the system whether iCloud Keychain is on, so how Psss tells “the key has not arrived yet” from “it never will” needs a spike.
+
+### Approved with the mocks (2026-11-23)
+
+The mock pages hold the frames, the rejected alternatives and the reasons. The decisions:
+
+- **Creating a vault.** iCloud is on by default when the device is signed in, and that one switch is the only storage choice. Create Vault always succeeds on the device, also offline or without iCloud, and then states the risk and the fix. A recovery kit is offered at creation only when nothing else could bring the key back (iCloud or iCloud Keychain off); otherwise it is a quiet row under Advanced with no reminder.
+- **A second device.** With the key synced it just opens. Otherwise there is a waiting state, then “Let In from Another Device” (a code typed on the device that already has the vault, valid for 10 minutes) or the recovery kit. Fallback screens show no device names, and the vault's name only once the key has arrived.
+- **Words.** “Vault”, “group”, “Kept in”, “location”, “backup copy”, “KeePass file”, “recovery kit”. “iCloud Keychain” appears only where it is explained. “Up to date” and “Behind” have one meaning each, and Behind says what Psss cannot know.
+- **Locations.** They belong to a device, not to the vault. Add a Location is in the vault's details under Setup, never on the main path. A second location is described as a live copy where it is added. A single file is never a location. A server has one Address field and can be added only after Test Connection passes. Removing a location never deletes what is in it.
+- **Backup.** Manual, not scheduled. Restore offers “Add to” the vault or “Open as a Separate Vault”, never “replace”. The recovery kit screen says the kit brings back the key and not the data, and offers a backup copy too. A KeePass export asks for its own file password and says what does not travel.
+- **Simultaneous edits.** No alert. A quiet note appears only on an item whose password was changed on two devices, and History lists every change.
+- **Groups.** Role names are “Manages members”, “Can change items” and “Can view only”; managing includes changing. A person is invited once, in person or on a trusted call, with a code and confirmation words on which neither button is primary; after that they are picked for other groups with no code. Moving items into a shared group states the three truths on the sheet. New logins from Safari go to Only Me. A view-only member is not offered backup or export, and view-only protects against accidents, not against the member.
+- **Removing a person** comes first, and the list of passwords they could see second, scoped to the group, marked off as each is changed.
+
+Still open, listed as questions on the mock pages: whether a vault needs a name at all; whether an app can tell that iCloud Keychain is off; what opens the vault when Face ID fails; whether a child's Apple Account can accept a shared group; whether one manager can remove another; what happens to a removed person's own items in a group; where the passwords-to-change list is kept; whether `.psss` can show as one item; whether an iCloud Drive folder is reliable as a location; server type detection; the backup file's name; what a KeePass export carries of history; how the iCloud copy is deleted; and removing a lost device.
 
 ## Costs and risks
 
@@ -170,7 +185,7 @@ To verify before building: whether a `.psss` folder can show as a single item in
 | Adopt this format as the source of truth, with KDBX as import and export | **Decided 2026-11-23: adopted.** |
 | Post-quantum key wrapping from the first version | Yes: the X-Wing hybrid (ML-KEM-768 with X25519) as the HPKE key exchange. Wrapped vault keys stored in a cloud are exactly what an attacker would collect now and decrypt later. It sets the minimum at iOS 26 and macOS 26. To verify: availability in CryptoKit and in libraries for Windows and Linux. |
 | Reuse the age file format for wrapped keys | Evaluate. It would give Windows and Linux tooling for free. To verify: its current post-quantum recipients, and whether its passphrase mode (scrypt) is acceptable in place of Argon2id. |
-| The person key: synced by iCloud Keychain, or wrapped to each device | **Changed at the owner's request, 2026-11-23:** iCloud Keychain by default on Apple devices, with the vault password and recovery kit optional under Advanced. Awaits approval with the mocks. The cost: the vault is as safe as the Apple Account and device passcode, no safer, and a person who loses the account and made no kit loses the vault. |
+| The person key: synced by iCloud Keychain, or wrapped to each device | **Decided 2026-11-23, approved with the mocks:** iCloud Keychain by default on Apple devices, with the vault password and recovery kit optional under Advanced. The vault is as safe as the Apple Account and device passcode, no safer. |
 | Order | One person on several devices first, with epochs and authors already in every record and every item already in a group. Shared groups second. |
 
 ## Roadmap
@@ -186,4 +201,4 @@ To verify before building: whether a `.psss` folder can show as a single item in
 - [ ] A record-log store behind `VaultStore`, with the local index the AutoFill extension reads.
 - [ ] Native item schema for records, starting from the field model in [items](items.md); the KeePass mapping there becomes the import and export mapping.
 - [ ] KDBX export of a whole vault, verified in KeePassXC, as the way out.
-- [~] Mocks drawn on 2026-11-23 and awaiting approval: `Design/Mocks/vault-create-and-devices.html`, `vault-locations-and-backup.html` and `family-sharing.html`. Not yet drawn: the lock screen and the vault password screen for the new format.
+- [x] Mocks approved on 2026-11-23: `Design/Mocks/vault-create-and-devices.html`, `vault-locations-and-backup.html` and `family-sharing.html`. They are deleted when their screens are built. Not yet drawn: the lock screen and the vault password screen for the new format.
