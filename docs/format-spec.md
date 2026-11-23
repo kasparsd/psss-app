@@ -231,7 +231,7 @@ A checkpoint restates writes. Each write in `items` is folded exactly as the wri
 payload = { 1: sorted array of item_id }
 ```
 
-Any writer may ask for items to be removed for good. The request covers every write of those items up to its own place in the order. Every reader hides those writes at once; a write that is later in the order stays, so an item edited after the request reappears with only what was written since. A manager's device, when it next runs, answers with a checkpoint that purges them; a request is answered once a complete, accepted checkpoint names the item in `purged` at or after the request's place in the order. Because the order is by clock, a write made earlier on a device that was offline is covered too when it arrives. In a group of one the person is the manager, so their own device does both. A writer in a shared group can therefore delete for good without being a manager, and the copy on storage goes when a manager's device has been online. This gives a writer no power they lacked: a writer can already clear every field of every item. What a purge adds is that the earlier values go too, which is the point of it.
+Any writer may ask for items to be removed for good. The request covers every write of those items up to its own place in the order. Every reader hides those writes at once; a write that is later in the order stays, so an item edited after the request reappears with only what was written since. A manager's device, when it next runs, answers with a checkpoint that purges them; a request is answered once a complete, accepted checkpoint names the item in `purged` at or after the request's place in the order, which is the place of the request record itself. Because the order is by clock, a write made earlier on a device that was offline is covered too when it arrives. In a group of one the person is the manager, so their own device does both. A writer in a shared group can therefore delete for good without being a manager, and the copy on storage goes when a manager's device has been online. This gives a writer no power they lacked: a writer can already clear every field of every item. What a purge adds is that the earlier values go too, which is the point of it.
 
 ## 6. Membership records
 
@@ -264,7 +264,7 @@ Adds a person or changes a role. The author MUST be a manager as of `mprev`. `ro
 payload = { 1: mprev, 2: e, 3: commit(e), 4: K_(e-1) }
 ```
 
-Starts epoch `e`, which MUST be one more than the epoch as of `mprev`, with no other change. The author MUST be a manager as of `mprev`. The record is sealed under `K_e` and carries the previous key, so a member who can read epoch `e` can read everything before it. A reader MUST check `K_(e-1)` against `commit(e-1)`, and MUST refuse a record that starts an epoch whose key equals the previous one: `K_e` is new random bytes, and a record that carried the old key forward would look like a rotation and rotate nothing. Writers MUST seal new records under the newest epoch they have accepted.
+Starts epoch `e`, which MUST be one more than the epoch as of `mprev`, with no other change. The author MUST be a manager as of `mprev`. The record is sealed under `K_e` and carries the previous key, so a member who can read epoch `e` can read everything before it. A reader MUST check `K_(e-1)` against `commit(e-1)`, and MUST refuse a record that starts an epoch whose key equals the key of any earlier epoch of the group: `K_e` is new random bytes, and a record that brought back a key a removed person holds would look like a rotation and rotate nothing. A reader knows every earlier key, since each epoch's record carries the one before it. Writers MUST seal new records under the newest epoch they have accepted.
 
 ### 6.4 Remove, kind 5, and replace, kind 4
 
@@ -394,7 +394,7 @@ A discarded record is as if it had never been written. If a device finds that a 
 
 ### From draft 4
 
-- **A record that starts an epoch must bring a key that differs from the previous one** (6.3). Without the rule a removal could pass every check and rotate nothing.
+- **A record that starts an epoch must bring a key that differs from every earlier one** (6.3). Without the rule a removal could pass every check and rotate nothing.
 - **Small points.** An upper bound on `min_reader`, the order of the two recovery kit checks, when a purge request counts as answered, and that checkpoint parts are consecutive records of one chain (5.3, 5.4, 6.1, 7.2).
 
 ### From draft 3
