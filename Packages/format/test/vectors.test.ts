@@ -53,13 +53,13 @@ test('the vectors cover the required topics', () => {
     'padding/record-2049', 'padding/record-3000', 'padding/record-4094', 'padding/record-4096', 'padding/record-4097', 'record/open/bad-signature', 'record/open/moved-header',
     'record/open/author-small-order', 'record/open/bad-signature-s-not-reduced', 'record/largest-body', 'record/body-one-over', 'clock/order', 'fold/different-fields', 'fold/same-field',
     'fold/clear-after-set', 'fold/edit-after-delete', 'fold/delete-after-edit', 'fold/three-orders-one-state', 'fold/duplicate-record', 'checkpoint/fold-on-top', 'checkpoint/null-versus-cleared',
-    'checkpoint/overlapping-both-orders', 'checkpoint/purged', 'group/fork-three-candidates', 'group/fork-1-epoch-record-after-removal', 'group/fork-2-author-removed-by-another-candidate',
-    'group/fork-2-mutual-removal-keeps-all', 'group/fork-3-least-author', 'group/remove-with-cut-unlisted-device-and-new-epoch', 'group/waiting-for-new-key-after-removal',
-    'group/content-mhead-on-losing-branch', 'group/held-back-one-ms-over', 'group/chain-same-body-sealed-twice', 'group/checkpoint-purged', 'group/checkpoint-overlapping-order-1',
+    'checkpoint/overlapping-both-orders', 'checkpoint/purged', 'group/fork-three-candidates', 'group/fork-1-author-removed-by-another-candidate', 'group/fork-2-least-author',
+    'group/fork-1-mutual-removal-keeps-all', 'group/fork-2-same-author-device-decides', 'group/fork-2-same-author-and-device-seq-decides', 'group/fork-2-same-author-device-seq-is-a-chain-fork', 'group/remove-with-cut-unlisted-device', 'group/purge-request-hides-at-once', 'group/purge-request-answered-by-a-managers-checkpoint', 'group/purge-request-by-a-reader-is-ignored', 'folder/overlapping-segments', 'folder/gather-small-segments', 'folder/leftover-tmp-file-is-ignored', 'folder/segment-frame-without-key-between-readable-frames', 'folder/layout-one-new-file-per-write',
+    'group/content-mhead-on-losing-branch', 'group/held-back-one-ms-over', 'record/same-body-sealed-twice', 'record/salt-derived', 'record/open/salt-does-not-match-body', 'group/chain-same-body-different-salt-is-rejected', 'group/previous-key-mismatch-epoch', 'group/previous-key-mismatch-remove', 'group/previous-key-mismatch-replace', 'group/genesis-min-reader-2', 'membership/kind-2-with-role-0-is-malformed', 'remember/different-record-at-accepted-seq', 'group/held-back-exactly-10-minutes', 'group/checkpoint-purged', 'group/checkpoint-overlapping-order-1',
     'slot/password-test-params', 'slot/password-default-params', 'slot/argon2-memory-one-above-maximum', 'slot/device-forged-ps', 'slot/device-open-sealed-by-python', 'kit/text',
     'kit/parse-all-confusables-lowercase', 'kit/parse-o-for-zero', 'kit/parse-i-for-one', 'slot/kit', 'slot/device-seal-fixed', 'wrap/seal-fixed', 'wrap/open-ciphertext-bit-flipped',
     'wrap/open-enc-bit-flipped', 'wrap/select-right-among-garbage', 'hpke/open-sealed-by-python-with-aad', 'attachment/size-claimed-too-large', 'attachment/last-chunk-dropped',
-    'folder/segment-partial-length', 'folder/frame-length-one-over-largest', 'folder/rotate-after-65536-bytes']) {
+    'folder/segment-partial-length', 'folder/frame-length-one-over-largest']) {
     assert(all.some((n) => n.startsWith(p)), `missing vectors: ${p}`);
   }
 });
@@ -79,7 +79,7 @@ test('every vector that tampers with an input names a tampered input that differ
 
 test('the Argon2id default parameters are derived at most once in a run, and a slot that must be refused derives nothing', () => {
   assert.equal(argonStats.byMemory.get(131072), 1, 'default parameters (131,072 KiB) derived once for sealing, opening, regenerating and checking');
-  for (const memory of argonStats.byMemory.keys()) assert([64, 65536, 131072].includes(memory) || heavy, `unexpected derivation with ${memory} KiB`);
+  for (const memory of argonStats.byMemory.keys()) assert([16, 64, 65536, 131072].includes(memory) || heavy, `unexpected derivation with ${memory} KiB`);
   const before = argonStats.derivations;
   let refusals = 0;
   for (const v of allVectors()) {

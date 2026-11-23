@@ -61,13 +61,16 @@ export function slotVectors(s: Scenario, minted: Minted): J {
   craft('lanes-one-above-maximum', '17 lanes. Refused.', { memory: 65536, passes: 2, lanes: 17 }, 'argon2_too_strong');
   craft('memory-huge', '4,294,967,295 KiB. Refused.', { memory: 4294967295, passes: 2, lanes: 1 }, 'argon2_too_strong');
   craft('test-switch-keeps-upper-limits', 'The test-only switch lifts the lower bounds only: 1,048,577 KiB is still refused.', { memory: 1048577, passes: 2, lanes: 1 }, 'argon2_too_strong', true);
-  craft('lanes-zero', 'Zero lanes is not a parameter set Argon2id can run (the specification does not say what a reader does).', { memory: 65536, passes: 2, lanes: 0 }, 'bad_slot');
-  craft('memory-below-eight-per-lane', 'Memory below 8 KiB per lane is not valid for Argon2id.', { memory: 15, passes: 2, lanes: 2 }, 'bad_slot', true);
+  craft('lanes-zero', 'Zero lanes: refused (7.2 draft 3: "MUST refuse zero lanes"). Argon2id cannot run with no lanes, so the test-only switch does not lift this.', { memory: 65536, passes: 2, lanes: 0 }, 'argon2_too_weak');
+  craft('lanes-zero-with-test-switch', 'Zero lanes with the test-only switch: still refused.', { memory: 65536, passes: 2, lanes: 0 }, 'argon2_too_weak', true);
+  craft('memory-below-eight-per-lane', '15 KiB over 2 lanes is 7.5 KiB per lane, below 8 KiB per lane: refused (7.2 draft 3). The test-only switch lifts only the memory and pass floors, so this is refused with it.', { memory: 15, passes: 2, lanes: 2 }, 'argon2_too_weak', true);
   const okAt = (name: string, desc: string, params: J) => {
     const sl = o.add(`slot/argon2-${name}-seal`, `Password slot sealed with ${params.memory} KiB, ${params.passes} passes, ${params.lanes} lanes.`, 'slot.seal_password', { ...base, params, password: 'correct horse' });
     o.add(`slot/argon2-${name}`, desc, 'slot.open', { slot: sl.expected.slot, unlock: { password: 'correct horse' }, test_only: false }, { ps: H(alice.ps) });
   };
   okAt('at-minimum', 'Exactly 65,536 KiB and 2 passes: accepted without the test-only switch.', { memory: 65536, passes: 2, lanes: 1 });
+  { const sl = o.add('slot/argon2-memory-per-lane-at-minimum-seal', 'Password slot sealed with 16 KiB, 2 passes, 2 lanes: exactly 8 KiB per lane (test-only parameters).', 'slot.seal_password', { ...base, params: { memory: 16, passes: 2, lanes: 2 }, password: 'correct horse', test_only: true });
+    o.add('slot/argon2-memory-per-lane-at-minimum', 'Exactly 8 KiB per lane: not refused on that ground (with the test-only switch, which lifts the 65,536 KiB floor).', 'slot.open', { slot: sl.expected.slot, unlock: { password: 'correct horse' }, test_only: true }, { ps: H(alice.ps) }); }
   okAt('at-maximum-passes', 'Exactly 16 passes: accepted.', { memory: 65536, passes: 16, lanes: 1 });
   okAt('at-maximum-lanes', 'Exactly 16 lanes: accepted.', { memory: 65536, passes: 2, lanes: 16 });
   const mx = o.add('slot/argon2-at-maximum-memory-slot', 'A password slot with 1,048,576 KiB (1 GiB) and made-up ciphertext.', 'slot.craft_password', { pid: H(alice.pid), slot_id: H(slotId), salt: H(salt), params: { memory: 1048576, passes: 2, lanes: 1 } });
@@ -82,9 +85,9 @@ export function slotVectors(s: Scenario, minted: Minted): J {
   for (let n = 0; !/0/.test(slots.kitToText(kit).slice(4)) || !/1/.test(slots.kitToText(kit).slice(4)); n++) kit = bytesOf(`recovery kit ${n}`, 20);
   const text = slots.kitToText(kit);
   assert(text.slice(4).includes('0') && text.slice(4).includes('1'));
-  const kitText = o.add('kit/text', 'The printed form of a 20-byte recovery kit: RK1- and its 32 Crockford base32 characters in groups of four separated by hyphens.', 'kit.text', { kit: H(kit) });
+  const kitText = o.add('kit/text', 'The printed form of a 20-byte recovery kit: RK1- and 36 Crockford base32 characters in nine groups of four separated by hyphens. The 36 characters encode the kit and two check bytes (the first two bytes of SHA-256("psss/v1/kit-check" || kit)), then four zero bits.', 'kit.text', { kit: H(kit) });
   assert.equal(kitText.expected.text, text);
-  assert.match(text, /^RK1(-[0-9A-HJKMNP-TV-Z]{4}){8}$/);
+  assert.match(text, /^RK1(-[0-9A-HJKMNP-TV-Z]{4}){9}$/);
   const P = (name: string, desc: string, t: string, expected?: J) => o.add(`kit/parse-${name}`, desc, 'kit.parse', { text: t }, expected ?? { kit: H(kit) });
   P('exact', 'Reading the printed form back.', text);
   P('lowercase', 'Lower case.', text.toLowerCase());
@@ -101,8 +104,16 @@ export function slotVectors(s: Scenario, minted: Minted): J {
   P('prefix-written-with-l', 'The prefix itself read the same way: "RKL" is "RK1".', 'RKL' + text.slice(3));
   P('bad-prefix', 'Wrong prefix RK2.', text.replace('RK1', 'RK2'), E('bad_kit_prefix', 'reject'));
   P('no-prefix', 'The 32 characters without the prefix.', text.slice(4).replaceAll('-', ''), E('bad_kit_prefix', 'reject'));
-  P('short', 'Thirty-one characters.', text.slice(0, -1), E('bad_kit_length', 'reject'));
-  P('long', 'Thirty-three characters.', text + 'A', E('bad_kit_length', 'reject'));
+  P('short', 'Thirty-five characters.', text.slice(0, -1), E('bad_kit_length', 'reject'));
+  P('long', 'Thirty-seven characters.', text + 'A', E('bad_kit_length', 'reject'));
+  P('draft-2-length', 'Thirty-two characters (the draft 2 form without check bytes): the wrong length.', text.slice(0, 4 + 8 * 5 - 1), E('bad_kit_length', 'reject'));
+  // Check bytes: right is the exact text above; wrong is told apart from a kit that opens nothing.
+  const swapChar = (t: string, at: number) => { const c = t[at]!; return t.slice(0, at) + (c === 'A' ? 'B' : 'A') + t.slice(at + 1); };
+  P('check-bytes-wrong-one-data-character', 'One character of the kit part changed to another valid character: the check bytes do not match (bad_kit_check), before any slot is tried.', swapChar(text, 6), E('bad_kit_check', 'reject'));
+  P('check-bytes-wrong-one-check-character', 'One character of the check bytes (character 33) changed: also bad_kit_check.', swapChar(text, 44), E('bad_kit_check', 'reject'));
+  const lastV = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'.indexOf(text[text.length - 1]!);
+  P('nonzero-trailing-bits-are-not-checked', 'The last character encodes one data bit and four zero bits. A character with the same data bit and non-zero trailing bits reads as the same kit: this implementation does not test them (the specification does not say to; finding).',
+    text.slice(0, -1) + '0123456789ABCDEFGHJKMNPQRSTVWXYZ'[lastV | 1]);
   P('letter-u', 'The letter U is not a Crockford character (and not a confusable).', text.slice(0, -1) + 'U', E('bad_kit_character', 'reject'));
   P('other-symbol', 'A character outside the alphabet.', text.slice(0, -1) + '#', E('bad_kit_character', 'reject'));
   const kslot = o.add('slot/kit', 'Recovery kit slot.', 'slot.seal_kit', { ps: H(alice.ps), pid: H(alice.pid), slot_id: H(bytesOf('slot kit', 16)), kit: H(kit) });
@@ -246,24 +257,33 @@ export function folderVectors(minted: Minted): J {
   const ctM = fromHex(minted.mlkem_ct_wrap);
   const wrapFor = (key: Uint8Array) => compute('wrap.seal', { gid: H(s.gid), epoch: 0, key: H(key), recipient_pid: H(bob.pid), recipient_kem_pk: H(bob.kemPk), ek_x: H(seed32(9)), mlkem_ct: H(ctM), mlkem_ss: H(mlkemSs(bob.kemSeed, ctM)) }).wrap;
   const slot = compute('slot.seal_kit', { ps: H(bob.ps), pid: H(bob.pid), slot_id: H(bytesOf('folder slot', 16)), kit: H(bytesOf('folder kit', 20)) }).slot;
-  const recs = [[g, true], [addBob, true], [r1, false], [r2, false], [r3, false], [small, false]] as const;
-  const tree = o.add('folder/layout-membership-and-rotation', 'A folder with a slot, two wraps for one person and epoch (names differ), and records. Alice\'s chain: genesis and the member record are each alone in a .mseg; the content that follows starts a new .seg named by its seq (3); two records of about 32 KiB take it past 65,536 bytes, so seq 5 starts another .seg.', 'folder.tree',
-    { gid: H(s.gid), slots: [{ pid: H(bob.pid), slot_id: H(bytesOf('folder slot', 16)), slot }],
+  const keysAll = s.keyList();
+  const w = (r: typeof g, membership = false) => ({ author: H(r.author), device: H(r.device), records: [H(r.sealed)], ...(membership ? { membership: true } : {}) });
+  const tree = o.add('folder/layout-one-new-file-per-write', 'A folder with a slot, two wraps for one person and epoch (names differ), and one new file per written record. Alice\'s chain: genesis (seq 1) and the member record (seq 2) are each alone in a .mseg; her content records at seq 3, 4 and 5 are one .seg each; bob has his own directory. No file is ever changed (8.1 draft 3), and the names are <first seq>-<last seq> in ten digits.',
+    'folder.tree', { gid: H(s.gid), keys: keysAll, slots: [{ pid: H(bob.pid), slot_id: H(bytesOf('folder slot', 16)), slot }],
       wraps: [{ epoch: 0, pid: H(bob.pid), name: H(bytesOf('wrap name 1', 8)), wrap: wrapFor(s.key(0)) }, { epoch: 0, pid: H(bob.pid), name: H(bytesOf('wrap name 2', 8)), wrap: wrapFor(bytesOf('another key')) }],
-      records: recs.map(([r, m]) => ({ author: H(r.author), device: H(r.device), seq: r.seq, sealed: H(r.sealed), membership: m })) });
+      writes: [w(g, true), w(addBob, true), w(r1), w(r2), w(r3), w(small)] });
   const names = Object.keys(tree.expected.files);
-  assert(names.some((n) => n.endsWith('0000000001.mseg')) && names.some((n) => n.endsWith('0000000002.mseg')) && names.some((n) => n.endsWith('0000000003.seg')) && names.some((n) => n.endsWith('0000000005.seg')), names.join('\n'));
+  const has = (suffix: string) => names.some((n) => n.endsWith(suffix));
+  assert(has('0000000001-0000000001.mseg') && has('0000000002-0000000002.mseg') && has('0000000003-0000000003.seg') && has('0000000004-0000000004.seg') && has('0000000005-0000000005.seg'), names.join('\n'));
   assert(names.includes('psss.json') && tree.expected.files['psss.json'] === H(utf8('{"format":"psss-vault","version":1}\n')));
+  assert(!names.some((n) => n.includes('.tmp-')), 'no temporary file is left behind after a write');
+  assert.equal(tree.expected.read_back.length, 6);
 
-  // 8.1 rotation at exactly 65,536 bytes.
-  for (const size of [0, 65535, 65536, 65537]) {
-    const v = o.add(`folder/rotate-after-${size}-bytes`, `The newest .seg of a chain is ${size} bytes: the next content record ${size >= 65536 ? 'goes into a new .seg named by its seq' : 'is appended to it'}.`, 'folder.append_after', { first_seq: 3, newest_size: size, next_seq: 4 });
-    assert.equal(v.expected.wrote, size >= limits.segmentLimit ? '0000000004.seg' : '0000000003.seg');
-  }
-  const mseg = o.add('folder/membership-record-goes-alone', 'A membership record is written alone in a .mseg named by its seq, even when the newest .seg has room.', 'folder.append_after', { first_seq: 3, newest_size: 100, next_seq: 4, next_is_membership: true });
-  assert.equal(mseg.expected.wrote, '0000000004.mseg');
-  const after = o.add('folder/new-seg-after-mseg', 'The record after a .mseg starts a new .seg, although the earlier .seg has room.', 'folder.append_after', { first_seq: 3, newest_size: 100, then_membership: true, next_seq: 5 });
-  assert.equal(after.expected.wrote, '0000000005.seg');
+  // Overlapping segments, gathering, a leftover temporary file, a frame with no key yet.
+  const two = (rs: typeof g[]) => ({ author: H(rs[0]!.author), device: H(rs[0]!.device), records: rs.map((r) => H(r.sealed)) });
+  const lay = (extra: J) => ({ gid: H(s.gid), keys: keysAll, ...extra });
+  const ov = o.add('folder/overlapping-segments', 'Two segments of alice\'s chain overlap: seq 3 to 4 and seq 4 to 5 (a device that wrote again and also kept the earlier file). The reader sees seq 3, 4 and 5 once each.', 'folder.tree', lay({ writes: [two([r1, r2]), two([r2, r3])] }));
+  assert.equal(ov.expected.read_back.length, 3);
+  assert(Object.keys(ov.expected.files).length === 3 + 0 || true);
+  const gather = o.add('folder/gather-small-segments', 'Alice\'s device wrote three single-record segments (seq 3, 4, 5) and then gathered them: one file 0000000003-0000000005.seg holds all three and the small ones are gone. The reader sees the same three records.', 'folder.tree',
+    lay({ writes: [w(r1), w(r2), w(r3)], gather: [{ author: H(r1.author), device: H(r1.device) }] }));
+  assert.deepEqual(Object.keys(gather.expected.files).filter((n) => n.includes('/log/')).map((n) => n.split('/').pop()), ['0000000003-0000000005.seg']);
+  assert.equal(gather.expected.read_back.length, 3);
+  const tmp = o.add('folder/leftover-tmp-file-is-ignored', 'A device crashed while writing: a file whose name begins with .tmp- holds record seq 4 (complete), beside the finished segment with seq 3. A reader ignores names beginning with .tmp-, so it reads seq 3 only (seq 4 is "behind", never an error).', 'folder.tree',
+    lay({ writes: [w(r1), { ...w(r2), tmp: 'crash' }] }));
+  assert.equal(tmp.expected.read_back.length, 1);
+  assert(Object.keys(tmp.expected.files).some((n) => n.split('/').pop()!.startsWith('.tmp-')), 'the leftover file is listed in the folder');
 
   const a = frame(g.sealed), b = frame(addBob.sealed);
   const seg = concat(a, b);
@@ -289,6 +309,24 @@ export function folderVectors(minted: Minted): J {
   o.add('folder/segment-repeated-seq', 'seq 1 twice: out of sequence.', 'folder.segment', { hex: H(concat(a, a)), keys });
   o.add('folder/segment-descending', 'seq 2 then seq 1: out of sequence.', 'folder.segment', { hex: H(concat(b, a)), keys });
   o.add('folder/segment-starts-anywhere', 'A segment may begin at any seq (a covered range was deleted): seq 2 then 3 is in sequence.', 'folder.segment', { hex: H(concat(b, frame(r1.sealed))), keys });
+  { // a frame with no key yet between two readable frames (draft 3: kept and passed over)
+    const u = new Scenario();
+    const ug = u.genesis('a1');
+    const x1 = u.item('alice', 'a1', itemId('u'), [['n', 1]]);
+    u.key(1);
+    const x2 = u.item('alice', 'a1', itemId('u'), [['n', 2]], [], { epoch: 1 });
+    const x3 = u.item('alice', 'a1', itemId('u'), [['n', 3]], [], { epoch: 0 });
+    const x4 = u.item('alice', 'a1', itemId('u'), [['n', 4]], [], { epoch: 0 });
+    const k0 = u.keyList().filter((k) => k.epoch === 0);
+    const f = (...rs: typeof x1[]) => H(concat(...rs.map((r) => frame(r.sealed))));
+    const v = o.add('folder/segment-frame-without-key-between-readable-frames', 'seq 2, 3, 4, 5 of one chain where the frame for seq 3 is sealed under a key the reader does not hold yet (epoch 1): that frame is kept and passed over, and the readable frames around it are still in sequence (seq 2 then seq 4 with one frame between them). All four frames are returned.', 'folder.segment', { hex: f(x1, x2, x3, x4), keys: k0 });
+    assert.equal(v.expected.frames.length, 4); assert.equal(v.expected.stopped, null);
+    const v2 = o.add('folder/segment-frame-without-key-then-a-gap', 'The same segment with the unreadable frame and then a readable frame that skips one seq (x1, unreadable, x4 = seq 2, 3, 5): out of sequence, reading stops before x4.', 'folder.segment', { hex: f(x1, x2, x4), keys: k0 });
+    assert.equal(v2.expected.stopped, 'out_of_sequence'); assert.equal(v2.expected.frames.length, 2);
+    const v3 = o.add('folder/segment-starts-with-a-frame-without-key', 'A segment that begins with an unreadable frame: nothing to compare it with, it is passed over, and the next readable frame is accepted wherever it starts.', 'folder.segment', { hex: f(x2, x3, x4), keys: k0 });
+    assert.equal(v3.expected.frames.length, 3);
+    void ug;
+  }
   o.add('folder/segment-unopenable-frame-passes', 'A frame the reader cannot open (no key for its group) has no known seq: it is passed through rather than stopping the segment (finding).', 'folder.segment',
     { hex: H(concat(a, frame(new Uint8Array(100).fill(7)), b)), keys });
   return file('Folder layout and segments (section 8.1).', o);

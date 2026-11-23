@@ -1,3 +1,4 @@
+import { rules } from './limits.ts';
 // Edwards25519 point checks for section 1.2, in BigInt. Used only to decide whether an encoding is acceptable; the signature
 // equation itself is left to node:crypto.
 const P = (1n << 255n) - 19n;
@@ -60,6 +61,6 @@ export function checkSignatureInputs(pk: Uint8Array, sig: Uint8Array): SigProble
   if (!a) return 'bad_public_key';
   if (isSmallOrder(a)) return 'small_order_public_key';
   if (!decodePoint(sig.subarray(0, 32))) return 'bad_signature_encoding';
-  if (!scalarLessThanL(sig.subarray(32))) return 'scalar_not_reduced';
+  if (rules.checkScalarLessThanL && !scalarLessThanL(sig.subarray(32))) return 'scalar_not_reduced';
   return null;
 }

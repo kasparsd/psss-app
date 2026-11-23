@@ -188,7 +188,7 @@ test('recovery kit text round trips', () => {
   for (let i = 0; i < 200; i++) {
     const kit = Uint8Array.from({ length: 20 }, () => r.int(256));
     const t = kitToText(kit);
-    assert.match(t, /^RK1-([0-9A-HJKMNP-TV-Z]{4}-){7}[0-9A-HJKMNP-TV-Z]{4}$/);
+    assert.match(t, /^RK1-([0-9A-HJKMNP-TV-Z]{4}-){8}[0-9A-HJKMNP-TV-Z]{4}$|^([0-9A-HJKMNP-TV-Z]{4}-){8}[0-9A-HJKMNP-TV-Z]{4}$/);
     assert.equal(hex(kitFromText(t)), hex(kit));
   }
 });

@@ -1,6 +1,6 @@
 // Section 7: wrapped group keys, slots, recovery kit, and 5.2 attachment chunks.
 import { concat, label, u32, utf8, zeros, eq, cmp } from './bytes.ts';
-import { limits } from './limits.ts';
+import { limits, rules } from './limits.ts';
 import { CborError, cmap, decode, encode, isBytes, isMap, isUint, onlyKeys, type CMap } from './cbor.ts';
 import * as hpke from './hpke.ts';
 import { ed25519PublicFromSeed, hkdf, argon2id, chachaOpen, chachaSeal, sha256, AeadError, type Argon2Params } from './prims.ts';
@@ -28,11 +28,12 @@ export function unwrapGroupKey(gid: Uint8Array, epoch: number, recipientPid: Uin
 export const SLOT_PASSWORD = 1, SLOT_KIT = 2, SLOT_DEVICE = 3;
 export const DEFAULT_ARGON2: Argon2Params = { memory: 131072, passes: 3, lanes: 4 };
 
-/** 7.2: a reader MUST refuse less than 65,536 KiB or fewer than 2 passes (a test-only switch lifts these), and MUST refuse more
- *  than 1,048,576 KiB, 16 passes or 16 lanes. Returns a code or null. */
+/** 7.2: a reader MUST refuse less than 65,536 KiB or fewer than 2 passes (a test-only switch lifts these two), MUST refuse zero
+ *  lanes or less than 8 KiB of memory per lane (Argon2id itself cannot run with fewer, so the switch does not lift these), and
+ *  MUST refuse more than 1,048,576 KiB, 16 passes or 16 lanes. Returns a code or null. */
 export function argon2ParamsProblem(p: Argon2Params, testOnly = false): string | null {
-  if (p.lanes < 1 || p.passes < 1 || p.memory < 8 * p.lanes) return 'bad_slot';
   if (p.memory > limits.argonMaxMemory || p.passes > limits.argonMaxPasses || p.lanes > limits.argonMaxLanes) return 'argon2_too_strong';
+  if (p.lanes < limits.argonMinLanes || p.memory < limits.argonMinMemoryPerLane * p.lanes || p.passes < 1) return 'argon2_too_weak';
   if (!testOnly && (p.memory < limits.argonMinMemory || p.passes < limits.argonMinPasses)) return 'argon2_too_weak';
   return null;
 }
@@ -116,32 +117,40 @@ export function openSlot(slot: Uint8Array, unlock: Unlock, opts: { testOnly?: bo
 
 const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 
-/** 7.2: "RK1-" followed by the 32 Crockford base32 characters in groups of four. The separator is not specified;
- *  a hyphen is used. */
+/** 7.2 (draft 3): two check bytes, the first two of SHA-256("psss/v1/kit-check" || kit). */
+export const kitCheck = (kit: Uint8Array): Uint8Array => sha256(label('psss/v1/kit-check'), kit).slice(0, 2);
+
+/** 7.2: "RK1-" followed by 36 Crockford base32 characters in nine groups of four: the 20 kit bytes and the two check bytes
+ *  (176 bits), then four zero bits. */
 export function kitToText(kit: Uint8Array): string {
   if (kit.length !== 20) throw new Error('a recovery kit is 20 bytes');
   let bits = 0n;
-  for (const b of kit) bits = (bits << 8n) | BigInt(b);
+  for (const b of concat(kit, kitCheck(kit))) bits = (bits << 8n) | BigInt(b);
+  bits <<= 4n;
   let s = '';
-  for (let i = 31; i >= 0; i--) s += CROCKFORD[Number((bits >> BigInt(5 * i)) & 31n)];
+  for (let i = 35; i >= 0; i--) s += CROCKFORD[Number((bits >> BigInt(5 * i)) & 31n)];
   return 'RK1-' + s.match(/.{4}/g)!.join('-');
 }
 
-/** 7.2: when reading, case, hyphens and spaces are ignored, I and L read as 1, and O reads as 0. */
+/** 7.2: when reading, case, hyphens and spaces are ignored, I and L read as 1 and O reads as 0, in the prefix too. The check
+ *  bytes are tested before the kit is used. The four trailing bits are not tested (the specification does not say to). */
 export function kitFromText(text: string): Uint8Array {
   const t = text.toUpperCase().replace(/[-\s]/g, '').replace(/[IL]/g, '1').replace(/O/g, '0');
   if (!t.startsWith('RK1')) throw new FormatError('bad_kit_prefix');
   const chars = t.slice(3);
-  if (chars.length !== 32) throw new FormatError('bad_kit_length');
+  if (chars.length !== 36) throw new FormatError('bad_kit_length');
   let bits = 0n;
   for (const ch of chars) {
     const v = CROCKFORD.indexOf(ch);
     if (v < 0) throw new FormatError('bad_kit_character');
     bits = (bits << 5n) | BigInt(v);
   }
-  const out = new Uint8Array(20);
-  for (let i = 19; i >= 0; i--) { out[i] = Number(bits & 255n); bits >>= 8n; }
-  return out;
+  bits >>= 4n;
+  const out = new Uint8Array(22);
+  for (let i = 21; i >= 0; i--) { out[i] = Number(bits & 255n); bits >>= 8n; }
+  const kit = out.slice(0, 20);
+  if (rules.checkKitCheckBytes && !eq(out.slice(20), kitCheck(kit))) throw new FormatError('bad_kit_check');
+  return kit;
 }
 
 // ---------------------------------------------------------------- 5.2 attachments

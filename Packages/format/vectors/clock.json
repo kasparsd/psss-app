@@ -300,11 +300,11 @@
       }
     },
     {
-      "name": "clock/held-back/exactly-24h",
-      "description": "Exactly 24 hours ahead: not more than 24 hours, so not held back.",
+      "name": "clock/held-back/exactly-10-minutes",
+      "description": "Exactly 10 minutes ahead: not more than 10 minutes, so not held back.",
       "type": "clock.held_back",
       "input": {
-        "wall_ms": 86401000,
+        "wall_ms": 601000,
         "now_ms": 1000
       },
       "expected": {
@@ -313,10 +313,10 @@
     },
     {
       "name": "clock/held-back/one-ms-over",
-      "description": "24 hours and 1 ms ahead: held back.",
+      "description": "10 minutes and 1 ms ahead: held back.",
       "type": "clock.held_back",
       "input": {
-        "wall_ms": 86401001,
+        "wall_ms": 601001,
         "now_ms": 1000
       },
       "expected": {
@@ -325,14 +325,26 @@
     },
     {
       "name": "clock/held-back/one-ms-under",
-      "description": "24 hours less 1 ms ahead.",
+      "description": "10 minutes less 1 ms ahead.",
       "type": "clock.held_back",
       "input": {
-        "wall_ms": 86400999,
+        "wall_ms": 600999,
         "now_ms": 1000
       },
       "expected": {
         "held_back": false
+      }
+    },
+    {
+      "name": "clock/held-back/24h-is-far-over",
+      "description": "Draft 2 allowed 24 hours; a record 24 hours ahead is now held back.",
+      "type": "clock.held_back",
+      "input": {
+        "wall_ms": 86401000,
+        "now_ms": 1000
+      },
+      "expected": {
+        "held_back": true
       }
     },
     {
@@ -345,6 +357,42 @@
       },
       "expected": {
         "held_back": false
+      }
+    },
+    {
+      "name": "clock/purge-due/exactly-30-days",
+      "description": "The device accepted the delete 30 days ago to the millisecond: due (this implementation reads \"30 days\" as at least 30 days).",
+      "type": "clock.purge_due",
+      "input": {
+        "accepted_ms": 5000,
+        "now_ms": 2592005000
+      },
+      "expected": {
+        "due": true
+      }
+    },
+    {
+      "name": "clock/purge-due/one-ms-short",
+      "description": "30 days less 1 ms after acceptance: not due.",
+      "type": "clock.purge_due",
+      "input": {
+        "accepted_ms": 5000,
+        "now_ms": 2592004999
+      },
+      "expected": {
+        "due": false
+      }
+    },
+    {
+      "name": "clock/purge-due/just-accepted-however-old-the-record",
+      "description": "Timed from when the device accepted the delete, never from a time in the record: a delete record whose own time is years old, accepted just now, is not due.",
+      "type": "clock.purge_due",
+      "input": {
+        "accepted_ms": 1700000000000,
+        "now_ms": 1700000000000
+      },
+      "expected": {
+        "due": false
       }
     }
   ]

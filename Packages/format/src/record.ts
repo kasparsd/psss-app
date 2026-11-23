@@ -3,7 +3,7 @@
 import { concat, cmp, eq, label, readU32, u32, zeros } from './bytes.ts';
 import { CborError, cmap, decode, encode, isBytes, isMap, isUint, onlyKeys, strictlySortedByEncoding,
          type CborValue, type CMap } from './cbor.ts';
-import { limits } from './limits.ts';
+import { limits, rules } from './limits.ts';
 import { AeadError, chachaOpen, chachaSeal, ed25519Check, ed25519Sign, hkdf, sha256 } from './prims.ts';
 import { cardShape, FormatError, type Person } from './keys.ts';
 
@@ -11,8 +11,8 @@ export const MAGIC = new TextEncoder().encode('PSR1');
 export const HEADER_LEN = 72; // 4.1
 export const TAG_LEN = 16;
 
-export const KIND = { genesis: 1, member: 2, epoch: 3, replace: 4, item: 16, checkpoint: 32 } as const;
-export const MEMBERSHIP_KINDS: number[] = [KIND.genesis, KIND.member, KIND.epoch, KIND.replace];
+export const KIND = { genesis: 1, member: 2, epoch: 3, replace: 4, remove: 5, item: 16, checkpoint: 32, purge: 33 } as const;
+export const MEMBERSHIP_KINDS: number[] = [KIND.genesis, KIND.member, KIND.epoch, KIND.replace, KIND.remove];
 /** 4.3: kinds 16 and above are content records and carry `mhead`. */
 export const isContentKind = (k: number) => k >= 16;
 
@@ -29,6 +29,9 @@ export function header(gid: Uint8Array, epoch: number, salt: Uint8Array): Uint8A
 
 /** 4.1 rk = HKDF(ikm = K_epoch, salt = salt, info = "psss/v1/record") */
 export const recordKey = (groupKey: Uint8Array, salt: Uint8Array): Uint8Array => hkdf(groupKey, salt, label('psss/v1/record'));
+
+/** 4.1 (draft 3) salt = HKDF(ikm = K_epoch, salt = SHA-256(body_without_9), info = "psss/v1/salt"). */
+export const deriveSalt = (groupKey: Uint8Array, bodyWithout9: CMap): Uint8Array => hkdf(groupKey, sha256(encode(bodyWithout9)), label('psss/v1/salt'));
 
 /** 4.2 plaintext = u32(len(body)) || body || zero bytes (padded to size(n)). */
 export function padPlaintext(body: Uint8Array): Uint8Array {
@@ -55,22 +58,27 @@ export interface BodyFields {
   clock: Clock; kind: number; payload: CborValue;
   /** key 10: content records only (4.3) */
   mhead?: Uint8Array;
+  /** extension keys (section 2): integer keys of 128 and above, covered by the signature and ignored by readers */
+  extensions?: [number | bigint, CborValue][];
 }
 
 export function bodyMap(f: BodyFields): CMap {
   const m = cmap([[1, 1], [2, f.author], [3, f.device], [4, f.seq], [5, f.prev], [6, [f.clock[0], f.clock[1]]], [7, f.kind], [8, f.payload]]);
   if (f.mhead) m.set(10, f.mhead);
-  return m;
+  for (const [k, v] of f.extensions ?? []) m.set(k as number, v);
+  return cmap([...m.entries()] as [number, CborValue][]);
 }
 
 /** 4.3 sig = Ed25519(author's sign_seed, "psss/v1/record-sig" || header || body_without_9) */
 export const signedBytes = (hdr: Uint8Array, bodyWithout9: CMap): Uint8Array =>
   concat(label('psss/v1/record-sig'), hdr, encode(bodyWithout9));
 
-export function sealRecord(signer: Person, gid: Uint8Array, epoch: number, groupKey: Uint8Array, salt: Uint8Array, f: BodyFields,
-                           opts: { sigOverride?: Uint8Array } = {}): Uint8Array {
-  const h = header(gid, epoch, salt);
+/** Sealing is deterministic (4.1): the salt is derived from the key and the body. `opts.salt` is for negative vectors only. */
+export function sealRecord(signer: Person, gid: Uint8Array, epoch: number, groupKey: Uint8Array, f: BodyFields,
+                           opts: { sigOverride?: Uint8Array; salt?: Uint8Array } = {}): Uint8Array {
   const body = bodyMap(f);
+  const salt = opts.salt ?? deriveSalt(groupKey, body);
+  const h = header(gid, epoch, salt);
   const sig = opts.sigOverride ?? ed25519Sign(signer.signSeed, signedBytes(h, body));
   body.set(9, sig);
   return sealPlaintext(gid, epoch, groupKey, salt, padPlaintext(encode(body)));
@@ -145,6 +153,8 @@ export function openRecord(sealed: Uint8Array, ring: KeyRing): Rec {
   const m = body as CMap;
   const without9 = new Map(m);
   without9.delete(9);
+  // 9 step 2: recompute the salt from the key that opened the record and the body; a mismatch is discarded.
+  if (rules.checkSalt && !eq(deriveSalt(key, without9 as CMap), salt)) throw new FormatError('bad_salt', 'discard');
   const problem = ed25519Check(f.author, signedBytes(hdr, without9), m.get(9) as Uint8Array);
   if (problem === 'bad_public_key' || problem === 'small_order_public_key') throw new FormatError('bad_author', 'discard', problem);
   if (problem) throw new FormatError('bad_signature', 'discard', problem);
@@ -165,7 +175,7 @@ function bodyFields(body: CborValue): BodyFields {
   // 4.3 key 10: present in content records (16 and above), absent in membership records; kinds 0 and 5 to 15 are not defined.
   const need10 = isContentKind(k);
   const forbid10 = MEMBERSHIP_KINDS.includes(k);
-  try { onlyKeys(body, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], [1, 2, 3, 4, 5, 6, 7, 8, 9, ...(need10 ? [10] : [])], 'body'); } catch (e) { return bad((e as Error).message); }
+  try { onlyKeys(body, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], [1, 2, 3, 4, 5, 6, 7, 8, 9, ...(need10 ? [10] : [])], 'body', true); } catch (e) { return bad((e as Error).message); }
   if (forbid10 && body.has(10)) bad('membership record with mhead');
   if (body.get(1) !== 1) bad('v');
   const author = body.get(2), device = body.get(3), seq = body.get(4), prev = body.get(5), clock = body.get(6);
@@ -191,12 +201,17 @@ const sortedList = (v: unknown, what: string): CborValue[] => {
 const clockShape = (ck: unknown): boolean =>
   Array.isArray(ck) && ck.length === 5 && isUint(ck[0]) && isUint(ck[1]) && isBytes(ck[2], 32) && isBytes(ck[3], 16) && isUint(ck[4]);
 
-/** Payload shapes by kind (sections 5 and 6). Unknown kinds are kept unchecked (4.3). */
+const cutShape = (v: unknown, what: string) => {
+  for (const c of sortedList(v, what)) if (!Array.isArray(c) || c.length !== 2 || !isBytes(c[0], 16) || !isUint(c[1]) || (c[1] as number) < 1) throw new CborError('bad_payload', what);
+};
+const epochNo = (v: unknown) => isUint(v) && (v as number) >= 1;
+
+/** Payload shapes by kind (sections 5 and 6). Unknown kinds are kept unchecked (4.3). Extension keys (2) are allowed in every payload. */
 export function checkPayload(kind: number, p: CMap): CMap {
   const bad = (w: string) => new CborError('bad_payload', w);
   switch (kind) {
     case KIND.item: {
-      onlyKeys(p, [1, 2, 3], [1, 2, 3], 'item');
+      onlyKeys(p, [1, 2, 3], [1, 2, 3], 'item', true);
       const set = p.get(2), clear = sortedList(p.get(3), 'clear');
       if (!isBytes(p.get(1), 16) || !isMap(set)) throw bad('item');
       for (const k of set.keys()) if (typeof k !== 'string') throw bad('set key');
@@ -208,46 +223,63 @@ export function checkPayload(kind: number, p: CMap): CMap {
       return p;
     }
     case KIND.checkpoint: {
-      onlyKeys(p, [1, 2, 3], [1, 2, 3], 'checkpoint');
-      for (const c of sortedList(p.get(1), 'covered')) {
+      // 5.3 (draft 3): { 1: set_id, 2: part, 3: parts, 4: covered, 5: items, 6: purged }
+      onlyKeys(p, [1, 2, 3, 4, 5, 6], [1, 2, 3, 4, 5, 6], 'checkpoint', true);
+      const part = p.get(2), parts = p.get(3);
+      if (!isBytes(p.get(1), 16) || !isUint(part) || !isUint(parts) || parts < 1 || part >= parts) throw bad('set, part or parts');
+      const covered = sortedList(p.get(4), 'covered'), purged = sortedList(p.get(6), 'purged');
+      if (part > 0 && (covered.length || purged.length)) throw bad('covered and purged are empty outside part 0');
+      for (const c of covered) {
         if (!Array.isArray(c) || c.length !== 4 || !isBytes(c[0], 32) || !isBytes(c[1], 16) || !isUint(c[2]) || (c[2] as number) < 1 || !isBytes(c[3], 32)) throw bad('covered');
       }
-      for (const it of sortedList(p.get(2), 'items')) {
+      for (const it of sortedList(p.get(5), 'items')) {
         if (!Array.isArray(it) || it.length !== 2 || !isBytes(it[0], 16) || !isMap(it[1])) throw bad('item');
-        for (const [name, w] of it[1]) {
-          if (typeof name !== 'string' || !Array.isArray(w)) throw bad('field');
-          if (w[0] === 1 ? w.length !== 3 || !clockShape(w[1]) : w[0] === 0 ? w.length !== 2 || !clockShape(w[1]) : true) throw bad('write');
+        for (const [name, ws] of it[1]) {
+          if (typeof name !== 'string') throw bad('field');
+          const list = sortedList(ws, 'writes');
+          if (list.length === 0) throw bad('a field carries at least its winning write');
+          for (const w of list) {
+            if (!Array.isArray(w) || (w[0] === 1 ? w.length !== 3 || !clockShape(w[1]) : w[0] === 0 ? w.length !== 2 || !clockShape(w[1]) : true)) throw bad('write');
+          }
         }
       }
-      for (const pu of sortedList(p.get(3), 'purged')) {
+      for (const pu of purged) {
         if (!Array.isArray(pu) || pu.length !== 2 || !isBytes(pu[0], 16) || !clockShape(pu[1])) throw bad('purged');
       }
       return p;
     }
+    case KIND.purge: {
+      onlyKeys(p, [1], [1], 'purge request', true);
+      for (const id of sortedList(p.get(1), 'items')) if (!isBytes(id, 16)) throw bad('item id');
+      return p;
+    }
     case KIND.genesis:
-      onlyKeys(p, [1, 2, 3], [1, 2, 3], 'genesis');
-      if (!isBytes(p.get(1), 32) || !isBytes(p.get(3), 32)) throw bad('genesis');
+      onlyKeys(p, [1, 2, 3, 4], [1, 2, 3, 4], 'genesis', true);
+      if (!isBytes(p.get(1), 32) || !isBytes(p.get(3), 32) || !isUint(p.get(4))) throw bad('genesis');
       cardShape(p.get(2));
       return p;
     case KIND.member: {
-      onlyKeys(p, [1, 2, 3, 4], [1, 2, 3], 'member');
+      onlyKeys(p, [1, 2, 3, 4], [1, 2, 3], 'member', true);
       const t = p.get(2), role = p.get(3);
-      if (!isBytes(p.get(1), 32) || !(isBytes(t, 32) || isMap(t)) || !isUint(role) || role > 3) throw bad('member');
+      if (!isBytes(p.get(1), 32) || !(isBytes(t, 32) || isMap(t)) || !isUint(role) || role < 1 || role > 3) throw bad('member'); // 6.2: role is 1, 2 or 3
       if (isMap(t)) cardShape(t);
-      if (p.has(4)) {
-        for (const c of sortedList(p.get(4), 'cut')) if (!Array.isArray(c) || c.length !== 2 || !isBytes(c[0], 16) || !isUint(c[1]) || (c[1] as number) < 1) throw bad('cut');
-      }
+      if (p.has(4)) cutShape(p.get(4), 'cut');
       return p;
     }
     case KIND.epoch:
-      onlyKeys(p, [1, 2, 3, 4], [1, 2, 3, 4], 'epoch');
-      if (!isBytes(p.get(1), 32) || !isUint(p.get(2)) || !isBytes(p.get(3), 32) || !isBytes(p.get(4), 32)) throw bad('epoch');
+      onlyKeys(p, [1, 2, 3, 4], [1, 2, 3, 4], 'epoch', true);
+      if (!isBytes(p.get(1), 32) || !epochNo(p.get(2)) || !isBytes(p.get(3), 32) || !isBytes(p.get(4), 32)) throw bad('epoch');
+      return p;
+    case KIND.remove:
+      onlyKeys(p, [1, 2, 3, 4, 5, 6], [1, 2, 3, 4, 5, 6], 'remove', true);
+      if (!isBytes(p.get(1), 32) || !isBytes(p.get(2), 32) || !epochNo(p.get(4)) || !isBytes(p.get(5), 32) || !isBytes(p.get(6), 32)) throw bad('remove');
+      cutShape(p.get(3), 'cut');
       return p;
     case KIND.replace:
-      onlyKeys(p, [1, 2, 3, 4], [1, 2, 3, 4], 'replace');
-      if (!isBytes(p.get(1), 32) || !isBytes(p.get(2), 32)) throw bad('replace');
+      onlyKeys(p, [1, 2, 3, 4, 5, 6, 7], [1, 2, 3, 4, 5, 6, 7], 'replace', true);
+      if (!isBytes(p.get(1), 32) || !isBytes(p.get(2), 32) || !epochNo(p.get(5)) || !isBytes(p.get(6), 32) || !isBytes(p.get(7), 32)) throw bad('replace');
       cardShape(p.get(3));
-      for (const c of sortedList(p.get(4), 'cut')) if (!Array.isArray(c) || c.length !== 2 || !isBytes(c[0], 16) || !isUint(c[1]) || (c[1] as number) < 1) throw bad('cut');
+      cutShape(p.get(4), 'cut');
       return p;
     default:
       return p;
@@ -265,6 +297,7 @@ export function nextClock(nowMs: number, accepted: Clock[]): Clock {
   return [wall, same.length ? Math.max(...same) + 1 : 0];
 }
 
-/** 4.5 Reading: a reader MUST hold back a record whose wall_ms is more than 24 hours ahead of its own time. */
+/** 4.5 Reading: a reader MUST hold back a record whose wall_ms is more than 10 minutes ahead of its own time. */
 export const heldBack = (wallMs: number, nowMs: number): boolean => wallMs - nowMs > limits.holdBackMs;
 export const DAY_MS = 24 * 3600 * 1000;
+export const TEN_MINUTES_MS = 10 * 60 * 1000;

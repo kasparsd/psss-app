@@ -54,7 +54,7 @@ export function encode(v: CborValue, level = 0): Uint8Array {
   if (Array.isArray(v)) { if (level + 1 > limits.maxDepth) throw new CborError('too_deep'); return concat(head(4, v.length), ...v.map((x) => encode(x, level + 1))); }
   if (v instanceof Map) {
     if (level + 1 > limits.maxDepth) throw new CborError('too_deep');
-    const kinds = new Set([...v.keys()].map((k) => typeof k));
+    const kinds = new Set([...v.keys()].map((k) => (typeof k === 'bigint' ? 'number' : typeof k)));
     if (kinds.size > 1) throw new CborError('mixed_key_kinds');
     const entries = [...v.entries()].map(([k, val]) => [encode(k), encode(val, level + 1)] as const);
     entries.sort((a, b2) => cmp(a[0], b2[0]));
@@ -148,9 +148,8 @@ class Reader {
           }
           prev = kb;
           const val = this.read(depth + 1);
-          // Integer keys beyond 2^53 never occur in this format; keep them as bigint-safe strings of risk: reject.
-          if (typeof key === 'bigint') throw new CborError('bad_key_type', 'key too large for this implementation');
-          out.set(key, val);
+          // Integer keys beyond 2^53 are extension keys (section 2) and are kept as bigint keys.
+          out.set(key as number, val);
         }
         return out;
       }
@@ -182,8 +181,12 @@ export const isUint = (v: unknown): v is number => typeof v === 'number';
 export const cmap = (pairs: [number | string, CborValue][]): CMap => new Map(pairs);
 
 /** A map defined by the spec MUST NOT carry keys it does not define (section 2). */
-export function onlyKeys(m: CMap, allowed: number[], required: number[], what: string): void {
-  for (const k of m.keys()) if (!allowed.includes(k as number)) throw new CborError('unknown_key', `${what}: ${String(k)}`);
+export function onlyKeys(m: CMap, allowed: number[], required: number[], what: string, extensions = false): void {
+  // Section 2: in a record body and in a payload, integer keys of 128 and above are extension keys: kept, signed, ignored.
+  for (const k of m.keys()) {
+    if (extensions && (typeof k === 'bigint' || (typeof k === 'number' && k >= limits.extensionKey))) continue;
+    if (!allowed.includes(k as number)) throw new CborError('unknown_key', `${what}: ${String(k)}`);
+  }
   for (const k of required) if (!m.has(k)) throw new CborError('missing_key', `${what}: ${k}`);
 }
 

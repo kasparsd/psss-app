@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { limits, defaults } from '../src/limits.ts';
+import { limits, defaults, rules, defaultRules } from '../src/limits.ts';
 import { argonStats, rememberArgon2 } from '../src/prims.ts';
 import { compute } from './compute.ts';
 
@@ -34,9 +34,12 @@ export const BOUNDARIES: Boundary[] = [
   { name: 'Largest sealed record, 1,052,760 bytes (also the frame limit of 8.1)', spec: '4.1, 8.1', limit: 'maxSealed', mutations: [
     { limit: 'maxSealed', delta: 1, flips: ['record/sealed-longer-than-largest', 'folder/frame-length-one-over-largest'] },
     { limit: 'maxSealed', delta: -1, flips: ['record/largest-body', 'record/sealed-exactly-largest-bad-body', 'folder/frame-length-exactly-largest-incomplete'] }] },
-  { name: 'Hold back more than 24 hours ahead', spec: '4.5', limit: 'holdBackMs', mutations: [
+  { name: 'Hold back more than 10 minutes ahead', spec: '4.5', limit: 'holdBackMs', mutations: [
     { limit: 'holdBackMs', delta: 1, flips: ['clock/held-back/one-ms-over', 'group/held-back-one-ms-over'] },
-    { limit: 'holdBackMs', delta: -1, flips: ['clock/held-back/exactly-24h', 'group/held-back-exactly-24h'] }] },
+    { limit: 'holdBackMs', delta: -1, flips: ['clock/held-back/exactly-10-minutes', 'group/held-back-exactly-10-minutes'] }] },
+  { name: 'Extension keys from 128 up (body and payload)', spec: '2', limit: 'extensionKey', mutations: [
+    { limit: 'extensionKey', delta: 1, flips: ['record/open/extension-key-128-in-body', 'record/open/extension-key-128-in-payload'] },
+    { limit: 'extensionKey', delta: -1, flips: ['record/open/extension-key-127-in-body', 'record/open/extension-key-127-in-payload'] }] },
   { name: 'CBOR nesting of 16 levels', spec: '2', limit: 'maxDepth', mutations: [
     { limit: 'maxDepth', delta: 1, flips: ['cbor/reject/depth-17-arrays', 'cbor/reject/depth-17-maps'] },
     { limit: 'maxDepth', delta: -1, flips: ['cbor/accept/depth-16-arrays', 'cbor/accept/depth-16-maps'] }] },
@@ -46,6 +49,12 @@ export const BOUNDARIES: Boundary[] = [
   { name: 'Argon2id at least 2 passes', spec: '7.2', limit: 'argonMinPasses', mutations: [
     { limit: 'argonMinPasses', delta: 1, flips: ['slot/argon2-at-minimum'] },
     { limit: 'argonMinPasses', delta: -1, flips: ['slot/argon2-passes-one-below-minimum'] }] },
+  { name: 'Argon2id at least 1 lane', spec: '7.2', limit: 'argonMinLanes', mutations: [
+    { limit: 'argonMinLanes', delta: 1, flips: ['slot/argon2-at-minimum'] },
+    { limit: 'argonMinLanes', delta: -1, flips: ['slot/argon2-lanes-zero'] }] },
+  { name: 'Argon2id at least 8 KiB of memory per lane', spec: '7.2', limit: 'argonMinMemoryPerLane', mutations: [
+    { limit: 'argonMinMemoryPerLane', delta: 1, flips: ['slot/argon2-memory-per-lane-at-minimum'] },
+    { limit: 'argonMinMemoryPerLane', delta: -1, flips: ['slot/argon2-memory-below-eight-per-lane'] }] },
   { name: 'Argon2id at most 1,048,576 KiB', spec: '7.2', limit: 'argonMaxMemory', mutations: [
     { limit: 'argonMaxMemory', delta: 1, flips: ['slot/argon2-memory-one-above-maximum', 'slot/argon2-test-switch-keeps-upper-limits'] },
     { limit: 'argonMaxMemory', delta: -1, flips: ['slot/argon2-at-maximum-memory'] }] },
@@ -55,12 +64,12 @@ export const BOUNDARIES: Boundary[] = [
   { name: 'Argon2id at most 16 lanes', spec: '7.2', limit: 'argonMaxLanes', mutations: [
     { limit: 'argonMaxLanes', delta: 1, flips: ['slot/argon2-lanes-one-above-maximum'] },
     { limit: 'argonMaxLanes', delta: -1, flips: ['slot/argon2-at-maximum-lanes'] }] },
-  { name: 'Segment rotation at 65,536 bytes', spec: '8.1', limit: 'segmentLimit', mutations: [
-    { limit: 'segmentLimit', delta: 1, flips: ['folder/rotate-after-65536-bytes'] },
-    { limit: 'segmentLimit', delta: -1, flips: ['folder/rotate-after-65535-bytes'] }] },
   { name: 'Attachment chunk of 1,048,576 bytes', spec: '5.2', limit: 'chunkSize', mutations: [
     { limit: 'chunkSize', delta: 1, flips: ['attachment/one-chunk-and-a-byte', 'attachment/last-chunk-too-long'] },
     { limit: 'chunkSize', delta: -1, flips: ['attachment/exactly-one-chunk', 'attachment/two-full-chunks'] }] },
+  { name: 'Purge a deleted item after 30 days on the purging device\'s clock', spec: '5.1', limit: 'purgeAfterMs', mutations: [
+    { limit: 'purgeAfterMs', delta: 1, flips: ['clock/purge-due/exactly-30-days'] },
+    { limit: 'purgeAfterMs', delta: -1, flips: ['clock/purge-due/one-ms-short'] }] },
 ];
 
 /** True when the vector still passes. A heavy vector is run too: its Argon2id work is skipped (dry run), which does not change what it tests. */
@@ -96,4 +105,43 @@ for (const b of BOUNDARIES) {
 test('the boundaries are listed in README.md with the vectors that cover them', () => {
   const readme = readFileSync(join(here, '..', 'README.md'), 'utf8');
   for (const b of BOUNDARIES) for (const m of b.mutations) for (const n of m.flips) assert(readme.includes(`\`${n}\``), `README.md must name ${n}`);
+});
+
+// ---- rules that are not numbers: each switch in `rules` flipped, with the vectors that must notice.
+export interface RuleMutation { rule: keyof typeof rules; value: boolean | string; spec: string; what: string; flips: string[] }
+export const RULE_MUTATIONS: RuleMutation[] = [
+  { rule: 'deletedStrict', value: false, spec: '5.1', what: '"strictly later" read as "later or equal" for the deleted rule', flips: ['fold/delete-in-same-record-as-edit'] },
+  { rule: 'tieBreak', value: 'device,author,seq,record_id', spec: '6.5', what: 'device compared before author', flips: ['group/fork-2-author-before-device'] },
+  { rule: 'tieBreak', value: 'author,-device,seq,record_id', spec: '6.5', what: 'device order reversed', flips: ['group/fork-2-same-author-device-decides'] },
+  { rule: 'tieBreak', value: '-author,device,seq,record_id', spec: '6.5', what: 'author order reversed', flips: ['group/fork-2-least-author'] },
+  { rule: 'tieBreak', value: 'author,device,-seq,record_id', spec: '6.5', what: 'seq order reversed', flips: ['group/fork-2-same-author-and-device-seq-decides'] },
+  { rule: 'tieBreak', value: 'author,device,seq', spec: '6.5', what: 'final record_id comparison dropped', flips: ['group/resolve-record-id-high-first'] },
+  { rule: 'tieBreak', value: 'author,device,seq,-record_id', spec: '6.5', what: 'record_id order reversed', flips: ['group/resolve-record-id-low-first', 'group/resolve-record-id-high-first'] },
+  { rule: 'keepAllWhenAllDropped', value: false, spec: '6.5', what: 'step 1 that drops every candidate keeps none', flips: ['group/fork-1-mutual-removal-keeps-all', 'group/fork-three-candidates-cycle'] },
+  { rule: 'checkPreviousKey', value: false, spec: '6.3, 6.4', what: 'K_(e-1) not checked against commit(e-1)', flips: ['group/previous-key-mismatch-epoch', 'group/previous-key-mismatch-remove', 'group/previous-key-mismatch-replace'] },
+  { rule: 'checkSalt', value: false, spec: '4.1, 9', what: 'salt not recomputed by the reader', flips: ['record/open/salt-does-not-match-body', 'record/open/moved-header-new-salt', 'group/chain-same-body-different-salt-is-rejected'] },
+  { rule: 'checkScalarLessThanL', value: false, spec: '1.2', what: 'S not required to be less than the group order', flips: ['signature/s-plus-l', 'signature/s-equals-l', 'signature/s-top-bit-set'] },
+  { rule: 'checkKitCheckBytes', value: false, spec: '7.2', what: 'kit check bytes not tested', flips: ['kit/parse-check-bytes-wrong-one-data-character', 'kit/parse-check-bytes-wrong-one-check-character'] },
+];
+
+test('every rule switch has a mutation, and its covering vectors pass unmutated', () => {
+  assert.deepEqual([...new Set(RULE_MUTATIONS.map((m) => m.rule))].sort(), Object.keys(defaultRules).sort());
+  for (const m of RULE_MUTATIONS) for (const n of m.flips) assert(passes(n), `${n} must pass with the specified rules`);
+});
+
+for (const m of RULE_MUTATIONS) {
+  test(`mutation: rule ${m.rule} = ${JSON.stringify(m.value)} (${m.what}, section ${m.spec}) is noticed by ${m.flips.length} vector(s)`, () => {
+    argonStats.dryRun = true;
+    const before = rules[m.rule];
+    (rules as Record<string, unknown>)[m.rule] = m.value;
+    try {
+      for (const n of m.flips) assert(!passes(n), `${n} still passes with ${m.rule} = ${JSON.stringify(m.value)}: the rule is not covered`);
+    } finally { (rules as Record<string, unknown>)[m.rule] = before; }
+    assert.deepEqual({ ...rules }, { ...defaultRules });
+  });
+}
+
+test('the rules are listed in README.md with the vectors that cover them', () => {
+  const readme = readFileSync(join(here, '..', 'README.md'), 'utf8');
+  for (const m of RULE_MUTATIONS) for (const n of m.flips) assert(readme.includes(`\`${n}\``), `README.md must name ${n}`);
 });

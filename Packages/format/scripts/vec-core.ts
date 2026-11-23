@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { concat, fromHex, utf8 } from '../src/bytes.ts';
 import { cmap, decode, encode, type CborValue } from '../src/cbor.ts';
 import { makeCard } from '../src/keys.ts';
-import { KIND, header, openRecord, padPlaintext, sealPlaintext, bodyMap, signedBytes, paddedLength, keyRing } from '../src/record.ts';
+import { KIND, deriveSalt, header, openRecord, padPlaintext, sealPlaintext, bodyMap, signedBytes, paddedLength, keyRing } from '../src/record.ts';
 import { ed25519Sign } from '../src/prims.ts';
 import { cmp } from '../src/bytes.ts';
 import { L } from '../src/edwards.ts';
@@ -11,7 +11,7 @@ import * as xw from '../src/xwing.ts';
 import { compute } from '../test/compute.ts';
 import { Scenario, bytesOf, itemId, itemPayload, BASE_MS } from '../test/scenario.ts';
 import type { N } from '../test/notation.ts';
-import { E, H, Out, differs, file, flipBit, mlkemSs, nat, seed32 } from './vec-common.ts';
+import { CLEARED, E, H, Out, differs, file, flipBit, historyView, itemNames, mlkemSs, nat, seed32, stateView } from './vec-common.ts';
 import type { J, Minted } from './vec-common.ts';
 
 // ------------------------------------------------------------------ cbor
@@ -194,7 +194,7 @@ const payloadHex = (id: Uint8Array, set: [string, CborValue][], clear: string[] 
 
 function recordInput(s: Scenario, who: string, dev: string, seq: number, prev: Uint8Array | null, clock: [number, number], payload: string, over: J = {}): J {
   const p = s.person(who);
-  return { signer_ps: H(p.ps), gid: H(s.gid), epoch: 0, key: H(s.key(0)), salt: H(bytesOf(`vector salt ${who}${seq}${over.tag ?? ''}`)),
+  return { signer_ps: H(p.ps), gid: H(s.gid), epoch: 0, key: H(s.key(0)),
            author: H(p.pid), device: H(s.device(dev)), seq, prev: prev ? H(prev) : null, clock, kind: KIND.item, mhead: H(bytesOf('vector mhead')), payload, ...over, tag: undefined };
 }
 
@@ -296,13 +296,53 @@ export function recordVectors(s: Scenario): J {
   open('author-small-order', 'The author is the identity point and the signature is the forger\'s (R = identity, S = 0): the author is refused (1.2).', identityAuthor.sealed, keys, E('bad_author', 'discard'));
   const real = openRecord(sealedB, keyRing([[s.gid, 0, s.key(0)]]));
   const realBody = encode(real.body);
-  open('moved-header-new-salt', 'The same signed body re-sealed with another salt: the signature covers the header.',
-    H(sealPlaintext(s.gid, 0, s.key(0), bytesOf('moved salt'), padPlaintext(realBody))), keys, E('bad_signature', 'discard'));
-  open('moved-header-new-epoch', 'The same signed body re-sealed into epoch 1: cannot be moved to another epoch.',
-    H(sealPlaintext(s.gid, 1, s.key(1), bytesOf('moved salt'), padPlaintext(realBody))), s.keyList(), E('bad_signature', 'discard'));
+  const without9 = new Map(real.body); without9.delete(9);
+  const derivedFor = (k: Uint8Array) => deriveSalt(k, without9 as never);
+  open('moved-header-new-salt', 'The same signed body re-sealed with another salt: the salt is not the one derived from the key and the body, so it is discarded before the signature is looked at (bad_salt, 4.1).',
+    H(sealPlaintext(s.gid, 0, s.key(0), bytesOf('moved salt'), padPlaintext(realBody))), keys, E('bad_salt', 'discard'));
+  open('moved-header-new-epoch', 'The same signed body re-sealed into epoch 1 with the salt derived for that key: the salt matches, but the signature covers the header, so it cannot be moved to another epoch.',
+    H(sealPlaintext(s.gid, 1, s.key(1), derivedFor(s.key(1)), padPlaintext(realBody))), s.keyList(), E('bad_signature', 'discard'));
   const otherGid = bytesOf('other group');
-  open('moved-header-new-group', 'The same signed body re-sealed into another group: cannot be moved.',
-    H(sealPlaintext(otherGid, 0, s.key(0), bytesOf('moved salt'), padPlaintext(realBody))), [...keys, { gid: H(otherGid), epoch: 0, key: H(s.key(0)) }], E('bad_signature', 'discard'));
+  open('moved-header-new-group', 'The same signed body re-sealed into another group with the derived salt: cannot be moved.',
+    H(sealPlaintext(otherGid, 0, s.key(0), derivedFor(s.key(0)), padPlaintext(realBody))), [...keys, { gid: H(otherGid), epoch: 0, key: H(s.key(0)) }], E('bad_signature', 'discard'));
+
+  // The salt (4.1, 9 step 2): derived from the key and the body, recomputed by the reader.
+  const bodyWithout9Hex = H(encode(bodyMap({ author: s.person('alice').pid, device: s.device('a1'), seq: 1, prev: null, clock: [BASE_MS, 0], kind: KIND.item,
+    payload: itemPayload(itemId('1'), [['title', 'Hello'], ['url', 'https://example.com']], ['old']), mhead: bytesOf('vector mhead') })));
+  const salted = o.add('record/salt-derived', 'salt = HKDF(ikm = K_epoch, salt = SHA-256(body_without_9), info = "psss/v1/salt"), for the body of record/seal-item.', 'record.salt', { key: H(s.key(0)), body_without_9: bodyWithout9Hex });
+  assert.equal(salted.expected.salt, sealed.expected.salt, 'the salt record/seal-item used is the derived one');
+  const twice = o.add('record/same-body-sealed-twice', 'The same body sealed twice gives the same sealed record and the same record_id (4.1 deterministic sealing, 4.4 identity).', 'record.seal_twice', base);
+  assert.equal(twice.expected.same, true); assert.equal(twice.expected.record_id, sealed.expected.record_id);
+  const otherBody = o.add('record/different-body-different-record', 'A body that differs in one field (the title) gives a different salt, a different sealed record and a different record_id.', 'record.seal_twice',
+    { ...base, payload: payloadHex(itemId('1'), [['title', 'Hellp'], ['url', 'https://example.com']], ['old']) });
+  assert.notEqual(otherBody.expected.record_id, sealed.expected.record_id); assert.notEqual(otherBody.expected.salt, sealed.expected.salt);
+  const oddSalt = compute('record.seal', { ...base, salt: H(bytesOf('a random salt')) });
+  open('salt-does-not-match-body', 'A record properly signed (the signature covers the header with the odd salt) but sealed with a salt that is not the derived one: the reader recomputes the salt and discards the record (bad_salt).', oddSalt.sealed, keys, E('bad_salt', 'discard'));
+  // Same body, different key: the derived salt follows the key.
+  assert.notEqual(derivedFor(s.key(0)).join(), derivedFor(s.key(1)).join());
+
+  // Extension keys (section 2): integer keys of 128 and above in a body and in a payload are kept, signed and ignored.
+  const extPayload = (keys: [number | string, CborValue][]) => H(encode(cmap([[1, itemId('1')], [2, new Map([['title', 'Hello']]) as CborValue], [3, []], ...keys as [number, CborValue][]])));
+  const BIG = '18446744073709551615';
+  const extValue = H(encode('x'));
+  const openExt = (label: string, extra: J) => compute('record.seal', { ...base, ...extra, tag: label });
+  for (const [k, desc] of [['127', 'key 127, the largest key that is not an extension key'], ['128', 'key 128, the smallest extension key'], ['4294967296', 'key 2^32'], [BIG, 'key 2^64 - 1']] as const) {
+    const inBody = openExt(`body ${k}`, { extensions: [[k, extValue]] });
+    const ok = k !== '127';
+    const bo = open(`extension-key-${k}-in-body`, `A body carrying ${desc}: ${ok ? 'kept and ignored; the signature covers it, and it verifies' : 'not an extension key and not defined: the body is malformed'}.`, inBody.sealed, keys,
+      ok ? undefined : E('bad_body_schema', 'discard'));
+    if (ok) { assert(bo.expected.ok, JSON.stringify(bo.expected)); assert.deepEqual(bo.expected.ok.extension_keys, [k]); assert.deepEqual(bo.expected.ok.payload_extension_keys, []); }
+    const pk = k === BIG ? BigInt(k) : Number(k);
+    const inPayload = openExt(`payload ${k}`, { payload: extPayload([[pk as never, 'x']]) });
+    const po = open(`extension-key-${k}-in-payload`, `An item payload carrying ${desc}: ${ok ? 'kept and ignored' : 'not defined: the payload is malformed'}.`, inPayload.sealed, keys, ok ? undefined : E('bad_payload', 'discard'));
+    if (ok) { assert.deepEqual(po.expected.ok.payload_extension_keys, [k]); assert.deepEqual(po.expected.ok.extension_keys, []); }
+  }
+  // The signature covers extension keys: change the value of one and keep the old signature (with the salt recomputed so only the signature is wrong).
+  const signedExt = openRecord(fromHex(openExt('cover', { extensions: [['128', extValue]] }).sealed), keyRing([[s.gid, 0, s.key(0)]]));
+  const edited = new Map(signedExt.body); edited.set(128, 'y');
+  const editedWithout9 = new Map(edited); editedWithout9.delete(9);
+  open('extension-key-value-changed-after-signing', 'The signed record with the value of extension key 128 changed, the old signature kept and the salt recomputed: the signature no longer verifies (bad_signature), so extension keys are covered by it.',
+    H(sealPlaintext(s.gid, 0, s.key(0), deriveSalt(s.key(0), editedWithout9 as never), padPlaintext(encode(edited)))), keys, E('bad_signature', 'discard'));
   // Payload shape.
   const pay = (tag: string, payload: CborValue) => compute('record.seal', { ...base, payload: H(encode(payload)), tag });
   open('payload-field-in-set-and-clear', 'A field named in both set and clear (5.1).', pay('both', cmap([[1, itemId('1')], [2, new Map([['a', 1]]) as CborValue], [3, ['a']]])).sealed, keys, E('bad_payload', 'discard'));
@@ -328,7 +368,7 @@ export function recordVectors(s: Scenario): J {
   }
 
   // The largest record (4.1, 4.2): body of exactly 1,048,576 bytes, and one byte more.
-  const big = (len: number, tag: string) => ({ signer_ps: H(s.person('alice').ps), gid: H(s.gid), epoch: 0, key: H(s.key(0)), salt: H(bytesOf(`vector big ${tag}`)),
+  const big = (len: number, _tag: string) => ({ signer_ps: H(s.person('alice').ps), gid: H(s.gid), epoch: 0, key: H(s.key(0)),
     author: H(s.person('alice').pid), device: H(s.device('a1')), seq: 1, clock: [BASE_MS, 0], mhead: H(bytesOf('vector mhead')), item: H(itemId('big')), bytes_len: len });
   const probe = 1_000_000;
   const want = probe + (1048576 - (compute('record.seal_large', big(probe, 'probe')).body_len as number)); // the length head is constant in this range
@@ -366,11 +406,17 @@ export function clockVectors(s: Scenario): J {
   o.add('clock/next/equal-wall', 'Own time equals the largest accepted wall_ms: counter one more.', 'clock.next', { now_ms: 900, seen: [[900, 4], [800, 9]] }, { clock: [900, 5] });
   o.add('clock/next/behind', 'Own clock behind: take the largest accepted wall_ms, counter one more than the largest there.', 'clock.next', { now_ms: 100, seen: [[900, 4], [900, 2], [800, 9]] }, { clock: [900, 5] });
   o.add('clock/next/nothing-seen', 'Nothing accepted.', 'clock.next', { now_ms: 7, seen: [] }, { clock: [7, 0] });
-  const day = 86400000;
-  o.add('clock/held-back/exactly-24h', 'Exactly 24 hours ahead: not more than 24 hours, so not held back.', 'clock.held_back', { wall_ms: 1000 + day, now_ms: 1000 }, { held_back: false });
-  o.add('clock/held-back/one-ms-over', '24 hours and 1 ms ahead: held back.', 'clock.held_back', { wall_ms: 1001 + day, now_ms: 1000 }, { held_back: true });
-  o.add('clock/held-back/one-ms-under', '24 hours less 1 ms ahead.', 'clock.held_back', { wall_ms: 999 + day, now_ms: 1000 }, { held_back: false });
+  const ten = 600000;
+  o.add('clock/held-back/exactly-10-minutes', 'Exactly 10 minutes ahead: not more than 10 minutes, so not held back.', 'clock.held_back', { wall_ms: 1000 + ten, now_ms: 1000 }, { held_back: false });
+  o.add('clock/held-back/one-ms-over', '10 minutes and 1 ms ahead: held back.', 'clock.held_back', { wall_ms: 1001 + ten, now_ms: 1000 }, { held_back: true });
+  o.add('clock/held-back/one-ms-under', '10 minutes less 1 ms ahead.', 'clock.held_back', { wall_ms: 999 + ten, now_ms: 1000 }, { held_back: false });
+  o.add('clock/held-back/24h-is-far-over', 'Draft 2 allowed 24 hours; a record 24 hours ahead is now held back.', 'clock.held_back', { wall_ms: 1000 + 86400000, now_ms: 1000 }, { held_back: true });
   o.add('clock/held-back/past', 'In the past.', 'clock.held_back', { wall_ms: 5, now_ms: 1000 }, { held_back: false });
+  // Purging a deleted item (5.1): 30 days on the purging device's own clock from when it accepted the delete; the value in the record plays no part.
+  const days30 = 30 * 86400000;
+  o.add('clock/purge-due/exactly-30-days', 'The device accepted the delete 30 days ago to the millisecond: due (this implementation reads "30 days" as at least 30 days).', 'clock.purge_due', { accepted_ms: 5000, now_ms: 5000 + days30 }, { due: true });
+  o.add('clock/purge-due/one-ms-short', '30 days less 1 ms after acceptance: not due.', 'clock.purge_due', { accepted_ms: 5000, now_ms: 5000 + days30 - 1 }, { due: false });
+  o.add('clock/purge-due/just-accepted-however-old-the-record', 'Timed from when the device accepted the delete, never from a time in the record: a delete record whose own time is years old, accepted just now, is not due.', 'clock.purge_due', { accepted_ms: 1_700_000_000_000, now_ms: 1_700_000_000_000 }, { due: false });
   return file('Clock and total order (section 4.5).', o);
 }
 
@@ -415,6 +461,29 @@ export function foldVectors(s: Scenario): J {
   run('three-orders-one-state', 'The same four records folded in three different orders (listed) give one state.', four, [[0, 1, 2, 3], [3, 2, 1, 0], [2, 0, 3, 1]]);
   const dup = ch(A, d1, 1, 10, 0, I, [['title', 'T']]);
   run('duplicate-record', 'The same record twice changes nothing.', [dup, { ...dup }, ch(B, d1, 1, 11, 0, I, [['title', 'U']])]);
+  // ---- expected states written by hand (the reasoning is in the description of each vector); the library is asserted to agree.
+  const names = itemNames(['i1', I], ['i2', I2]);
+  const state = (name: string) => stateView(o.list.find((v) => v.name === `fold/${name}`)!.expected.state, names);
+  const hist = (name: string, field: string) => historyView(o.list.find((v) => v.name === `fold/${name}`)!.expected.state, H(I), field);
+  const one = (fields: J, deleted = false) => ({ i1: { deleted, fields } });
+  assert.deepEqual(state('different-fields'), one({ title: 'T', url: 'U' }));
+  assert.deepEqual(state('same-field'), one({ title: 'new' })); assert.deepEqual(hist('same-field', 'title'), ['old']);
+  assert.deepEqual(state('tie-wall-counter-author'), one({ f: 'from the greater author' }));
+  assert.deepEqual(state('tie-counter'), one({ f: 'counter 1' }));
+  assert.deepEqual(state('clear-after-set'), one({ note: CLEARED })); assert.deepEqual(hist('clear-after-set', 'note'), ['x']);
+  assert.deepEqual(state('set-after-clear'), one({ note: 'back' })); assert.deepEqual(hist('set-after-clear', 'note'), [CLEARED]);
+  assert.deepEqual(state('null-value-vs-clear'), one({ f: null, g: CLEARED }));
+  assert.deepEqual(state('delete-after-edit'), one({ title: 'T', deleted: 20 }, true));
+  assert.deepEqual(state('edit-after-delete'), one({ title: 'T2', deleted: 20 }, false));
+  assert.deepEqual(state('clear-after-delete'), one({ title: CLEARED, deleted: 20 }, false));
+  assert.deepEqual(state('delete-in-same-record-as-edit'), one({ title: 'T', deleted: 10 }, true));
+  assert.deepEqual(state('delete-tie-with-edit-by-greater-author'), one({ deleted: 10, title: 'T' }, false));
+  assert.deepEqual(state('delete-tie-with-edit-by-smaller-author'), one({ deleted: 10, title: 'T' }, true));
+  assert.deepEqual(state('delete-value-plays-no-part'), one({ deleted: 1 }, true));
+  assert.deepEqual(state('clear-deleted-field'), one({ deleted: CLEARED }, false));
+  assert.deepEqual(state('structured-values'), one({ passkey: { '1': '0x03' } }));
+  assert.deepEqual(state('two-items'), { i1: { deleted: false, fields: { t: 1 } }, i2: { deleted: false, fields: { t: 2 } } });
+  assert.deepEqual(state('duplicate-record'), one({ title: 'U' })); assert.deepEqual(hist('duplicate-record', 'title'), ['T']);
   return file('Folding item changes into state (section 5.1).', o);
 }
 
@@ -425,6 +494,7 @@ export function checkpointVectors(s: Scenario): J {
   const I = itemId('i1'), I2 = itemId('i2');
   const ch = (who: Uint8Array, dev: Uint8Array, seq: number, wall: number, counter: number, item: Uint8Array, set: [string, CborValue][], clear: string[] = []) =>
     ({ clock: [wall, counter], author: H(who), device: H(dev), seq, payload: payloadHex(item, set, clear) });
+  const names = itemNames(['i1', I], ['i2', I2]);
   const clk = (c: J) => ({ wall: c.clock[0], counter: c.clock[1], author: c.author, device: c.device, seq: c.seq });
   const changes = [ch(A, d1, 1, 10, 0, I, [['title', 'old'], ['url', 'u']]), ch(B, d2, 1, 12, 0, I, [['title', 'mid']]), ch(A, d1, 2, 14, 0, I, [], ['url']),
                    ch(B, d2, 2, 15, 0, I2, [['t', 1], ['deleted', 15]]),
@@ -468,6 +538,38 @@ export function checkpointVectors(s: Scenario): J {
     { changes: pg, checkpoints: [{ include: [0, 1, 2, 3], covered: [], purged: [{ item: H(I), clock: clk(pg[2]!) }] }], runs: [{ changes: [0, 1, 2], checkpoints: [0] }] });
   o.add('checkpoint/purged-two-places', 'Two purged entries for one item: the later place applies.', 'checkpoint.run',
     { changes: pg, checkpoints: [{ include: [0, 1, 2, 3], covered: [], purged: [{ item: H(I), clock: clk(pg[0]!) }, { item: H(I), clock: clk(pg[1]!) }] }], runs: [{ changes: [], checkpoints: [0] }] });
-  void I2; void seed32;
+  // ---- a checkpoint in three parts (5.3): writes fold as soon as a part is accepted; covered and purged only when the set is complete.
+  const I3 = itemId('i3');
+  const pc = [ch(A, d1, 1, 10, 0, I, [['password', 'secret one']]), ch(A, d1, 2, 20, 0, I, [['password', 'secret two']]), ch(A, d1, 3, 30, 0, I, [['password', 'secret three']]),
+              ch(B, d2, 1, 15, 0, I2, [['t', 1]]), ch(B, d2, 2, 16, 0, I3, [['t', 9]])];
+  const setId = H(bytesOf('three part set', 16));
+  const sp = (part: number, include: number[], extra: J = {}) => ({ include, covered: [], set: { id: setId, part, parts: 3 }, ...extra });
+  const parts = [sp(0, [0, 1, 2], { history: 2, purged: [{ item: H(I), clock: clk(pc[1]!) }] }), sp(1, [3]), sp(2, [4])];
+  const tp = o.add('checkpoint/three-parts-every-order-and-with-one-missing', 'One checkpoint in three records (part 0 carries item i1 with its two earlier writes and purges i1 up to its second write; parts 1 and 2 carry i2 and i3). Runs 0 to 2 fold all three parts in three different orders: the set is complete, the purge takes effect (the first two passwords are forgotten) and all three give one state. Run 3 has part 2 missing and run 5 part 1 missing: their writes fold, the purge does not take effect (all three passwords stay). Run 4 has part 0 missing: i2 and i3 fold, nothing else.',
+    'checkpoint.run', { changes: pc, checkpoints: parts, runs: [{ changes: [], checkpoints: [0, 1, 2] }, { changes: [], checkpoints: [2, 1, 0] }, { changes: [], checkpoints: [1, 0, 2] },
+                                                                  { changes: [], checkpoints: [0, 1] }, { changes: [], checkpoints: [1, 2] }, { changes: [], checkpoints: [0, 2] }] });
+  const nm = itemNames(['i1', I], ['i2', I2], ['i3', I3]);
+  const st = (n: number) => stateView(tp.expected.states[n], nm);
+  const completeState = { i1: { deleted: false, fields: { password: 'secret three' } }, i2: { deleted: false, fields: { t: 1 } }, i3: { deleted: false, fields: { t: 9 } } };
+  for (const n of [0, 1, 2]) assert.deepEqual(st(n), completeState);
+  assert.deepEqual(historyView(tp.expected.states[0], H(I), 'password'), []);
+  assert.deepEqual(st(3), { i1: { deleted: false, fields: { password: 'secret three' } }, i2: { deleted: false, fields: { t: 1 } } });
+  assert.deepEqual(historyView(tp.expected.states[3], H(I), 'password'), ['secret one', 'secret two']);
+  assert.deepEqual(st(4), { i2: { deleted: false, fields: { t: 1 } }, i3: { deleted: false, fields: { t: 9 } } });
+  assert.deepEqual(st(5), { i1: { deleted: false, fields: { password: 'secret three' } }, i3: { deleted: false, fields: { t: 9 } } });
+  // History carried by a checkpoint, and a write it leaves out.
+  const hv = o.add('checkpoint/history-carried-and-left-out', 'A checkpoint that carries the winning password and one earlier write (history 1). Run 0 folds it alone, as after the covered records were deleted: the history is "secret two" and the write left out ("secret one") is forgotten. Run 1 folds it with the records: both earlier writes are history.',
+    'checkpoint.run', { changes: pc.slice(0, 3), checkpoints: [{ include: [0, 1, 2], covered: [], history: 1 }], runs: [{ changes: [], checkpoints: [0] }, { changes: [0, 1, 2], checkpoints: [0] }] });
+  assert.deepEqual(historyView(hv.expected.states[0], H(I), 'password'), ['secret two']);
+  assert.deepEqual(historyView(hv.expected.states[1], H(I), 'password'), ['secret one', 'secret two']);
+  assert.deepEqual(stateView(hv.expected.states[0], nm), { i1: { deleted: false, fields: { password: 'secret three' } } });
+  // Hand-written final states for three more checkpoint cases.
+  assert.deepEqual(stateView(v1.expected.states[0], names), { i1: { deleted: false, fields: { title: 'new', url: CLEARED } }, i2: { deleted: false, fields: { t: 2, deleted: 15 } } });
+  assert.deepEqual(stateView(v1.expected.states[1], names), stateView(v1.expected.states[0], names));
+  assert.deepEqual(stateView(nc.expected.states[0], names), { i1: { deleted: false, fields: { f: null } } });
+  assert.deepEqual(stateView(nc.expected.states[1], names), { i1: { deleted: false, fields: { f: CLEARED } } });
+  assert.deepEqual(stateView(pv.expected.states[0], names), { i1: { deleted: false, fields: { password: 'secret three' } }, i2: { deleted: false, fields: { t: 1 } } });
+  assert.deepEqual(stateView(pv.expected.states[1], names), stateView(pv.expected.states[0], names));
+  void seed32;
   return file('Checkpoints (section 5.3): restated writes, null and cleared, overlap, permanent delete.', o);
 }

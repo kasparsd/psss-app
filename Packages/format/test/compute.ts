@@ -1,19 +1,20 @@
 // compute(type, input) -> expected, for every vector type. The generator uses it to fill `expected`; the tests call it again
 // from the parsed JSON (hex only) and compare. Hand-written expectations in the generator are checked against it.
-import { fromHex, hex } from '../src/bytes.ts';
+import { concat, fromHex, hex } from '../src/bytes.ts';
 import { CborError, cmap, decode, encode, type CborValue, type CMap } from '../src/cbor.ts';
-import { checkpointItems, checkpointPayload, checkpointWritesOf, fold, summarize, type Change } from '../src/fold.ts';
-import { evaluateGroup } from '../src/group.ts';
+import { checkpointItems, checkpointPayload, checkpointWritesOf, fold, purgeDue, summarize, type Change } from '../src/fold.ts';
+import { evaluateGroup, resolveMembership } from '../src/group.ts';
+import { checkLocation, type Offered, type Remembered } from '../src/remember.ts';
 import * as hpke from '../src/hpke.ts';
 import { commitOf, derivePerson, FormatError, gidOf, makeCard, verifyCardBytes } from '../src/keys.ts';
-import { compareKeys, header, heldBack, keyRing, nextClock, openRecord, paddedLength, recordKey, recordId, signedBytes, bodyMap,
+import { compareKeys, deriveSalt, header, heldBack, keyRing, nextClock, openRecord, paddedLength, recordKey, recordId, signedBytes, bodyMap,
          padPlaintext, sealPlaintext, sealRecord, type OrderKey, type Rec } from '../src/record.ts';
 import { ed25519Check, ed25519Sign, sha256 } from '../src/prims.ts';
 import * as slots from '../src/slots.ts';
 import * as xw from '../src/xwing.ts';
-import { appendRecord, frame, initFolder, listFiles, putSlot, putWrap, readFrames, readGroupLog } from '../src/folder.ts';
+import { TMP_PREFIX, chainDir, frame, gatherSegments, initFolder, listFiles, putSlot, putWrap, readFrames, readGroupLog, segmentName, writeSegment } from '../src/folder.ts';
 import { limits } from '../src/limits.ts';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fromNotation, toNotation, type N } from './notation.ts';
@@ -21,6 +22,8 @@ import { fromNotation, toNotation, type N } from './notation.ts';
 type J = Record<string, any>;
 const F = fromHex;
 const H = hex;
+/** Extension keys (integer keys of 128 and above) of a map, as decimal strings. */
+const extKeys = (m: CMap): string[] => [...m.keys()].filter((k) => typeof k === 'bigint' || (typeof k === 'number' && k >= 128)).map(String);
 export const err = (e: unknown): J => {
   if (e instanceof FormatError) return { error: { code: e.code, disposition: e.disposition } };
   if (e instanceof CborError) return { error: { code: e.reason } };
@@ -37,27 +40,31 @@ const changeOf = (c: J): Change => ({ key5: [c.clock[0], c.clock[1], F(c.author)
 const sortObj = (o: J) => Object.fromEntries(Object.entries(o).sort(([a], [b]) => a < b ? -1 : 1));
 const byId = (a: { id: string }, b: { id: string }) => a.id < b.id ? -1 : 1;
 
-export function groupJson(gid: Uint8Array, sealed: Uint8Array[], keys: J[], nowMs?: number): J {
+function groupInputs(sealed: Uint8Array[], keys: J[]) {
   const ring = ringOf(keys);
   const recs: Rec[] = [];
   const rejected: J[] = [];
   sealed.forEach((s, index) => {
     try { recs.push(openRecord(s, ring)); } catch (e) { const f = e as FormatError; rejected.push({ index, code: f.code, disposition: f.disposition }); }
   });
+  return { recs, rejected };
+}
+
+export function groupJson(gid: Uint8Array, sealed: Uint8Array[], keys: J[], nowMs?: number): J {
+  const { recs, rejected } = groupInputs(sealed, keys);
   const v = evaluateGroup(gid, recs, nowMs);
   const m = v.membership;
   return {
     rejected,
+    unsupported: v.unsupported,
+    min_reader: m.minReader,
     chain: m.chain.map((r) => H(r.id)),
     ignored: sortObj(Object.fromEntries(m.ignored)),
     lost: [...m.lost].sort(),
     epoch: m.epoch,
     roles: sortObj(Object.fromEntries(m.roles)),
     cuts: m.cuts.map((c) => ({ pid: c.pid, record: c.record, epoch: c.epoch, cut: sortObj(Object.fromEntries(c.cut)) })),
-    waiting_for_key: m.waitingForKey,
-    pending_epoch: m.pendingEpoch,
-    may_seal_content: v.maySealContent,
-    membership_forks: [...m.forks].sort((a, b) => a.mprev < b.mprev ? -1 : 1).map((f) => ({ mprev: f.mprev, candidates: [...f.candidates].sort(), winner: f.winner, rule: f.rule })),
+    membership_forks: [...m.forks].sort((a, b) => a.mprev < b.mprev ? -1 : 1).map((f) => ({ mprev: f.mprev, candidates: [...f.candidates].sort(), winner: f.winner, rule: f.rule, decided_by: f.decidedBy })),
     duplicate_genesis: [...m.duplicateGenesis].sort(),
     chain_forks: sortObj(Object.fromEntries([...v.chains.forks].map(([k, f]) => [k, { seq: f.seq, ids: f.ids.map(H).sort() }]))),
     fork_blocked: v.chains.forkBlocked.map((r) => H(r.id)).sort(),
@@ -66,8 +73,22 @@ export function groupJson(gid: Uint8Array, sealed: Uint8Array[], keys: J[], nowM
     checkpoint_mismatches: v.chains.mismatches.map((r) => H(r.id)).sort(),
     held_back: v.held.map((r) => H(r.id)).sort(),
     checkpoints: v.checkpoints.map((r) => H(r.id)).sort(),
+    complete_checkpoint_sets: v.completeSets.map((r) => H(r.id)).sort(),
+    covered: sortObj(Object.fromEntries([...v.covered].map(([k, c]) => [k, { seq: c.seq, record_id: H(c.id) }]))),
+    purge_requests: v.purgeRequests.map((p) => ({ item: p.item, by: p.by, record: p.record })).sort((a, b) => a.record + a.item < b.record + b.item ? -1 : 1),
+    hidden: v.hidden,
     content: v.content.map((c) => ({ id: H(c.rec.id), status: c.status })).sort(byId),
     state: summarize(v.state),
+  };
+}
+
+/** Membership alone, without the chain rules of 4.4: the records are handed straight to the 6.5 resolver. */
+function resolveJson(gid: Uint8Array, sealed: Uint8Array[], keys: J[]): J {
+  const { recs, rejected } = groupInputs(sealed, keys);
+  const m = resolveMembership(gid, recs);
+  return {
+    rejected, chain: m.chain.map((r) => H(r.id)), ignored: sortObj(Object.fromEntries(m.ignored)), epoch: m.epoch,
+    forks: m.forks.map((f) => ({ mprev: f.mprev, candidates: [...f.candidates].sort(), winner: f.winner, rule: f.rule, decided_by: f.decidedBy })),
   };
 }
 
@@ -84,13 +105,14 @@ const openResult = (sealed: Uint8Array, ring: ReturnType<typeof keyRing>): J => 
   try { openRecord(sealed, ring); return { ok: true }; } catch (e) { return err(e); }
 };
 
-/** Everything `checkpoint.run` returns for one checkpoint: payload bytes. */
+/** Everything `checkpoint.run` returns for one checkpoint record: payload bytes. `history` is how many earlier writes per field it
+ *  carries besides the winning one; `set` makes it one part of a set (5.3). */
 function checkpointOf(c: J, changes: Change[]): { payload: CMap; bytes: Uint8Array } {
   const inc = (c.include as number[]).map((n) => changes[n]!);
-  const items = checkpointItems(fold(inc));
+  const items = checkpointItems(fold(inc), c.history ?? 0);
   const purged = (c.purged ?? []).map((p: J) => [F(p.item), clockTuple(p.clock)] as [Uint8Array, OrderKey]);
   const covered = (c.covered ?? []).map((x: J) => [F(x.author), F(x.device), x.seq, F(x.record_id)] as [Uint8Array, Uint8Array, number, Uint8Array]);
-  const payload = checkpointPayload(items, covered, purged);
+  const payload = checkpointPayload(items, covered, purged, c.set ? { id: F(c.set.id), part: c.set.part, parts: c.set.parts } : undefined);
   return { payload, bytes: encode(payload) };
 }
 
@@ -124,27 +146,33 @@ export function compute(type: string, i: J): J {
       const signer = derivePerson(F(i.signer_ps));
       const f = { author: F(i.author), device: F(i.device), seq: i.seq, prev: i.prev === null ? null : F(i.prev),
                   clock: i.clock as [number, number], kind: i.kind, payload: decode(F(i.payload)),
-                  ...(i.mhead ? { mhead: F(i.mhead) } : {}) };
-      const gid = F(i.gid), salt = F(i.salt), key = F(i.key);
-      const hdr = header(gid, i.epoch, salt);
+                  ...(i.mhead ? { mhead: F(i.mhead) } : {}),
+                  ...(i.extensions ? { extensions: (i.extensions as [string, string][]).map(([k, v]) => [BigInt(k) <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(k) : BigInt(k), decode(F(v))] as [number | bigint, CborValue]) } : {}) };
+      const gid = F(i.gid), key = F(i.key);
       const body = bodyMap(f);
+      const salt = i.salt ? F(i.salt) : deriveSalt(key, body);
+      const hdr = header(gid, i.epoch, salt);
       const msg = signedBytes(hdr, body);
       const sig = i.sig_override ? F(i.sig_override) : ed25519Sign(signer.signSeed, msg);
-      const sealed = sealRecord(signer, gid, i.epoch, key, salt, f, i.sig_override ? { sigOverride: sig } : {});
+      const sealed = sealRecord(signer, gid, i.epoch, key, f, { ...(i.sig_override ? { sigOverride: sig } : {}), ...(i.salt ? { salt } : {}) });
       body.set(9, sig);
       const plain = padPlaintext(encode(body));
-      return { header: H(hdr), body_without_sig: H(encode(bodyMap(f))), signed_message: H(msg), sig: H(sig),
+      return { salt: H(salt), header: H(hdr), body_without_sig: H(encode(bodyMap(f))), signed_message: H(msg), sig: H(sig),
                plaintext_len_before_padding: 4 + encode(body).length, padded_len: plain.length,
                sealed: H(sealed), sealed_len: sealed.length, record_id: H(recordId(sealed)),
                opens: openResult(sealed, keyRing([[gid, i.epoch, key]])) };
+    }
+    case 'record.seal_twice': {
+      const a = compute('record.seal', i), b = compute('record.seal', i);
+      return { salt: a.salt, sealed: a.sealed, record_id: a.record_id, same: a.sealed === b.sealed && a.record_id === b.record_id };
     }
     case 'record.seal_large': {
       // A record whose payload is one field of `bytes_len` bytes (the ramp pattern): the JSON stays small.
       const signer = derivePerson(F(i.signer_ps));
       const payload = cmap([[1, F(i.item)], [2, new Map([['f', rampBytes(i.bytes_len)]]) as CborValue], [3, []]]);
       const f = { author: F(i.author), device: F(i.device), seq: i.seq, prev: null, clock: i.clock as [number, number], kind: 16, payload, mhead: F(i.mhead) };
-      const gid = F(i.gid), salt = F(i.salt), key = F(i.key);
-      const sealed = sealRecord(signer, gid, i.epoch, key, salt, f);
+      const gid = F(i.gid), key = F(i.key);
+      const sealed = sealRecord(signer, gid, i.epoch, key, f);
       const body = bodyMap(f);
       body.set(9, new Uint8Array(64));
       return { body_len: encode(body).length, sealed_len: sealed.length, sealed_sha256: H(sha256(sealed)), record_id: H(recordId(sealed)),
@@ -163,7 +191,8 @@ export function compute(type: string, i: J): J {
       try {
         const r = openRecord(F(i.sealed), ringOf(i.keys));
         return { ok: { epoch: r.epoch, author: H(r.author), device: H(r.device), seq: r.seq, prev: r.prev ? H(r.prev) : null,
-                       clock: [r.wall, r.counter], kind: r.kind, mhead: r.mhead ? H(r.mhead) : null, record_id: H(r.id), payload: H(encode(r.payload)) } };
+                       clock: [r.wall, r.counter], kind: r.kind, mhead: r.mhead ? H(r.mhead) : null, record_id: H(r.id), payload: H(encode(r.payload)),
+                       extension_keys: extKeys(r.body), payload_extension_keys: extKeys(r.payload) } };
       } catch (e) { return err(e); }
     }
     case 'clock.order': {
@@ -172,6 +201,8 @@ export function compute(type: string, i: J): J {
     }
     case 'clock.next': return { clock: nextClock(i.now_ms, i.seen as [number, number][]) };
     case 'clock.held_back': return { held_back: heldBack(i.wall_ms, i.now_ms) };
+    case 'clock.purge_due': return { due: purgeDue(i.accepted_ms, i.now_ms) };
+    case 'record.salt': return { salt: H(deriveSalt(F(i.key), decode(F(i.body_without_9)) as CMap)) };
     case 'fold.run': {
       const out: J = { state: foldChanges(i.changes) };
       if (i.orders) out.states_by_order = (i.orders as number[][]).map((o) => foldChanges(i.changes, o));
@@ -188,6 +219,13 @@ export function compute(type: string, i: J): J {
       };
     }
     case 'group.evaluate': return groupJson(F(i.gid), (i.records as string[]).map(F), i.keys, i.now_ms);
+    case 'group.resolve_membership': return resolveJson(F(i.gid), (i.records as string[]).map(F), i.keys);
+    case 'remember.check': {
+      const mine: Remembered = new Map((i.remembered as J[]).map((r) => [r.chain, { seq: r.seq, id: F(r.record_id) }]));
+      const offered: Offered = new Map((i.offered as J[]).map((o) => [o.chain, (o.records as J[]).map((r) => ({ seq: r.seq, id: F(r.record_id) }))]));
+      const covered = new Map(((i.covered ?? []) as J[]).map((c) => [c.chain, c.seq] as [string, number]));
+      return { rolled_back: checkLocation(mine, offered, covered) };
+    }
     case 'slot.seal_password':
       return { slot: H(slots.sealPasswordSlot(F(i.ps), F(i.pid), F(i.slot_id), F(i.salt), i.params, i.password)) };
     case 'slot.craft_password': {
@@ -231,7 +269,6 @@ export function compute(type: string, i: J): J {
       return { frames: r.frames.length, stopped: r.stopped, incomplete_tail_bytes: r.incompleteTail };
     }
     case 'folder.tree': return folderTree(i);
-    case 'folder.append_after': return folderAppendAfter(i);
     default: throw new Error(`unknown vector type ${type}`);
   }
 }
@@ -259,35 +296,32 @@ function attachmentRun(i: J): J {
   return { chunk_count: lens.length, chunk_ids: ids.map(H), data_sha256: H(sha256(data)), ...result };
 }
 
+/** 8.1: lay out a folder from slots, wraps and segment writes; list the files; read the group's log back.
+ *  `writes`: one new file each: { author, device, records: [sealed hex], membership?, tmp? } (tmp: left as a `.tmp-` file, as after a crash).
+ *  `gather`: [{ author, device }] devices that then gather their own small segments. `keys`: the ring the reader uses (for sequence checks). */
 function folderTree(i: J): J {
   const root = mkdtempSync(join(tmpdir(), 'psss-folder-'));
   try {
     initFolder(root);
-    for (const s of i.slots as J[]) putSlot(root, F(s.pid), F(s.slot_id), F(s.slot));
-    for (const w of i.wraps as J[]) putWrap(root, F(i.gid), w.epoch, F(w.pid), F(w.name), F(w.wrap));
-    for (const r of i.records as J[]) appendRecord(root, F(i.gid), F(r.author), F(r.device), r.seq, F(r.sealed), !!r.membership);
+    const gid = F(i.gid);
+    const ring = i.keys ? ringOf(i.keys) : null;
+    const seqOf = (sealed: Uint8Array) => { if (!ring) return null; try { return openRecord(sealed, ring).seq; } catch { return null; } };
+    for (const s of (i.slots ?? []) as J[]) putSlot(root, F(s.pid), F(s.slot_id), F(s.slot));
+    for (const w of (i.wraps ?? []) as J[]) putWrap(root, gid, w.epoch, F(w.pid), F(w.name), F(w.wrap));
+    for (const w of i.writes as J[]) {
+      const recs = (w.records as string[]).map(F);
+      const first = w.first_seq ?? seqOf(recs[0]!)!;
+      if (w.tmp) {
+        const dir = join(root, chainDir(H(gid), w.author, w.device));
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, `${TMP_PREFIX}${w.tmp}-${segmentName(first, first + recs.length - 1, !!w.membership)}`), concat(...recs.map(frame)));
+      } else writeSegment(root, gid, F(w.author), F(w.device), first, recs, !!w.membership);
+    }
+    for (const g of (i.gather ?? []) as J[]) gatherSegments(root, gid, F(g.author), F(g.device), (x) => openRecord(x, ring!).seq);
     const files: J = {};
-    for (const p of listFiles(root)) files[p] = p.endsWith('.seg') && readFileSync(join(root, p)).length > 4096 ? { bytes: readFileSync(join(root, p)).length, sha256: H(sha256(new Uint8Array(readFileSync(join(root, p))))) } : H(new Uint8Array(readFileSync(join(root, p))));
-    const read = readGroupLog(root, F(i.gid)).map((x) => ({ path: x.path, record_id: H(recordId(x.sealed)) }));
+    for (const p of listFiles(root)) files[p] = readFileSync(join(root, p)).length > 4096 ? { bytes: readFileSync(join(root, p)).length, sha256: H(sha256(new Uint8Array(readFileSync(join(root, p))))) } : H(new Uint8Array(readFileSync(join(root, p))));
+    const read = readGroupLog(root, gid, ring ? seqOf : undefined).map((x) => ({ path: x.path, record_id: H(recordId(x.sealed)) }));
     return { files, read_back: read };
   } finally { rmSync(root, { recursive: true, force: true }); }
 }
 export { frame };
-
-/** 8.1 rotation: the newest segment of a chain is `newest_size` bytes; the next record goes into the same file or a new one. */
-function folderAppendAfter(i: J): J {
-  const root = mkdtempSync(join(tmpdir(), 'psss-rot-'));
-  try {
-    initFolder(root);
-    const gid = new Uint8Array(32).fill(1), author = new Uint8Array(32).fill(2), device = new Uint8Array(16).fill(3);
-    // lay down the newest segment (and, when asked, a membership segment after it), then append one more record
-    const dir = join(root, 'groups', H(gid), 'log', `${H(author)}-${H(device)}`);
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, `${String(i.first_seq).padStart(10, '0')}.seg`), new Uint8Array(i.newest_size));
-    if (i.then_membership) writeFileSync(join(dir, `${String(i.first_seq + 1).padStart(10, '0')}.mseg`), new Uint8Array(100));
-    const file = appendRecord(root, gid, author, device, i.next_seq, new Uint8Array(100), !!i.next_is_membership);
-    const sizes: J = {};
-    for (const p of listFiles(root)) if (p.includes('/log/')) sizes[p.split('/').pop()!] = readFileSync(join(root, p)).length;
-    return { wrote: file.split('/').pop(), files: sizes };
-  } finally { rmSync(root, { recursive: true, force: true }); }
-}

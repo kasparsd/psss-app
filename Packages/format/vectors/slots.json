@@ -381,7 +381,7 @@
     },
     {
       "name": "slot/argon2-lanes-zero",
-      "description": "Zero lanes is not a parameter set Argon2id can run (the specification does not say what a reader does).",
+      "description": "Zero lanes: refused (7.2 draft 3: \"MUST refuse zero lanes\"). Argon2id cannot run with no lanes, so the test-only switch does not lift this.",
       "type": "slot.open",
       "input": {
         "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021a0001000003020400065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
@@ -392,7 +392,43 @@
       },
       "expected": {
         "error": {
-          "code": "bad_slot",
+          "code": "argon2_too_weak",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "slot/argon2-lanes-zero-with-test-switch-slot",
+      "description": "A password slot with params memory 65536 KiB, 2 passes, 0 lanes and made-up ciphertext.",
+      "type": "slot.craft_password",
+      "input": {
+        "pid": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+        "slot_id": "15ee74ff360146e35c056ed0a5c44db0",
+        "salt": "3ec651d34258e2822ab9350e58131702",
+        "params": {
+          "memory": 65536,
+          "passes": 2,
+          "lanes": 0
+        }
+      },
+      "expected": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021a0001000003020400065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    {
+      "name": "slot/argon2-lanes-zero-with-test-switch",
+      "description": "Zero lanes with the test-only switch: still refused.",
+      "type": "slot.open",
+      "input": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021a0001000003020400065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "unlock": {
+          "password": "x"
+        },
+        "test_only": true
+      },
+      "expected": {
+        "error": {
+          "code": "argon2_too_weak",
           "disposition": "reject"
         }
       }
@@ -417,7 +453,7 @@
     },
     {
       "name": "slot/argon2-memory-below-eight-per-lane",
-      "description": "Memory below 8 KiB per lane is not valid for Argon2id.",
+      "description": "15 KiB over 2 lanes is 7.5 KiB per lane, below 8 KiB per lane: refused (7.2 draft 3). The test-only switch lifts only the memory and pass floors, so this is refused with it.",
       "type": "slot.open",
       "input": {
         "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702020f03020402065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
@@ -428,7 +464,7 @@
       },
       "expected": {
         "error": {
-          "code": "bad_slot",
+          "code": "argon2_too_weak",
           "disposition": "reject"
         }
       }
@@ -463,6 +499,42 @@
           "password": "correct horse"
         },
         "test_only": false
+      },
+      "expected": {
+        "ps": "b8fe1e8175ed89329a923350cab1db9bcd4cd9fb8aa1bdcb0030feac30fa86dc"
+      }
+    },
+    {
+      "name": "slot/argon2-memory-per-lane-at-minimum-seal",
+      "description": "Password slot sealed with 16 KiB, 2 passes, 2 lanes: exactly 8 KiB per lane (test-only parameters).",
+      "type": "slot.seal_password",
+      "input": {
+        "ps": "b8fe1e8175ed89329a923350cab1db9bcd4cd9fb8aa1bdcb0030feac30fa86dc",
+        "pid": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+        "slot_id": "15ee74ff360146e35c056ed0a5c44db0",
+        "salt": "3ec651d34258e2822ab9350e58131702",
+        "params": {
+          "memory": 16,
+          "passes": 2,
+          "lanes": 2
+        },
+        "password": "correct horse",
+        "test_only": true
+      },
+      "expected": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e5813170202100302040206583081a23490106eafec60f1eeb06df5dc87c30abf8a1c12e8b5d5d940e5010bc298710cd75cb1a45aedc4fcfa6933a68d3d"
+      }
+    },
+    {
+      "name": "slot/argon2-memory-per-lane-at-minimum",
+      "description": "Exactly 8 KiB per lane: not refused on that ground (with the test-only switch, which lifts the 65,536 KiB floor).",
+      "type": "slot.open",
+      "input": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e5813170202100302040206583081a23490106eafec60f1eeb06df5dc87c30abf8a1c12e8b5d5d940e5010bc298710cd75cb1a45aedc4fcfa6933a68d3d",
+        "unlock": {
+          "password": "correct horse"
+        },
+        "test_only": true
       },
       "expected": {
         "ps": "b8fe1e8175ed89329a923350cab1db9bcd4cd9fb8aa1bdcb0030feac30fa86dc"
@@ -612,13 +684,13 @@
     },
     {
       "name": "kit/text",
-      "description": "The printed form of a 20-byte recovery kit: RK1- and its 32 Crockford base32 characters in groups of four separated by hyphens.",
+      "description": "The printed form of a 20-byte recovery kit: RK1- and 36 Crockford base32 characters in nine groups of four separated by hyphens. The 36 characters encode the kit and two check bytes (the first two bytes of SHA-256(\"psss/v1/kit-check\" || kit)), then four zero bits.",
       "type": "kit.text",
       "input": {
         "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
       },
       "expected": {
-        "text": "RK1-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0D"
+        "text": "RK1-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0D-2YAG"
       }
     },
     {
@@ -626,7 +698,7 @@
       "description": "Reading the printed form back.",
       "type": "kit.parse",
       "input": {
-        "text": "RK1-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0D"
+        "text": "RK1-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0D-2YAG"
       },
       "expected": {
         "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
@@ -637,7 +709,7 @@
       "description": "Lower case.",
       "type": "kit.parse",
       "input": {
-        "text": "rk1-jfry-eejg-z1e1-06ds-0ezk-kwth-xstg-ft0d"
+        "text": "rk1-jfry-eejg-z1e1-06ds-0ezk-kwth-xstg-ft0d-2yag"
       },
       "expected": {
         "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
@@ -648,7 +720,7 @@
       "description": "Spaces instead of hyphens.",
       "type": "kit.parse",
       "input": {
-        "text": "RK1 JFRY EEJG Z1E1 06DS 0EZK KWTH XSTG FT0D"
+        "text": "RK1 JFRY EEJG Z1E1 06DS 0EZK KWTH XSTG FT0D 2YAG"
       },
       "expected": {
         "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
@@ -659,7 +731,7 @@
       "description": "No separators at all.",
       "type": "kit.parse",
       "input": {
-        "text": "RK1JFRYEEJGZ1E106DS0EZKKWTHXSTGFT0D"
+        "text": "RK1JFRYEEJGZ1E106DS0EZKKWTHXSTGFT0D2YAG"
       },
       "expected": {
         "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
@@ -670,7 +742,7 @@
       "description": "Spaces and a hyphen in odd places.",
       "type": "kit.parse",
       "input": {
-        "text": " RK1-JFR - Y  EEJG  Z1E1  06DS  0EZK  KWTH  XSTG  FT0D "
+        "text": " RK1-JFR - Y  EEJG  Z1E1  06DS  0EZK  KWTH  XSTG  FT0D  2YAG "
       },
       "expected": {
         "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
@@ -681,7 +753,7 @@
       "description": "Every 0 written as the letter O.",
       "type": "kit.parse",
       "input": {
-        "text": "RK1-JFRY-EEJG-Z1E1-O6DS-OEZK-KWTH-XSTG-FTOD"
+        "text": "RK1-JFRY-EEJG-Z1E1-O6DS-OEZK-KWTH-XSTG-FTOD-2YAG"
       },
       "expected": {
         "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
@@ -692,7 +764,7 @@
       "description": "Every 0 written as a lower-case o.",
       "type": "kit.parse",
       "input": {
-        "text": "RK1-JFRY-EEJG-Z1E1-o6DS-oEZK-KWTH-XSTG-FToD"
+        "text": "RK1-JFRY-EEJG-Z1E1-o6DS-oEZK-KWTH-XSTG-FToD-2YAG"
       },
       "expected": {
         "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
@@ -703,7 +775,7 @@
       "description": "Every 1 in the characters written as the letter I.",
       "type": "kit.parse",
       "input": {
-        "text": "RK1-JFRY-EEJG-ZIEI-06DS-0EZK-KWTH-XSTG-FT0D"
+        "text": "RK1-JFRY-EEJG-ZIEI-06DS-0EZK-KWTH-XSTG-FT0D-2YAG"
       },
       "expected": {
         "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
@@ -714,7 +786,7 @@
       "description": "Every 1 in the characters written as the letter L.",
       "type": "kit.parse",
       "input": {
-        "text": "RK1-JFRY-EEJG-ZLEL-06DS-0EZK-KWTH-XSTG-FT0D"
+        "text": "RK1-JFRY-EEJG-ZLEL-06DS-0EZK-KWTH-XSTG-FT0D-2YAG"
       },
       "expected": {
         "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
@@ -725,7 +797,7 @@
       "description": "Lower case, spaces, O for 0, and I and L (alternating) for 1, together.",
       "type": "kit.parse",
       "input": {
-        "text": "rk1 jfry eejg zlei o6ds oezk kwth xstg ftod"
+        "text": "rk1 jfry eejg zlei o6ds oezk kwth xstg ftod 2yag"
       },
       "expected": {
         "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
@@ -736,7 +808,7 @@
       "description": "The prefix itself read the same way: \"RKL\" is \"RK1\".",
       "type": "kit.parse",
       "input": {
-        "text": "RKL-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0D"
+        "text": "RKL-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0D-2YAG"
       },
       "expected": {
         "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
@@ -747,7 +819,7 @@
       "description": "Wrong prefix RK2.",
       "type": "kit.parse",
       "input": {
-        "text": "RK2-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0D"
+        "text": "RK2-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0D-2YAG"
       },
       "expected": {
         "error": {
@@ -761,7 +833,7 @@
       "description": "The 32 characters without the prefix.",
       "type": "kit.parse",
       "input": {
-        "text": "JFRYEEJGZ1E106DS0EZKKWTHXSTGFT0D"
+        "text": "JFRYEEJGZ1E106DS0EZKKWTHXSTGFT0D2YAG"
       },
       "expected": {
         "error": {
@@ -772,10 +844,10 @@
     },
     {
       "name": "kit/parse-short",
-      "description": "Thirty-one characters.",
+      "description": "Thirty-five characters.",
       "type": "kit.parse",
       "input": {
-        "text": "RK1-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0"
+        "text": "RK1-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0D-2YA"
       },
       "expected": {
         "error": {
@@ -786,10 +858,10 @@
     },
     {
       "name": "kit/parse-long",
-      "description": "Thirty-three characters.",
+      "description": "Thirty-seven characters.",
       "type": "kit.parse",
       "input": {
-        "text": "RK1-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0DA"
+        "text": "RK1-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0D-2YAGA"
       },
       "expected": {
         "error": {
@@ -799,11 +871,64 @@
       }
     },
     {
+      "name": "kit/parse-draft-2-length",
+      "description": "Thirty-two characters (the draft 2 form without check bytes): the wrong length.",
+      "type": "kit.parse",
+      "input": {
+        "text": "RK1-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0D"
+      },
+      "expected": {
+        "error": {
+          "code": "bad_kit_length",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "kit/parse-check-bytes-wrong-one-data-character",
+      "description": "One character of the kit part changed to another valid character: the check bytes do not match (bad_kit_check), before any slot is tried.",
+      "type": "kit.parse",
+      "input": {
+        "text": "RK1-JFAY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0D-2YAG"
+      },
+      "expected": {
+        "error": {
+          "code": "bad_kit_check",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "kit/parse-check-bytes-wrong-one-check-character",
+      "description": "One character of the check bytes (character 33) changed: also bad_kit_check.",
+      "type": "kit.parse",
+      "input": {
+        "text": "RK1-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0D-AYAG"
+      },
+      "expected": {
+        "error": {
+          "code": "bad_kit_check",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "kit/parse-nonzero-trailing-bits-are-not-checked",
+      "description": "The last character encodes one data bit and four zero bits. A character with the same data bit and non-zero trailing bits reads as the same kit: this implementation does not test them (the specification does not say to; finding).",
+      "type": "kit.parse",
+      "input": {
+        "text": "RK1-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0D-2YAH"
+      },
+      "expected": {
+        "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
+      }
+    },
+    {
       "name": "kit/parse-letter-u",
       "description": "The letter U is not a Crockford character (and not a confusable).",
       "type": "kit.parse",
       "input": {
-        "text": "RK1-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0U"
+        "text": "RK1-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0D-2YAU"
       },
       "expected": {
         "error": {
@@ -817,7 +942,7 @@
       "description": "A character outside the alphabet.",
       "type": "kit.parse",
       "input": {
-        "text": "RK1-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0#"
+        "text": "RK1-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0D-2YA#"
       },
       "expected": {
         "error": {
