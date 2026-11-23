@@ -59,14 +59,14 @@ History is not a field. It is the earlier writes of a field, which the specifica
 
 | Field | Earlier writes a checkpoint keeps |
 | --- | --- |
-| `password` | The write just before the winning one, and for each of the first 10 entries of Previous Passwords the entry's own write and the write after it |
+| `password` | The write just before the winning one; for each of the first 10 entries of Previous Passwords the entry's own write and the write after it; and the last write before the winning `history_hidden` |
 | Every other field | None |
 
 - **Previous Passwords** on the detail page are built from the earlier writes of `password`, newest first, each dated by the `wall_ms` of the write that replaced it, followed by the entries of `password_history`. A write that cleared the password, or set the value the write after it also set, is not an entry. An entry equal to the current password, or to a newer entry, is left out. At most 10 are shown.
 - **Restoring** a previous password sets `password` to that value. It is a new write, and the password it replaces becomes the newest previous one.
 - **Clear Previous Passwords** sets `history_hidden` and clears `password_history`. Take the writes of `password` that come before the winning write of `history_hidden` in the order: every reader leaves out all of them except the last, which is the password that was current when the person cleared and which becomes a previous password when it is next replaced. Because the hidden part is measured from the clearing record's own place, a clearing that is later in the order always hides at least what an earlier one hid, whatever its device had seen. This hides the earlier ones everywhere at once. They leave storage when a manager's device next writes a checkpoint, which no longer carries them, and the records it covers are deleted; until then they exist in the records. The app's wording for this action has to say so.
 - **A password changed on two devices at once.** The later write wins and the other is the newest previous password. A reader shows the app's quiet note for this when the winning write's `password_over` is not the place of the write just before it in the order: the winner was made by a device that had not seen that write. Nothing else in the format records what a device had seen, so this field is what makes the note possible.
-- **What a checkpoint cannot keep exactly.** The writes in the table are what the list and the note need, and with them the list after a checkpoint has the same entries as before. One thing can differ: when a change made earlier on an offline device arrives after the checkpoint and lands among writes that set the same password, the date shown for that entry can be later than it would have been, never earlier.
+- **What a checkpoint cannot keep exactly.** A checkpoint keeps a bounded number of writes, so the list read after one can differ from the list read from all the records. The entries it shows are always from the front of the full list, never other passwords, and the note is always the same. Found by the reference implementation and confirmed independently, in a handful of cases per several thousand random runs: an entry can be dated later, when a change made earlier on an offline device arrives after the checkpoint among writes that set the same password; the list can be one entry shorter, when a later write repeats an old entry; and an older password can show that the full records would hide, when a clearing arrives after the checkpoint and sorts before a write it dropped.
 
 ## 5. Dates
 
@@ -131,6 +131,16 @@ Import and export use the mapping in [items](items.md#keepass-field-mapping-impl
 - How the quiet note for a password changed on two devices is dismissed, and whether dismissing it is a field or stays on the device.
 - Whether a group needs a colour or an icon beside its name.
 - The wording of Clear Previous Passwords, given that storage is cleaned when a manager's device next runs.
+
+Left open on purpose when iteration on this document stopped (2026-11-23), from the last implementation pass:
+
+- A later write of `history_hidden` with the wrong shape counts as cleared, which shows hidden passwords again in the full records and not after a checkpoint. A reader should probably ignore such a write and keep the earlier one.
+- On a move, “sets `edited` to its Edited” means the underlying date, also when Edited is not shown because it equals Added.
+- The two-devices note is judged among the writes that are not hidden, so a winning write that is the one a clearing kept shows no note.
+- On arrival, `password_over` names the target copy's winning write of `password` even when that write cleared it, and is set even when the arriving item has no password.
+- A move clears content fields only, so an unknown field of a later version left in the old copy comes back with the item.
+- “No `://`” turns `mailto:a@b.c` into `https://mailto:a@b.c`. Websites of a login are web addresses, so this is accepted for now.
+- Removing a tag the item does not have writes nothing.
 
 ## 12. Changes
 
