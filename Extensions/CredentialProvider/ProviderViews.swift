@@ -92,6 +92,7 @@ private struct GroupLabel: View {
     let text: String
     var body: some View {
         Text(verbatim: text).foregroundStyle(.secondary).listRowSeparator(.hidden)
+            .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -212,7 +213,16 @@ private struct LoginRow: View {
     }
 }
 
-/// Shown when the person taps the key in the keyboard bar or chooses Passwords from AutoFill.
+/// The passkeys a page's passkey request can use, listed above the logins when the list answers such a request.
+struct PasskeyChoice {
+    let rpID: String
+    let items: [VaultItem]
+    let choose: (VaultItem) -> Void
+}
+
+/// Shown when the person taps the key in the keyboard bar or chooses Passwords from AutoFill. Also the list for a page with a
+/// passkey request pending (sites such as Google ask for a passkey first): the passkeys for the request come first, then the
+/// same logins and the same "Other Logins…" route, with the same confirmations.
 ///
 /// Logins saved for the site come first, and when exactly one matches it is the default action. Logins for other sites are
 /// behind the labeled button "Other Logins…", and choosing one asks for a confirmation that names both sites. On a plain `http`
@@ -222,6 +232,8 @@ struct FillList: View {
     let site: FillSite
     /// Every login that has a password.
     let items: [VaultItem]
+    /// Set when the list answers a passkey request: its passkeys are listed above the logins.
+    let passkeys: PasskeyChoice?
     let choose: (VaultItem) -> Void
     let cancel: () -> Void
 
@@ -232,9 +244,10 @@ struct FillList: View {
 
     /// `startOnOthers` and `confirming` start the screen on the Other Logins list or with a confirmation open. Only the
     /// interface harness uses them; the provider leaves both at their defaults.
-    init(site: FillSite, items: [VaultItem], choose: @escaping (VaultItem) -> Void, cancel: @escaping () -> Void,
+    init(site: FillSite, items: [VaultItem], passkeys: PasskeyChoice? = nil,
+         choose: @escaping (VaultItem) -> Void, cancel: @escaping () -> Void,
          startOnOthers: Bool = false, confirming: VaultItem? = nil) {
-        self.site = site; self.items = items; self.choose = choose; self.cancel = cancel
+        self.site = site; self.items = items; self.passkeys = passkeys; self.choose = choose; self.cancel = cancel
         _showOthers = State(initialValue: startOnOthers)
         _pending = State(initialValue: confirming.map { item in
             let own = site.host.map { SharedVault.matches(item, host: $0) } ?? false
@@ -252,6 +265,16 @@ struct FillList: View {
     }
 
     private var plainHTTP: Bool { if case .plainHTTP = site { true } else { false } }
+
+    private var passkeyItems: [VaultItem] { passkeys?.items ?? [] }
+
+    /// "Choose a Login or Passkey" when passkeys are listed, else "Choose a Login".
+    private var heading: LocalizedStringKey { passkeyItems.isEmpty ? "Choose a Login" : "Choose a Login or Passkey" }
+
+    /// The label above the site's logins. In a passkey request it says "Logins", so it cannot be read as the passkeys' label.
+    private func siteLabel(_ host: String) -> String {
+        passkeys == nil ? String(localized: "For \(HostDisplay.shown(host))") : String(localized: "Logins for \(HostDisplay.shown(host))")
+    }
 
     private var siteLogins: [VaultItem] {
         guard let host = site.host else { return [] }
@@ -279,7 +302,7 @@ struct FillList: View {
 
     @ViewBuilder private var screen: some View {
         #if os(iOS)
-        ProviderScreen(heading: "Choose a Login", cancel: ProviderAction(title: "Cancel", run: cancel)) {
+        ProviderScreen(heading: heading, cancel: ProviderAction(title: "Cancel", run: cancel)) {
             mainContent.navigationDestination(isPresented: $showOthers) {
                 othersContent.navigationTitle("Other Logins").navigationBarTitleDisplayMode(.inline)
             }
@@ -289,7 +312,7 @@ struct FillList: View {
             ProviderScreen(heading: "Other Logins", cancel: ProviderAction(title: "Cancel", run: cancel),
                            back: ProviderAction(title: "Back") { showOthers = false; search = "" }) { othersContent }
         } else {
-            ProviderScreen(heading: "Choose a Login", cancel: ProviderAction(title: "Cancel", run: cancel)) { mainContent }
+            ProviderScreen(heading: heading, cancel: ProviderAction(title: "Cancel", run: cancel)) { mainContent }
         }
         #endif
     }
@@ -299,14 +322,30 @@ struct FillList: View {
     private var mainContent: some View {
         VStack(spacing: 0) {
             List {
+                if let passkeys, !passkeys.items.isEmpty {
+                    Section {
+                        GroupLabel(text: String(localized: "Passkeys for \(HostDisplay.shown(passkeys.rpID))"))
+                        ForEach(passkeys.items) { item in LoginRow(item: item, verb: "Sign in") { passkeys.choose(item) } }
+                    }
+                }
                 switch site {
                 case .secure(let host):
                     if siteLogins.isEmpty {
-                        Section { Text("No logins are saved for \(HostDisplay.shown(host)).").foregroundStyle(.secondary) }
+                        // With passkeys listed above, an empty login section would only repeat what the list already shows.
+                        if passkeyItems.isEmpty {
+                            Section {
+                                if passkeys == nil {
+                                    Text("No logins are saved for \(HostDisplay.shown(host)).").foregroundStyle(.secondary)
+                                } else {
+                                    Text("No passkeys or logins are saved for \(HostDisplay.shown(host)).").foregroundStyle(.secondary)
+                                }
+                            }
+                        }
                     } else {
                         Section {
-                            GroupLabel(text: String(localized: "For \(HostDisplay.shown(host))"))
-                            ForEach(siteLogins) { row($0, isDefault: siteLogins.count == 1) }
+                            GroupLabel(text: siteLabel(host))
+                            // Return fills the one login only when no passkey sits beside it.
+                            ForEach(siteLogins) { row($0, isDefault: siteLogins.count == 1 && passkeyItems.isEmpty) }
                         }
                     }
                 case .plainHTTP(let host):
@@ -318,7 +357,7 @@ struct FillList: View {
                     }
                     if showSiteLogins {
                         Section {
-                            GroupLabel(text: String(localized: "For \(HostDisplay.shown(host))"))
+                            GroupLabel(text: siteLabel(host))
                             ForEach(siteLogins) { row($0) }
                         }
                     }
@@ -421,7 +460,11 @@ private struct ConfirmSheet: View {
 
     @Environment(\.dynamicTypeSize) private var typeSize
     /// The height of the text, so the Mac sheet is as tall as its text up to a limit and scrolls beyond it.
+    /// Zero until the text has been measured, so the first layout uses `estimatedHeight` instead of a one-point sheet.
     @State private var contentHeight: CGFloat = 0
+
+    /// Padding, a title of one or two lines, and about two lines of text per row. The measured height replaces it at once.
+    private var estimatedHeight: CGFloat { 40 + 56 + CGFloat(lines.count) * 48 }
 
     /// The title and the lines. Every line wraps, whatever its length or the text size, and none is ever cut short: the sites are
     /// the whole point of this sheet, and a host that ends in an ellipsis could hide which site it is. The whole sheet scrolls if
@@ -458,7 +501,7 @@ private struct ConfirmSheet: View {
             ScrollView {
                 content.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
             }
-            .frame(height: min(max(contentHeight, 1), 420))
+            .frame(height: min(contentHeight > 0 ? contentHeight : estimatedHeight, 420))
             HStack {
                 Spacer()
                 Button(confirmTitle, action: confirm)
@@ -595,23 +638,3 @@ struct SaveLogin: View {
     }
 }
 #endif
-
-/// Choosing a passkey when more than one matches the site.
-struct PasskeyPick: View {
-    let rpID: String
-    let items: [VaultItem]
-    let choose: (VaultItem) -> Void
-    let cancel: () -> Void
-
-    var body: some View {
-        ProviderScreen(heading: "Choose a Passkey", cancel: ProviderAction(title: "Cancel", run: cancel)) {
-            List {
-                Section {
-                    GroupLabel(text: String(localized: "Passkeys for \(HostDisplay.shown(rpID))"))
-                    if items.isEmpty { Text("No passkeys for this site yet.").foregroundStyle(.secondary) }
-                    ForEach(items) { item in LoginRow(item: item, verb: "Sign in", isDefault: items.count == 1) { choose(item) } }
-                }
-            }
-        }
-    }
-}

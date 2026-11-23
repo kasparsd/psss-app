@@ -94,7 +94,7 @@ Adapted from `macos-photo-db` at `71732c0`, principally `docs/development.md`, `
 1. Start the sample site: `python3 prototype/sample-site/server.py` (http://localhost:8080).
 2. Build for the simulator with ad-hoc signing and a temporary 26.2 floor (the simulator has no iOS 27 runtime): set `IPHONEOS_DEPLOYMENT_TARGET = 26.2`, build with `CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM=`, and restore 27.0.
 3. Install, then enable Psss under Settings, General, AutoFill & Passwords. If it is missing, check that the app and extension both have the AutoFill entitlement, then run `xcrun simctl spawn <udid> pluginkit -e use -i app.psss.Psss.CredentialProvider` and restart Settings.
-4. Open the sample login, signup and passkey pages in Safari with the software keyboard enabled. `passkey.html` creates a passkey, signs in with it and verifies the signature in the browser.
+4. Open the sample login, signup and passkey pages in Safari with the software keyboard enabled. `passkey.html` creates a passkey, signs in with it and verifies the signature in the browser. `conditional.html` reproduces Google: it starts a conditional passkey request on load (username field `autocomplete="username webauthn"`, password field `current-password`) and prints the outcome. Save a login for `localhost`, open the page, choose Psss from the keyboard bar: the list must offer the login, and the passkey as well when one exists (create one on `passkey.html` first).
 
 ## Keychain on the simulator and Mac
 

@@ -3046,6 +3046,171 @@ do {
 await unlockGateNoticeChecks()
 #endif
 
+// MARK: AutoFill reminder: what the card shows, what its button does, what this device remembers (hostless: stand-ins only)
+
+final class FakeAutoFillSystem: AutoFillSystem, @unchecked Sendable {
+    var enabled: Bool? = false
+    var promptAnswer = false
+    var settingsOpen = true
+    private(set) var reads = 0
+    private(set) var requests = 0
+    private(set) var settingsOpened = 0
+    func isEnabled() async -> Bool? { reads += 1; return enabled }
+    func requestToTurnOn() async -> Bool { requests += 1; if promptAnswer { enabled = true }; return promptAnswer }
+    func openSettings() async -> Bool { settingsOpened += 1; return settingsOpen }
+}
+
+func reminderDisplay(_ vault: AutoFillVault, _ reading: AutoFillReading, _ memory: AutoFillMemory = AutoFillMemory(), confirming: Bool = false) -> AutoFillReminder.Display {
+    AutoFillReminder(vault: vault, reading: reading, memory: memory, confirmationPending: confirming).display
+}
+
+@MainActor func autoFillReminderChecks() async {
+    // The pure rules.
+    expect("autofill: a real vault with AutoFill off shows the first card", reminderDisplay(.real, .off) == .card(.off))
+    for vault in [AutoFillVault.none, .sample] {
+        for reading in [AutoFillReading.notRead, .on, .off, .unreadable] {
+            expect("autofill: no card or confirmation for \(vault) while \(reading)", reminderDisplay(vault, reading, confirming: true) == .nothing)
+        }
+    }
+    expect("autofill: nothing before the first reading", reminderDisplay(.real, .notRead) == .nothing)
+    expect("autofill: nothing claimed when the state cannot be read", reminderDisplay(.real, .unreadable) == .nothing)
+    expect("autofill: on shows nothing unless the confirmation is pending", reminderDisplay(.real, .on) == .nothing)
+    expect("autofill: on with the confirmation pending shows it", reminderDisplay(.real, .on, confirming: true) == .confirmation)
+    expect("autofill: a pending confirmation is not shown while it is off", reminderDisplay(.real, .off, confirming: true) == .card(.off))
+    expect("autofill: hidden removes the card", reminderDisplay(.real, .off, AutoFillMemory(hidden: true)) == .nothing)
+    expect("autofill: after the system prompt the card gives the steps", reminderDisplay(.real, .off, AutoFillMemory(promptUsed: true)) == .card(.stillOff))
+    expect("autofill: seen on before reads off again", reminderDisplay(.real, .off, AutoFillMemory(seenOn: true)) == .card(.offAgain))
+    expect("autofill: the steps win over off again", reminderDisplay(.real, .off, AutoFillMemory(promptUsed: true, seenOn: true)) == .card(.stillOff))
+    expect("autofill: ask the system first", AutoFillReminder.action(reading: .off, promptUsed: false) == .askSystem)
+    expect("autofill: Settings once the prompt was used", AutoFillReminder.action(reading: .off, promptUsed: true) == .openSettings)
+    expect("autofill: Setup opens Settings while on", AutoFillReminder.action(reading: .on, promptUsed: false) == .openSettings)
+    expect("autofill: Setup opens Settings when it cannot tell", AutoFillReminder.action(reading: .unreadable, promptUsed: false) == .openSettings)
+    let hiddenOff = AutoFillReminder(vault: .real, reading: .off, memory: AutoFillMemory(hidden: true), confirmationPending: false)
+    expect("autofill: empty vault keeps the long line only when off with the card hidden", !hiddenOff.emptyVaultOffersSaving)
+    expect("autofill: empty vault short line while the card shows", AutoFillReminder(vault: .real, reading: .off, memory: AutoFillMemory(), confirmationPending: false).emptyVaultOffersSaving)
+    expect("autofill: empty vault short line while on", AutoFillReminder(vault: .real, reading: .on, memory: AutoFillMemory(), confirmationPending: false).emptyVaultOffersSaving)
+
+    // What a reading does to the memory.
+    var memory = AutoFillMemory(hidden: true, promptUsed: true)
+    expect("autofill: the first on is not news", !memory.observe(.on))
+    expect("autofill: on clears hidden and the used prompt, and is remembered", !memory.hidden && !memory.promptUsed && memory.seenOn && !memory.lastSeenOff)
+    memory.observe(.off)
+    expect("autofill: off is remembered", memory.lastSeenOff)
+    memory.observe(.unreadable)
+    memory.observe(.notRead)
+    expect("autofill: unreadable and not read change nothing", memory.lastSeenOff && memory.seenOn)
+    expect("autofill: on after off is news", memory.observe(.on))
+    expect("autofill: on again is not news", !memory.observe(.on))
+
+    // Words: Mac names System Settings and clicks, the others name Settings and tap.
+    let mac = AutoFillCopy(device: .mac), phone = AutoFillCopy(device: .iPhone), pad = AutoFillCopy(device: .iPad)
+    expect("autofill copy: Mac steps", mac.steps.contains("System Settings") && mac.steps.contains("choose General") && mac.steps.contains("AutoFill & Passwords"))
+    expect("autofill copy: iPhone steps", phone.steps.contains("open Settings") && phone.steps.contains("tap General") && !phone.steps.contains("System"))
+    check("autofill copy: iPad is named", pad.body(.off).contains("Your iPad fills them") ? "yes" : pad.body(.off), "yes")
+    expect("autofill copy: Mac is named", mac.body(.off).contains("Your Mac fills them"))
+    expect("autofill copy: still off carries the steps", phone.body(.stillOff).hasSuffix("then switch on Psss."))
+    expect("autofill copy: Mac confirmation says click", mac.confirmationBody.contains("click the password field"))
+    expect("autofill copy: iPhone confirmation says tap", phone.confirmationBody.contains("tap the password field"))
+    check("autofill copy: the two buttons", phone.buttonLabel(.askSystem) + "|" + phone.buttonLabel(.openSettings), "Turn On AutoFill|Open AutoFill Settings…")
+    check("autofill copy: Setup status", phone.setupStatus(.off) ?? "nil", "AutoFill is off")
+    check("autofill copy: Setup says nothing before the first reading", phone.setupStatus(.notRead) ?? "nil", "nil")
+    expect("autofill copy: Setup footer after the prompt gives the steps", (phone.setupFooter(.off, promptUsed: true) ?? "").contains("tap General"))
+
+    // The status object, with stand-ins for the system and for this device's memory.
+    let system = FakeAutoFillSystem()
+    let device = InMemoryAutoFillMemory()
+    var status = AutoFillStatus(system: system, store: device)
+    check("autofill: starts unread", "\(status.reading)", "notRead")
+    expect("autofill: nothing before the first reading", status.reminder(for: .real).display == .nothing)
+
+    await status.refresh()
+    expect("autofill: off shows the first card", status.reminder(for: .real).display == .card(.off))
+    expect("autofill: the sample vault shows no card", status.reminder(for: .sample).display == .nothing)
+    expect("autofill: the first press asks the system", status.action == .askSystem)
+
+    // The person says No to Apple's prompt: the card gives the steps, and the next press opens Settings, never a second prompt.
+    await status.performAction()
+    check("autofill: one request", "\(system.requests)", "1")
+    check("autofill: the prompt does not open Settings by itself", "\(system.settingsOpened)", "0")
+    expect("autofill: declined shows the steps", status.reminder(for: .real).display == .card(.stillOff))
+    expect("autofill: the prompt use is kept on this device", device.load().promptUsed)
+    await status.performAction()
+    check("autofill: still one request", "\(system.requests)", "1")
+    check("autofill: Settings opened once", "\(system.settingsOpened)", "1")
+    expect("autofill: no alert when Settings opened", !status.settingsDidNotOpen)
+    system.settingsOpen = false
+    await status.performAction()
+    expect("autofill: Settings that did not open raise the alert flag", status.settingsDidNotOpen)
+    status.settingsDidNotOpen = false
+
+    // Hide: gone at once, kept on this device, stays gone while it is off.
+    status.hide()
+    expect("autofill: hide removes the card", status.reminder(for: .real).display == .nothing)
+    expect("autofill: hide says where it went", status.hiddenNoticeShown)
+    status.dismissHiddenNotice()
+    expect("autofill: the notice goes", !status.hiddenNoticeShown)
+    expect("autofill: hidden is kept on this device", device.load().hidden)
+    await status.refresh()
+    expect("autofill: still hidden after another look while off", status.reminder(for: .real).display == .nothing)
+    expect("autofill: the hidden card leaves the long empty-vault line", !status.reminder(for: .real).emptyVaultOffersSaving)
+
+    // Another launch with the same memory: still hidden, and AutoFill is turned on while away.
+    status = AutoFillStatus(system: system, store: device)
+    check("autofill: a new launch starts unread", "\(status.reading)", "notRead")
+    system.enabled = true
+    await status.refresh()
+    expect("autofill: found on after it was off shows the confirmation once", status.reminder(for: .real).display == .confirmation)
+    expect("autofill: on clears hidden and the used prompt on this device", !device.load().hidden && !device.load().promptUsed && device.load().seenOn)
+    expect("autofill: the sample vault shows no confirmation", status.reminder(for: .sample).display == .nothing)
+    status.dismissConfirmation()
+    expect("autofill: Done removes the confirmation", status.reminder(for: .real).display == .nothing)
+    await status.refresh()
+    expect("autofill: it is not shown again", status.reminder(for: .real).display == .nothing)
+    status = AutoFillStatus(system: system, store: device)
+    await status.refresh()
+    expect("autofill: a launch with AutoFill already on shows nothing", status.reminder(for: .real).display == .nothing)
+
+    // Turned off later: the card returns with the calm wording, and may ask the system once more.
+    system.enabled = false
+    await status.refresh()
+    expect("autofill: off again returns the card", status.reminder(for: .real).display == .card(.offAgain))
+    expect("autofill: off again may ask the system", status.action == .askSystem)
+
+    // Yes to the prompt: the confirmation follows at once.
+    system.promptAnswer = true
+    await status.performAction()
+    check("autofill: the second stretch asks once more", "\(system.requests)", "2")
+    check("autofill: on after yes", "\(status.reading)", "on")
+    expect("autofill: yes shows the confirmation", status.reminder(for: .real).display == .confirmation)
+
+    // A yes with no earlier reading of off still confirms, and the answer is the state, not the prompt's word.
+    let fresh = FakeAutoFillSystem()
+    fresh.promptAnswer = false
+    let direct = AutoFillStatus(system: fresh, store: InMemoryAutoFillMemory(AutoFillMemory()))
+    await direct.refresh()
+    fresh.enabled = true
+    fresh.promptAnswer = false
+    await direct.performAction()
+    expect("autofill: a no whose state turns out on still confirms", direct.reminder(for: .real).display == .confirmation)
+
+    // The state cannot be read: nothing claimed, memory untouched.
+    let unsure = FakeAutoFillSystem()
+    unsure.enabled = nil
+    let unsureMemory = InMemoryAutoFillMemory()
+    let blind = AutoFillStatus(system: unsure, store: unsureMemory)
+    await blind.refresh()
+    check("autofill: unreadable is its own state", "\(blind.reading)", "unreadable")
+    expect("autofill: unreadable shows no card", blind.reminder(for: .real).display == .nothing)
+    expect("autofill: unreadable keeps the memory as it was", unsureMemory.load() == AutoFillMemory())
+    check("autofill: unreadable opens Settings", "\(blind.action)", "openSettings")
+
+    // The hostless default reaches nothing real.
+    let standIn = AutoFillStatus.live()
+    await standIn.refresh()
+    check("autofill: the hostless default cannot read the real state", "\(standIn.reading)", "unreadable")
+}
+await autoFillReminderChecks()
+
 print(failures == 0 ? "all passed" : "\(failures) failed")
 removeProcessFolders()
 exit(failures == 0 ? 0 : 1)

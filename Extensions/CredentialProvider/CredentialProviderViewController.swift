@@ -21,7 +21,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     override func prepareCredentialList(for serviceIdentifiers: [ASCredentialServiceIdentifier]) {
         unlocked { [self] in
         present(FillList(site: FillSite(serviceIdentifiers: serviceIdentifiers.map(\.identifier)),
-                         items: items.filter { $0.kind == .login && !$0.secret.isEmpty },
+                         items: PasskeyRequestList.passwordLogins(items),
                          choose: { [weak self] in self?.complete(with: $0) },
                          cancel: { [weak self] in self?.cancel(.userCanceled) }))
         }
@@ -148,17 +148,19 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
                                         requestParameters: ASPasskeyCredentialRequestParameters) {
         unlocked { [self] in
         let rpID = requestParameters.relyingPartyIdentifier
-        let allowed = requestParameters.allowedCredentials
-        let items = items.filter { item in
-            guard let passkey = item.passkey, passkey.rpID == rpID else { return false }
-            return allowed.isEmpty || allowed.contains(passkey.credentialID)
+        let clientDataHash = requestParameters.clientDataHash
+        // The page may have asked for a passkey first (Google does), so the list also offers the saved logins, as the plain list does.
+        let request = PasskeyRequestList(items: items, serviceIdentifiers: serviceIdentifiers.map(\.identifier), rpID: rpID,
+                                         allowedCredentials: requestParameters.allowedCredentials)
+        if request.signsInWithoutList, let only = request.passkeys.first {
+            return assert(only, relyingParty: rpID, clientDataHash: clientDataHash)
         }
-        if items.count == 1, let only = items.first {
-            return assert(only, relyingParty: rpID, clientDataHash: requestParameters.clientDataHash)
-        }
-        present(PasskeyPick(rpID: rpID, items: items,
-                            choose: { [weak self] in self?.assert($0, relyingParty: rpID, clientDataHash: requestParameters.clientDataHash) },
-                            cancel: { [weak self] in self?.cancel(.userCanceled) }))
+        present(FillList(site: request.site,
+                         items: PasskeyRequestList.passwordLogins(items),
+                         passkeys: PasskeyChoice(rpID: rpID, items: request.passkeys,
+                                                 choose: { [weak self] in self?.assert($0, relyingParty: rpID, clientDataHash: clientDataHash) }),
+                         choose: { [weak self] in self?.complete(with: $0) },
+                         cancel: { [weak self] in self?.cancel(.userCanceled) }))
         }
     }
 

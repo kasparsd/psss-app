@@ -291,5 +291,84 @@ for (s, r) in pairs {
 }
 print("ok   matching agrees on raw and normalized input over \(pairs.count) pairs (\(disagreements) disagreements)")
 
+// The passkey-request list: a page with a pending passkey request still offers the saved password.
+func login(_ website: String, account: String = "me", secret: String = "pw") -> VaultItem {
+    VaultItem(kind: .login, title: website, account: account, website: website, secret: secret)
+}
+func passkeyItem(_ rpID: String, id: UInt8 = 1) -> VaultItem {
+    var item = VaultItem(kind: .login, account: "me", website: rpID)
+    item.passkey = PasskeyRecord(credentialID: Data([id]), userHandle: Data([9]), rpID: rpID, privateKey: Data([7]), created: Date(timeIntervalSince1970: 0))
+    return item
+}
+func request(_ items: [VaultItem], _ identifiers: [String], rpID: String = "google.com", allowed: [Data] = []) -> PasskeyRequestList {
+    PasskeyRequestList(items: items, serviceIdentifiers: identifiers, rpID: rpID, allowedCredentials: allowed)
+}
+let accounts = ["https://accounts.google.com/v3/signin"]
+do {
+    let googleLogin = login("google.com")
+    let r = request([googleLogin], accounts)
+    expect("google: login listed", r.siteLogins.map(\.id) == [googleLogin.id], true)
+    expect("google: no passkey listed", r.passkeys.isEmpty, true)
+    expect("google: no automatic sign-in", r.signsInWithoutList, false)
+    same("google: site is the page host", r.site.host, "accounts.google.com")
+}
+do {
+    let pk = passkeyItem("google.com"), lg = login("google.com")
+    let r = request([pk, lg], accounts)
+    expect("passkey and login: both listed", r.passkeys.map(\.id) == [pk.id] && r.siteLogins.map(\.id) == [lg.id], true)
+    expect("passkey and login: no automatic sign-in", r.signsInWithoutList, false)
+}
+do {
+    let pk = passkeyItem("google.com")
+    let r = request([pk], accounts)
+    expect("one passkey, no login: signs in at once", r.signsInWithoutList, true)
+    expect("one passkey, no login: the passkey", r.passkeys.map(\.id) == [pk.id], true)
+    // A passkey-only item has no password, so it is not a login to fill.
+    expect("passkey-only item is not a login", r.siteLogins.isEmpty, true)
+}
+do {
+    let two = request([passkeyItem("google.com", id: 1), passkeyItem("google.com", id: 2)], accounts)
+    expect("two passkeys, no login: list", two.signsInWithoutList, false)
+    let none = request([], accounts)
+    expect("nothing saved: list with nothing, no sign-in", none.passkeys.isEmpty && none.siteLogins.isEmpty && !none.signsInWithoutList, true)
+}
+do {
+    let pk = passkeyItem("google.com", id: 1), lg = login("google.com")
+    let r = request([pk, lg], accounts, allowed: [Data([2])])
+    expect("allowed credentials exclude the passkey", r.passkeys.isEmpty, true)
+    expect("allowed credentials: logins still listed", r.siteLogins.map(\.id) == [lg.id], true)
+    expect("allowed credentials: no automatic sign-in", r.signsInWithoutList, false)
+    let ok = request([pk, lg], accounts, allowed: [Data([1]), Data([5])])
+    expect("allowed credentials include the passkey", ok.passkeys.map(\.id) == [pk.id], true)
+    let other = request([passkeyItem("example.com")], accounts)
+    expect("passkey for another relying party is not listed", other.passkeys.isEmpty, true)
+}
+do {
+    let lg = login("google.com")
+    let none = request([lg], [], rpID: "example.com")
+    expect("empty identifiers: no site login for another rpID", none.siteLogins.isEmpty, true)
+    expect("empty identifiers: site is the rpID", none.site == .secure(host: "example.com"), true)
+    let fallback = request([lg], [])
+    expect("empty identifiers: login for the rpID is listed", fallback.siteLogins.map(\.id) == [lg.id], true)
+    let nothing = request([lg], [], rpID: "")
+    expect("empty identifiers and rpID: site unknown, no site logins", nothing.site == .unknown && nothing.siteLogins.isEmpty, true)
+    let junk = request([lg], ["javascript:alert(1)"], rpID: "")
+    expect("identifier without a host and no rpID: unknown", junk.site == .unknown && junk.siteLogins.isEmpty, true)
+}
+do {
+    let r = request([login("example.com"), login("google.com.evil.example"), login("login.accounts.example"), login("")], accounts)
+    expect("other sites' logins are never in the matching list", r.siteLogins.map(\.website) == [], true)
+    let mine = request([login("example.com"), login("google.com", account: "a")], accounts)
+    expect("only the site's login is matching", mine.siteLogins.map(\.account) == ["a"], true)
+    let noPassword = request([login("google.com", secret: "")], accounts)
+    expect("a login without a password is not listed", noPassword.siteLogins.isEmpty, true)
+    expect("subdomain login is not offered on its parent", request([login("accounts.google.com")], ["https://google.com/"]).siteLogins.isEmpty, true)
+}
+do {
+    let r = request([login("example.com")], ["http://example.com/login"], rpID: "example.com")
+    if case .plainHTTP(let host) = r.site { same("plain http page stays plain http", host, "example.com") } else { expect("plain http page stays plain http", false, true) }
+    expect("plain http page: the pages login is still found, behind the lists own confirmation", r.siteLogins.count == 1, true)
+}
+
 if failures > 0 { print("\n\(failures) FAILED"); exit(1) }
 print("\nall site matching checks passed")

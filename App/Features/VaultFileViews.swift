@@ -424,9 +424,25 @@ struct VaultPasswordView: View {
     }
 
     /// Opens the screen's one file picker for `purpose`. After a sheet or alert closes, the picker waits until it has gone,
-    /// because a picker requested while another presentation is leaving is dropped.
+    /// because a picker requested while another presentation is leaving is dropped. The same goes for the keyboard: a picker
+    /// requested while the password field holds focus is often dropped on iPhone and iPad, so the field lets go first (which
+    /// closes the keyboard) and the picker follows once the keyboard has gone.
     private func choose(_ purpose: FilePurpose, afterDismissal: Bool = false) {
-        guard afterDismissal else { self.purpose = purpose; picking = true; return }
+        guard afterDismissal else {
+            self.purpose = purpose
+            #if os(iOS)
+            if focused {
+                focused = false
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(350))
+                    picking = true
+                }
+                return
+            }
+            #endif
+            picking = true
+            return
+        }
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
             self.purpose = purpose

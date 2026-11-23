@@ -70,7 +70,15 @@ enum SharedVault {
 
     /// Tells the system which sites have saved logins and passkeys, without secrets. Fire and forget; the AutoFill extension
     /// uses `registerSavedAndWait` so the system finishes before the extension is torn down.
-    static func registerIdentities(for items: [VaultItem]) {
+    ///
+    /// Nothing is sent while AutoFill is off. `knownEnabled` is for the moment the app has just found AutoFill on (or been told
+    /// so by the system's prompt): it sends at once, so the logins that were saved while AutoFill was off are offered without
+    /// waiting for the next unlock, and a state that has not caught up yet cannot make it skip.
+    static func registerIdentities(for items: [VaultItem], knownEnabled: Bool = false) {
+        if knownEnabled {
+            ASCredentialIdentityStore.shared.replaceCredentialIdentities(identities(for: items)) { _, _ in }
+            return
+        }
         ASCredentialIdentityStore.shared.getState { state in
             guard state.isEnabled else { return }
             ASCredentialIdentityStore.shared.replaceCredentialIdentities(identities(for: items)) { _, _ in }

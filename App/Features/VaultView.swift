@@ -62,7 +62,7 @@ private struct AlertSurfaceModifier: ViewModifier {
 
 /// Every alert of the vault screen. Only one is shown at a time.
 private enum VaultAlert: Hashable {
-    case conflict, editorRemoved, storeProblem, importProblem, importNotice, biometricOff, biometricOffer
+    case conflict, editorRemoved, storeProblem, autoFillSettings, importProblem, importNotice, biometricOff, biometricOffer
 }
 
 private enum VaultCategory: Hashable {
@@ -156,6 +156,7 @@ struct VaultView: View {
     @State private var importNotice: String?
     @State private var importProblem: String?
     @Environment(UnlockGate.self) private var gate
+    @Environment(AutoFillStatus.self) private var autoFill
     @AppStorage("lockTiming") private var lockTiming = LockTiming.oneMinute.rawValue
     @State private var columns: NavigationSplitViewVisibility = .all
     @State private var compactColumn: NavigationSplitViewColumn = .content
@@ -253,6 +254,9 @@ struct VaultView: View {
         }
         .focusedSceneValue(\.newItem, { kind in editor = VaultItem(kind: kind) })
         .task { if store.isSample { VaultIdentities.remove() } else { registerIdentities() } }
+        // AutoFill has just been found on, by the system's prompt or on coming back from Settings. Logins saved while it was
+        // off were never sent to the system, so they are sent now, without waiting for the next unlock.
+        .onChange(of: autoFill.reading) { old, new in if new == .on, old != .on { registerIdentities(knownEnabled: true) } }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { reloadIfChangedOnDisk() }
         }
@@ -276,6 +280,7 @@ struct VaultView: View {
         if conflict { waiting.append(.conflict) }
         if showsEditorRemoved { waiting.append(.editorRemoved) }
         if storeProblem != nil { waiting.append(.storeProblem) }
+        if autoFill.settingsDidNotOpen { waiting.append(.autoFillSettings) }
         if importProblem != nil { waiting.append(.importProblem) }
         if importNotice != nil { waiting.append(.importNotice) }
         if session.biometricNotice != nil { waiting.append(.biometricOff) }
@@ -297,7 +302,7 @@ struct VaultView: View {
     /// those two alerts belong to the sheet that is open (the editor first: it can open from nowhere else but the list).
     /// Everything else belongs to this screen, and waits while any sheet is open or closing.
     private func surface(for alert: VaultAlert) -> AlertSurface? {
-        if alert == .conflict || alert == .storeProblem {
+        if alert == .conflict || alert == .storeProblem || alert == .autoFillSettings {
             if editor != nil { return .editor }
             if showsSetup { return .setup }
         }
@@ -335,6 +340,7 @@ struct VaultView: View {
         case .conflict: return "The vault changed elsewhere"
         case .editorRemoved: return "This item was removed"
         case .storeProblem: return "Could not save"
+        case .autoFillSettings: return LocalizedStringKey(AutoFillCopy(device: .current).settingsFailedTitle)
         case .importProblem: return "Could not import"
         case .importNotice: return "Imported"
         case .biometricOff: return "\(faceID) is off"
@@ -353,6 +359,8 @@ struct VaultView: View {
             Button("OK") { showsEditorRemoved = false }
         case .storeProblem:
             Button("OK") { storeProblem = nil }
+        case .autoFillSettings:
+            Button("OK") { autoFill.settingsDidNotOpen = false }
         case .importProblem:
             Button("OK") { importProblem = nil }
         case .importNotice:
@@ -375,6 +383,7 @@ struct VaultView: View {
         case .editorRemoved:
             Text("It was removed on another device or in another app, so the editor was closed. Changes you had not saved were not kept.")
         case .storeProblem: Text(storeProblem ?? "")
+        case .autoFillSettings: Text(AutoFillCopy(device: .current).settingsFailedMessage)
         case .importProblem: Text(importProblem ?? "")
         case .importNotice: Text(importNotice ?? "")
         case .biometricOff: Text(session.biometricNotice ?? "")
@@ -387,10 +396,12 @@ struct VaultView: View {
     private var emptyVault: some View {
         ScrollView {
             VStack(spacing: 24) {
+                // A new vault is where a new person learns about AutoFill, so the card sits above the empty state.
+                if showsAutoFillCard { AutoFillCard(vault: autoFillVault) }
                 VStack(spacing: 8) {
                     Image(systemName: "tray").font(.system(size: 40)).foregroundStyle(.secondary).accessibilityHidden(true)
                     Text("Your vault is empty").font(.title2.weight(.semibold))
-                    Text("Add passwords yourself, bring them from another app, or let Psss offer to save the ones you sign in with in Safari and other apps.")
+                    Text("Add passwords yourself, bring them from another app, or let Psss offer to save the ones you sign in with.")
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
@@ -400,7 +411,14 @@ struct VaultView: View {
                     emptyChoice("Add a secure note", "note.text") { editor = VaultItem(kind: .secureNote) }
                     emptyChoice("Import from Apple Passwords", "square.and.arrow.down") { importing = true }
                 }
-                Text("To save passwords and passkeys from your browser, turn on Psss in Settings, AutoFill & Passwords. Then sign in to a site and choose Save in Psss.")
+                // While the card shows, or AutoFill is on, the short line. Off with the card hidden, the line that says to turn it on.
+                Group {
+                    if autoFill.reminder(for: autoFillVault).emptyVaultOffersSaving {
+                        Text("Sign in to a site in Safari and choose Save in Psss.")
+                    } else {
+                        Text("To save passwords and passkeys from your browser, turn on Psss in Settings, AutoFill & Passwords. Then sign in to a site and choose Save in Psss.")
+                    }
+                }
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
@@ -550,12 +568,7 @@ struct VaultView: View {
                              ? "Deletes this vault from this device and shows the welcome screen again."
                              : "Forgets this vault and shows the welcome screen again. The file stays where it is.")
                     }
-                    Section("AutoFill") {
-                        Text("AutoFill fills your logins in apps and websites. You turn it on in Settings.")
-                        Button("Open AutoFill Settings…") {
-                            Task { try? await ASSettingsHelper.openCredentialProviderAppSettings() }
-                        }
-                    }
+                    AutoFillSetupSection()
                 }
                 .formStyle(.grouped)
                 // The exporter belongs to the sheet that asks for it: the vault screen is busy presenting this sheet.
@@ -595,13 +608,34 @@ struct VaultView: View {
         } else { "Psss stops using this vault. The file is not deleted and you can open it again." }
     }
 
+    /// The vault the AutoFill reminder is about. The sample vault registers no logins, so it never shows the card.
+    private var autoFillVault: AutoFillVault { store.isSample ? .sample : .real }
+
+    private var showsAutoFillCard: Bool { autoFill.reminder(for: autoFillVault).display != .nothing }
+
+    /// The card is the first row of the list, so it scrolls away with it and never covers a row. An empty vault shows it
+    /// above its own text instead, and a search or a filter with nothing to list has no room for it.
+    @ViewBuilder
+    private func autoFillRow(_ results: [VaultItem]) -> some View {
+        if showsAutoFillCard, !results.isEmpty, !isSearching {
+            AutoFillCard(vault: autoFillVault)
+                #if os(iOS)
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                #else
+                .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
+                #endif
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+        }
+    }
+
     private func itemResults(_ results: [VaultItem]) -> some View {
         Group {
             if usesStack {
                 // A stack pushes through its links, so the list must not also track a selection.
-                List { ForEach(results) { row($0) } }
+                List { autoFillRow(results); ForEach(results) { row($0) } }
             } else {
-                List(selection: $selection) { ForEach(results) { row($0) } }
+                List(selection: $selection) { autoFillRow(results); ForEach(results) { row($0) } }
             }
         }
         #if os(iOS)
@@ -643,6 +677,7 @@ struct VaultView: View {
                 }
             }
         }
+        .overlay(alignment: .bottom) { AutoFillHiddenNotice() }
         .searchable(text: $search, prompt: "Search")
         .searchFocused($searchFocused)
         #if os(iOS)
@@ -799,9 +834,10 @@ struct VaultView: View {
     }
 
     /// Tells the system which sites have logins. The sample vault registers none: nothing in it may ever be offered by AutoFill.
-    private func registerIdentities() {
+    /// `knownEnabled` is for the moment AutoFill has just been found on: the logins go to the system at once.
+    private func registerIdentities(knownEnabled: Bool = false) {
         guard !store.isSample else { return }
-        VaultIdentities.register(for: items)
+        if knownEnabled { SharedVault.registerIdentities(for: items, knownEnabled: true) } else { VaultIdentities.register(for: items) }
     }
 
     /// Picks up what the AutoFill extension or another app wrote to the vault file while this view was in the background.

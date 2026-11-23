@@ -64,7 +64,7 @@ AuthenticationServices documents a user-selected text insertion path. Verify it 
 - Working in the iOS 26.5 simulator with ad-hoc signing (2026-11-22): the provider appears under Settings, General, AutoFill & Passwords once **both the app and the extension** carry `com.apple.developer.authentication-services.autofill-credential-provider`. With the entitlement on the extension alone the system discovers and elects the extension but never lists it. Real devices additionally need a provisioning profile that allows the entitlement.
 - Verified in Safari against the sample site: the keyboard key opens the provider chooser, our list shows “For localhost” first, Fill completes email and password, the system offers “Use Strong Password? Save in Psss”, accepting fills both new-password fields, and our save sheet writes to the App Group file that the app shows after it returns to the foreground. Evidence: `docs/checkpoints/2026-11-22-autofill/fill-flow.png` and `save-flow.png`.
 - Passkeys verified in the simulator (iOS 26.5, `prototype/sample-site/passkey.html`): registration (`prepareInterface(forPasskeyRegistration:)`) and assertion (`prepareInterfaceToProvideCredential(for:)` and `prepareCredentialList(for:requestParameters:)`) both complete. The page verifies the ES256 signature with WebCrypto. The provider needs `ProvidesPasskeys` in its capabilities, registers `ASPasskeyCredentialIdentity` records, stores the P-256 key and credential ID in the item, and returns a `none` attestation with synced, user-verified flags. Evidence: `docs/checkpoints/2026-11-22-autofill/passkey-flow.png`.
-- The system sheets already ask “Save a passkey?” and “Sign in?”, so the provider adds no second confirmation of its own. It asks for Face ID, Touch ID or the passcode before it signs, and shows its own picker only when more than one passkey matches and the person chose More Options.
+- The system sheets already ask “Save a passkey?” and “Sign in?”, so the provider adds no second confirmation of its own. It asks for Face ID, Touch ID or the passcode before it signs, and shows its own list only when a choice exists (see “Passkey request list” below).
 - Gaps found: the save request from a generated password carries no username, so the saved login has an empty account. Prompt for it in the save sheet, and test the save-on-submit path with a typed username. Titles derive from the host and should be tidied (for example “localhost” stays lowercase).
 - Simulator tip: with a hardware keyboard attached the QuickType bar is hidden, so enable the software keyboard (simulator control `set_keyboard show`) before testing inline suggestions.
 
@@ -121,7 +121,21 @@ The Mac app, provider and Safari extension have two sets of entitlements. The lo
 12. Whether the system passes a URL with its scheme, or several identifiers, so the `http` rule can apply; and whether the save and generate keys in the shared provider settings are ignored on Mac.
 13. How right-to-left, very long and encoded site names and titles render in the confirmations.
 14. Saving to a vault opened in place from iCloud Drive with the sandbox on, and a not-downloaded iCloud file being refused.
-15. On a simulator, which needs only the owner's approval of a device: a credential the extension saved is offered at once; the “not saved”, “not ready” and “can't save this passkey” screens; the sample vault session; the lock-screen and change-password wording.
+15. A site with a pending passkey request (Google, or `prototype/sample-site/conditional.html`) offers the saved password, with and without a passkey saved, on iPhone, iPad and Mac, in Safari and in a native app.
+16. On a simulator, which needs only the owner's approval of a device: a credential the extension saved is offered at once; the “not saved”, “not ready” and “can't save this passkey” screens; the sample vault session; the lock-screen and change-password wording.
+
+## Passkey request list (2026-11-23)
+
+- Sites such as Google start a passkey request as soon as the page loads (an autofill-assisted, conditional request). While it is pending, choosing Psss makes the system call `prepareCredentialList(for:requestParameters:)`, not the plain list, and Apple's header says that list shows “passkey and password credentials”. The first device run showed only “Choose a Passkey” and “No passkeys for this site yet.” with no way to fill the password.
+- The list is now the plain login list plus the passkeys, built by `PasskeyRequestList` (pure, tested in `Tests/Matching`). Passkeys for the request's relying party come first, honouring `allowedCredentials`, under “Passkeys for <rpID>” with the action “Sign in”. Then the logins saved for the page under “Logins for <site>” with “Fill”, then “Other Logins…” behind the same cross-site confirmation, plain `http` rule and cap of 40 as the plain list. Nothing puts every login one tap away.
+- The site is read from the service identifiers as in the plain list. If the system gives none with a host, the request's relying party stands in as the site for matching logins (the browser has checked it against the page).
+- Title “Choose a Login or Passkey”, or “Choose a Login” when no passkey is listed. With nothing saved for the site: “No passkeys or logins are saved for <site>.” and “Other Logins…” below.
+- One matching passkey and no login for the site still signs in without a list. If a login also matches, the list is shown, because the person may want the password.
+- The same shared view serves iPhone, iPad and Mac.
+
+## AutoFill state in the app (2026-11-23)
+
+The app reads `ASCredentialIdentityStore.getState` at launch, after unlock and whenever it becomes active; there is no change notification. While AutoFill is off it shows a reminder card at the top of the list, and Setup shows the state ([experience](experience.md#autofill-reminder-approved-2026-11-23)). When it finds AutoFill on after it was off, it re-registers the vault's identities straight away (`SharedVault.registerIdentities(for:knownEnabled: true)`), so logins saved while AutoFill was off are offered without the next unlock. An unsigned Mac build cannot enable AutoFill, so it shows the card forever and Apple's prompt never appears.
 
 ## Provider screen copy (2026-11-23)
 
