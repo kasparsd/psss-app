@@ -1,6 +1,6 @@
 # Vault format: a record log in place of a single file
 
-**Status: adopted by the owner on 2026-11-23. Not built.** This format becomes the source of truth for a vault, and KDBX becomes import and export. It reverses the decision of the same morning that KDBX is canonical. Today's build still stores KDBX, and [vaults](vaults.md) describes that build. Two narrower decisions in the [table below](#decisions-for-the-owner) are still open: post-quantum wrapping with its OS floor, and the age envelope.
+**Status: adopted by the owner on 2026-11-23. Not built.** This format becomes the source of truth for a vault, and KDBX becomes import and export. It reverses the decision of the same morning that KDBX is canonical. Today's build still stores KDBX, and [vaults](vaults.md) describes that build. One narrower decision in the [table below](#decisions-for-the-owner) is still open: the age envelope.
 
 ## Why it changed
 
@@ -183,7 +183,7 @@ Still open, listed as questions on the mock pages: whether a vault needs a name 
 | Decision | Recommendation |
 | --- | --- |
 | Adopt this format as the source of truth, with KDBX as import and export | **Decided 2026-11-23: adopted.** |
-| Post-quantum key wrapping from the first version | Yes: the X-Wing hybrid (ML-KEM-768 with X25519) as the HPKE key exchange. Wrapped keys stored in a cloud are exactly what an attacker would collect now and decrypt later. Verified 2026-11-23: CryptoKit has it from iOS 26 and macOS 26 as `XWingMLKEM768X25519_SHA256_AES_GCM_256`, Go has it in `crypto/hpke`, and Python's `cryptography` has it from version 47. It sets the minimum OS at 26. The [specification](format-spec.md) is drafted on this assumption. Still to show: that the three interoperate on the test vectors. |
+| Post-quantum key wrapping from the first version | **Decided 2026-11-23: yes, with a floor of iOS 26 and macOS 26.** The X-Wing hybrid (ML-KEM-768 with X25519) is the HPKE key exchange. Wrapped keys stored in a cloud are exactly what an attacker would collect now and decrypt later. CryptoKit has it from iOS 26 and macOS 26 as `XWingMLKEM768X25519_SHA256_AES_GCM_256`, so all record and key cryptography comes from the system with no added library. iOS 26 runs on the iPhone 11 and later, which covers the family's iPhone 12 and 14; going lower would add only phones stuck on iOS 18 and would cost either the post-quantum protection or a bundled ML-KEM. Still to show: that CryptoKit, Go and the reference implementation agree on the test vectors. |
 | Reuse the age file format for wrapped keys | No. Verified 2026-11-23: age has post-quantum recipients from version 1.3.0, but it is a whole-file format with its own header and passphrase mode (scrypt), CryptoKit has no age support, and what is wrapped here is one 32-byte key, which HPKE does directly on every platform. The reference tool gives Windows and Linux the same reach. The [specification](format-spec.md) is drafted on this assumption. |
 | The person key: synced by iCloud Keychain, or wrapped to each device | **Decided 2026-11-23, approved with the mocks:** iCloud Keychain by default on Apple devices, with the vault password and recovery kit optional under Advanced. The vault is as safe as the Apple Account and device passcode, no safer. |
 | Order and the scope of 1.0 | **Decided 2026-11-23: sharing by group is part of 1.0.** The direction review recommended one person on several devices for 1.0 and sharing after it; the owner chose sharing in 1.0, since a family sharing logins is what the app is for. Build order is unchanged: one person on several devices first, shared groups second, both before 1.0. Consequences: the invitation exchange, membership forks, the `CKShare` mapping and the child account question are 1.0 work, and the independent review of the specification gates 1.0, not a later release. |
@@ -191,7 +191,8 @@ Still open, listed as questions on the mock pages: whether a vault needs a name 
 ## Roadmap
 
 - [x] Owner decision to adopt (2026-11-23).
-- [ ] Owner decision on the two open rows above (post-quantum wrapping with the OS floor, the age envelope).
+- [ ] Owner decision on the one open row above (the age envelope).
+- [ ] Lower the project's deployment targets from 27 to iOS 26 and macOS 26 and build both schemes; any interface code that needs 27 gets a fallback. The oldest phones to test on are the iPhone 11 and 12.
 - [x] Verified X-Wing HPKE in CryptoKit, Go and Python, and age's post-quantum recipients (2026-11-23).
 - [~] Byte-level [specification](format-spec.md): draft 2 (2026-11-23), which answers the 36 findings of the first independent implementation. The reference implementation for Node 24 and 240 test vectors are in `Packages/format/` and pass (`scripts/test-format.sh`), checked by a second independent run; they follow draft 1 until brought up to draft 2. Not yet specified: the item schema, the invitation and approval exchanges, the backup file and the CloudKit record types. Not yet shown: that CryptoKit and Go agree with the X-Wing and HPKE vectors.
 - [ ] Spike: CloudKit zone per vault with `CKShare`, including whether a child's Apple Account can accept the share, and convergence times on real devices.

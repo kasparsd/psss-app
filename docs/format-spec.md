@@ -1,6 +1,6 @@
 # Psss vault format, version 1: byte-level specification
 
-**Status: draft 2, 2026-11-23. Not reviewed, not implemented in the app.** The design and its reasons are in [vault format](format.md); this document says exactly what the bytes are, so that two people can implement it without talking to each other. Test vectors and a reference implementation for Node 24 are in `Packages/format/`. The draft assumes two decisions the owner has not confirmed: post-quantum key wrapping (yes) and reusing the age envelope (no). Everything is open to change until the independent review.
+**Status: draft 2, 2026-11-23. Not reviewed, not implemented in the app.** The design and its reasons are in [vault format](format.md); this document says exactly what the bytes are, so that two people can implement it without talking to each other. Test vectors and a reference implementation for Node 24 are in `Packages/format/`. Post-quantum key wrapping is decided (2026-11-23, with a floor of iOS 26 and macOS 26). The draft still assumes one decision the owner has not confirmed: not reusing the age envelope. Everything is open to change until the independent review.
 
 Draft 2 answers the 36 findings from the first independent implementation of draft 1; the [list of changes](#12-changes-from-draft-1) is at the end.
 
