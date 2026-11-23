@@ -45,6 +45,7 @@ This is a greenfield project. Do not spend effort on data migrations, backward c
 ## Notes
 
 - Product philosophy, pricing and brand are shared with the sibling photo app at `../macos-photo-db`. Read `docs/product.md` before changing commercial, privacy or branding behavior, and keep the two apps consistent.
+- Write custom tooling, build scripts, generators and reference implementations for Node 24, not Python. See `docs/development.md`, “Tooling outside Xcode”.
 - Always use soft line breaks (not hard) in documentation.
 - Keep important actions visible, labeled and prominent. Do not hide them behind icon-only buttons, menus or gestures. Use progressive disclosure only for rarely needed or risky detail. See `docs/experience.md`, “Cross-cutting rules”.
   Icon-only controls are allowed only where Apple's Human Interface Guidelines permit or require them (for example a standard toolbar symbol, a search field's clear button, or a system biometric glyph) and always carry an accessibility label and a help tooltip. When the guidelines leave the choice open, add the label.

@@ -69,6 +69,15 @@ xcodebuild -project Psss.xcodeproj -scheme Psss-iOS \
 
 Reuse derived-data directories to keep incremental builds fast. Verify both schemes after shared changes. Check iPhone compact width and iPad regular width when editing navigation. Use Xcode for signing and archiving. Unsigned builds verify compilation and bundle assembly. Enabling a real credential provider requires registered identifiers, team profiles, and matching app and extension entitlements. See [AutoFill](autofill.md) and [release](release.md).
 
+## Tooling outside Xcode
+
+Custom tooling, build scripts, generators and reference implementations are written for Node 24 (decided by the owner, 2026-11-23), not Python. The same code can then be packaged as client libraries for working with vaults outside Apple platforms.
+
+- `.nvmrc` pins the major version. Scripts find a Node 24 binary themselves and fail with a clear message when there is none; they do not assume the `node` on the path.
+- TypeScript is run directly by Node (type stripping, erasable syntax only). No build step, and no dependencies unless a document records why one is needed.
+- Code meant to become a library lives in `Packages/<name>/` with its own `package.json`, pure functions over bytes in the core and file system access in a separate module. The first is `Packages/format`, the reference implementation of the [vault format](format-spec.md).
+- The Python scripts that exist (`scripts/build-brand-icons.py`, `scripts/build-public-suffix.py`, `Extensions/Browser/build.py`, `prototype/sample-site/server.py`) predate this and are ported when next touched.
+
 ## Browser extension
 
 `Extensions/Browser` holds the shared WebExtension (`src`, one flat folder), the native host and `build.py` (standard library only, output in `build/browser`). The Safari extension is built by Xcode: targets `SafariExtension-macOS` and `SafariExtension-iOS` bundle `Extensions/Browser/src` and `Extensions/Safari`, and both schemes embed them. Chrome and Firefox archives, the host and the tests come from `build.py` and `Extensions/Browser/tests`. `App/Core/BrowserProtocol.swift` answers extension requests for both the host and the Safari handler. Run `python3 Extensions/Browser/build.py check` after any change to the extension, and see [browser extension](browser-extension.md#build-and-try-it) for building, loading and tests (unit, host, and end-to-end suites for Chrome and Firefox; they need Node 22 or later and Python 3).
@@ -85,6 +94,7 @@ Adapted from `macos-photo-db` at `71732c0`, principally `docs/development.md`, `
 ## Roadmap
 
 - [x] Create Xcode app schemes and embedded provider targets.
+- [ ] Port the remaining Python scripts to Node 24 (see Tooling outside Xcode).
 - [ ] Add a hostless Swift test target when the first codec or import contract lands. Verify any filtered test run executes tests.
 - [ ] Add deterministic preview scenarios for empty, locked, save review and failed write states.
 - [ ] Add a String Catalog and audit VoiceOver labels with the first localization pass.

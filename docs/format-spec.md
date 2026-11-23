@@ -1,6 +1,6 @@
 # Psss vault format, version 1: byte-level specification
 
-**Status: draft 1, 2026-11-23. Not reviewed, not implemented in the app.** The design and its reasons are in [vault format](format.md); this document says exactly what the bytes are, so that two people can implement it without talking to each other. Test vectors and a reference implementation are in `Tests/Format/`. The draft assumes two decisions the owner has not confirmed: post-quantum key wrapping (yes) and reusing the age envelope (no). Everything is open to change until the independent review.
+**Status: draft 1, 2026-11-23. Not reviewed, not implemented in the app.** The design and its reasons are in [vault format](format.md); this document says exactly what the bytes are, so that two people can implement it without talking to each other. Test vectors and a reference implementation for Node 24 are in `Packages/format/`. The draft assumes two decisions the owner has not confirmed: post-quantum key wrapping (yes) and reusing the age envelope (no). Everything is open to change until the independent review.
 
 The words MUST, SHOULD and MAY are used as in RFC 2119. “Group” is the keyed unit with members; a person's vault is every group they belong to.
 
