@@ -30,7 +30,8 @@ AuthenticationServices documents a user-selected text insertion path. Verify it 
 - Use a thin JavaScript adapter for WebExtension page interaction and Swift for native targets.
 - Match conservatively across schemes, hosts, ports and frames. Keep manual selections explicit and revalidate on navigation.
 - Matching rule (decided 2026-11-22, built 2026-11-23 in `App/Core/SiteMatch.swift` with the public suffix list generated into `App/Core/PublicSuffixList.swift`): a saved login is offered when its host equals the requested host, or the requested host is a subdomain of it. The subdomain case is refused, leaving an exact match only, when the saved host is a public suffix (`github.io`, `co.uk`), the parent of a wildcard rule (`compute.amazonaws.com`), a single label, a local name (`localhost`, `local`, `lan`, `internal` and the reserved test names), or an address (IPv4 in any spelling, IPv6). A login saved for a subdomain is never offered on its parent or a sibling. Hosts are compared after lowercasing, dropping a trailing dot and leading `www.` labels (kept when what remains is a public suffix), and converting international names to punycode. Anything malformed reads as no host and matches nothing: user info before the host, a backslash, `%`, whitespace or control characters in the host, empty labels, names over 253 characters, addresses with no network host such as `javascript:` or `file:`, a bare email address. An item whose website reads as no host is not registered with the system. An independent run of 362 adversarial cases found no way for a login to reach another party's site. `scripts/test-matching.sh` runs the suite and `scripts/build-public-suffix.py` refreshes the list (Mozilla Public License 2.0). `SiteMatch.related` (same registrable domain, not a match) is there for a later “related logins” hint.
-- Not yet in the rule: the scheme. The provider still offers a login on a plain `http` page, where the person picks it; the browser extension refuses `http` except on this machine. Decide whether the provider should refuse or warn.
+- The scheme (built 2026-11-23, `App/Core/FillSite.swift`): when any service identifier the system passes is an `http` address for a host that is not this machine, the page counts as unencrypted. Its logins are then not offered automatically: they sit behind one labeled step and a confirmation that says anything filled can be read on the network. Limits: a suggestion picked from the keyboard carries only the stored domain, so the rule cannot apply there, and Safari may pass only a domain, in which case it never applies in Safari. Both need a signed build to find out.
+- Showing a site name (`App/Core/HostDisplay.swift`): an international name is shown in readable form only when every part is made of letters, marks, digits and hyphens in normal form; anything else shows the encoded `xn--` form. A name that mixes scripts shows the encoded form beside it. Matching always uses the encoded form.
 - Logins for other sites sit behind one labeled step in the fill list, and choosing one asks for a confirmation that names both the login's site and the current site. Today they are one tap away.
 - Order of work is set by the [roadmap](roadmap.md#course-correction-review-of-2026-11-22): the real vault in the provider on a signed device first, then the Mac provider and verification codes. Interface polish waits for the M0 gate on 2026-12-20.
 
@@ -39,11 +40,12 @@ AuthenticationServices documents a user-selected text insertion path. Verify it 
 - [x] Add embedded Credential Provider targets with request-cancellation stubs.
 - [x] Add matching entitlements, an App Group vault file, identity registration, and a provider that fills, saves and generates (iOS code complete, compiles).
 - [ ] Prove fill, save, generate and passkey callbacks on a physical device (see “Prototype status”).
-- [ ] Mac provider: the macOS branch cancels every request. Share the iOS implementation (password fill, passkey list, sign-in and registration; macOS has no save or generate requests) and give the Mac app and provider the AutoFill entitlement, App Group and a Keychain path both can read.
-- [ ] Verification codes: add `ProvidesOneTimeCodes`, register a one-time code identity for each login with a code, and answer one-time code requests on both platforms.
+- [~] Mac provider: one implementation for iPhone, iPad and Mac since 2026-11-23 (password fill, passkeys, verification codes; macOS has no save or generate request). Built and checked as far as an unprovisioned build allows: every build variant, the views hosted in a window with Return and Escape on every screen. Never run as a provider: that needs a provisioned build.
+- [x] Verification codes in the provider (2026-11-23): `ProvidesOneTimeCodes`, a one-time code identity for each login with a readable code and a website, and release only for a matching site (`ReleaseCheck.oneTimeCode`), with no other-logins path. Codes matched an independent computation for every algorithm, length and period tried. Whether the system offers them needs a signed build.
 - [x] Matching as decided above, with hostless tests (2026-11-23).
-- [ ] The fill list as decided above: other logins behind one labeled step with a confirmation that names the site.
-- [ ] Decide and build the `http` rule for the provider.
+- [x] The fill list as decided above (2026-11-23): matches first; “Other Logins…” reveals the rest; choosing one asks “Fill a login from another site?” naming both sites, with Cancel as the default. On Mac the confirmation is Psss's own sheet so that Return and Escape both cancel. No key sequence reached “Fill Anyway” in testing with simulated keys; a real keyboard with full keyboard access is still to check.
+- [x] The `http` rule for the provider (2026-11-23), with the limits noted under Decisions.
+- [ ] Text from the vault shown in the provider (a login's title and account) is cleaned of direction-reversing and invisible characters before display, and lookalike letters in site names show the encoded form beside them. In progress.
 - [ ] Passkeys: merge a passkey into the existing login for the same site and user, handle excluded credentials, and test cross-device sync once a vault syncs.
 
 - [ ] Verify checkout frames, hosted payment forms, and individual card fields before publishing payment coverage.
@@ -96,14 +98,24 @@ From the iOS 27.2 and macOS 27.2 SDK headers on the development machine, and App
 - Apple publishes no memory limit for the provider. Other KeePass apps report 64 to 120 MB. Budget 64 MB until S2 measures it.
 - Chrome on iPhone and iPad documents using system providers; Edge and Firefox there are untested. No primary source shows Chrome, Edge or Firefox on Mac offering a third-party provider.
 
+### Mac builds: local and provisioned
+
+The Mac app, provider and Safari extension have two sets of entitlements. The local set is what a build without a development team can carry: sandbox, user-selected file access and bookmarks for the app, sandbox alone for the extensions. The full set adds the team-prefixed App Group, the AutoFill capability and the shared Keychain group, and needs provisioning profiles. `PSSS_MAC_ENTITLEMENTS_SUFFIX` in `Configuration/macOS.xcconfig` chooses, defaulting to `-local`; set it to empty, with the team, in an untracked `Configuration/Local.xcconfig`. A local build cannot enable the provider at all, keeps the vault in the app's own container, and keeps the Touch ID key in the login keychain behind the app's own prompt. A provisioned build uses only the protected Keychain item (current fingers only, this device only), never falls back, and removes leftover login-keychain items once. The provider on Mac only ever reads the protected item.
+
 ### What only a signed device can settle
 
-1. That the provider appears under AutoFill & Passwords with the paid team's profile, on iPhone, iPad and Mac.
+1. That the provider appears under AutoFill & Passwords with the paid team's profile, on iPhone, iPad and Mac, and that the Mac profiles carry the AutoFill capability, the team-prefixed App Group and the Keychain group for all three Mac targets.
 2. Peak memory and unlock time in the extension on the oldest supported iPhone, for a small vault and one of a few thousand entries, on a cold start.
-3. That the extension can read the biometry-protected Keychain item the app created, on iOS and in the Mac data protection keychain.
-4. That the Mac provider can open the App Group container, with a `group.` identifier and with a team-prefixed one.
+3. That the extension can read the biometry-protected Keychain item the app created, on iOS and in the Mac data protection keychain, and that the app's save of that item succeeds on Mac with no fallback.
+4. That the Mac provider can open the team-prefixed App Group container, and that the group identifier resolves to the same value in the app, the provider and the Safari extension.
 5. A document-scoped bookmark to an iCloud Drive file resolved from the extension, including after a restart.
-6. The identity store when the provider is switched off, after a restart before first unlock, and when the app registers against when the extension does.
+6. The identity store when the provider is switched off, after a restart before first unlock, when the app registers against when the extension does, and whether one-time code identities are offered.
 7. Whether Chrome, Firefox and Edge on Mac offer the provider, and Edge and Firefox on iPhone.
 8. Passkeys on Mac in Safari and a native app, including automatic upgrade.
 9. The Safari extension's handler reading the shared Keychain group, and how long a message through it takes.
+10. Which Keychain errors really occur on a provisioned Mac (after fingerprints change, in a lockout), what the one-time removal of leftover login-keychain items does, and whether macOS prompts for it.
+11. The provider's screens in the real system sheet on Mac: size, Return and Escape, whether Tab can reach “Fill Anyway” with full keyboard access, what VoiceOver announces, and the alert's default button on iPhone and iPad.
+12. Whether the system passes a URL with its scheme, or several identifiers, so the `http` rule can apply; and whether the save and generate keys in the shared provider settings are ignored on Mac.
+13. How right-to-left, very long and encoded site names and titles render in the confirmations.
+14. Saving to a vault opened in place from iCloud Drive with the sandbox on, and a not-downloaded iCloud file being refused.
+15. On a simulator, which needs only the owner's approval of a device: a credential the extension saved is offered at once; the “not saved”, “not ready” and “can't save this passkey” screens; the sample vault session; the lock-screen and change-password wording.

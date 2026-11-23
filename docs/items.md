@@ -70,14 +70,14 @@ An evaluation of every field, its input, which fields repeat, revisions and date
 Defects found while reading the code:
 
 - [x] Verification codes honour the link's digits (6 to 8), period and algorithm (SHA-1, SHA-256, SHA-512). Counter-based (HOTP) links and other values are refused, not guessed.
-- [ ] The passkey's date is the entry's `CreationTime`, so a passkey added to an old login shows the login's date.
-- [ ] `setString` sets the protected flag only when it creates a string, and never corrects it on an existing one.
-- [ ] `sameContent` ignores custom fields, attachments and most passkey data, so a change to those alone makes no revision.
-- [ ] `HistoryMaxSize` is not honoured; only `HistoryMaxItems` is.
-- [ ] `upsert` searches live entries only, so restoring an entry that sits in the Recycle Bin would add a second entry with the same identifier.
-- [ ] Times are written as ISO 8601 text even in KDBX 4 files, where the format uses base64 of seconds since year 1. KeePassXC 2.8 reads them; KeePass 2 and Strongbox are unverified. Write base64 for KDBX 4.
-- [ ] An entry with no `Times` element never gets a modification time.
-- [ ] Card numbers are always grouped by four on the detail page, which is wrong for American Express (4-6-5). Maestro, UnionPay, Mir and Elo are not detected.
+- [x] The passkey's date was the entry's creation date. It is now stored with the passkey (`PSSS_PASSKEY_CREATED`), falling back to the entry's date for passkeys from other apps (2026-11-23).
+- [x] Protected flags on the password, one-time code and passkey key are corrected whenever an entry is written; other strings keep theirs (2026-11-23).
+- [x] `sameContent` now covers every field the codec stores (2026-11-23). Custom fields and attachments join it with the field model.
+- [x] `HistoryMaxSize` is honoured with `HistoryMaxItems`, oldest first, and a value that is not a number is saved as the default (2026-11-23).
+- [x] Saving an item whose entry is in the Recycle Bin restores and updates it; a restore never duplicates a live identifier (2026-11-23).
+- [x] Times are written in the KDBX 4 base64 form everywhere, and a file that still holds text times is converted on its next save with every instant unchanged. Checked against KeePassXC in both directions (2026-11-23).
+- [x] An entry with no `Times` element gets one when it is next changed, and modification times always move forward (2026-11-23).
+- [~] Card grouping (4-6-5 for American Express and the rest) and Maestro, UnionPay, Mir and Elo detection exist as pure functions with expiry parsing and a Luhn check (`CardBrand`, `CardNumber`, 2026-11-23). Not yet used by any screen, and the new networks have no logo.
 
 ### Proposed fields and inputs
 
@@ -159,6 +159,12 @@ Display, the same on iPhone, iPad and Mac: one last section on the detail page w
 | A date is missing | That row is hidden. With both missing the section is hidden. Never “Unknown” |
 
 Dates are absolute and follow the person's locale (day, abbreviated month, year, and the time on the edited row). Relative wording such as “3 days ago” goes stale on screen and reads worse in VoiceOver.
+
+### Built so far (2026-11-23)
+
+In the codec and the store, with no screen yet: created and edited dates on every item; history with the ten-minute folding rule, a reader for previous passwords, restore and clear; the Recycle Bin (move, list, restore, delete permanently, empty, purge after 30 days when the app unlocks, never in the AutoFill extension); every change all-or-nothing, so a failed write leaves nothing behind in memory; attachments nothing refers to dropped on save. An entry's deletion time is the latest evidence there is, including the folder it was deleted with, and without readable evidence nothing is purged automatically. The app's delete button still deletes permanently, and says so, until the Recently Deleted screen is designed and approved. Reserved `PSSS_` fields now also include `PSSS_PASSKEY_CREATED`, `PSSS_DELETED_FROM`, `PSSS_DELETED_AT`, `PSSS_SOURCE`, `PSSS_IMPORT_HASHES` and, in the vault's Meta data, `PSSS_DELETED_SOURCES`.
+
+Known limits: rapid automated saves push an entry's modification time one second ahead per save, since KDBX 4 stores whole seconds; and each save rewrites the whole file, about 0.18 s at 5,000 entries.
 
 ### Order of work
 

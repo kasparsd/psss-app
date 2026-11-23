@@ -50,6 +50,17 @@ Accepted by the owner on 2026-11-22.
 4. **The gate has a date: 2026-12-20.** On that day the storage decision is written down with whatever evidence exists.
 5. **Usage data leaves the synced file** before S4 runs, so the sync test measures real edits.
 
+## Waiting on the owner (2026-11-23)
+
+Work that cannot move without the owner, most blocking first.
+
+1. **A paid Apple Developer Program team, by 2026-11-27.** The AutoFill capability is not available to free accounts. A real device, TestFlight, the Mac provider, the protected Keychain item on Mac and the iCloud container all wait on it. Then: set the team and an empty `PSSS_MAC_ENTITLEMENTS_SUFFIX` in `Configuration/Local.xcconfig`.
+2. **Approval of a simulator device** for validation runs, or the name of one already approved. Fifteen behaviours are queued in [autofill](autofill.md#what-only-a-signed-device-can-settle), item 15.
+3. **Mock approvals** before these screens are built: Recently Deleted, the 1Password import with its report, read-only “Other fields” and attachments on the detail page, the detail page's dates and previous passwords.
+4. **A second 1Password 7 export** with one attachment and one login whose password was changed.
+5. **Decisions** listed under Open decisions: the eight field-model choices in [items](items.md#open-decisions), what a CSV re-import does when a title or site changed, whether a merge may append imported notes, and attachments on iPhone given their memory cost.
+6. **Which browsers and devices the first family users have,** which decides whether the browser extension comes back into scope.
+
 ## M0 · Risk burn-down
 
 Goal: prove one real fill on a device from a KDBX vault, and find with evidence what the AutoFill extension and sync need to work within KDBX. Time-box to four weeks, ending 2026-12-20. Use disposable vaults only.
@@ -81,7 +92,7 @@ Goal: the owner moves their real day-to-day sign-ins into Psss.
 
 - [~] **Security findings that gate real logins** (independent review, 2026-11-23, listed in [architecture](architecture.md#security-review-2026-11-23)). Closed and independently re-checked: site matching, the provider's plain-text fallback, the conflict check, rollback copies that kept the old password, release by record identifier. Open: other logins one tap away in the fill list, plain `http` pages in the provider, Touch ID on Mac, and everything that needs a simulator or a device (the provider's screens, saving to a file opened in place from iCloud Drive, the real Keychain item). No real logins, the owner's or anyone else's, before those are closed. The findings that gate TestFlight are in the same section.
 
-- [ ] Replace the flat `VaultItem` with the field-based domain model and a `VaultStore` boundary. The field set, which fields repeat, revisions, the Recycle Bin and the created and edited dates are specified in [items](items.md#field-model-evaluation-of-2026-11-23), with an order of work and eight open decisions; its codec steps (dates, history, one-time code parameters, card validation) are not interface polish and may start before the gate. KDBX is a codec behind it. Protected values use a dedicated secret type with limited lifetime, not plain `String` in view state.
+- [~] Replace the flat `VaultItem` with the field-based domain model. Done underneath it (2026-11-23): dates, history, previous passwords, the Recycle Bin, all-or-nothing store changes and card helpers, all without a screen ([items](items.md#built-so-far-2026-11-23)). Open: the field list itself (custom fields, several websites, attachments on the item), a secret type with a limited lifetime, and the screens, which need approved mocks: item detail with dates and previous passwords, Recently Deleted, the editor's Add Field.
 - [ ] Create vault with the S6 key-custody default, biometric unlock, auto-lock. Custom vault password stays available.
 - [x] Lock screen: Face ID and Touch ID unlock behind a Keychain-saved key, a "What is this?" explainer and lost-password help (2026-11-22). The saved key is the transformed key. Open: S2 extension budget on a device, S6 recovery phrase and iCloud Keychain, Mac Touch ID on a real vault, Apple Watch. Details in [vaults](vaults.md#lock-screen-2026-11-22).
 - [ ] Screens 1, 2, 5 and 10 from [experience](experience.md#screens-and-goals): the fill sheet and save prompt exist in the provider and the unlock screen exists; the inline generator on the editor's password field does not.
@@ -90,11 +101,11 @@ Goal: the owner moves their real day-to-day sign-ins into Psss.
 - [ ] Remaining from the [iPhone review](experience.md#review-of-the-iphone-build-2026-11-22): group repeated titles, “More” section on detail.
 - [~] Passkey create and sign-in work from the real vault in the simulator; the identity fix that lets the system offer the new passkey directly is being validated. Earlier prototype (see [autofill](autofill.md#prototype-status-2026-11-22)).
 - [ ] Mac: File, New Login (⌘N) and the other kinds exist as menu commands. Still to do: re-verify them, the toolbar, inset list and sidebar-first layout in the running Mac app (the last pass was reviewed from a screenshot and built, not driven).
-- [ ] Mac entitlements file for the app and the provider: sandbox with user-selected read and write and app-scoped bookmarks, the App Group (team-prefixed), the AutoFill credential provider capability and the Keychain group. Part of S3, and what opening a vault file on Mac depends on.
+- [x] Mac entitlements for the app, the provider and the Safari extension (2026-11-23), in a full set for provisioned builds and a local set an ad-hoc build can carry, chosen by one setting ([autofill](autofill.md#mac-builds-local-and-provisioned)). Whether a sandboxed Mac build opens and saves a vault file in place is still to check in the running app.
 - [ ] Hostile vault files: cap the KDF memory and the inflated size a file may ask for to what the extension can afford, and add malformed and truncated-file tests. The Argon2 memory read from a file is only overflow-checked and inflation allows 1 GiB.
 - [ ] Setup shows placeholder rows (the AutoFill section says it is a preview, and the sample vault lists three inert vault lines). Remove or implement them: they break “truthful language” and “one screen to enable AutoFill”.
-- [ ] Mac biometric key: Keychain-enforced Touch ID (data protection keychain, needs the signed build from S3) instead of an app-side prompt in front of a login keychain item. Required before real logins go in.
-- [~] Matching: the public suffix list and the no-parent rule are built and independently checked (2026-11-23, rule in [autofill](autofill.md#decisions)). Open: other logins in the fill list behind a deliberate step with the site named, the `http` question, and removing the stale “The prototype has no unlock step yet.” line from the fill confirmation.
+- [~] Mac biometric key: a provisioned build now uses the Keychain-enforced item and never falls back (code, 2026-11-23); a local build still uses the login keychain behind the app's own prompt. Needs the signed build from S3 to verify, and is required before real logins go in.
+- [x] Matching and the fill list (2026-11-23): the public suffix list, no parent-host fill, other logins behind “Other Logins…” and a confirmation naming both sites, the `http` rule, and the stale prototype line removed. Rule and limits in [autofill](autofill.md#decisions).
 - [ ] Text sizes and colour: eleven `.caption` and `.footnote` uses and five `.subheadline` in `VaultView`, `VaultFileViews`, `WelcomeView` and the provider break the two-sizes rule in AGENTS.md, and red text is used for errors that are not deletions (`VaultFileViews`, the editor). Bring every screen to a title and a body size, and keep red for deletion. Fix when the freeze lifts.
 - [ ] Split `VaultView.swift` (1,250 lines) by screen when the field-based model lands.
 - [ ] AutoFill: ask for the username in the save sheet, test save-on-submit with a typed username, tidy host-derived titles, and verify on a physical device (needs a provisioning profile with the AutoFill entitlement).
@@ -177,6 +188,10 @@ Goal: five people outside the project fill, save and find a login without guidan
 | 2026-11-23 | Independent security review: no critical issue in the encrypted vault path; five findings gate real logins and eleven gate TestFlight. | [architecture](architecture.md#security-review-2026-11-23). |
 | 2026-11-23 | Hostless test scripts compile with `HOSTLESS_TESTS`, which drops the file-protection class in test builds only. macOS refuses protected writes while the screen is locked, so the tests could not run on a locked Mac. | Two builders hit it the same night. |
 | 2026-11-23 | The sample vault is in memory only, and no plain-text credential store remains in the apps, the provider or the Safari extension. | Security review, [architecture](architecture.md#security-review-2026-11-23). |
+| 2026-11-23 | A provisioned Mac build never falls back to the login keychain for the Touch ID key; a local build without a team uses it. Mac entitlements come in a local and a full set chosen by one setting. | [autofill](autofill.md#mac-builds-local-and-provisioned). |
+| 2026-11-23 | A site name is shown in readable form only when it is made of letters, marks, digits and hyphens; otherwise in its encoded form. Matching always uses the encoded form. | Validation over every Unicode character. |
+| 2026-11-23 | An entry is purged from the Recycle Bin only when the latest readable evidence of its deletion is more than 30 days old. The purge runs when the app unlocks, never in the AutoFill extension. | A validation run found two ways the first version destroyed recent deletions. |
+| 2026-11-23 | Every change to the vault is all-or-nothing, and the store never holds an edit that is not on disk. Replacing a file that changed elsewhere repeats the change deliberately. | Validation of the conflict path. |
 
 ## Platform gaps
 
@@ -191,4 +206,4 @@ Goal: five people outside the project fill, save and find a login without guidan
 - Save and generate password requests from the system (Safari signup prompts) exist for third-party providers on iOS 26.2+ and visionOS 26.2+ only (confirmed in the SDK headers). macOS has no equivalent API, so on Mac the app offers Add login and the generator inside the app, and the bundled Safari extension offers generate and save on sign-up forms in the page. Revisit each macOS release.
 
 - [~] Create a real encrypted vault and open a .kdbx from Files in place (2026-11-22). Opening a file on Mac is unverified: the Mac targets have no entitlements file, so the sandboxed app may lack user-selected file access and bookmarks. Remaining onboarding gaps: 1Password .1pux import, Credential Exchange import, AutoFill from a vault opened in place (the extension reads only vaults Psss stores), the Mac provider, entry-level merge for files changed elsewhere, groups, attachments and the Recycle Bin.
-- [ ] Recently Deleted: deleting is permanent in the prototype. The real vault keeps deleted items for 30 days with restore, as Apple Passwords and KeePass do.
+- [~] Recently Deleted: built in the codec and the store with a 30-day purge (2026-11-23). The screen and the switch of the delete button from permanent to recoverable wait for an approved mock.

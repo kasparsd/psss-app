@@ -20,6 +20,10 @@ Compiles `App/Core/KDBX`, the store and `Tests/KDBX/main.swift` with `swiftc` an
 
 `scripts/test-matching.sh` checks site matching against the public suffix list, and `scripts/test-import.sh` checks the 1Password 7 importer against hand-written fixtures and, when present, a real export under `build/`. `scripts/build-public-suffix.py` downloads the list from publicsuffix.org and regenerates `App/Core/PublicSuffixList.swift`; commit the result. The codec and import scripts compile with `-D HOSTLESS_TESTS`, which drops the file-protection class from vault writes in those test builds only, because macOS refuses protected writes while the screen is locked. App builds keep complete file protection.
 
+## Mac signing: local and provisioned
+
+Without a development team Xcode signs the Mac app to run locally, and such a build cannot carry the AutoFill capability or a shared Keychain group. So the Mac targets use the `-local` entitlement files by default (`PSSS_MAC_ENTITLEMENTS_SUFFIX = -local` in `Configuration/macOS.xcconfig`). With a team and provisioning profiles, create an untracked `Configuration/Local.xcconfig` that sets `DEVELOPMENT_TEAM` and `PSSS_MAC_ENTITLEMENTS_SUFFIX =` (empty) to use the full files. In a local build the AutoFill provider cannot be enabled, and the vault and its reference stay in the app's own container. See [autofill](autofill.md#mac-builds-local-and-provisioned).
+
 ## Command-line verification
 
 ```sh
