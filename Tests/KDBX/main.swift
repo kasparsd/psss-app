@@ -2902,7 +2902,7 @@ do {
         expect("message: unsupported '\(what)' hides the internal name", !KDBXError.unsupported(what).message.contains(what))
     }
     check("message: invalid parameters", KDBXError.invalidParameters.message,
-          "Psss cannot open this vault's protection settings. Open it in the app that made it, save it again with the default settings, then try again.")
+          "This vault's protection settings cannot be opened by Psss, usually because they ask for more memory or time than Psss allows. Open it in the app that made it, save it again with the default settings, then try again.")
     check("message: invalid key file when opening", KDBXError.invalidKeyFile.message,
           "This key file cannot be used. Choose the key file that was used when the vault was made.")
     check("message: invalid key file when creating or changing", KDBXError.invalidKeyFile.messageForNewKey,
@@ -2913,8 +2913,8 @@ do {
 }
 
 #if HOSTLESS_UNLOCKGATE
-// The lock notice lives only as long as its cause. Needs UnlockGate.swift in the sources (see docs/development.md).
-@MainActor func unlockGateNoticeChecks() {
+// The lock notice lives only as long as its cause. Needs UnlockGate.swift in the sources and -D HOSTLESS_UNLOCKGATE (see docs/development.md).
+@MainActor func unlockGateNoticeChecks() async {
     let gate = UnlockGate()
     gate.lock(notice: "first")
     check("notice: set by a lock with a notice", gate.lockNotice ?? "nil", "first")
@@ -2930,8 +2930,33 @@ do {
     gate.markUnlocked()
     gate.lock()
     check("notice: a later unrelated lock shows none", gate.lockNotice ?? "nil", "nil")
+
+    // didBecomeActive (prompt: false, as for a KeePass vault) must not wipe a notice that explains a lock.
+    let active = UnlockGate()
+    active.lock(notice: "changed elsewhere")
+    await active.didBecomeActive(after: .fifteenMinutes, prompt: false)
+    check("notice: survives a following didBecomeActive", active.lockNotice ?? "nil", "changed elsewhere")
+    for _ in 0..<3 { await active.didBecomeActive(after: .immediately, prompt: false) }
+    check("notice: survives repeated activations", active.lockNotice ?? "nil", "changed elsewhere")
+    expect("notice: activation does not unlock a locked gate", !active.isUnlocked)
+
+    // A timing lock is a new lock without a reason to show, so a stale notice goes.
+    let timed = UnlockGate()
+    timed.markUnlocked()
+    timed.lockNotice = "stale"
+    timed.didResignActive()
+    await timed.didBecomeActive(after: .immediately, prompt: false)
+    expect("notice: timing lock locks", !timed.isUnlocked)
+    check("notice: timing lock clears a stale notice", timed.lockNotice ?? "nil", "nil")
+
+    // Back before the timing runs out: nothing locks and nothing changes.
+    let brief = UnlockGate()
+    brief.markUnlocked()
+    brief.didResignActive()
+    await brief.didBecomeActive(after: .fifteenMinutes, prompt: false)
+    expect("notice: a short absence keeps the gate unlocked", brief.isUnlocked)
 }
-unlockGateNoticeChecks()
+await unlockGateNoticeChecks()
 #endif
 
 print(failures == 0 ? "all passed" : "\(failures) failed")

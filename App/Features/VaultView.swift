@@ -1,3 +1,4 @@
+import AuthenticationServices
 import CoreImage.CIFilterBuiltins
 import SwiftUI
 
@@ -33,7 +34,7 @@ private extension ItemTrait {
     var badgeLabel: LocalizedStringKey {
         switch self {
         case .passkey: "Has a passkey"
-        case .code: "Has a TOTP code"
+        case .code: "Has a verification code"
         case .notes: "Has notes"
         }
     }
@@ -240,7 +241,7 @@ struct VaultView: View {
         .alert("This item was removed", isPresented: $showsEditorRemoved) {
             Button("OK") {}
         } message: {
-            Text("It was removed on another device or in another app, so the editor was closed. Your unsaved changes were not kept.")
+            Text("It was removed on another device or in another app, so the editor was closed. Changes you had not saved were not kept.")
         }
         .sheet(isPresented: $showsSetup) { setupSheet }
         .fileExporter(isPresented: Binding(get: { copyDocument != nil }, set: { if !$0 { copyDocument = nil } }),
@@ -266,7 +267,6 @@ struct VaultView: View {
                     emptyChoice("Import from Apple Passwords", "square.and.arrow.down") { importing = true }
                 }
                 Text("To save passwords and passkeys from your browser, turn on Psss in Settings, AutoFill & Passwords. Then sign in to a site and choose Save in Psss.")
-                    .font(.footnote)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
@@ -360,8 +360,11 @@ struct VaultView: View {
                             LabeledContent("Name", value: keePass.title)
                             LabeledContent("Location", value: keePass.reference.managed
                                 ? String(localized: "On this device") : keePass.reference.fileName)
-                            LabeledContent("Format", value: keePass.formatLabel)
-                            LabeledContent("Encryption", value: keePass.kdfSummary)
+                            Text("A KeePass file, encrypted with your vault password.")
+                            DisclosureGroup("Technical details") {
+                                LabeledContent("Format", value: keePass.formatLabel)
+                                LabeledContent("Encryption", value: keePass.kdfSummary)
+                            }
                             if let modified = keePass.lastModified {
                                 LabeledContent("Modified", value: modified.formatted(date: .abbreviated, time: .shortened))
                             }
@@ -413,12 +416,11 @@ struct VaultView: View {
                              ? "Deletes this vault from this device and shows the welcome screen again."
                              : "Forgets this vault and shows the welcome screen again. The file stays where it is.")
                     }
-                    Section {
-                        Text("Set up the credential provider")
-                    } header: {
-                        Text("AutoFill")
-                    } footer: {
-                        Text("Setup is a preview. These options will be enabled in a future build.")
+                    Section("AutoFill") {
+                        Text("AutoFill fills your logins in apps and websites. You turn it on in Settings.")
+                        Button("Open AutoFill Settings…") {
+                            Task { try? await ASSettingsHelper.openCredentialProviderAppSettings() }
+                        }
                     }
                 }
                 .formStyle(.grouped)
@@ -526,8 +528,12 @@ struct VaultView: View {
             guard !didFocusOnLaunch else { return }
             didFocusOnLaunch = true
             // An empty vault shows its actions, and the keyboard would cover them.
-            if !items.isEmpty { searchFocused = true }
-            else {
+            if !items.isEmpty {
+                #if os(macOS)
+                // Typing finds an item at once on a Mac. On iPhone and iPad it would open the keyboard uninvited.
+                searchFocused = true
+                #endif
+            } else {
                 // macOS may focus the search field by itself; with nothing to search, let go of it.
                 try? await Task.sleep(for: .milliseconds(150))
                 searchFocused = false
@@ -811,13 +817,12 @@ private struct ItemRow: View {
             if typeSize.isAccessibilitySize || Self.stacked {
                 VStack(alignment: .leading, spacing: 2) {
                     titleLine
-                    secondary.font(.subheadline).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    secondary.foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 }
             } else {
                 TitleAndLogin {
                     titleLine
                     secondary
-                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -958,20 +963,20 @@ private struct ItemDetail: View {
             }
             if let url = item.totpSetupURL {
                 Section {
-                    field(.totpSecret, "TOTP secret", item.otpSecret, hidden: true)
+                    field(.totpSecret, "Setup key", item.otpSecret, hidden: true)
                     Button("Copy setup link", systemImage: "link") { copy(url, as: .totpLink) }
                     Button("Show QR code", systemImage: "qrcode") { showsQR = true }
                 } header: {
-                    Text("TOTP setup")
+                    Text("Verification code setup")
                 } footer: {
-                    Text("Move this TOTP secret to another authenticator with the secret, the link or the QR code. Anyone who has it can make your codes, so treat it like a password.")
+                    Text("Move this setup key to another authenticator with the secret, the link or the QR code. Anyone who has it can make your codes, so treat it like a password.")
                 }
             }
             if let passkey = item.passkey {
                 Section {
                     Label {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Passkey").font(.caption).foregroundStyle(.secondary)
+                            Text("Passkey").foregroundStyle(.secondary)
                             Text("Saved \(passkey.created.formatted(date: .abbreviated, time: .omitted)) for \(passkey.rpID)")
                         }
                     } icon: {
@@ -1003,7 +1008,7 @@ private struct ItemDetail: View {
         .overlay(alignment: .bottom) {
             if copied != nil {
                 Label("Copied", systemImage: "checkmark.circle.fill")
-                    .font(.subheadline.weight(.semibold))
+                    .fontWeight(.semibold)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
                     .glassEffect(.regular, in: .capsule)
@@ -1027,7 +1032,7 @@ private struct ItemDetail: View {
                 } label: {
                     HStack(spacing: 8) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("One-time code (TOTP)").font(.caption).foregroundStyle(.secondary)
+                            Text("Verification code").foregroundStyle(.secondary)
                             Text(TOTP.grouped(code))
                                 .font(.system(.largeTitle, design: .monospaced).weight(.medium))
                                 .contentTransition(.numericText())
@@ -1051,7 +1056,7 @@ private struct ItemDetail: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("One-time code, TOTP")
+                .accessibilityLabel("Verification code")
                 .accessibilityValue(Text("Expires in \(remaining) seconds"))
                 .accessibilityHint("Copies the code")
         }
@@ -1073,7 +1078,7 @@ private struct ItemDetail: View {
         let isHidden = hidden && !revealed.contains(id)
         return HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(label).font(.caption).foregroundStyle(.secondary)
+                Text(label).foregroundStyle(.secondary)
                 HStack(spacing: 4) {
                     Text(isHidden ? masked(id) : shown(id, value))
                         .textSelection(.disabled)
@@ -1201,7 +1206,7 @@ private struct ItemEditor: View {
             .confirmationDialog("Delete this item?", isPresented: $confirmsDelete, titleVisibility: .visible) {
                 Button("Delete \(item.displayTitle)", role: .destructive) { onDelete?() }
             } message: {
-                Text("It is removed from this device and cannot be recovered.")
+                Text("It is deleted from this vault for good. Psss cannot bring it back.")
             }
             .navigationTitle(item.kind.label)
             .toolbar {
@@ -1230,7 +1235,7 @@ extension ItemEditor {
     /// A visible caption above each field, like the detail page, so a filled field never loses its name.
     fileprivate func labeled<Content: View>(_ label: LocalizedStringKey, @ViewBuilder _ content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(label).font(.caption).foregroundStyle(.secondary)
+            Text(label).foregroundStyle(.secondary)
             content().labelsHidden()
         }
     }
@@ -1325,7 +1330,7 @@ private struct TOTPQRSheet: View {
                         .frame(width: 240, height: 240)
                         .padding(12)
                         .background(.white, in: RoundedRectangle(cornerRadius: 12))
-                        .accessibilityLabel("QR code for the TOTP secret of \(title)")
+                        .accessibilityLabel("QR code for the setup key of \(title)")
                 }
                 Text("Scan this with an authenticator app. Anyone who sees it can make your codes.")
                     .foregroundStyle(.secondary)
@@ -1333,7 +1338,7 @@ private struct TOTPQRSheet: View {
                     .frame(maxWidth: 300)
             }
             .padding()
-            .navigationTitle("TOTP QR code")
+            .navigationTitle("Verification code QR code")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif

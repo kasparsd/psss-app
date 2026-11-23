@@ -37,7 +37,7 @@ struct WelcomeView: View {
                         .accessibilityHidden(true)
                     Text("Welcome to Psss")
                         .font(.largeTitle.weight(.semibold))
-                    Text("Passwords, passkeys and TOTP codes that stay on your devices.")
+                    Text("Passwords, passkeys and verification codes that stay on your devices.")
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
@@ -52,7 +52,6 @@ struct WelcomeView: View {
                     }
                     choice("Try a sample vault", "sparkles") { onFinish("sample") }
                     Text("Exports from other apps are not encrypted. Delete the file after importing.")
-                        .font(.footnote)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.top, 6)

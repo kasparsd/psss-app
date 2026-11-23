@@ -57,7 +57,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         let host = SharedVault.host(savePasswordRequest.serviceIdentifier.identifier)
         guard !host.isEmpty else {
             // Never save against an empty host: it could update an unrelated login or create one with no website.
-            present(SaveFailed(subject: .login, reason: String(localized: "This website’s address could not be read."),
+            present(SaveFailed(subject: .login, reason: String(localized: "This website’s address could not be read, so nothing was changed."),
                                close: { [weak self] in self?.cancel(.failed) }))
             return
         }
@@ -114,10 +114,10 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         }
         guard let request = registrationRequest as? ASPasskeyCredentialRequest,
               let identity = request.credentialIdentity as? ASPasskeyCredentialIdentity else {
-            return failed(String(localized: "Psss could not read the request."))
+            return failed(String(localized: "Psss could not read the request, so nothing was changed."))
         }
         guard request.supportedAlgorithms.isEmpty || request.supportedAlgorithms.contains(.ES256) else {
-            return failed(String(localized: "This site asks for a kind of passkey Psss cannot make yet."))
+            return failed(String(localized: "This site asks for a kind of passkey Psss cannot make yet, so nothing was changed."))
         }
         // The system sheet has already asked "Save a passkey?", so the only prompt here is Face ID or Touch ID.
         let rpID = identity.relyingPartyIdentifier
@@ -263,8 +263,17 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         }
     }
 
+    /// The whole sentence the save-failed screen shows. It says each thing once and never shows the system's own description,
+    /// which names the vault's internal file.
     private static func reason(for error: Error) -> String {
-        (error as? VaultStoreError)?.messageInProvider ?? (error as? KDBXError)?.message ?? error.localizedDescription
+        if let store = error as? VaultStoreError {
+            if case .writeFailed = store {
+                return String(localized: "The vault file could not be written, so nothing was changed. Check that this device has free space, then try again.")
+            }
+            return store.messageInProvider
+        }
+        if let kdbx = error as? KDBXError { return kdbx.message }
+        return String(localized: "Psss could not save this, so nothing was changed. Try again.")
     }
 
     private func complete(with item: VaultItem) {

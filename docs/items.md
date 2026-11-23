@@ -81,7 +81,7 @@ Defects found while reading the code:
 
 ### Proposed fields and inputs
 
-Each kind keeps a few standard fields. Anything else is added through one labeled “Add Field” control that offers Website, Text, Secret, One-time code and Attachment.
+Each kind keeps a few standard fields. Anything else is added through one labeled “Add Field” control that offers Website, Text, Secret, Verification code and Attachment.
 
 | Kind | Always shown | Added on demand | Left out, and why |
 | --- | --- | --- | --- |
@@ -95,7 +95,7 @@ Each kind keeps a few standard fields. Anything else is added through one labele
 | Website | URL, no capitals, no autocorrect | Trim, add `https://` when no scheme, reject spaces, show the host |
 | Username | Default, no capitals, no autocorrect | None |
 | Password | Default | Reveal, generator button, no strength policing |
-| One-time code | Default | A pasted link or secret, keeping digits, period and algorithm, and honouring them |
+| Verification code | Default | A pasted link or secret, keeping digits, period and algorithm, and honouring them |
 | Card number | Number pad | Strip spaces, group while typing (4-4-4-4, or 4-6-5 for Amex), 12 to 19 digits. A failed Luhn check warns and does not block, since gift cards fail it |
 | Expiry | Number pad | Insert the slash, month 1 to 12, accept `0830`, `08/2030` and `2030-08`, store `MM/YY`, flag when past |
 | Security code, PIN | Number pad | Concealed, protected in the file, copied by its own action |
@@ -112,7 +112,7 @@ Cards keep cardholder in `UserName`, number in `Password` and expiry in `Expiry`
 | Website | Several, the first is primary | `URL`, then `KP2A_URL`, `KP2A_URL_1`…, the convention KeePassXC's browser integration uses (unverified for Strongbox) |
 | Username | One. Several accounts on a site are several items | `UserName` |
 | Password | One current, earlier ones in history | `Password`, `History` |
-| One-time code | One in the interface | `otp`. Extra codes from an import stay as concealed custom fields and appear in the import report |
+| Verification code | One in the interface | `otp`. Extra codes from an import stay as concealed custom fields and appear in the import report |
 | Passkey | One per item, as KeePassXC stores it. Several passkeys on a site are several items | `KPEX_PASSKEY_*` |
 | Custom field | Several: name, value, concealed | `String` with the protected flag |
 | Attachment | Several, names unique within the item | `Binary` references into the inner header |
@@ -173,7 +173,7 @@ Known limits: rapid automated saves push an entry's modification time one second
 3. Recycle Bin, the 30-day purge and the duplicate-identifier fix. Codec now; the Recently Deleted screen after the gate.
 4. The field-based `VaultItem` and its mapping, hostless tests first. It touches the store, the importer, the provider and the views, so it goes in when nothing else is in flight.
 5. Several websites, with matching and identity registration.
-6. One-time code parameters, card validation and expiry forms, more card networks. Independent, safe now.
+6. Verification code parameters, card validation and expiry forms, more card networks. Independent, safe now.
 7. Editor and detail controls: Add Field, custom fields, attachments, the dates section, Previous passwords, the generator. After the gate and an approved mock.
 8. 1PUX import with dates (M2).
 9. Entry-level merge (S4), after steps 1 and 2.
@@ -187,7 +187,7 @@ Every new mapping gets a round trip through KeePassXC in `scripts/test-kdbx.sh`.
 | Card number in `Password` and cardholder in `UserName`, or named custom strings | Keep them, for KeePass interop. Add security code and PIN as protected custom strings |
 | Show previous passwords before M2 | Yes, as the small section above. The history and Recycle Bin work makes it cheap |
 | Several websites per login in 1.0 | Yes. Imports and KeePassXC files already have them |
-| What “Add Field” offers | Website, Text, Secret, One-time code, Attachment. No Date, Phone, Email or Address |
+| What “Add Field” offers | Website, Text, Secret, Verification code, Attachment. No Date, Phone, Email or Address |
 | Date labels | “Added” and “Edited”. “Added” stays true for imports |
 | Write KDBX 4 times as base64 | Yes, with the KeePassXC round trip checking dates |
 | Delete to the Recycle Bin with a 30-day purge | Yes, and say that other KeePass apps keep showing the bin |

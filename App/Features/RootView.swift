@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Shows the vault only while unlocked. Locking tears the vault view down, so no decrypted state, selection
-/// or search text stays in memory behind the lock screen, and unlocking opens fresh with search focused.
+/// or search text stays in memory behind the lock screen, and unlocking opens fresh. On a Mac the search field has focus then; on iPhone and iPad it does not, so the keyboard stays closed.
 struct RootView: View {
     @State private var gate = UnlockGate()
     @State private var session = VaultSession()

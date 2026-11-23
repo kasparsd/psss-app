@@ -108,10 +108,17 @@ enum NotReadyReason {
     /// The vault could not be opened for a reason that has nothing to do with biometry (a damaged or unreadable file).
     case vaultUnreadable
 
+    var title: String {
+        switch self {
+        case .noVault: String(localized: "No vault yet")
+        default: String(localized: "Can’t open your vault here")
+        }
+    }
+
     var sentence: String {
         switch self {
         case .noVault:
-            String(localized: "Open Psss and create a vault.")
+            String(localized: "Open Psss and create a vault. Then come back here to fill your logins. The sample vault is not available for AutoFill.")
         case .biometryOff:
             String(localized: "Open Psss, unlock with your vault password and turn on \(BiometryKind.nameForMessages).")
         case .fileMissing:
@@ -132,7 +139,7 @@ struct NotReady: View {
     var body: some View {
         ProviderScreen(primary: ProviderAction(title: "Close", run: close)) {
             VStack(spacing: 16) {
-                Text("Can’t open your vault here").font(.title2.bold()).multilineTextAlignment(.center)
+                Text(verbatim: reason.title).font(.title2.bold()).multilineTextAlignment(.center)
                 Text(verbatim: reason.sentence).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 InlinePrimary(title: "Close", action: close)
             }
@@ -147,6 +154,7 @@ struct SaveFailed: View {
     enum Subject { case login, passkey }
 
     var subject: Subject = .login
+    /// The whole body sentence. It already says nothing was changed and what to do.
     let reason: String
     let close: () -> Void
 
@@ -156,11 +164,11 @@ struct SaveFailed: View {
                 switch subject {
                 case .login:
                     Text("Can’t save this login").font(.title2.bold()).multilineTextAlignment(.center)
-                    Text("The login was not saved. \(reason) Your vault was not changed.")
+                    Text(verbatim: reason)
                         .foregroundStyle(.secondary).multilineTextAlignment(.center)
                 case .passkey:
                     Text("Can’t save this passkey").font(.title2.bold()).multilineTextAlignment(.center)
-                    Text("The passkey was not saved. \(reason) Nothing was changed.")
+                    Text(verbatim: reason)
                         .foregroundStyle(.secondary).multilineTextAlignment(.center)
                 }
                 InlinePrimary(title: "Close", action: close)
@@ -271,7 +279,8 @@ struct FillList: View {
             .alert(alertTitle(for: pending), isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }), presenting: pending) { pending in
                 // Cancel is the preferred button: continuing takes a deliberate choice.
                 Button("Fill Anyway") { choose(pending.item) }
-                Button("Cancel", role: .cancel) {}
+                // The default action: bold, and it answers Return on a hardware keyboard.
+                Button("Cancel", role: .cancel) {}.keyboardShortcut(.defaultAction)
             } message: { pending in
                 // One paragraph per line, so text from the vault cannot reorder the site names beside it.
                 Text(verbatim: lines(for: pending).map(\.plain).joined(separator: "\n"))

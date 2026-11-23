@@ -42,7 +42,7 @@ private struct CredentialFields: View {
             DisclosureGroup("Key file (optional)") {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("A second secret file needed together with the password. Keep it somewhere separate.")
-                        .font(.footnote).foregroundStyle(.secondary)
+                        .foregroundStyle(.secondary)
                     HStack {
                         Button(keyFile == nil ? "Choose Key File…" : "Change Key File…") { choosingKeyFile = true }
                         if let keyFileName {
@@ -50,7 +50,7 @@ private struct CredentialFields: View {
                             Button("Remove", role: .destructive) { keyFile = nil; self.keyFileName = nil }
                         }
                     }
-                    if let keyFileProblem { Text(keyFileProblem).font(.footnote).foregroundStyle(.red) }
+                    if let keyFileProblem { Text(keyFileProblem).foregroundStyle(.red) }
                 }
                 .padding(.vertical, 4)
             }
@@ -92,7 +92,6 @@ struct NewVaultSheet: View {
             Form {
                 Section {
                     Text("Your logins, passkeys, codes, cards and notes are kept in one encrypted file on this device. Nothing is uploaded.")
-                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
@@ -425,18 +424,21 @@ struct VaultPasswordView: View {
         working = true
         unlockingWithBiometrics = true
         problem = nil
-        gate.lockNotice = nil
+        // The lock notice stays until the unlock succeeds or a new problem replaces it: cancelling the prompt explains nothing else.
         defer { working = false; unlockingWithBiometrics = false }
         do {
             try await session.unlockWithBiometrics()
             password = ""
+            gate.lockNotice = nil
             gate.markUnlocked()
         } catch BiometricKeyError.cancelled {
             focused = true
         } catch BiometricKeyError.unavailable {
+            gate.lockNotice = nil
             problem = String(localized: "\(biometry?.label ?? "Face ID") cannot be used right now. Enter the vault password this time.")
             focused = true
         } catch BiometricKeyError.invalidated {
+            gate.lockNotice = nil
             if session.reference?.biometricStale == true {
                 problem = String(localized: "\(biometry?.label ?? "Face ID") no longer opens \(vaultName), because the vault was changed elsewhere. Enter the vault password once and \(biometry?.label ?? "Face ID") is turned on again.")
             } else {
@@ -444,6 +446,7 @@ struct VaultPasswordView: View {
             }
             focused = true
         } catch {
+            gate.lockNotice = nil
             if case VaultStoreError.fileMissing = error { missing = true }
             problem = (error as? KDBXError)?.message ?? (error as? VaultStoreError)?.message ?? error.localizedDescription
         }
@@ -613,6 +616,14 @@ struct LostPasswordSheet: View {
 
     private var managed: Bool { session.reference?.managed == true }
 
+    /// Forgetting a vault Psss made removes its file, its rollback copies and the saved biometric key.
+    private var forgetManagedFooter: String {
+        if session.reference?.biometricUnlock == true, let biometry = session.biometry {
+            return String(localized: "Forgetting removes this vault and its backup copies from this device, and turns off \(biometry.label) for it. This cannot be undone.")
+        }
+        return String(localized: "Forgetting removes this vault and its backup copies from this device. This cannot be undone.")
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -633,8 +644,8 @@ struct LostPasswordSheet: View {
                     Text("Or move on")
                 } footer: {
                     Text(managed
-                         ? "Forgetting deletes \(vaultName) and its data from this device. This cannot be undone."
-                         : "Forgetting removes \(vaultName) from Psss. Your file is not deleted.")
+                         ? forgetManagedFooter
+                         : String(localized: "Forgetting removes \(vaultName) from Psss. Your file is not deleted."))
                 }
             }
             .formStyle(.grouped)

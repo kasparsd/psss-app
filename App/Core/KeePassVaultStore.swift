@@ -720,7 +720,7 @@ extension KDBXError {
         case .wrongCredentials: String(localized: "The vault password or key file is not right.")
         case .corrupted: String(localized: "The vault file is damaged or was changed by something else. Nothing was modified.")
         case .invalidKeyFile: String(localized: "This key file cannot be used. Choose the key file that was used when the vault was made.")
-        case .invalidParameters: String(localized: "Psss cannot open this vault's protection settings. Open it in the app that made it, save it again with the default settings, then try again.")
+        case .invalidParameters: String(localized: "This vault's protection settings cannot be opened by Psss, usually because they ask for more memory or time than Psss allows. Open it in the app that made it, save it again with the default settings, then try again.")
         }
     }
 

@@ -19,6 +19,7 @@ Compiles `App/Core/KDBX`, the store and `Tests/KDBX/main.swift` with `swiftc` an
 ## Other hostless tests
 
 `scripts/test-matching.sh` checks site matching against the public suffix list, and `scripts/test-import.sh` checks the 1Password 7 importer against hand-written fixtures and, when present, a real export under `build/`. `scripts/build-public-suffix.py` downloads the list from publicsuffix.org and regenerates `App/Core/PublicSuffixList.swift`; commit the result. The codec and import scripts compile with `-D HOSTLESS_TESTS`, which drops the file-protection class from vault writes in those test builds only, because macOS refuses protected writes while the screen is locked. App builds keep complete file protection.
+`scripts/test-kdbx.sh` also compiles `-D HOSTLESS_UNLOCKGATE` and adds `App/Core/UnlockGate.swift` to the sources, which switches on the lock-notice checks at the end of `Tests/KDBX/main.swift` (a notice survives `didBecomeActive`, a timing lock clears a stale one). Without the flag those checks are not compiled.
 
 ## Mac signing: local and provisioned
 
