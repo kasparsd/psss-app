@@ -71,6 +71,7 @@ struct ImportIssue: Sendable, Equatable {
         case unreadableRecord, lineTooLong, textEncoding, unknownKind, unreadableCode, extraCode
         case attachmentTooLarge, attachmentsTotalLimit, attachmentLimitPerItem, attachmentRejected, attachmentMissingFolder
         case historyTrimmed, similarLogin, skippedRow, unsafeIdentifier, windowsExport
+        case dateMissing, unreadableValue, attachmentSkipped, tagsChanged, updatedOverwrote, mergeConflict
     }
 
     var kind: Kind
@@ -107,7 +108,15 @@ struct ImportSummary: Sendable, Equatable {
     var missingDates = 0
     var issues: [ImportIssue] = []
 
-    var itemCount: Int { logins + cards + notes + others }
+    /// Entries changed in place because the same source identifier came back with other content.
+    var updated = 0
+    /// Entries that gained the fields of a richer item with the same site, user name and password.
+    var merged = 0
+
+    /// Items added.
+    var addedCount: Int { logins + cards + notes + others }
+    /// Items that changed the vault: added, updated or merged. Zero means nothing needs writing.
+    var itemCount: Int { addedCount + updated + merged }
 }
 
 struct ImportPlan: Sendable {
@@ -166,6 +175,10 @@ enum ImportError: Error, Equatable {
     case vaultStructure
     case attachmentUnreadable(String)
     case attachmentChanged(String)
+    /// A line is longer than the limit and nothing else could be read.
+    case lineTooLong(Int)
+    /// The entries built from the plan did not survive being written and read back, so nothing was added.
+    case unreadableResult
 
     var message: String {
         switch self {
@@ -177,6 +190,8 @@ enum ImportError: Error, Equatable {
         case .vaultStructure: String(localized: "The vault has no group to import into. Nothing was changed.")
         case .attachmentUnreadable(let name): String(localized: "The attachment \(name) could not be read. Nothing was added.")
         case .attachmentChanged(let name): String(localized: "The attachment \(name) changed after the export was read. Nothing was added.")
+        case .lineTooLong(let megabytes): String(localized: "A line in this file is longer than \(megabytes) MB, so it cannot be read safely. It does not look like a normal 1Password export.")
+        case .unreadableResult: String(localized: "The imported items could not be written safely, so nothing was added. The vault is unchanged.")
         }
     }
 }
@@ -198,7 +213,7 @@ struct ImportLabels {
 
     /// A name that is unique here and not reserved. A suffix cannot clear a reserved prefix, so those names start with "Field: ".
     mutating func claim(_ label: String) -> String {
-        var base = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        var base = ImportText.clean(label).trimmingCharacters(in: .whitespacesAndNewlines)
         if base.isEmpty { base = String(localized: "Field") }
         if Self.reservedPrefixes.contains(where: { base.hasPrefix($0) }) { base = "Field: " + base }
         var candidate = base
@@ -210,6 +225,12 @@ struct ImportLabels {
         used.insert(candidate)
         return candidate
     }
+}
+
+/// Text as the vault file can hold it. Every text an importer hands to the writer goes through the same function the XML writer
+/// uses to decide what is storable, before names are compared, so names that differ only by a dropped character are one name.
+enum ImportText {
+    static func clean(_ text: String) -> String { XMLTree.storable(text) }
 }
 
 /// Picks the reader for what the person chose, from the content and not from a source picker.

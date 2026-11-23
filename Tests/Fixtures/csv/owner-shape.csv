@@ -1,0 +1,6 @@
+Title,Url,Username,Password,OTPAuth,Notes
+"Sample login","login.example.com","sampleuser","Sample-pass-2","not-valid-base32!","",
+"Sample password","sample.example.org",,"Sample-pass-only-1",,"notes for the password item",
+"Sample note",,,,,"Text of the sample note.
+Second line.",
+"Sample card",,,,,,

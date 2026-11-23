@@ -1,0 +1,12 @@
+{"uuid":"0000000000000000000000000000C001","typeName":"wallet.onlineservices.Email","title":"Old Email","createdAt":1700000000,"updatedAt":1700500000,"securityLevel":"SL5","contentsHash":"00000000","txTimestamp":1700500000,"secureContents":{"pop_type":"pop3","pop_username":"mailer","pop_server":"pop.example.net","pop_port":"110","pop_password":"mail-pass-fixture","smtp_server":"smtp.example.net","smtp_username":"mailer","smtp_password":"smtp-legacy-fixture","smtp_type":"custom","smtp_security":"starttls","smtp_authentication":"password"}}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"0000000000000000000000000000C002","typeName":"wallet.onlineservices.GenericAccount","title":"Old Generic Account","createdAt":1700000000,"updatedAt":1700500000,"securityLevel":"SL5","contentsHash":"00000000","txTimestamp":1700500000,"secureContents":{"username":"genuser","password":"gen-pass-fixture","website":"https://generic.example.net"}}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"0000000000000000000000000000C003","typeName":"wallet.onlineservices.DotMac","title":"Old DotMac","createdAt":1700000000,"updatedAt":1700500000,"securityLevel":"SL5","contentsHash":"00000000","txTimestamp":1700500000,"secureContents":{"username":"macuser","password":"mac-pass-fixture"}}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"0000000000000000000000000000C004","typeName":"wallet.onlineservices.InstantMessenger","title":"Old Messenger","createdAt":1700000000,"updatedAt":1700500000,"securityLevel":"SL5","contentsHash":"00000000","txTimestamp":1700500000,"secureContents":{"username":"imuser","password":"im-pass-fixture","server":"im.example.net","service":"jabber"}}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"0000000000000000000000000000C005","typeName":"wallet.onlineservices.ISP","title":"Old ISP","createdAt":1700000000,"updatedAt":1700500000,"securityLevel":"SL5","contentsHash":"00000000","txTimestamp":1700500000,"secureContents":{"username":"ispuser","password":"isp-pass-fixture","accountno":"ISP-1","phone":"555-0160","server":"isp.example.net"}}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***
+{"uuid":"0000000000000000000000000000C006","typeName":"wallet.onlineservices.AmazonS3","title":"Old S3","createdAt":1700000000,"updatedAt":1700500000,"securityLevel":"SL5","contentsHash":"00000000","txTimestamp":1700500000,"secureContents":{"access_key_id":"AKIAFIXTUREKEY","secret_access_key":"s3-secret-fixture","bucket":"fixture-bucket"}}
+***5642bee8-a5ff-11dc-8314-0800200c9a66***

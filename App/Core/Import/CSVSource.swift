@@ -6,14 +6,20 @@ enum CSVSource {
     static let maxBytes = 64 * 1024 * 1024
 
     static func plan(from url: URL, now: Date = .now) throws -> ImportPlan {
-        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-        guard size <= maxBytes else { throw ImportError.tooLarge }
-        let data: Data
-        do { data = try Data(contentsOf: url) } catch { throw ImportError.unreadable(error.localizedDescription) }
-        var text = String(data: data, encoding: .utf8)
+        // Only a regular file is read, and its size is enforced as it is read.
+        let handle = try OnePasswordPIF.openRegularFile(url.path, limit: maxBytes)
+        defer { try? handle.close() }
+        var data = Data()
+        while true {
+            let chunk: Data
+            do { chunk = try handle.read(upToCount: 1 << 20) ?? Data() } catch { throw ImportError.unreadable(error.localizedDescription) }
+            if chunk.isEmpty { break }
+            data.append(chunk)
+            if data.count > maxBytes { throw ImportError.tooLarge }
+        }
         var fellBack = false
-        if text == nil { text = String(data: data, encoding: .windowsCP1252); fellBack = true }
-        guard let text else { throw ImportError.notAnExport }
+        let text: String
+        if let utf8 = String(data: data, encoding: .utf8) { text = utf8 } else { text = Windows1252.decode(data).text; fellBack = true }
         var plan = try plan(from: text, now: now)
         if fellBack {
             plan.issues.append(ImportIssue(kind: .textEncoding, item: nil,

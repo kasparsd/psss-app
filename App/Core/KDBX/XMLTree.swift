@@ -46,7 +46,8 @@ final class XNode: @unchecked Sendable {
 enum XMLTree {
     struct ParseError: Error { var message: String }
 
-    private static let maxDepth = 64
+    /// How deeply elements may nest. A file nested deeper does not open, so a writer must not make one.
+    static let maxDepth = 64
     private static let maxNodes = 5_000_000
 
     static func parse(_ data: Data) throws -> XNode {
@@ -111,6 +112,23 @@ enum XMLTree {
         }
     }
 
+    /// Whether XML 1.0 can hold the character: #x9, #xA, #xD, #x20-#xD7FF, #xE000-#xFFFD and #x10000-#x10FFFF. Swift scalars are
+    /// never surrogates, so that range needs no check. U+FFFE and U+FFFF are the ones that look harmless and are not.
+    static func isStorable(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x9, 0xA, 0xD, 0x20...0xD7FF, 0xE000...0xFFFD, 0x10000...0x10FFFF: return true
+        default: return false
+        }
+    }
+
+    /// The text as the writer stores it: every character XML 1.0 cannot hold is dropped (control characters other than tab,
+    /// line feed and carriage return, U+FFFE and U+FFFF). Dropping them, and not replacing them, keeps a pasted value
+    /// readable and keeps the stored text a prefix-compatible form of what was typed. Importers use this to decide what is
+    /// storable before they compare names, so two names that differ only by a dropped character are one name.
+    static func storable(_ text: String) -> String {
+        text.unicodeScalars.allSatisfy(isStorable) ? text : String(String.UnicodeScalarView(text.unicodeScalars.filter(isStorable)))
+    }
+
     private static func escape(_ text: String, attribute: Bool) -> String {
         var result = ""
         result.reserveCapacity(text.count)
@@ -124,8 +142,8 @@ enum XMLTree {
             case "\r": result += "&#13;"
             case "\t" where attribute: result += "&#9;"
             default:
-                // XML 1.0 cannot hold most control characters. Drop them instead of writing a file nobody can open.
-                if scalar.value < 0x20 && scalar != "\n" && scalar != "\t" { continue }
+                // Anything XML 1.0 cannot hold is dropped, so the file can always be read again.
+                if !isStorable(scalar) { continue }
                 result.unicodeScalars.append(scalar)
             }
         }
