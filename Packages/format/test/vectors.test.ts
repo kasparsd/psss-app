@@ -59,7 +59,14 @@ test('the vectors cover the required topics', () => {
     'slot/password-test-params', 'slot/password-default-params', 'slot/argon2-memory-one-above-maximum', 'slot/device-forged-ps', 'slot/device-open-sealed-by-python', 'kit/text',
     'kit/parse-all-confusables-lowercase', 'kit/parse-o-for-zero', 'kit/parse-i-for-one', 'slot/kit', 'slot/device-seal-fixed', 'wrap/seal-fixed', 'wrap/open-ciphertext-bit-flipped',
     'wrap/open-enc-bit-flipped', 'wrap/select-right-among-garbage', 'hpke/open-sealed-by-python-with-aad', 'attachment/size-claimed-too-large', 'attachment/last-chunk-dropped',
-    'folder/segment-partial-length', 'folder/frame-length-one-over-largest']) {
+    'folder/segment-partial-length', 'folder/frame-length-one-over-largest',
+    'schema/field/title/shape-accepted', 'schema/field/title/wrong-shape-is-cleared-and-kept', 'schema/name/fixed-64-bytes', 'schema/name/fixed-65-bytes', 'schema/name/repeated-bad-id', 'schema/web/two-devices-add-offline-both-survive',
+    'schema/web/reorder-by-position', 'schema/web/two-devices-add-offline-same-position', 'schema/tag/added-twice-with-the-same-text-shows-once', 'schema/tag/removed-after-two-adds-clears-both-fields',
+    'schema/field/f/label-and-value-change-on-two-devices-one-unit', 'schema/card/reissued', 'schema/password/twelve-changes-show-ten', 'schema/password/checkpoint-keeps-ten-earlier-writes', 'schema/password/two-devices-from-the-same-base-note', 'schema/password/sequential-changes-no-note', 'schema/password/third-change-after-both-were-seen-no-note', 'schema/classify/there-and-back-completed', 'schema/shape/otp-digits-11', 'schema/shape/otp-period-86401', 'schema/deleted/unknown-fixed-field-later-stays-deleted', 'schema/deleted/unknown-repeated-field-later-stays-deleted', 'schema/shape/password-history-11-entries', 'group/genesis-min-reader-2-pow-32-is-refused', 'membership/genesis-min-reader-2-pow-32-is-malformed',
+    'schema/password/after-clear-previous-passwords', 'schema/password/history-from-an-import', 'schema/password/restore-is-a-new-write', 'schema/dates/made-here', 'schema/dates/imported-untouched',
+    'schema/dates/imported-edited-later', 'schema/deleted/second-import-sets-source-stays-deleted', 'schema/deleted/content-edit-brings-it-back', 'schema/move/carries-the-list-of-schema-7',
+    'schema/move/back-clears-moved', 'schema/classify/moved-completed', 'schema/classify/interrupted-after-the-first-write', 'schema/classify/same-item-id-without-moved-from-is-separate',
+    'schema/unknown/kept-through-a-checkpoint', 'schema/settings/name-and-gone-entry', 'schema/size/reader-shows-a-title-over-the-limit', 'schema/build/title-65537-bytes-refused']) {
     assert(all.some((n) => n.startsWith(p)), `missing vectors: ${p}`);
   }
 });

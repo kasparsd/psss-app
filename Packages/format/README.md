@@ -1,7 +1,7 @@
 # @psss/format
 
-A reference implementation and test vectors for the Psss vault format, version 1, written against draft 5 of the spec (`docs/format-spec.md`, section 12 lists what each draft changed; the spec points here for which draft this package follows).
-It is written from `docs/format-spec.md` alone; where that document is silent, ambiguous or wrong, the code takes the most literal reading and says so in a comment that starts with a section number.
+A reference implementation and test vectors for the Psss vault format, version 1, written against draft 5 of the spec (`docs/format-spec.md`, section 12 lists what each draft changed; the spec points here for which draft this package follows) and draft 2 of the item schema (`docs/format-schema.md`).
+It is written from those two documents alone; where that document is silent, ambiguous or wrong, the code takes the most literal reading and says so in a comment that starts with a section number.
 The list of such places is in the findings report that came with this package, and each one that changes behaviour is marked "finding" in the code, the vector descriptions or both.
 
 Node 24, TypeScript run directly by Node (type stripping, erasable syntax only), ES modules, `node:crypto` and the standard library only.
@@ -15,13 +15,16 @@ No dependencies, no `node_modules`, no build step.
   - `prims.ts` thin wrappers over `node:crypto` (SHA-256, SHA3-256, SHAKE256, HKDF, ChaCha20-Poly1305, AES-GCM, Ed25519, X25519, ML-KEM-768, Argon2id).
   - `keys.ts` person, card, gid, key commitment (section 3).
   - `record.ts` sealed records, padding, body and payload shapes, clock (sections 4 and 5), the salt derivation, and the reader checks of section 9 steps 1 to 3.
-  - `fold.ts` folding item changes, `deleted`, history, checkpoints in parts, purge (sections 5.1, 5.3 and 5.4).
+  - `fold.ts` folding item changes, `deleted`, history, checkpoints in parts, purge (sections 5.1, 5.3 and 5.4). `checkpointItems` takes a retention policy: a number (that many earlier writes of every field) or a function; the default is the schema's.
+  - `fields.ts` the field names of the schema (fixed, repeated families, settings item) and the content-field predicate `isContentField` that `fold.ts` uses for the delete rule (schema 5).
+  - `retention.ts` the schema's retention policy (schema section 4) and the Previous Passwords rules it shares with the reader: a checkpoint carries, for `password`, the winner, the write just before it and, for each of the first 10 entries, the entry's write and the write after it (which dates it), leaving out writes `history_hidden` hides; and only the winner of every other field.
+  - `schema.ts` the item schema (`docs/format-schema.md`), pure (see "The item schema" below).
   - `remember.ts` what a device remembers of each chain and location, and the rollback check (section 4.4).
   - `group.ts` chains, membership, cuts, epochs started by remove and replace, the two-step fork rule, and the whole reader (`evaluateGroup`) with section 9 steps 4 and 5.
   - `slots.ts` wrapped group keys, the three slot types, the recovery kit text with check bytes, attachment chunks (sections 5.2 and 7).
   - `folder.ts` the folder layout: one new file per write, gathering, `.tmp-` files (section 8.1).
-- `scripts/make-vectors.ts` (with `vec-*.ts`) writes `vectors/*.json`. `scripts/minted.json` holds the few inputs that cannot be derived (see below).
-- `test/` `node:test` suites: vectors (regenerate byte for byte, check each vector, coverage, error codes), known-answer tests for the primitives, folder tests, numeric-boundary mutation tests (`boundaries.test.ts`), and seeded property tests. `test/compute.ts` maps every vector type to its expected output; `test/scenario.ts` builds deterministic groups.
+- `scripts/make-vectors.ts` (with `vec-*.ts`; `vec-schema.ts` writes `vectors/schema.json`) writes `vectors/*.json`. `scripts/minted.json` holds the few inputs that cannot be derived (see below).
+- `test/` `node:test` suites: vectors (regenerate byte for byte, check each vector, coverage, error codes), known-answer tests for the primitives, folder tests, numeric-boundary mutation tests (`boundaries.test.ts`), and seeded property tests. `test/compute.ts` maps every vector type to its expected output (`test/compute-schema.ts` the `schema.*` types); `test/scenario.ts` builds deterministic groups; `test/schema.test.ts` holds the seeded property tests of the schema.
 - `vectors/` the vectors, one JSON file per area. Every vector has `name`, `description`, `type`, `input` and `expected`; all byte strings are lowercase hex.
 
 ## Run
@@ -31,7 +34,7 @@ It finds Node 24 (the `node` on `PATH` if it is 24, otherwise the newest `~/.nvm
 The vector regeneration test takes about half a minute; the permutation property test about twenty seconds.
 One vector derives Argon2id at 1 GiB and runs only with `PSSS_HEAVY=1`; the mutation tests run it with the Argon2id work skipped.
 
-Current counts: 107 tests and 521 vectors (cbor 77, person 51, record 94, clock 19, fold 22, checkpoint 10, group 98, slots 88, wraps 18, chunks 21, folder 23).
+Current counts: 157 tests and 801 vectors (cbor 77, person 51, record 94, clock 19, fold 22, checkpoint 10, group 100, slots 88, wraps 18, chunks 21, folder 23, schema 278).
 
 ## Vectors
 
@@ -83,8 +86,21 @@ Tampered vectors (bit flips and so on) are asserted at generation time to differ
 | `chunk_tag` | reject | 5.2: a chunk fails to authenticate. |
 | `bad_chunk_size` | reject | 5.2: a chunk longer than 1,048,576 bytes, or a non-final chunk that is shorter. |
 | `size_mismatch` | reject | 5.2: the opened total does not equal the stated size. |
+| `bad_field_name` | - | schema 1: a writer was asked to write a name that is not a field name (not ASCII lowercase letters, digits, `_`, `/`, `-`; longer than 64 bytes; a repeated name whose id is not 16 lowercase hexadecimal digits; more than one `/`). A reader never refuses a name: it keeps the field and does not show it. |
+| `bad_value` | - | schema 2, 3, 8: a writer was asked to write a value of the wrong shape for its field. A reader treats such a value as cleared and keeps it. |
+| `text_too_long` | - | schema 1: a text of more than 65,536 bytes (writer). |
+| `notes_too_long` | - | schema 1: notes of more than 262,144 bytes (writer). |
+| `too_many_websites` | - | schema 1: a 65th website (writer). |
+| `too_many_custom_fields` | - | schema 1: a 129th custom field (writer). |
+| `too_many_attachments` | - | schema 1: a 65th attachment (writer). |
+| `too_many_tags` | - | schema 1: a 65th tag (writer). |
+| `bad_position` | - | schema 1: a position that is not text of `0-9a-z` that does not end in `0`, or a lower position that does not sort before the upper one. |
+| `bad_id` | - | schema 1: an id that is not 8 bytes (`newId`). |
+| `no_password` | - | schema 4: Clear Previous Passwords on an item with no current write of `password`. |
 
 CBOR decoder reasons (no disposition; the caller decides): `truncated`, `trailing_bytes`, `non_shortest`, `unsorted_keys`, `not_sorted`, `duplicate_key`, `indefinite_length`, `break`, `float`, `tag`, `simple_value`, `undefined`, `negative_integer`, `integer_out_of_range`, `invalid_utf8`, `reserved_additional_info`, `too_deep`, `malformed`, `unsupported_type`, `mixed_key_kinds`, `bad_key_type`, `missing_key`, `unknown_key`.
+
+Schema errors are raised by writers (`SchemaError`, `code` only). A reader of the schema never refuses anything.
 
 Chain reasons: `gap`, `prev_mismatch`.
 Content statuses: `accepted`, `ignored:beyond_cut`, `ignored:mhead_not_on_chain`, `ignored:not_writer`, `ignored:not_manager`, `ignored:wrong_epoch`, `ignored:wrong_epoch_key`, `waits:mhead_unknown`.
@@ -118,6 +134,19 @@ A boundary no vector notices is one an implementation can get wrong unnoticed.
 | Argon2id at most 16 lanes | 7.2 | `argonMaxLanes` | +1: `slot/argon2-lanes-one-above-maximum` <br> -1: `slot/argon2-at-maximum-lanes` |
 | Attachment chunk of 1,048,576 bytes | 5.2 | `chunkSize` | +1: `attachment/one-chunk-and-a-byte`, `attachment/last-chunk-too-long` <br> -1: `attachment/exactly-one-chunk`, `attachment/two-full-chunks` |
 | Purge a deleted item after 30 days on the purging device's clock | 5.1 | `purgeAfterMs` | +1: `clock/purge-due/exactly-30-days` <br> -1: `clock/purge-due/one-ms-short` |
+| Field name of at most 64 bytes (schema 1) | schema 1 | `nameBytes` | +1: `schema/name/fixed-65-bytes`, `schema/name/repeated-65-bytes`, `schema/build/field-name-65-bytes-refused` <br> -1: `schema/name/fixed-64-bytes`, `schema/name/repeated-64-bytes`, `schema/build/field-name-64-bytes-accepted` |
+| Text value of at most 65,536 bytes (schema 1, writer) | schema 1 | `textBytes` | +1: `schema/build/title-65537-bytes-refused` <br> -1: `schema/build/title-65536-bytes-accepted` |
+| Notes of at most 262,144 bytes (schema 1, writer) | schema 1 | `notesBytes` | +1: `schema/build/notes-262145-bytes-refused` <br> -1: `schema/build/notes-262144-bytes-accepted` |
+| At most 64 websites (schema 1, writer) | schema 1 | `websites` | +1: `schema/build/websites-one-over-refused` <br> -1: `schema/build/websites-last-allowed-accepted` |
+| At most 128 custom fields (schema 1, writer) | schema 1 | `customFields` | +1: `schema/build/custom-fields-one-over-refused` <br> -1: `schema/build/custom-fields-last-allowed-accepted` |
+| At most 64 attachments (schema 1, writer) | schema 1 | `attachments` | +1: `schema/build/attachments-one-over-refused` <br> -1: `schema/build/attachments-last-allowed-accepted` |
+| At most 64 tags (schema 1, writer) | schema 1 | `tags` | +1: `schema/build/tags-one-over-refused` <br> -1: `schema/build/tags-last-allowed-accepted` |
+| A checkpoint keeps the writes of the first 10 previous passwords (schema 4) | schema 4 | `historyKept` | +1: `schema/password/checkpoint-keeps-ten-earlier-writes` <br> -1: `schema/password/checkpoint-keeps-ten-earlier-writes` |
+| At most 10 previous passwords shown (schema 4) | schema 4 | `historyShown` | +1: `schema/password/twelve-changes-show-ten`, `schema/password/import-history-and-writes-limited-to-ten` <br> -1: `schema/password/twelve-changes-show-ten`, `schema/password/import-history-and-writes-limited-to-ten` |
+| Verification code of 4 to 10 digits (schema 2) | schema 2 | `otpDigitsMin` | +1: `schema/shape/otp-digits-4` <br> -1: `schema/shape/otp-digits-3` |
+| Verification code of 4 to 10 digits (schema 2), upper end | schema 2 | `otpDigitsMax` | +1: `schema/shape/otp-digits-11` <br> -1: `schema/shape/otp-digits-10` |
+| Verification code period of 1 to 86,400 seconds (schema 2) | schema 2 | `otpPeriodMin` | +1: `schema/shape/otp-period-1` <br> -1: `schema/shape/otp-period-0` |
+| Verification code period of 1 to 86,400 seconds (schema 2), upper end | schema 2 | `otpPeriodMax` | +1: `schema/shape/otp-period-86401` <br> -1: `schema/shape/otp-period-86400` |
 
 ## Rules that are not numbers
 
@@ -149,9 +178,60 @@ A boundary no vector notices is one an implementation can get wrong unnoticed.
 | `kitTrailingBeforeCheck` | 7.2 | `false`: the kit check bytes tested before the trailing bits | `kit/parse-trailing-bits-and-check-bytes-both-wrong` |
 | `answerNeedsPlace` | 5.4 | `false`: a purge request answered by a checkpoint that names the item at any place | `group/purge-request-checkpoint-purges-before` |
 | `purgeUpToOwnPlace` | 5.4 | `false`: a purge request hides every write of the item, not only those up to its own place | `group/purge-request-then-a-later-write` |
+| `wrongShapeIsCleared` | schema 1 | `false`: a value of the wrong shape used as it is | `schema/field/title/wrong-shape-is-cleared-and-kept`, `schema/field/username/wrong-shape-is-cleared-and-kept`, `schema/field/web/wrong-shape-is-cleared-and-kept` |
+| `deletedUsesContentOnly` | schema 6 | `false`: any later field, not only a content field, brings a deleted item back | `schema/deleted/second-import-sets-source-stays-deleted`, `schema/deleted/history-hidden-later-stays-deleted`, `schema/deleted/unknown-fixed-field-later-stays-deleted` |
+| `historyHiddenApplies` | schema 4 | `false`: history_hidden not applied | `schema/password/after-clear-previous-passwords`, `schema/password/checkpoint-after-clear-no-longer-carries-hidden-writes` |
+| `previousUnique` | schema 4 | `false`: an earlier write equal to the current password or to a newer entry shown as a previous password | `schema/password/previous-must-differ`, `schema/password/entry-equal-to-a-newer-entry-is-left-out`, `schema/password/import-entry-equal-to-a-write-is-left-out` |
+| `retentionKeepsNeighbours` | schema 4 | `false`: a checkpoint keeps only the writes of the entries, not the write that dates each nor the one just before the winner | `schema/password/checkpoint-keeps-the-write-that-dates-an-entry`, `schema/password/sequential-note-through-a-checkpoint-with-a-write-before-the-winner-that-is-no-entry` |
+| `importedEditedKept` | schema 5 | `false`: Edited always the latest content write, never the imported edited date | `schema/dates/imported-untouched`, `schema/dates/imported-then-source-set-again` |
+| `positionTiesByName` | schema 1 | `false`: equal positions shown in arrival order, not in order of field name | `schema/web/two-devices-add-offline-same-position`, `schema/web/same-position-three-entries-by-field-name` |
 
 Draft 4 removed the `record_id` comparison from the fork rule: two candidates with the same author, device and seq would be a fork of one chain, and neither is accepted (`group/fork-2-same-author-device-seq-is-a-chain-fork`).
 `S < L` is distinguishable only through the `signature.verify` result, because Node rejects `S >= L` itself and returns the same code at record level.
+
+## The item schema
+
+`src/schema.ts` implements `docs/format-schema.md` (draft 2) on top of the folded state of `fold.ts`.
+It touches no file and holds no state.
+
+- Names and shapes (sections 1 to 3, 8): `classifyName`, `shapeOk`, `validPosition`, `FIXED_FIELDS`, `REPEATED_FAMILIES`, `SETTINGS_FIELDS`, `goneId` (the first 8 bytes of SHA-256 of the deterministic CBOR array `[kind, id]`), `newId`, `SETTINGS_ITEM_ID`, `isContentField` (the explicit list of schema 5: `type`, `title`, `username`, `password`, `password_rules`, `otp`, `passkey`, `cardholder`, `card`, `card_code`, `card_pin`, `notes` and the families `web/`, `f/`, `a/`, `t/`).
+  An `otp` has 4 to 10 digits and a period of 1 to 86,400 seconds.
+  Extra keys inside a value are kept and ignored; no `type` shows as a custom item; a `password_history` of more than 10 entries has the wrong shape.
+- Positions: `positionBetween`, `positionAtEnd`.
+- Writer: `ItemChange`, one method per field, producing the `set` and `clear` of a kind 16 payload (`changePayload`, `payload`); it refuses what a writer must not write (`SchemaError`), normalises names, labels, titles, notes, cardholder, file names and tags to NFC and never touches a secret.
+  `password(value, over)` writes `password_over` in the same record: the place of the write the device saw as current, or `null` (the default).
+  `restorePassword(value, over)` and `clearPreviousPasswords` are Restore and Clear Previous Passwords (section 4).
+  `ItemChange.newItem(nowMs)` starts a record with `created` set.
+- Reader: `viewItem(fields)` turns one item's folded state into what the app shows (type and fields, websites, custom fields, attachments and tags in order, previous passwords, the two-devices note, Added and Edited, deleted, moved) and `viewSettings` the settings item.
+  A value of the wrong shape counts as cleared and is kept, as are unknown fields and names that are not field names; the view lists them (`invalid`, `unknown`, `carry`).
+  Tags have no position and show in bytewise text order.
+  The two-devices note (`passwordNote`) is shown when the winning write's `password_over` is not the place of the write just before it in the order; no note when `password_over` is absent, of the wrong shape, or from another record.
+  Previous Passwords, newest first: cleared writes and repeated values are not entries; an entry equal to the current password or to a newer entry is left out; `history_hidden` hides writes strictly before its place; each entry is dated by the write that replaced it; then `password_history` entries; at most 10 are shown.
+  Added is `created`, or (no valid `created`) the wall time of the earliest write held, and `addedEstimated` says so: a reader treats an item without `created` as having an estimated Added that can only get later after a checkpoint.
+  Edited is the latest content write, or `edited` when no content write is later; it is shown only when later than Added (`editedRaw` is the unhidden value).
+- Moving (section 7, draft 2): `moveRecords(view, fromGid, toGid, nowMs, { reseal?, target? })` gives the two payloads.
+  The target record sets the content and unknown fields, `created` (Added), `edited`, `source`, `moved_from` and `password_over: null`; it clears `moved`, sets `deleted` only if the item is in Recently Deleted (and clears it otherwise) and does not carry `password_history` or `history_hidden`.
+  `target` is the copy the target group already holds (an item coming back): fields it has that the item no longer has are cleared too, which the schema does not say (see the findings).
+  `classifyInTwoGroups` recognises moved, move in progress and separate items by `moved_from`: complete when the other copy's `moved` names this group and is later than the `moved_from`, otherwise in progress, no link means separate, and for there-and-back the later `moved_from` decides.
+- Retention (section 4): `schemaRetention`, the default policy of `checkpointItems`.
+- Delete rule (section 6): `isDeleted(fields, isContent = isContentField)` in `fold.ts`.
+
+What it does not do: sealing an attachment again on a move (it needs the chunks: `moveRecords` takes a `reseal` callback and does nothing else), the 30-day purge of a moved item (the count is the same as for a deleted one: from `moved`'s time), any file or record I/O, any user-interface wording.
+
+Vectors (`vectors/schema.json`, 278): field shapes (each fixed and repeated field, accepted and one wrong shape, treated as cleared and kept; `otp` digits and period at both ends of the range), name rules on both sides, positions, every builder, writer limits, websites added on two devices, ordering, tags, custom fields as one unit, a card reissued, previous passwords (twelve changes, through a checkpoint, after Clear Previous Passwords, from an import, after a restore), the two-devices note (sequential changes, two devices from one base, a third change after both were seen, a restore, a write without `password_over`, and the same through a checkpoint), Added and Edited, deleting (an unknown fixed or repeated field after a delete leaves it deleted), unknown fields, moving (the list of schema 7, a deleted item, an item deleted then edited then moved, an imported item), the same `item_id` in two groups (complete, interrupted, there and back, separate), the settings item, and the reader showing what is over a limit.
+Every expectation is written by hand in `scripts/vec-schema.ts` and the generator stops if the library disagrees.
+Where the schema leaves a choice, the description of the vector says which reading was taken.
+
+`test/schema.test.ts` has the seeded property tests:
+any permutation of schema-level changes (duplicates too) gives the same view, for items and for the settings item;
+a checkpoint made at any point plus the remaining records (and a checkpoint on top of another) gives the same view as folding everything, previous passwords and the note included, with these exceptions, each shown by a test:
+(1) Added, and so Edited as shown, when the item has no `created` (only winners of fields other than `password` are kept; Added can only get later);
+(2) the date of a previous password can be later: a write that arrives after the checkpoint and lands inside a run of equal passwords replaces an entry, and the writes of that run the checkpoint left out are gone;
+(3) `history_hidden` moving back: when the winning write of `history_hidden` names an earlier place than the one the checkpoint applied, writes the checkpoint left out should show again.
+The property tests that use `history_hidden` write it at the place of the writing record, which never moves back; (3) is a separate example.
+When the records after the checkpoint all come later in the order, the view is exactly the full one.
+A full list of at most 10 entries is, after a checkpoint, the same list, except for (2) and (3).
+Moves: the target record of `moveRecords` shows the item as it was, dates and source included, with no previous passwords and no note.
 
 ## Regenerate the vectors
 
@@ -170,7 +250,7 @@ The salt derivation and the kit check bytes were also recomputed in Python (`has
 
 ## Not covered
 
-- The server protocol (8.2) and CloudKit (8.3), the item schema, invitations and device approval, the backup copy, limits (10).
+- The server protocol (8.2) and CloudKit (8.3), the attachment re-sealing and purge of a moved item (schema 7), the KeePass mapping (schema 10), invitations and device approval, the backup copy, limits (10).
 - ML-KEM-768 encapsulation with chosen randomness (Node does not offer it).
 - Independent X-Wing known-answer values: none are stated. HPKE has the RFC 9180 A.1.1 key-schedule KAT.
 - Hostile file systems (symlinks, case folding, partial writes other than a truncated final frame, a crash between the `.tmp-` write and the rename).

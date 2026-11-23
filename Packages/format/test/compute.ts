@@ -18,6 +18,7 @@ import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fromNotation, toNotation, type N } from './notation.ts';
+import { computeSchema } from './compute-schema.ts';
 
 type J = Record<string, any>;
 const F = fromHex;
@@ -117,6 +118,7 @@ function checkpointOf(c: J, changes: Change[]): { payload: CMap; bytes: Uint8Arr
 }
 
 export function compute(type: string, i: J): J {
+  if (type.startsWith('schema.')) return computeSchema(type, i);
   switch (type) {
     case 'cbor.encode': return { hex: H(encode(fromNotation(i.value as N))) };
     case 'cbor.reject':

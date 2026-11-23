@@ -446,6 +446,15 @@ export function groupVectors(): J {
     const zv = groupVector(o, 'genesis-min-reader-0-is-refused', 'The same genesis given to the whole reader: it is discarded (bad_payload), so the group has no chain at all.', z, {}, {}, [zero]);
     assert.deepEqual(zv.expected.rejected, [{ index: 0, code: 'bad_payload', disposition: 'discard' }]);
     assert.deepEqual(zv.expected.chain, []);
+    // 2^32: does not fit the u32 of the gid (3.3), so it is malformed (6.1, draft 4); its gid is computed with the largest u32, the closest value that can be computed
+    const w = new Scenario();
+    w.minReader = 4294967295; w.gid = gidOf(w.person('alice').pid, w.nonce, w.key(0), 4294967295);
+    const big = w.raw('alice', 'a1', KIND.genesis, cmap([[1, w.nonce], [2, makeCard(w.person('alice'))], [3, commitOf(w.gid, 0, w.key(0))], [4, 4294967296]]), { epoch: 0 });
+    o.add('membership/genesis-min-reader-2-pow-32-is-malformed', 'A genesis with min_reader 4294967296 (2^32), one more than fits the u32 of the gid (3.3): the payload is malformed and the record is discarded (6.1, draft 4: at most 2^32 - 1).', 'record.open', { keys: w.keyList(), sealed: H(big) }, E('bad_payload', 'discard'));
+    const bv = groupVector(o, 'genesis-min-reader-2-pow-32-is-refused', 'The same genesis given to the whole reader: it is discarded (bad_payload), so the group has no chain, and is not reported as unsupported.', w, {}, {}, [big]);
+    assert.deepEqual(bv.expected.rejected, [{ index: 0, code: 'bad_payload', disposition: 'discard' }]);
+    assert.deepEqual(bv.expected.chain, []);
+    assert.equal(bv.expected.unsupported, false);
   }
   { // the gid binds min_reader (3.3)
     const s = new Scenario();

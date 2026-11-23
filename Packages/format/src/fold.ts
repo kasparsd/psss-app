@@ -3,6 +3,8 @@ import { cmp as cmpBytes, hex } from './bytes.ts';
 import { cmap, encode, type CborValue, type CMap } from './cbor.ts';
 import { compareKeys, type OrderKey } from './record.ts';
 import { limits, rules } from './limits.ts';
+import { schemaRetention, type Retention } from './retention.ts';
+import { isContentField } from './fields.ts';
 
 /** A write of one field with its place in the order (5.1). */
 export interface Entry { key: OrderKey; value: CborValue; cleared: boolean }
@@ -121,15 +123,17 @@ export function fold(changes: Change[], checkpoints: CheckpointWrites[] = []): S
 
 export const current = (list: Entry[]): Entry => list[list.length - 1]!;
 
-/** 5.1 Deleting: Recently Deleted when `deleted` is set and no other field has a winning write strictly later than the
- *  winning write of `deleted`. Clearing `deleted` restores the item. */
-export function isDeleted(fields: Map<string, Entry[]>): boolean {
+/** 5.1 Deleting: Recently Deleted when `deleted` is set and no content field has a winning write strictly later than the winning write of
+ *  `deleted`. Which fields are content fields is the item schema's (section 5); `isContent` defaults to its list. Clearing `deleted` restores the item. */
+export function isDeleted(fields: Map<string, Entry[]>, isContent: (name: string) => boolean = isContentField): boolean {
   const d = fields.get('deleted');
   if (!d) return false;
   const cur = current(d);
   if (cur.cleared) return false;
   for (const [name, list] of fields) {
-    if (name !== 'deleted' && (rules.deletedStrict ? compareKeys(current(list).key, cur.key) > 0 : compareKeys(current(list).key, cur.key) >= 0)) return false;
+    if (name === 'deleted') continue;
+    if (rules.deletedUsesContentOnly && !isContent(name)) continue;
+    if (rules.deletedStrict ? compareKeys(current(list).key, cur.key) > 0 : compareKeys(current(list).key, cur.key) >= 0) return false;
   }
   return true;
 }
@@ -137,14 +141,15 @@ export function isDeleted(fields: Map<string, Entry[]>): boolean {
 const fromHexLocal = (s: string) => Uint8Array.from({ length: s.length / 2 }, (_, i) => parseInt(s.slice(2 * i, 2 * i + 2), 16));
 export const clockValue = (k: OrderKey): CborValue => [k[0], k[1], k[2], k[3], k[4]];
 
-/** 5.3 `items` of a checkpoint from a state: for each field the winning write and, when `history` is given, that many earlier
- *  writes (the newest ones). A write left out is forgotten once the records it covers are deleted. */
-export function checkpointItems(state: State, history = 0): CborValue[] {
+/** 5.3 `items` of a checkpoint from a state. `history` is a number (that many earlier writes per field besides the winner) or a
+ *  retention policy; the default is the item schema's (section 4: `password` keeps 10 earlier writes, every other field none).
+ *  A write left out is forgotten once the records it covers are deleted. */
+export function checkpointItems(state: State, history: number | Retention = schemaRetention): CborValue[] {
   const ids = [...state.keys()].sort();
   return ids.map((id) => {
     const fields = new Map<string, CborValue>();
     for (const [name, list] of state.get(id)!) {
-      const kept = list.slice(-(history + 1));
+      const kept = typeof history === 'number' ? list.slice(-(history + 1)) : history(id, name, list, state.get(id)!);
       const enc = kept.map((w) => (w.cleared ? [0, clockValue(w.key)] : [1, clockValue(w.key), w.value]) as CborValue).sort((a, b) => cmpBytes(encode(a), encode(b)));
       fields.set(name, enc);
     }

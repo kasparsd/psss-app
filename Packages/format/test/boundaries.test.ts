@@ -70,6 +70,45 @@ export const BOUNDARIES: Boundary[] = [
   { name: 'Purge a deleted item after 30 days on the purging device\'s clock', spec: '5.1', limit: 'purgeAfterMs', mutations: [
     { limit: 'purgeAfterMs', delta: 1, flips: ['clock/purge-due/exactly-30-days'] },
     { limit: 'purgeAfterMs', delta: -1, flips: ['clock/purge-due/one-ms-short'] }] },
+  { name: 'Field name of at most 64 bytes (schema 1)', spec: 'schema 1', limit: 'nameBytes', mutations: [
+    { limit: 'nameBytes', delta: 1, flips: ['schema/name/fixed-65-bytes', 'schema/name/repeated-65-bytes', 'schema/build/field-name-65-bytes-refused'] },
+    { limit: 'nameBytes', delta: -1, flips: ['schema/name/fixed-64-bytes', 'schema/name/repeated-64-bytes', 'schema/build/field-name-64-bytes-accepted'] }] },
+  { name: 'Text value of at most 65,536 bytes (schema 1, writer)', spec: 'schema 1', limit: 'textBytes', mutations: [
+    { limit: 'textBytes', delta: 1, flips: ['schema/build/title-65537-bytes-refused'] },
+    { limit: 'textBytes', delta: -1, flips: ['schema/build/title-65536-bytes-accepted'] }] },
+  { name: 'Notes of at most 262,144 bytes (schema 1, writer)', spec: 'schema 1', limit: 'notesBytes', mutations: [
+    { limit: 'notesBytes', delta: 1, flips: ['schema/build/notes-262145-bytes-refused'] },
+    { limit: 'notesBytes', delta: -1, flips: ['schema/build/notes-262144-bytes-accepted'] }] },
+  { name: 'At most 64 websites (schema 1, writer)', spec: 'schema 1', limit: 'websites', mutations: [
+    { limit: 'websites', delta: 1, flips: ['schema/build/websites-one-over-refused'] },
+    { limit: 'websites', delta: -1, flips: ['schema/build/websites-last-allowed-accepted'] }] },
+  { name: 'At most 128 custom fields (schema 1, writer)', spec: 'schema 1', limit: 'customFields', mutations: [
+    { limit: 'customFields', delta: 1, flips: ['schema/build/custom-fields-one-over-refused'] },
+    { limit: 'customFields', delta: -1, flips: ['schema/build/custom-fields-last-allowed-accepted'] }] },
+  { name: 'At most 64 attachments (schema 1, writer)', spec: 'schema 1', limit: 'attachments', mutations: [
+    { limit: 'attachments', delta: 1, flips: ['schema/build/attachments-one-over-refused'] },
+    { limit: 'attachments', delta: -1, flips: ['schema/build/attachments-last-allowed-accepted'] }] },
+  { name: 'At most 64 tags (schema 1, writer)', spec: 'schema 1', limit: 'tags', mutations: [
+    { limit: 'tags', delta: 1, flips: ['schema/build/tags-one-over-refused'] },
+    { limit: 'tags', delta: -1, flips: ['schema/build/tags-last-allowed-accepted'] }] },
+  { name: 'A checkpoint keeps the writes of the first 10 previous passwords (schema 4)', spec: 'schema 4', limit: 'historyKept', mutations: [
+    { limit: 'historyKept', delta: 1, flips: ['schema/password/checkpoint-keeps-ten-earlier-writes'] },
+    { limit: 'historyKept', delta: -1, flips: ['schema/password/checkpoint-keeps-ten-earlier-writes'] }] },
+  { name: 'At most 10 previous passwords shown (schema 4)', spec: 'schema 4', limit: 'historyShown', mutations: [
+    { limit: 'historyShown', delta: 1, flips: ['schema/password/twelve-changes-show-ten', 'schema/password/import-history-and-writes-limited-to-ten'] },
+    { limit: 'historyShown', delta: -1, flips: ['schema/password/twelve-changes-show-ten', 'schema/password/import-history-and-writes-limited-to-ten'] }] },
+  { name: 'Verification code of 4 to 10 digits (schema 2)', spec: 'schema 2', limit: 'otpDigitsMin', mutations: [
+    { limit: 'otpDigitsMin', delta: 1, flips: ['schema/shape/otp-digits-4'] },
+    { limit: 'otpDigitsMin', delta: -1, flips: ['schema/shape/otp-digits-3'] }] },
+  { name: 'Verification code of 4 to 10 digits (schema 2), upper end', spec: 'schema 2', limit: 'otpDigitsMax', mutations: [
+    { limit: 'otpDigitsMax', delta: 1, flips: ['schema/shape/otp-digits-11'] },
+    { limit: 'otpDigitsMax', delta: -1, flips: ['schema/shape/otp-digits-10'] }] },
+  { name: 'Verification code period of 1 to 86,400 seconds (schema 2)', spec: 'schema 2', limit: 'otpPeriodMin', mutations: [
+    { limit: 'otpPeriodMin', delta: 1, flips: ['schema/shape/otp-period-1'] },
+    { limit: 'otpPeriodMin', delta: -1, flips: ['schema/shape/otp-period-0'] }] },
+  { name: 'Verification code period of 1 to 86,400 seconds (schema 2), upper end', spec: 'schema 2', limit: 'otpPeriodMax', mutations: [
+    { limit: 'otpPeriodMax', delta: 1, flips: ['schema/shape/otp-period-86401'] },
+    { limit: 'otpPeriodMax', delta: -1, flips: ['schema/shape/otp-period-86400'] }] },
 ];
 
 /** True when the vector still passes. A heavy vector is run too: its Argon2id work is skipped (dry run), which does not change what it tests. */
@@ -134,6 +173,13 @@ export const RULE_MUTATIONS: RuleMutation[] = [
   { rule: 'kitTrailingBeforeCheck', value: false, spec: '7.2', what: 'the kit check bytes tested before the trailing bits', flips: ['kit/parse-trailing-bits-and-check-bytes-both-wrong'] },
   { rule: 'answerNeedsPlace', value: false, spec: '5.4', what: 'a purge request answered by a checkpoint that names the item at any place', flips: ['group/purge-request-checkpoint-purges-before'] },
   { rule: 'purgeUpToOwnPlace', value: false, spec: '5.4', what: 'a purge request hides every write of the item, not only those up to its own place', flips: ['group/purge-request-then-a-later-write'] },
+  { rule: 'wrongShapeIsCleared', value: false, spec: 'schema 1', what: 'a value of the wrong shape used as it is', flips: ['schema/field/title/wrong-shape-is-cleared-and-kept', 'schema/field/username/wrong-shape-is-cleared-and-kept', 'schema/field/web/wrong-shape-is-cleared-and-kept'] },
+  { rule: 'deletedUsesContentOnly', value: false, spec: 'schema 6', what: 'any later field, not only a content field, brings a deleted item back', flips: ['schema/deleted/second-import-sets-source-stays-deleted', 'schema/deleted/history-hidden-later-stays-deleted', 'schema/deleted/unknown-fixed-field-later-stays-deleted'] },
+  { rule: 'historyHiddenApplies', value: false, spec: 'schema 4', what: 'history_hidden not applied', flips: ['schema/password/after-clear-previous-passwords', 'schema/password/checkpoint-after-clear-no-longer-carries-hidden-writes'] },
+  { rule: 'previousUnique', value: false, spec: 'schema 4', what: 'an earlier write equal to the current password or to a newer entry shown as a previous password', flips: ['schema/password/previous-must-differ', 'schema/password/entry-equal-to-a-newer-entry-is-left-out', 'schema/password/import-entry-equal-to-a-write-is-left-out'] },
+  { rule: 'retentionKeepsNeighbours', value: false, spec: 'schema 4', what: 'a checkpoint keeps only the writes of the entries, not the write that dates each nor the one just before the winner', flips: ['schema/password/checkpoint-keeps-the-write-that-dates-an-entry', 'schema/password/sequential-note-through-a-checkpoint-with-a-write-before-the-winner-that-is-no-entry'] },
+  { rule: 'importedEditedKept', value: false, spec: 'schema 5', what: 'Edited always the latest content write, never the imported edited date', flips: ['schema/dates/imported-untouched', 'schema/dates/imported-then-source-set-again'] },
+  { rule: 'positionTiesByName', value: false, spec: 'schema 1', what: 'equal positions shown in arrival order, not in order of field name', flips: ['schema/web/two-devices-add-offline-same-position', 'schema/web/same-position-three-entries-by-field-name'] },
 ];
 
 test('every rule switch has a mutation, and its covering vectors pass unmutated', () => {

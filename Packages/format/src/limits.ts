@@ -18,6 +18,20 @@ export const limits = {
   argonMaxLanes: 16,
   chunkSize: 1_048_576, // 5.2
   purgeAfterMs: 30 * 24 * 3600 * 1000, // 5.1: the app's rule, timed on the purging device's own clock
+  // The item schema (docs/format-schema.md, draft 1)
+  nameBytes: 64, // schema 1: a field name is at most 64 bytes
+  textBytes: 65_536, // schema 1: a text value
+  notesBytes: 262_144, // schema 1: notes
+  websites: 64, // schema 1
+  customFields: 128,
+  attachments: 64,
+  tags: 64,
+  otpDigitsMin: 4, // schema 2 (draft 2): digits of a verification code
+  otpDigitsMax: 10,
+  otpPeriodMin: 1, // schema 2 (draft 2): period in seconds
+  otpPeriodMax: 86_400,
+  historyKept: 10, // schema 4: previous-password entries a checkpoint keeps (with the writes the list needs)
+  historyShown: 10, // schema 4: previous passwords shown
 };
 export const defaults = { ...limits };
 
@@ -61,6 +75,20 @@ export const rules = {
   kitTrailingBeforeCheck: true,
   /** 5.4 (draft 5): a purge request is answered by a complete checkpoint that names the item at or after the request's place (false: names it at all) */
   answerNeedsPlace: true,
+  /** schema 1: a value of the wrong shape is treated as if the field were cleared (false: the value is used as it is) */
+  wrongShapeIsCleared: true,
+  /** schema 6: only a write to a content field brings a deleted item back (false: any other field, as in specification 5.1) */
+  deletedUsesContentOnly: true,
+  /** schema 4 (draft 2): history_hidden leaves out writes strictly before its place */
+  historyHiddenApplies: true,
+  /** schema 4 (draft 2): an entry equal to the current password or to a newer entry is left out, which also leaves out a write equal to the one after it (false: it is shown) */
+  previousUnique: true,
+  /** schema 4 (draft 2): a checkpoint keeps, besides the entries' writes, the write after each (which dates it) and the one just before the winner (false: only the entries' writes) */
+  retentionKeepsNeighbours: true,
+  /** schema 5: an imported item keeps the source's `edited` date until a content field is written later (false: always the latest content write) */
+  importedEditedKept: true,
+  /** schema 1: shown in order of (pos, field name) (false: by pos only, ties in arrival order) */
+  positionTiesByName: true,
   /** 5.4 (draft 4): a purge request covers the writes up to its own place in the order (false: every write of the item) */
   purgeUpToOwnPlace: true,
 };

@@ -527,8 +527,8 @@ export function checkpointVectors(s: Scenario): J {
   const names = itemNames(['i1', I], ['i2', I2]);
   const clk = (c: J) => ({ wall: c.clock[0], counter: c.clock[1], author: c.author, device: c.device, seq: c.seq });
   const changes = [ch(A, d1, 1, 10, 0, I, [['title', 'old'], ['url', 'u']]), ch(B, d2, 1, 12, 0, I, [['title', 'mid']]), ch(A, d1, 2, 14, 0, I, [], ['url']),
-                   ch(B, d2, 2, 15, 0, I2, [['t', 1], ['deleted', 15]]),
-                   ch(A, d1, 3, 20, 0, I, [['title', 'new']]), ch(B, d2, 3, 11, 0, I, [['title', 'late but earlier than the checkpoint winner']]), ch(B, d2, 4, 30, 0, I2, [['t', 2]])];
+                   ch(B, d2, 2, 15, 0, I2, [['notes', 1], ['deleted', 15]]),
+                   ch(A, d1, 3, 20, 0, I, [['title', 'new']]), ch(B, d2, 3, 11, 0, I, [['title', 'late but earlier than the checkpoint winner']]), ch(B, d2, 4, 30, 0, I2, [['notes', 2]])];
   const covered = [{ author: H(A), device: H(d1), seq: 2, record_id: H(bytesOf('rec A2')) }, { author: H(B), device: H(d2), seq: 2, record_id: H(bytesOf('rec B2')) }];
   const cp0 = { include: [0, 1, 2, 3], covered };
   const v1 = o.add('checkpoint/fold-on-top', 'A checkpoint restates the winning writes of four records; then a later edit, a record with an older clock (loses to the checkpointed winner) and an edit of a deleted item (revives it). Run 0 folds the checkpoint and the three later records, run 1 folds all seven records and no checkpoint, run 2 folds both: all three give one state except that history before the checkpoint exists only without it.',
@@ -594,7 +594,7 @@ export function checkpointVectors(s: Scenario): J {
   assert.deepEqual(historyView(hv.expected.states[1], H(I), 'password'), ['secret one', 'secret two']);
   assert.deepEqual(stateView(hv.expected.states[0], nm), { i1: { deleted: false, fields: { password: 'secret three' } } });
   // Hand-written final states for three more checkpoint cases.
-  assert.deepEqual(stateView(v1.expected.states[0], names), { i1: { deleted: false, fields: { title: 'new', url: CLEARED } }, i2: { deleted: false, fields: { t: 2, deleted: 15 } } });
+  assert.deepEqual(stateView(v1.expected.states[0], names), { i1: { deleted: false, fields: { title: 'new', url: CLEARED } }, i2: { deleted: false, fields: { notes: 2, deleted: 15 } } });
   assert.deepEqual(stateView(v1.expected.states[1], names), stateView(v1.expected.states[0], names));
   assert.deepEqual(stateView(nc.expected.states[0], names), { i1: { deleted: false, fields: { f: null } } });
   assert.deepEqual(stateView(nc.expected.states[1], names), { i1: { deleted: false, fields: { f: CLEARED } } });
@@ -602,7 +602,7 @@ export function checkpointVectors(s: Scenario): J {
   assert.deepEqual(stateView(pv.expected.states[1], names), stateView(pv.expected.states[0], names));
   // The five that had no hand-written state yet.
   const vstate = (v: J, n: number) => stateView(v.expected.states[n], names);
-  assert.deepEqual(vstate(o.list.find((x) => x.name === 'checkpoint/nothing-after')!, 0), { i1: { deleted: false, fields: { title: 'mid', url: CLEARED } }, i2: { deleted: true, fields: { t: 1, deleted: 15 } } });
+  assert.deepEqual(vstate(o.list.find((x) => x.name === 'checkpoint/nothing-after')!, 0), { i1: { deleted: false, fields: { title: 'mid', url: CLEARED } }, i2: { deleted: true, fields: { notes: 1, deleted: 15 } } });
   const ntls = o.list.find((x) => x.name === 'checkpoint/null-then-later-set')!;
   assert.deepEqual(vstate(ntls, 0), { i1: { deleted: false, fields: { f: 'later' } } }); assert.deepEqual(historyView(ntls.expected.states[0], H(I), 'f'), [CLEARED]);
   assert.deepEqual(vstate(ntls, 1), { i1: { deleted: false, fields: { f: CLEARED } } }); assert.deepEqual(historyView(ntls.expected.states[1], H(I), 'f'), [null]);

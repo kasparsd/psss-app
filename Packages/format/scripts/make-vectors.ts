@@ -9,6 +9,7 @@ import * as xw from '../src/xwing.ts';
 import { Scenario, bytesOf } from '../test/scenario.ts';
 import { checkpointVectors, cborVectors, clockVectors, foldVectors, personVectors, recordVectors } from './vec-core.ts';
 import { groupVectors } from './vec-group.ts';
+import { schemaVectors } from './vec-schema.ts';
 import { chunkVectors, externalInputs, folderVectors, slotVectors, wrapVectors } from './vec-keys.ts';
 import { H } from './vec-common.ts';
 import type { J, Minted } from './vec-common.ts';
@@ -33,6 +34,7 @@ export function buildVectors(minted: Minted): Record<string, J> {
     'wraps.json': wrapVectors(s, minted),
     'chunks.json': chunkVectors(),
     'folder.json': folderVectors(minted),
+    'schema.json': schemaVectors(),
   };
 }
 
