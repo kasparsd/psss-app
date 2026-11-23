@@ -18,12 +18,12 @@ Use [item templates](items.md) in the app layer and preserve underlying KeePass 
 
 ## Decisions
 
-- Define a `VaultStore` boundary now. The app domain, extension and importers talk to it. KDBX is one implementation, which keeps the M0 storage decision reversible.
+- Define a `VaultStore` boundary now. The app domain, extension and importers talk to it. KDBX is the implementation in the build; the [record log](format.md) is the second and becomes the source of truth (decided 2026-11-23), after which the KDBX store serves import and export.
 - Protected values use a dedicated secret type with limited lifetime and no logging or accessibility exposure. The scaffold keeps secrets in plain `String` view state, which is acceptable for fictional data only.
 - Plan an external security audit before 1.0. Nothing in the vault, extension boundary or importers ships on a self-review alone.
 
 - Maintain one Swift and SwiftUI application codebase across Mac, iPhone and iPad. The scaffold currently packages that code with two app targets, each embedding its platform’s provider. Prefer one multiplatform app target if both destinations can embed and sign their provider using platform-specific settings. Confirm that during the signed feasibility spike. Use WebExtension resources as required by browsers.
-- No custom crypto protocol. Preserve the KeePass document as an interoperable format.
+- Standard cryptographic primitives only, and no new primitive. The vault protocol is our own (decided 2026-11-23, reversing “no custom crypto protocol”): the [record log](format.md) composes HPKE, Argon2id, HKDF, one AEAD and Ed25519, is published with test vectors, and gets an independent review before real logins depend on it. KeePass documents stay interoperable through import and export.
 - Begin with local vaults and an AutoFill spike. Verify the trust boundary before expanding browser access.
 
 ## Dependencies and licenses (2026-11-22)

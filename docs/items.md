@@ -1,5 +1,7 @@
 # Vault items and KeePass compatibility
 
+With the [record-log vault format](format.md) adopted on 2026-11-23, the item types and field model here stay, and the KeePass mapping becomes the import and export mapping. The native record schema is still to be defined from this model. Until the record-log store is built, the mapping below is also how items are stored.
+
 | Item | What users can store | Where it appears |
 | --- | --- | --- |
 | Login | Website, username, password, verification code setup, notes and supplemental fields | Vault, site-matched password and verification-code pickers |

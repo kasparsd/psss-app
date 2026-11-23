@@ -2,7 +2,7 @@
 
 ## Strongbox
 
-Open a selected KDBX in place once capability and permissions are verified, or offer a copy in the chosen location. Ask for the existing vault password and key file where applicable. Verify group hierarchy, custom fields, attachments, entry history, tags and OTP data before offering writes. Unsupported encryption, credentials or document features require a clear recovery path.
+Import a selected KDBX into a Psss vault and leave the original file untouched (changed 2026-11-23 with the [vault format](format.md): a `.kdbx` is no longer edited in place once the record-log store exists; today's build still opens one in place). Ask for the existing vault password and key file where applicable. Verify group hierarchy, custom fields, attachments, entry history, tags and OTP data before finishing the import. Unsupported encryption, credentials or document features require a clear recovery path.
 
 ## Apple Passwords
 
@@ -49,5 +49,5 @@ The owner approved the mock `Design/Mocks/import-1password.html` and its decisio
 - [ ] Credential Exchange import (iOS and macOS 26).
 - [~] 1Password 7 import per `docs/plans/1password-7-import.md`: the importer, the direct KDBX writer and fixtures are built and validated (2026-11-23); the screens are approved (2026-11-23) and planned in [approved screens](plans/approved-screens.md), to build last.
 - [ ] Build a representative mapping and fixture inventory for both sources.
-- [ ] Test counts and field fidelity after reopening the resulting KDBX with an independent client.
+- [ ] Test counts and field fidelity by exporting the imported vault to KDBX and opening it with an independent client.
 - [ ] After 1PIF: 1Password 8 (1PUX), OPVault, Windows export variants, mobile direct transfer and passkeys.

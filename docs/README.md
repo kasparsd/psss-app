@@ -1,6 +1,6 @@
 # Psss product and engineering plan
 
-Psss is a native macOS and iOS password manager that is as easy as Apple Passwords and holds what it does not: cards, notes, custom items and attachments, in a KeePass-compatible file you own. No account. Fill and save where you sign in. Vaults live on the device or in iCloud Drive.
+Psss is a native macOS and iOS password manager that is as easy as Apple Passwords and holds what it does not: cards, notes, custom items and attachments, in an open format you own, with KeePass files in and out. No account. Fill and save where you sign in. Vaults live on the device and sync through iCloud, a folder you choose or your own server.
 
 See the [product contract](product.md) for positioning, principles and business model.
 
@@ -13,7 +13,7 @@ See the [product contract](product.md) for positioning, principles and business 
 | Platform | [AutoFill and browser coverage](autofill.md), [browser extension](browser-extension.md) |
 | Items | [Cards, notes and KeePass entries](items.md) |
 | Verification codes | [Adding a TOTP code by paste, image or camera](verification-codes.md) |
-| Storage | [KeePass and vault lifecycle](vaults.md) |
+| Storage | [KeePass and vault lifecycle](vaults.md), [vault format](format.md) |
 | Migration | [Strongbox and 1Password](migration.md) |
 | Engineering | [Swift architecture and security](architecture.md) |
 | Development | [Xcode, Swift and localization conventions](development.md) |
@@ -22,7 +22,7 @@ See the [product contract](product.md) for positioning, principles and business 
 ## Decisions
 
 - Prioritize sign-in and password capture, including passkeys and verification codes. Support cards, secure notes and custom items in the same vault.
-- KDBX is the storage format (decided by the owner, 2026-11-23). Psss does not build its own store. The M0 spikes find how to make the AutoFill extension and sync work within KDBX, not whether to keep it. Revisit only if an existing, proven alternative clearly beats it.
+- The vault format is a log of immutable, encrypted, signed records, published as an open specification (decided by the owner, 2026-11-23, see [vault format](format.md)). It syncs over CloudKit, a plain folder or a small server. KDBX is import and export. This reverses the decision of the same morning that KDBX is canonical: a single mutable file makes reliable sync and family sharing hard, and the person Psss is for expects both. Not built yet; today's build stores KDBX.
 - Scope 1.0 to Safari (the system AutoFill provider plus the bundled Safari extension). Other browsers come later, through the same WebExtension and a native host that are prototyped.
 - The native app is the prototype. The HTML prototype is frozen.
 - Until the M0 gate on 2026-12-20, work goes to filling from the real encrypted vault on a signed device and to the remaining spikes. Interface, brand and browser-extension work is frozen. See the [roadmap](roadmap.md#course-correction-review-of-2026-11-22).
