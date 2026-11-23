@@ -1,6 +1,6 @@
 # Vault format: a record log in place of a single file
 
-**Status: adopted by the owner on 2026-11-23. Not built.** This format becomes the source of truth for a vault, and KDBX becomes import and export. It reverses the decision of the same morning that KDBX is canonical. Today's build still stores KDBX, and [vaults](vaults.md) describes that build. Three narrower decisions in the [table below](#decisions-for-the-owner) are still open: post-quantum wrapping with its OS floor, the age envelope, and the order of work.
+**Status: adopted by the owner on 2026-11-23. Not built.** This format becomes the source of truth for a vault, and KDBX becomes import and export. It reverses the decision of the same morning that KDBX is canonical. Today's build still stores KDBX, and [vaults](vaults.md) describes that build. Two narrower decisions in the [table below](#decisions-for-the-owner) are still open: post-quantum wrapping with its OS floor, and the age envelope.
 
 ## Why it changed
 
@@ -186,12 +186,12 @@ Still open, listed as questions on the mock pages: whether a vault needs a name 
 | Post-quantum key wrapping from the first version | Yes: the X-Wing hybrid (ML-KEM-768 with X25519) as the HPKE key exchange. Wrapped keys stored in a cloud are exactly what an attacker would collect now and decrypt later. Verified 2026-11-23: CryptoKit has it from iOS 26 and macOS 26 as `XWingMLKEM768X25519_SHA256_AES_GCM_256`, Go has it in `crypto/hpke`, and Python's `cryptography` has it from version 47. It sets the minimum OS at 26. The [specification](format-spec.md) is drafted on this assumption. Still to show: that the three interoperate on the test vectors. |
 | Reuse the age file format for wrapped keys | No. Verified 2026-11-23: age has post-quantum recipients from version 1.3.0, but it is a whole-file format with its own header and passphrase mode (scrypt), CryptoKit has no age support, and what is wrapped here is one 32-byte key, which HPKE does directly on every platform. The reference tool gives Windows and Linux the same reach. The [specification](format-spec.md) is drafted on this assumption. |
 | The person key: synced by iCloud Keychain, or wrapped to each device | **Decided 2026-11-23, approved with the mocks:** iCloud Keychain by default on Apple devices, with the vault password and recovery kit optional under Advanced. The vault is as safe as the Apple Account and device passcode, no safer. |
-| Order | One person on several devices first, with epochs and authors already in every record and every item already in a group. Shared groups second. |
+| Order and the scope of 1.0 | **Decided 2026-11-23: sharing by group is part of 1.0.** The direction review recommended one person on several devices for 1.0 and sharing after it; the owner chose sharing in 1.0, since a family sharing logins is what the app is for. Build order is unchanged: one person on several devices first, shared groups second, both before 1.0. Consequences: the invitation exchange, membership forks, the `CKShare` mapping and the child account question are 1.0 work, and the independent review of the specification gates 1.0, not a later release. |
 
 ## Roadmap
 
 - [x] Owner decision to adopt (2026-11-23).
-- [ ] Owner decision on the three open rows above.
+- [ ] Owner decision on the two open rows above (post-quantum wrapping with the OS floor, the age envelope).
 - [x] Verified X-Wing HPKE in CryptoKit, Go and Python, and age's post-quantum recipients (2026-11-23).
 - [~] Byte-level [specification](format-spec.md): draft 2 (2026-11-23), which answers the 36 findings of the first independent implementation. The reference implementation for Node 24 and 240 test vectors are in `Packages/format/` and pass (`scripts/test-format.sh`), checked by a second independent run; they follow draft 1 until brought up to draft 2. Not yet specified: the item schema, the invitation and approval exchanges, the backup file and the CloudKit record types. Not yet shown: that CryptoKit and Go agree with the X-Wing and HPKE vectors.
 - [ ] Spike: CloudKit zone per vault with `CKShare`, including whether a child's Apple Account can accept the share, and convergence times on real devices.
