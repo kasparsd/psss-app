@@ -37,19 +37,23 @@ DEVELOPMENT_TEAM = ABCDE12345
 PSSS_MAC_ENTITLEMENTS_SUFFIX =
 ```
 
-All targets use automatic signing, so with `-allowProvisioningUpdates` Xcode registers the App IDs (`app.psss.Psss`, `app.psss.Psss.CredentialProvider`, `app.psss.Psss.Safari`), the App Group and development profiles for the team, and may register the connected device. Nothing else in the developer account changes.
+All targets use automatic signing, so with `-allowProvisioningUpdates` Xcode registers the App IDs (`app.psss.Psss`, `app.psss.Psss.CredentialProvider`, `app.psss.Psss.Safari`), the iOS App Group `group.app.psss` and development profiles for the team, and adds the connected device to the iOS profiles. Nothing else in the developer account changes. Always build through `scripts/xcb.sh`, which takes the `xcodebuild` arguments, runs one job at a time and keeps this Mac from running out of memory.
 
 ```sh
-xcodebuild -project Psss.xcodeproj -scheme Psss-macOS -configuration Debug \
-  -derivedDataPath /tmp/Psss-signed -allowProvisioningUpdates build
+scripts/xcb.sh -project Psss.xcodeproj -scheme Psss-macOS -configuration Debug \
+  -derivedDataPath build/signed-dd -allowProvisioningUpdates build
 
-xcodebuild -project Psss.xcodeproj -scheme Psss-iOS -configuration Debug \
-  -destination 'generic/platform=iOS' -derivedDataPath /tmp/Psss-signed -allowProvisioningUpdates build
+scripts/xcb.sh -project Psss.xcodeproj -scheme Psss-iOS -configuration Debug \
+  -destination 'generic/platform=iOS' -derivedDataPath build/signed-dd -allowProvisioningUpdates build
 ```
 
-Check the result with `codesign -d --entitlements - <app or .appex>`: the AutoFill key, the App Group and (Mac) the keychain access group must all be present, and `Contents/embedded.provisionprofile` must exist in each Mac bundle.
+Check the result with `codesign -d --entitlements - <app or .appex>`.
+Each Mac bundle must carry the AutoFill key (app and provider), `application-groups` and `keychain-access-groups` set to `<team>.app.psss`, a team identifier and `Contents/embedded.provisionprofile`.
+Each iOS bundle must carry `group.app.psss` and `embedded.mobileprovision` (the AutoFill key on the app and provider).
+The Mac provisioning profiles list the AutoFill capability and the keychain group `<team>.*` but no App Group: a team-prefixed group needs no profile entry on macOS 15 and later.
 If the build says "PLA Update available", the account holder must accept the latest Program License Agreement at developer.apple.com; Xcode cannot create profiles until then.
-A team does not change the simulator commands below: an unsigned or ad-hoc simulator build still works with `Local.xcconfig` present.
+A simulator build with the team set and no overrides builds, and Xcode embeds the simulated entitlements (AutoFill key and `group.app.psss`); the ad-hoc override recipe under "Testing AutoFill in the simulator" is then needed only for the temporary 26.2 floor.
+The product is `build/signed-dd/Build/Products/Debug/Psss.app` (Mac) and `Debug-iphoneos/Psss.app` (iPhone, not installed by the build).
 
 ## Command-line verification
 
