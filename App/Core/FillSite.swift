@@ -25,14 +25,15 @@ enum FillSite: Equatable, Sendable {
         self = isHTTP && !Self.thisMachine.contains(Self.hostAsWritten(text)) ? .plainHTTP(host: host) : .secure(host: host)
     }
 
-    /// Reads every service identifier the system gave, most specific first. The site is the first identifier that has a host.
-    /// The page counts as plain `http` when ANY identifier is an `http` URL for a host that is not this machine, so a secure
-    /// first identifier cannot hide an insecure one behind it.
+    /// Reads every service identifier the system gave, most specific first. The page counts as plain `http` when ANY identifier
+    /// is an `http` URL for a host that is not this machine, so a secure first identifier cannot hide an insecure one behind it.
+    /// Then the host is the first such unencrypted host, the one the warning names and the one logins are listed for.
+    /// Otherwise the site is the first identifier that has a host.
     init(serviceIdentifiers: [String]) {
         let sites = serviceIdentifiers.map { FillSite(serviceIdentifier: $0) }
+        if let insecure = sites.first(where: { if case .plainHTTP = $0 { true } else { false } }) { self = insecure; return }
         guard let host = sites.lazy.compactMap(\.host).first else { self = .unknown; return }
-        let insecure = sites.contains { if case .plainHTTP = $0 { true } else { false } }
-        self = insecure ? .plainHTTP(host: host) : .secure(host: host)
+        self = .secure(host: host)
     }
 
     /// The host of an `http://` URL exactly as written, lowercased, without port, brackets or trailing dot, and without

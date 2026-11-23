@@ -14,7 +14,8 @@ struct ProviderAction {
 
 /// The frame every provider screen sits in.
 struct ProviderScreen<Content: View>: View {
-    /// The screen's title: the navigation title on iOS ("Psss" when there is none), a heading above the content on the Mac.
+    /// The screen's title: the navigation title on iOS, a heading above the content on the Mac. Screens whose title is in their
+    /// content have none on either platform.
     var heading: LocalizedStringKey?
     /// Cancel in the navigation bar on iOS, in the footer on the Mac.
     var cancel: ProviderAction?
@@ -28,7 +29,7 @@ struct ProviderScreen<Content: View>: View {
         #if os(iOS)
         NavigationStack {
             content
-                .navigationTitle(heading ?? "Psss")
+                .navigationTitle(heading ?? "")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     if let cancel {
@@ -45,7 +46,8 @@ struct ProviderScreen<Content: View>: View {
             content.frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
             HStack {
-                // Escape leaves the second level when there is one, and cancels the request otherwise.
+                // Escape is `.cancelAction` on exactly one visible button: Back when the screen has one, else Cancel.
+                // A screen with only a main button also closes on Escape, through a hidden twin of that button.
                 if let back { Button(back.title, action: back.run).keyboardShortcut(.cancelAction) }
                 Spacer()
                 if let cancel {
@@ -54,12 +56,15 @@ struct ProviderScreen<Content: View>: View {
                 }
                 if let primary {
                     Button(primary.title, action: primary.run).keyboardShortcut(.defaultAction).disabled(!primary.isEnabled)
+                    if cancel == nil, back == nil {
+                        Button(primary.title, action: primary.run).keyboardShortcut(.cancelAction)
+                            .opacity(0).frame(width: 0).accessibilityHidden(true)
+                    }
                 }
             }
             .padding(16)
         }
         .frame(minWidth: 460, idealWidth: 480, minHeight: 360, idealHeight: 420)
-        .onExitCommand { if cancel == nil, back == nil { primary?.run() } }
         #endif
     }
 }
@@ -98,6 +103,8 @@ enum NotReadyReason {
     case biometryOff
     /// The vault file cannot be found.
     case fileMissing
+    /// The key exists but cannot be used right now (a lockout, biometry unavailable, a busy Keychain).
+    case unavailableNow
 
     var sentence: String {
         switch self {
@@ -107,6 +114,8 @@ enum NotReadyReason {
             String(localized: "Open Psss, unlock with your vault password and turn on \(BiometryKind.current?.label ?? String(localized: "biometric unlock")).")
         case .fileMissing:
             String(localized: "Psss cannot find the vault file. Open Psss to locate it.")
+        case .unavailableNow:
+            String(localized: "\(BiometryKind.current?.label ?? String(localized: "Biometric unlock")) is not available right now. Open Psss and unlock with your vault password, then try again.")
         }
     }
 }
@@ -266,7 +275,7 @@ struct FillList: View {
 
     @ViewBuilder private var screen: some View {
         #if os(iOS)
-        ProviderScreen(cancel: ProviderAction(title: "Cancel", run: cancel)) {
+        ProviderScreen(heading: "Choose a Login", cancel: ProviderAction(title: "Cancel", run: cancel)) {
             mainContent.navigationDestination(isPresented: $showOthers) {
                 othersContent.navigationTitle("Other Logins").navigationBarTitleDisplayMode(.inline)
             }

@@ -113,6 +113,22 @@ enum BiometricKey {
     nonisolated(unsafe) static var failure: BiometricKeyError?
     #endif
 
+    /// A provisioned Mac app, once: removes every login-keychain item under Psss's key service, whatever vault it was for. A
+    /// local build leaves such items, and a provisioned build uses another group and therefore another stored vault reference,
+    /// so the per-vault delete never reaches them. The login keychain is the only one the query can match (no data protection
+    /// flag), so the protected item is untouched. Never runs in an extension, in a local build or on iOS. Call it at app start;
+    /// reading, saving and deleting call it too, so it has run before any key is used. What happened is recorded only when the
+    /// delete succeeded or found nothing.
+    static func removeLeftoverLoginItems() {
+        #if os(macOS) && !HOSTLESS_TESTS
+        guard provisioned, !isExtension else { return }
+        let done = "loginKeychainItemsRemoved"
+        guard !UserDefaults.standard.bool(forKey: done) else { return }
+        let status = SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service] as CFDictionary)
+        if status == errSecSuccess || status == errSecItemNotFound { UserDefaults.standard.set(true, forKey: done) }
+        #endif
+    }
+
     static func save(_ key: Data, for id: UUID) throws {
         #if HOSTLESS_TESTS
         memory[id] = key
@@ -123,6 +139,7 @@ enum BiometricKey {
     }
 
     private static func saveToKeychain(_ key: Data, for id: UUID) throws {
+        removeLeftoverLoginItems()
         delete(for: id)
         #if os(macOS)
         if !provisioned {
@@ -152,6 +169,7 @@ enum BiometricKey {
         #else
         return try await Task.detached {
             #if os(macOS)
+            removeLeftoverLoginItems()
             guard provisioned else {
                 guard !isExtension else { throw BiometricKeyError.unavailable }
                 return try await loadFromLoginKeychain(for: id, reason: reason)
@@ -220,7 +238,8 @@ enum BiometricKey {
             guard let data = result as? Data else { throw BiometricKeyError.failed(errSecDecode) }
             return data
         case errSecItemNotFound: throw BiometricKeyError.invalidated
-        default: throw BiometricKeyError.failed(status)
+        // Anything else may be transient: keep the key and the setting, and ask for the password this once.
+        default: throw BiometricKeyError.unavailable
         }
     }
     #endif
@@ -229,6 +248,7 @@ enum BiometricKey {
         #if HOSTLESS_TESTS
         memory[id] = nil
         #else
+        removeLeftoverLoginItems()
         SecItemDelete(baseQuery(for: id, protected: true) as CFDictionary)
         #if os(macOS)
         // An extension never touches the login keychain.

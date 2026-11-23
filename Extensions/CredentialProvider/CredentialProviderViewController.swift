@@ -250,9 +250,12 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
                 cancel(.userCanceled)
             } catch VaultStoreError.fileMissing {
                 present(NotReady(reason: .fileMissing, close: { self.cancel(.userCanceled) }))
-            } catch {
-                // Unlock with Face ID or Touch ID is off, was reset, or cannot be used now.
+            } catch BiometricKeyError.invalidated {
+                // Unlock with Face ID or Touch ID is off or was reset.
                 present(NotReady(reason: .biometryOff, close: { self.cancel(.userCanceled) }))
+            } catch {
+                // The key exists but cannot be used now (lockout, unavailable, a failed read).
+                present(NotReady(reason: .unavailableNow, close: { self.cancel(.userCanceled) }))
             }
         }
     }

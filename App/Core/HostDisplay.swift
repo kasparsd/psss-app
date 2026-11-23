@@ -5,20 +5,76 @@ import Foundation
 /// An internationalized name is shown in its Unicode form. When that form mixes more than one script, which is how a lookalike
 /// of a well-known name is made, the punycode form follows in parentheses so the difference is visible.
 enum HostDisplay {
-    /// "bücher.example" for "xn--bcher-kva.example". Labels that are not valid punycode stay as they are.
+    /// "bücher.example" for "xn--bcher-kva.example". The result is the ASCII host itself, unchanged, whenever any `xn--` label
+    /// cannot be shown safely: decoding fails, the decoded label is plain ASCII (a malformed label), is not in NFC, or holds a
+    /// character that could make it read as another host (see `isSafeLabel`). Never a mixture of decoded and ASCII labels.
     static func unicode(_ host: String) -> String {
-        host.split(separator: ".", omittingEmptySubsequences: false).map { label -> String in
+        var labels: [String] = []
+        for label in host.split(separator: ".", omittingEmptySubsequences: false) {
             let lower = label.lowercased()
-            guard lower.hasPrefix("xn--"), let decoded = decodePunycode(String(lower.dropFirst(4))), !decoded.isEmpty else { return String(label) }
-            return decoded
-        }.joined(separator: ".")
+            if lower.hasPrefix("xn--") {
+                guard let decoded = decodePunycode(String(label.dropFirst(4))), isSafeLabel(decoded) else { return host }
+                labels.append(decoded)
+            } else {
+                // A label that already holds non-ASCII text (not what the app passes in) is shown only when it is safe.
+                if !label.allSatisfy(\.isASCII), !isSafeLabel(String(label)) { return escaped(host) }
+                labels.append(String(label))
+            }
+        }
+        return labels.joined(separator: ".")
     }
 
-    /// What to put in a sentence: the Unicode form, followed by the ASCII form in parentheses when the Unicode form mixes scripts.
+    /// What to put in a sentence: the Unicode form when it is safe to show, followed by the ASCII form in parentheses when
+    /// the Unicode form mixes scripts.
     static func shown(_ host: String) -> String {
         let readable = unicode(host)
         guard readable != host, scripts(in: readable).count > 1 else { return readable }
         return "\(readable) (\(host))"
+    }
+
+    /// True when a decoded label may be shown. It must be:
+    /// - not empty, not plain ASCII letters, digits and hyphens (a punycode label that decodes to that is malformed), and in NFC;
+    /// - made only of letters, marks, decimal digits and the ASCII hyphen, as IDNA allows (so no space, control, format,
+    ///   separator, private-use, unassigned, punctuation, symbol, upper-case or title-case character), not starting with a
+    ///   mark, and free of default-ignorable and bidirectional-control characters, whatever their category.
+    static func isSafeLabel(_ label: String) -> Bool {
+        guard !label.isEmpty, Array(label.unicodeScalars) == Array(label.precomposedStringWithCanonicalMapping.unicodeScalars) else { return false }
+        let isPlain = label.unicodeScalars.allSatisfy { $0.isASCII && ($0.properties.isAlphabetic || ($0.value >= 48 && $0.value <= 57) || $0 == "-") }
+        guard !isPlain else { return false }
+        for (index, scalar) in label.unicodeScalars.enumerated() {
+            if isInvisibleOrConfusable(scalar) { return false }
+            switch scalar.properties.generalCategory {
+            case .lowercaseLetter, .otherLetter, .modifierLetter, .decimalNumber: break
+            case .nonspacingMark, .spacingMark: if index == 0 { return false }
+            default: if scalar != "-" { return false }
+            }
+        }
+        return true
+    }
+
+    /// Characters that read as something else or as nothing, listed explicitly on top of the category checks.
+    private static func isInvisibleOrConfusable(_ scalar: Unicode.Scalar) -> Bool {
+        let value = scalar.value
+        if scalar.properties.isDefaultIgnorableCodePoint { return true }
+        switch scalar.properties.generalCategory {
+        case .format, .control, .spaceSeparator, .lineSeparator, .paragraphSeparator, .surrogate, .privateUse, .unassigned: return true
+        default: break
+        }
+        if value < 0x20 || (0x7F...0x9F).contains(value) { return true }
+        if (0x202A...0x202E).contains(value) || (0x2066...0x2069).contains(value) || value == 0x200E || value == 0x200F || value == 0x061C { return true }
+        if [0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF, 0x00AD, 0x180E, 0x00A0, 0x202F, 0x205F, 0x3000].contains(value) { return true }
+        if (0x2000...0x200A).contains(value) { return true }
+        return false
+    }
+
+    /// Writes the characters of a non-ASCII host that are not safe as U+XXXX, so nothing invisible or confusable is shown.
+    private static func escaped(_ text: String) -> String {
+        var result = ""
+        for scalar in text.unicodeScalars {
+            if scalar.isASCII { result.unicodeScalars.append(scalar) }
+            else { result += "U+" + String(scalar.value, radix: 16, uppercase: true) }
+        }
+        return result
     }
 
     /// The scripts of the letters in `text`. Digits, dots and hyphens belong to no script. Scripts that are not listed count
