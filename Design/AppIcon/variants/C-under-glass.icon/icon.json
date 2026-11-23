@@ -1,0 +1,71 @@
+{
+  "fill-specializations": [
+    {
+      "value": {
+        "linear-gradient": [
+          "display-p3:1.0,0.87,0.35,1.0",
+          "display-p3:1.0,0.82,0.25,1.0"
+        ]
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "linear-gradient": [
+          "display-p3:0.15,0.15,0.16,1.0",
+          "display-p3:0.09,0.09,0.10,1.0"
+        ]
+      }
+    }
+  ],
+  "groups": [
+    {
+      "layers": [
+        {
+          "glass": true,
+          "name": "Pill",
+          "image-name-specializations": [
+            {
+              "value": "Pill.svg"
+            },
+            {
+              "appearance": "dark",
+              "value": "Pill-Dark.svg"
+            }
+          ],
+          "opacity": 0.4
+        }
+      ],
+      "name": "Glass",
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.4
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.5
+      }
+    },
+    {
+      "layers": [
+        {
+          "glass": false,
+          "name": "Contents",
+          "image-name-specializations": [
+            {
+              "value": "Contents.svg"
+            },
+            {
+              "appearance": "dark",
+              "value": "Contents-Dark.svg"
+            }
+          ]
+        }
+      ],
+      "name": "Contents"
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}
