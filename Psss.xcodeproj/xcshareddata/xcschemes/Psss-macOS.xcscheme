@@ -3,19 +3,19 @@
   <BuildAction parallelizeBuildables="YES" buildImplicitDependencies="YES">
     <BuildActionEntries>
       <BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="YES" buildForArchiving="YES" buildForAnalyzing="YES">
-        <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="000000000000000000000035" BuildableName="KDBOX.app" BlueprintName="KDBOX-iOS" ReferencedContainer="container:KDBOX.xcodeproj" />
+        <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="000000000000000000000021" BuildableName="Psss.app" BlueprintName="Psss-macOS" ReferencedContainer="container:Psss.xcodeproj" />
       </BuildActionEntry>
     </BuildActionEntries>
   </BuildAction>
   <TestAction buildConfiguration="Debug" />
   <LaunchAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.DebuggerFoundation.Launcher.LLDB">
     <BuildableProductRunnable runnableDebuggingMode="0">
-      <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="000000000000000000000035" BuildableName="KDBOX.app" BlueprintName="KDBOX-iOS" ReferencedContainer="container:KDBOX.xcodeproj" />
+      <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="000000000000000000000021" BuildableName="Psss.app" BlueprintName="Psss-macOS" ReferencedContainer="container:Psss.xcodeproj" />
     </BuildableProductRunnable>
   </LaunchAction>
   <ProfileAction buildConfiguration="Release">
     <BuildableProductRunnable runnableDebuggingMode="0">
-      <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="000000000000000000000035" BuildableName="KDBOX.app" BlueprintName="KDBOX-iOS" ReferencedContainer="container:KDBOX.xcodeproj" />
+      <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="000000000000000000000021" BuildableName="Psss.app" BlueprintName="Psss-macOS" ReferencedContainer="container:Psss.xcodeproj" />
     </BuildableProductRunnable>
   </ProfileAction>
   <AnalyzeAction buildConfiguration="Debug" />

@@ -24,7 +24,7 @@ The reorder above said risk first, interface later. The first day's 27 commits d
 | The real vault and AutoFill never meet | `CredentialProviderViewController`, `BrowserProtocol` and the Safari handler read `SharedVault` (sample items plus plain-JSON `saved-logins.json`). Identities are registered only when `store.isSample`. A vault Psss creates lives in the app's Application Support, which the extension cannot read | Someone who creates a vault gets no fill, no save and no passkeys. “First fill within three minutes” is impossible today |
 | The Mac provider is a stub | The `#else` branch of the provider cancels every request | Half the product has no system fill. S3 cannot pass |
 | Verification codes are not in the provider | No `ProvidesOneTimeCodes` capability and no one-time code credential | A TestFlight requirement has no code path |
-| Nothing has run signed | Identifiers are `local.kdbox.prototype`, no team. All AutoFill evidence is from an ad-hoc simulator build | S2, S3 and S5 cannot start. This waits on the owner, not on code |
+| Nothing has run signed | Identifiers are `app.psss.Psss` and its extensions, no team. All AutoFill evidence is from an ad-hoc simulator build | S2, S3 and S5 cannot start. This waits on the owner, not on code |
 | Sync, the only paid feature, has no evidence, and one design choice works against it | `markUsed` then `flush` rewrites the whole file on every lock or background after a copy. `keepBackup` runs on every write and keeps five | Two devices that only read still produce conflicting files. Five copies or locks push every useful rollback copy out |
 | What Psss Pro sells is undefined | Open a vault file edits a `.kdbx` in iCloud Drive in place, free, on any number of devices | Settled on 2026-11-23: sync is free and there is no Pro |
 | Plain-text secrets are still a supported path | The sample vault saves added and imported logins unencrypted in the App Group, and the Safari handler returns them with no unlock | Acceptable for fictional data only, and the interface invites real data |
@@ -143,7 +143,6 @@ Goal: five people outside the project fill, save and find a login without guidan
 ## M3 · 1.0 on the App Store
 
 - [ ] External security audit of the codec, extension boundary and importers. Fix findings before launch.
-- [ ] Rename Xcode targets, schemes, folders and bundle identifiers from KDBOX to Psss in one change, after the domain is registered.
 - [ ] Monetization decided, if any, and implemented. See open decisions. Not a condition for publishing.
 - [ ] Privacy manifest with the required-reason declarations (the app uses `UserDefaults`).
 - [ ] Privacy disclosures with no analytics, support page, seeded review vault, export compliance, reproducible archives.
@@ -195,6 +194,7 @@ Goal: five people outside the project fill, save and find a login without guidan
 | 2026-11-23 | A site name is shown in readable form only when it is made of letters, marks, digits and hyphens; otherwise in its encoded form. Matching always uses the encoded form. | Validation over every Unicode character. |
 | 2026-11-23 | An entry is purged from the Recycle Bin only when the latest readable evidence of its deletion is more than 30 days old. The purge runs when the app unlocks, never in the AutoFill extension. | A validation run found two ways the first version destroyed recent deletions. |
 | 2026-11-23 | Every change to the vault is all-or-nothing, and the store never holds an edit that is not on disk. Replacing a file that changed elsewhere repeats the change deliberately. | Validation of the conflict path. |
+| 2026-11-23 | Identifiers moved from the `local.kdbox.prototype` working name to `app.psss` (app `app.psss.Psss`, extensions `.CredentialProvider` and `.Safari`, App Group `group.app.psss` on iOS and `$(TeamIdentifierPrefix)app.psss` on Mac), after psss.app was registered. Xcode project, schemes and targets renamed to Psss. | Owner. |
 
 ## Platform gaps
 

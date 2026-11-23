@@ -1559,6 +1559,19 @@ do {
     VaultSession.purgesRecentlyDeletedOnUnlock = false
     session.forget()
 
+    // The identity store: tests get a recorder, never the real system store.
+    _ = VaultIdentities.takeCalls()
+    try await session.create(name: "Identities", credentials: .init(password: "pw"), items: [])
+    check("creating a vault asks nothing of the identity store", "\(VaultIdentities.takeCalls().count)", "0")
+    let identityItem = VaultItem(kind: .login, title: "Id", website: "id.example", secret: "s")
+    try session.store!.save([identityItem])
+    VaultIdentities.register(for: session.store!.items())
+    expect("registering reports the vault's items to the identity store", VaultIdentities.takeCalls() == [.registered([identityItem.id])])
+    session.forget()
+    expect("forgetting a vault removes every identity, once", VaultIdentities.takeCalls() == [.removedAll])
+    session.forget()
+    check("forgetting with no vault removes none", "\(VaultIdentities.takeCalls().count)", "0")
+
     // MARK: Store follow-ups from the security validation
 
     // Rollback copies that cannot be removed after a password change are reported, and removed on a later write.
@@ -2946,25 +2959,25 @@ do {  // Provider follow-ups: several identifiers, loopback as written, readable
     check("title: nothing at all is untitled", DisplayText.title(of: VaultItem(kind: .login)), "Untitled")
 
     // The Mac App Group comes from the entitlement only when it carries a team identifier
-    check("group: team-prefixed", SharedVault.teamPrefixedGroup(in: ["ABCDE12345.local.kdbox.prototype"]) ?? "nil", "ABCDE12345.local.kdbox.prototype")
-    check("group: no team (empty prefix) is refused", SharedVault.teamPrefixedGroup(in: ["local.kdbox.prototype"]) ?? "nil", "nil")
-    check("group: leading dot is refused", SharedVault.teamPrefixedGroup(in: [".local.kdbox.prototype"]) ?? "nil", "nil")
-    check("group: group. identifier is refused", SharedVault.teamPrefixedGroup(in: ["group.local.kdbox.prototype"]) ?? "nil", "nil")
+    check("group: team-prefixed", SharedVault.teamPrefixedGroup(in: ["ABCDE12345.app.psss"]) ?? "nil", "ABCDE12345.app.psss")
+    check("group: no team (empty prefix) is refused", SharedVault.teamPrefixedGroup(in: ["app.psss"]) ?? "nil", "nil")
+    check("group: leading dot is refused", SharedVault.teamPrefixedGroup(in: [".app.psss"]) ?? "nil", "nil")
+    check("group: group. identifier is refused", SharedVault.teamPrefixedGroup(in: ["group.app.psss"]) ?? "nil", "nil")
     check("group: lower case team is refused", SharedVault.teamPrefixedGroup(in: ["abcde12345.local"]) ?? "nil", "nil")
-    check("group: nine characters is refused", SharedVault.teamPrefixedGroup(in: ["ABCDE1234.local.kdbox"]) ?? "nil", "nil")
-    check("group: eleven characters is refused", SharedVault.teamPrefixedGroup(in: ["ABCDE123456.local.kdbox"]) ?? "nil", "nil")
+    check("group: nine characters is refused", SharedVault.teamPrefixedGroup(in: ["ABCDE1234.app.psss"]) ?? "nil", "nil")
+    check("group: eleven characters is refused", SharedVault.teamPrefixedGroup(in: ["ABCDE123456.app.psss"]) ?? "nil", "nil")
     check("group: nothing after the team is refused", SharedVault.teamPrefixedGroup(in: ["ABCDE12345.", "ABCDE12345"]) ?? "nil", "nil")
     check("group: empty dot after the team is refused", SharedVault.teamPrefixedGroup(in: ["ABCDE12345..x"]) ?? "nil", "nil")
     check("group: the first valid one wins", SharedVault.teamPrefixedGroup(in: ["local.x", "ABCDE12345.a", "ZZZZZ99999.b"]) ?? "nil", "ABCDE12345.a")
     check("group: empty list", SharedVault.teamPrefixedGroup(in: []) ?? "nil", "nil")
 
     // The Keychain mode is decided once from the entitlements: provisioned only with the shared group, team-prefixed
-    let shared = "ABCDE12345.local.kdbox.prototype"
+    let shared = "ABCDE12345.app.psss"
     expect("keychain: provisioned with the shared group", BiometricKey.isProvisioned(keychainGroups: [shared], group: shared))
     expect("keychain: not provisioned without the entitlement", !BiometricKey.isProvisioned(keychainGroups: nil, group: shared))
     expect("keychain: not provisioned with another group only", !BiometricKey.isProvisioned(keychainGroups: ["ABCDE12345.other"], group: shared))
-    expect("keychain: not provisioned for the default group", !BiometricKey.isProvisioned(keychainGroups: ["group.local.kdbox.prototype"], group: "group.local.kdbox.prototype"))
-    expect("keychain: not provisioned for a group with no team", !BiometricKey.isProvisioned(keychainGroups: ["local.kdbox.prototype"], group: "local.kdbox.prototype"))
+    expect("keychain: not provisioned for the default group", !BiometricKey.isProvisioned(keychainGroups: ["group.app.psss"], group: "group.app.psss"))
+    expect("keychain: not provisioned for a group with no team", !BiometricKey.isProvisioned(keychainGroups: ["app.psss"], group: "app.psss"))
 }
 
 // Messages shown for codec errors: no internal detail, and advice that fits the cause and the context.

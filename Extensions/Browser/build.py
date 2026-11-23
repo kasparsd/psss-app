@@ -243,7 +243,7 @@ def safari_project() -> None:
         fail("\n".join(problems))
     project = OUT / "safari-xcode"
     command = ["xcrun", "safari-web-extension-packager", str(directory), "--project-location", str(project),
-               "--app-name", "Psss Safari", "--bundle-identifier", "local.kdbox.prototype.safari",
+               "--app-name", "Psss Safari", "--bundle-identifier", "app.psss.Psss.Safari",
                "--swift", "--copy-resources", "--no-open", "--no-prompt", "--force"]
     print("+", " ".join(command))
     result = subprocess.run(command, text=True, capture_output=True)

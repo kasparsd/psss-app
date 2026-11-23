@@ -6,7 +6,7 @@
     <true/>
     <key>com.apple.security.application-groups</key>
     <array>
-        <string>group.local.kdbox.prototype</string>
+        <string>group.app.psss</string>
     </array>
 </dict>
 </plist>

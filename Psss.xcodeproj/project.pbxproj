@@ -208,7 +208,7 @@
 			"name" = "Debug";
 			"buildSettings" = {
 				"CODE_SIGN_ENTITLEMENTS" = "Configuration/CredentialProvider-macOS$(PSSS_MAC_ENTITLEMENTS_SUFFIX).entitlements";
-				"PRODUCT_BUNDLE_IDENTIFIER" = "local.kdbox.prototype.credential-provider";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "app.psss.Psss.CredentialProvider";
 				"PRODUCT_NAME" = "CredentialProvider-macOS";
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
@@ -225,7 +225,7 @@
 			"name" = "Release";
 			"buildSettings" = {
 				"CODE_SIGN_ENTITLEMENTS" = "Configuration/CredentialProvider-macOS$(PSSS_MAC_ENTITLEMENTS_SUFFIX).entitlements";
-				"PRODUCT_BUNDLE_IDENTIFIER" = "local.kdbox.prototype.credential-provider";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "app.psss.Psss.CredentialProvider";
 				"PRODUCT_NAME" = "CredentialProvider-macOS";
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
@@ -268,7 +268,7 @@
 		000000000000000000000016 = {
 			"isa" = "PBXFileReference";
 			"explicitFileType" = "wrapper.application";
-			"path" = "KDBOX.app";
+			"path" = "Psss.app";
 			"sourceTree" = "BUILT_PRODUCTS_DIR";
 		};
 		000000000000000000000017 = {
@@ -330,8 +330,8 @@
 			"name" = "Debug";
 			"buildSettings" = {
 				"CODE_SIGN_ENTITLEMENTS" = "Configuration/App-macOS$(PSSS_MAC_ENTITLEMENTS_SUFFIX).entitlements";
-				"PRODUCT_BUNDLE_IDENTIFIER" = "local.kdbox.prototype";
-				"PRODUCT_NAME" = "KDBOX";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "app.psss.Psss";
+				"PRODUCT_NAME" = "Psss";
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"INFOPLIST_KEY_CFBundleDisplayName" = "Psss";
@@ -346,8 +346,8 @@
 			"name" = "Release";
 			"buildSettings" = {
 				"CODE_SIGN_ENTITLEMENTS" = "Configuration/App-macOS$(PSSS_MAC_ENTITLEMENTS_SUFFIX).entitlements";
-				"PRODUCT_BUNDLE_IDENTIFIER" = "local.kdbox.prototype";
-				"PRODUCT_NAME" = "KDBOX";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "app.psss.Psss";
+				"PRODUCT_NAME" = "Psss";
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"INFOPLIST_KEY_CFBundleDisplayName" = "Psss";
@@ -366,7 +366,7 @@
 		};
 		000000000000000000000021 = {
 			"isa" = "PBXNativeTarget";
-			"name" = "KDBOX-macOS";
+			"name" = "Psss-macOS";
 			"buildConfigurationList" = 000000000000000000000020;
 			"buildPhases" = (
 				000000000000000000000017,
@@ -383,7 +383,7 @@
 			"fileSystemSynchronizedGroups" = (
 				000000000000000000000001,
 			);
-			"productName" = "KDBOX";
+			"productName" = "Psss";
 			"productReference" = 000000000000000000000016;
 			"productType" = "com.apple.product-type.application";
 		};
@@ -419,7 +419,7 @@
 			"name" = "Debug";
 			"buildSettings" = {
 				"CODE_SIGN_ENTITLEMENTS" = "Configuration/CredentialProvider-iOS.entitlements";
-				"PRODUCT_BUNDLE_IDENTIFIER" = "local.kdbox.prototype.credential-provider";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "app.psss.Psss.CredentialProvider";
 				"PRODUCT_NAME" = "CredentialProvider-iOS";
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
@@ -436,7 +436,7 @@
 			"name" = "Release";
 			"buildSettings" = {
 				"CODE_SIGN_ENTITLEMENTS" = "Configuration/CredentialProvider-iOS.entitlements";
-				"PRODUCT_BUNDLE_IDENTIFIER" = "local.kdbox.prototype.credential-provider";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "app.psss.Psss.CredentialProvider";
 				"PRODUCT_NAME" = "CredentialProvider-iOS";
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
@@ -479,7 +479,7 @@
 		00000000000000000000002A = {
 			"isa" = "PBXFileReference";
 			"explicitFileType" = "wrapper.application";
-			"path" = "KDBOX.app";
+			"path" = "Psss.app";
 			"sourceTree" = "BUILT_PRODUCTS_DIR";
 		};
 		00000000000000000000002B = {
@@ -541,8 +541,8 @@
 			"name" = "Debug";
 			"buildSettings" = {
 				"CODE_SIGN_ENTITLEMENTS" = "Configuration/App-iOS.entitlements";
-				"PRODUCT_BUNDLE_IDENTIFIER" = "local.kdbox.prototype";
-				"PRODUCT_NAME" = "KDBOX";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "app.psss.Psss";
+				"PRODUCT_NAME" = "Psss";
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"INFOPLIST_KEY_CFBundleDisplayName" = "Psss";
@@ -561,8 +561,8 @@
 			"name" = "Release";
 			"buildSettings" = {
 				"CODE_SIGN_ENTITLEMENTS" = "Configuration/App-iOS.entitlements";
-				"PRODUCT_BUNDLE_IDENTIFIER" = "local.kdbox.prototype";
-				"PRODUCT_NAME" = "KDBOX";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "app.psss.Psss";
+				"PRODUCT_NAME" = "Psss";
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"INFOPLIST_KEY_CFBundleDisplayName" = "Psss";
@@ -585,7 +585,7 @@
 		};
 		000000000000000000000035 = {
 			"isa" = "PBXNativeTarget";
-			"name" = "KDBOX-iOS";
+			"name" = "Psss-iOS";
 			"buildConfigurationList" = 000000000000000000000034;
 			"buildPhases" = (
 				00000000000000000000002B,
@@ -602,7 +602,7 @@
 			"fileSystemSynchronizedGroups" = (
 				000000000000000000000001,
 			);
-			"productName" = "KDBOX";
+			"productName" = "Psss";
 			"productReference" = 00000000000000000000002A;
 			"productType" = "com.apple.product-type.application";
 		};
@@ -676,7 +676,7 @@
 			"name" = "Debug";
 			"buildSettings" = {
 				"CODE_SIGN_ENTITLEMENTS" = "Configuration/SafariExtension-macOS$(PSSS_MAC_ENTITLEMENTS_SUFFIX).entitlements";
-				"PRODUCT_BUNDLE_IDENTIFIER" = "local.kdbox.prototype.safari";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "app.psss.Psss.Safari";
 				"PRODUCT_NAME" = "SafariExtension-macOS";
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
@@ -693,7 +693,7 @@
 			"name" = "Release";
 			"buildSettings" = {
 				"CODE_SIGN_ENTITLEMENTS" = "Configuration/SafariExtension-macOS$(PSSS_MAC_ENTITLEMENTS_SUFFIX).entitlements";
-				"PRODUCT_BUNDLE_IDENTIFIER" = "local.kdbox.prototype.safari";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "app.psss.Psss.Safari";
 				"PRODUCT_NAME" = "SafariExtension-macOS";
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
@@ -787,7 +787,7 @@
 			"name" = "Debug";
 			"buildSettings" = {
 				"CODE_SIGN_ENTITLEMENTS" = "Configuration/SafariExtension-iOS.entitlements";
-				"PRODUCT_BUNDLE_IDENTIFIER" = "local.kdbox.prototype.safari";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "app.psss.Psss.Safari";
 				"PRODUCT_NAME" = "SafariExtension-iOS";
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
@@ -804,7 +804,7 @@
 			"name" = "Release";
 			"buildSettings" = {
 				"CODE_SIGN_ENTITLEMENTS" = "Configuration/SafariExtension-iOS.entitlements";
-				"PRODUCT_BUNDLE_IDENTIFIER" = "local.kdbox.prototype.safari";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "app.psss.Psss.Safari";
 				"PRODUCT_NAME" = "SafariExtension-iOS";
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";

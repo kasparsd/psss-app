@@ -94,7 +94,7 @@ enum BiometricKeyError: Error {
 ///   such a build, and an extension never touches the login keychain.
 /// Saving always removes both variants first and adds one.
 enum BiometricKey {
-    private static let service = "local.kdbox.vault-key"
+    private static let service = "app.psss.vault-key"
 
     private static func baseQuery(for id: UUID, protected: Bool) -> [String: Any] {
         var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,

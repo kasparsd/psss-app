@@ -11,7 +11,7 @@ Psss fills in Safari and native apps through the system AutoFill provider. Other
 
 ## Safari: bundled with the app
 
-The Safari extension ships inside KDBOX-macOS and KDBOX-iOS (targets `SafariExtension-macOS` and `SafariExtension-iOS`, embedded next to the credential provider). Its web files are the shared `Extensions/Browser/src` folder with no overlay: the Safari manifest is the base manifest, which `build.py check` verifies. Its native half is `Extensions/Safari/SafariWebExtensionHandler.swift`, which answers the same protocol as the Chrome and Firefox host through `App/Core/BrowserProtocol.swift`. The settings page is left out of the Safari bundle because Safari has no browser save prompt to switch off. The extension folder is flat because Xcode's synchronized folders flatten resources into the bundle.
+The Safari extension ships inside Psss-macOS and Psss-iOS (targets `SafariExtension-macOS` and `SafariExtension-iOS`, embedded next to the credential provider). Its web files are the shared `Extensions/Browser/src` folder with no overlay: the Safari manifest is the base manifest, which `build.py check` verifies. Its native half is `Extensions/Safari/SafariWebExtensionHandler.swift`, which answers the same protocol as the Chrome and Firefox host through `App/Core/BrowserProtocol.swift`. The settings page is left out of the Safari bundle because Safari has no browser save prompt to switch off. The extension folder is flat because Xcode's synchronized folders flatten resources into the bundle.
 
 The system AutoFill provider already does most of the work in Safari, so the extension adds a small, specific set of things:
 
@@ -62,7 +62,7 @@ Prototype finding: Chrome starts a new host process for every `sendNativeMessage
 | --- | --- | --- | --- |
 | Chromium zip | `build.py package -t chromium` | Chrome Web Store (Chrome, Brave, Arc, Vivaldi, Opera install from it) and Edge Add-ons | Developer accounts, permission justifications for each of the three permissions, single-purpose statement, privacy policy URL, screenshots. Store review decides the extension ID. |
 | Firefox xpi | `build.py package -t firefox` | addons.mozilla.org, listed or unlisted (signed by Mozilla) | `gecko.id`, `data_collection_permissions` (declared `none`), Firefox 140 or later. No source upload is needed because nothing is minified or bundled. |
-| Safari app extension | Xcode, as targets of `KDBOX.xcodeproj` (`build.py safari-project` only checks the manifest with Apple's packager) | Mac App Store and iOS App Store, inside the app | Nothing extra: it is signed and reviewed with the app. Needs the App Group on both platforms for shared saves. |
+| Safari app extension | Xcode, as targets of `Psss.xcodeproj` (`build.py safari-project` only checks the manifest with Apple's packager) | Mac App Store and iOS App Store, inside the app | Nothing extra: it is signed and reviewed with the app. Needs the App Group on both platforms for shared saves. |
 | Native host and manifests | `build.py host`, `build.py install-host` | Mac, outside the Mac App Store | Developer ID signature with hardened runtime, notarization, and a first-run step that writes the per-browser manifests. |
 
 The Chromium manifest in a store build has no `key`. `package --dev` adds a generated dev key so the extension ID is stable for the host's `allowed_origins`, and never writes a store archive. A store build has the ID the store assigns, which goes into the host's allowed origins and `allowed-callers.txt` at release.

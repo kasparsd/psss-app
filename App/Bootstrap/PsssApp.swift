@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct KDBOXApp: App {
+struct PsssApp: App {
     @FocusedValue(\.newItem) private var newItem
     @FocusedValue(\.lockVault) private var lockVault
 

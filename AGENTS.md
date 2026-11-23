@@ -1,12 +1,23 @@
 # Agent instructions
 
-- Keep documentation and roadmap organized by concern under ./docs update the relevant document in place when a decision changes, rather than creating a parallel review or summary file for the same thing.
+- Keep documentation and roadmap organized by concern under ./docs -- update the relevant document in place when a decision changes, rather than creating a parallel review or summary file for the same thing.
 
-- Use docs/plans/{task-name}.md (untracked) to outline the task and a checklist to ensure that all are completed. A plan file is shared working memory across agent sessions; when its work is fully implemented, fold the lasting decisions into README.md or ./docs and delete the plan file.
+- When starting work use ./docs/plans/{task-name}.md (untracked) to outline the task and a keep a checklist to ensure that all are completed. A plan file is shared working memory across agent sessions; when its work is fully implemented, fold the lasting decisions into README.md or ./docs and delete the plan file.
+
+- When starting a new task, identify what a successfull outcome means and how it can be measured and evaluated. Then use that as guidance but keep agency and evaluate from first principles at all times. 
 
 - After completing tasks, ensure README.md and documentation is up to date and matches the codebase.
 
 - Update AGENTS.md only for agent-specific instructions and use CONTRIBUTING.md for everything else (prefered).
+
+## Builds and tests on this Mac
+
+Unlimited Swift compiles and `xcodebuild` runs at once have exhausted memory and crashed the machine (10 cores, 16 GB). At most two heavy jobs run at a time:
+
+- Build only with `scripts/xcb.sh …` (it takes `xcodebuild` arguments), never `xcodebuild` directly. Run tests only through `scripts/test-*.sh`. Compile anything else, such as a probe, with `scripts/heavy.sh swiftc …`. All of these share two slots (`PSSS_HEAVY_SLOTS`, default 2), wait when both are taken and run at low priority.
+- Within one agent, run builds and test runs one after another in the foreground, not in the background, and do not run several copies of a test binary at once.
+- When delegating, give at most two agents at a time work that builds or runs tests, and only when they own different files. Agents that only read or write documents can run alongside.
+- If the machine becomes sluggish again, go back to one: `PSSS_HEAVY_SLOTS=1`.
 
 ## Native app interface conventions
 

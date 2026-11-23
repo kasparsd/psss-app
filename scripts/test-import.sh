@@ -3,6 +3,8 @@
 # a large generated export and a KeePassXC round trip. Everything it writes goes under build/import-test.
 # PSSS_IMPORT_LARGE_ITEMS, PSSS_IMPORT_LARGE_FILES and PSSS_IMPORT_LARGE_FILE_MB scale the large case (default 50000 items
 # and 20 files of 5 MB).
+# One heavy job at a time on this Mac: see scripts/heavy.sh.
+[ -n "$PSSS_HEAVY_LOCKED" ] || exec "$(dirname "$0")/heavy.sh" "$0" "$@"
 set -e
 cd "$(dirname "$0")/.."
 mkdir -p build/import-test

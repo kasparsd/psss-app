@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import Synchronization
 
 /// Where a vault lives and how to find it again after a relaunch.
 struct VaultReference: Codable, Equatable, Sendable {
@@ -524,7 +525,7 @@ final class KeePassVaultStore: VaultStore {
 @Observable
 final class VaultSession {
     /// Whether unlocking deletes what has been in Recently Deleted for more than 30 days. Only the app sets it, once at launch
-    /// (`KDBOXApp`). The AutoFill extension runs the same unlock code and leaves it off, so it never writes to purge.
+    /// (`PsssApp`). The AutoFill extension runs the same unlock code and leaves it off, so it never writes to purge.
     static var purgesRecentlyDeletedOnUnlock = false
 
     private(set) var store: KeePassVaultStore?
@@ -717,7 +718,7 @@ final class VaultSession {
             VaultFiles.removeBackups(for: reference.id)
             UsageLog.erase(for: reference.id)
             BiometricKey.delete(for: reference.id)
-            SharedVault.removeIdentities()
+            VaultIdentities.remove()
         }
         store = nil
         reference = nil
@@ -765,4 +766,31 @@ extension VaultStoreError {
         case .unreadable: String(localized: "Psss cannot read the vault file right now, so nothing was saved. It may still be downloading from iCloud. Try again in a moment.")
         }
     }
+}
+
+/// The app's way to tell the system's AutoFill suggestions about the vault. Hostless tests never touch the real credential
+/// identity store: they get a recorder instead, so a test can say what would have been sent.
+enum VaultIdentities {
+    static func remove() {
+        #if HOSTLESS_TESTS
+        recorder.withLock { $0.append(.removedAll) }
+        #else
+        SharedVault.removeIdentities()
+        #endif
+    }
+
+    static func register(for items: [VaultItem]) {
+        #if HOSTLESS_TESTS
+        recorder.withLock { $0.append(.registered(items.map(\.id))) }
+        #else
+        SharedVault.registerIdentities(for: items)
+        #endif
+    }
+
+    #if HOSTLESS_TESTS
+    enum Call: Equatable { case removedAll, registered([VaultItem.ID]) }
+    private static let recorder = Mutex<[Call]>([])
+    /// Everything asked of the identity store since the last call, oldest first.
+    static func takeCalls() -> [Call] { recorder.withLock { let calls = $0; $0 = []; return calls } }
+    #endif
 }

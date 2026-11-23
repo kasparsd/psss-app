@@ -5,14 +5,14 @@ import Security
 
 /// What the app and its AutoFill extension share: the App Group identifier, the credential identity store and the site rule.
 /// No credential is stored here. Logins live only in the encrypted vault file; the sample vault is in memory.
-private let identityLog = Logger(subsystem: "local.kdbox.prototype", category: "identities")
+private let identityLog = Logger(subsystem: "app.psss.Psss", category: "identities")
 
 enum SharedVault {
     /// The App Group, and also the Keychain access group the biometric key sits in.
     ///
     /// iOS and iPadOS use a `group.` identifier. On macOS 15 and later an extension is refused the group container unless the
     /// identifier starts with the team identifier (or a provisioning profile or the Mac App Store authorises it), so the Mac
-    /// entitlements say `$(TeamIdentifierPrefix)local.kdbox.prototype` and the running process reads which identifier it was
+    /// entitlements say `$(TeamIdentifierPrefix)app.psss` and the running process reads which identifier it was
     /// really signed with. An unsigned build carries no entitlements, so it falls back to the `group.` identifier, whose
     /// container is then unavailable and the vault lives in the app's own Application Support, as before.
     static let groupID: String = {
@@ -23,10 +23,10 @@ enum SharedVault {
         #endif
     }()
 
-    private static let defaultGroupID = "group.local.kdbox.prototype"
+    private static let defaultGroupID = "group.app.psss"
 
     /// The first identifier in `groups` that starts with a team identifier: ten letters or digits (upper case), a dot and
-    /// then a name. What `$(TeamIdentifierPrefix)` leaves in a build with no team (`local.kdbox.prototype`, or one that starts
+    /// then a name. What `$(TeamIdentifierPrefix)` leaves in a build with no team (`app.psss`, or one that starts
     /// with a dot) is refused, because macOS would not give an extension that group's container anyway.
     static func teamPrefixedGroup(in groups: [String]) -> String? {
         groups.first { group in
