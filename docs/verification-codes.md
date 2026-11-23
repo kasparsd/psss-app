@@ -41,6 +41,10 @@ Everything is decoded on the device. Nothing is uploaded and the image is never 
 
 Approved 2026-11-23. Codes, one of the three places (a tab on iPhone and iPad, the toolbar control on Mac), lists every login with a code, live, so a code is copied without opening the login. Details and copy are in [experience](experience.md#places-all-codes-cards-approved-2026-11-23).
 
+There is no countdown on the list (removed at the owner's request, 2026-11-23: a distraction). The code button changes by itself every second; the login's page keeps the countdown ring.
+
+A login whose setup key cannot make a code (a bad secret, an `otpauth://` link that does not parse) stays in the list like any other but its row has no code button and no message, warning or icon (owner, 2026-11-23): the list stays quiet. Tapping the row opens the login, and only there does the code row explain it, in plain words: “Psss can't make a code from this setup key. Replace it with a new key from the website.” with a labeled “Replace Code…” button that opens the editor at the code step. Same on iPhone, iPad and Mac.
+
 ## Deferred, in order
 
 1. The `otpauth://` URL scheme, so a site’s tap-to-open link opens the app. Needs unlock, then pick a login. Never auto-save from a URL.

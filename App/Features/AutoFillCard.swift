@@ -21,7 +21,7 @@ extension AutoFillDevice {
     }
 }
 
-/// The card: the state and one labeled button, with Hide beside it. When AutoFill is found on after it was off, the same card
+/// The card: the state and one labeled button, with Later beside it. When AutoFill is found on after it was off, the same card
 /// says so once, with Done. Shows nothing when there is nothing to say, so a host decides whether to leave room for it
 /// with `AutoFillStatus.reminder(for:).display`.
 struct AutoFillCard: View {
@@ -40,7 +40,7 @@ struct AutoFillCard: View {
                     Button(copy.buttonLabel(reminder.action)) { Task { await autoFill.performAction() } }
                         .buttonStyle(.borderedProminent)
                         .disabled(autoFill.working)
-                    Button(copy.hideLabel) { autoFill.hide() }
+                    Button(copy.laterLabel) { autoFill.hide() }
                         .buttonStyle(.borderless)
                 }
             case .confirmation:

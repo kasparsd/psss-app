@@ -74,20 +74,26 @@ struct CodeCopyButton: View {
             Button {
                 state.copy(item, used: used)
             } label: {
-                // Both texts are laid out, so the button keeps its width while it says "Copied".
+                // Both texts are laid out, so the button keeps its width while it says "Copied". Body size like the rest of the row,
+                // digits of equal width, and a minimum width so every six-digit code is the same size and shape.
                 ZStack {
-                    Text(verbatim: code).font(.title2.monospacedDigit()).opacity(copied ? 0 : 1)
+                    Text(verbatim: code).font(.body.monospacedDigit()).opacity(copied ? 0 : 1)
                         .contentTransition(.numericText())
-                    Text("Copied").font(.title2).opacity(copied ? 1 : 0)
+                    Text("Copied").opacity(copied ? 1 : 0)
                 }
                 .lineLimit(1)
                 .fixedSize()
+                .frame(minWidth: 72)
                 .foregroundStyle(onSelection ? Color.white : Color.accentColor)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .frame(minHeight: 44)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
                 .background(onSelection ? Color.white.opacity(0.25) : Color.accentColor.opacity(0.15), in: .capsule)
-                .contentShape(.capsule)
+                // The capsule is compact; on iPhone and iPad the touch target is still at least 44 pt tall, and on Mac it does not
+                // make the row taller than the rows of All and Cards.
+                #if os(iOS)
+                .frame(minHeight: 44)
+                #endif
+                .contentShape(Rectangle())
             }
             // Borderless, with the capsule drawn by the label: inside a list row the button is its own hit target, so a tap on the
             // code of the row that is already selected copies instead of being taken as a selection. The copied state is keyed by
@@ -124,7 +130,6 @@ struct CodesView: View {
     @State private var recent: [UUID]
     /// The selected row, with its section, so the same login in two sections is selected once.
     @State private var picked: CodesRowID?
-    @Environment(\.dynamicTypeSize) private var typeSize
 
     init(items: [VaultItem], copy: CodeCopyState, selection: Binding<VaultItem.ID?>? = nil, open: @escaping (VaultItem.ID) -> Void,
          used: @escaping (VaultItem.ID) -> Void, showLogins: @escaping () -> Void) {
@@ -158,12 +163,6 @@ struct CodesView: View {
 
     private var recentItems: [VaultItem] { recent.compactMap { id in codeItems.first { $0.id == id } } }
 
-    /// The one countdown is for the usual 30-second codes. A list with none of them counts down to its shortest period.
-    private var countdownPeriod: Int {
-        let periods = codeItems.filter(\.makesCode).map(\.otpSettings.period)
-        return periods.contains(30) ? 30 : (periods.min() ?? 30)
-    }
-
     var body: some View {
         Group {
             if let rowSelection {
@@ -172,13 +171,9 @@ struct CodesView: View {
                 List { rows }
             }
         }
+        .itemListStyle()
         #if os(iOS)
-        .environment(\.defaultMinListRowHeight, 44)
-        .listStyle(.plain)
         .sensoryFeedback(.success, trigger: copy.count)
-        #else
-        .environment(\.defaultMinListRowHeight, 32)
-        .listStyle(.inset)
         #endif
         .overlay {
             if codeItems.isEmpty {
@@ -218,9 +213,6 @@ struct CodesView: View {
             ListTitleLine(title: "Codes", count: codeItems.count == 1 ? String(localized: "1 code") : String(localized: "\(codeItems.count) codes"))
         }
         if !codeItems.isEmpty {
-            CountdownLine(period: countdownPeriod)
-                .listRowSeparator(.hidden)
-                .listRowInsets(rowInsets)
             if !recentItems.isEmpty {
                 Section("Recently copied") { ForEach(recentItems) { row($0, in: .recent) } }
             }
@@ -234,7 +226,7 @@ struct CodesView: View {
                 .foregroundStyle(.secondary)
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
-                .listRowInsets(rowInsets)
+                .itemRowInsets()
         }
     }
 
@@ -246,101 +238,30 @@ struct CodesView: View {
         #endif
     }
 
-    private var rowInsets: EdgeInsets {
-        #if os(iOS)
-        EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16)
-        #else
-        EdgeInsets(top: 11, leading: 4, bottom: 11, trailing: 8)
-        #endif
-    }
-
     private func row(_ item: VaultItem, in section: CodesRowID.Section) -> some View {
-        CodeRow(item: item, state: copy, stacked: typeSize.isAccessibilitySize,
-                open: { open(item.id) }, used: { used(item.id) })
+        CodeRow(item: item, state: copy, open: { open(item.id) }, used: { used(item.id) })
             .tag(CodesRowID(section: section, id: item.id))
-            .listRowInsets(rowInsets)
+            .itemRowInsets()
     }
 }
 
-/// The ring and the one sentence about when codes change, for the whole list.
-private struct CountdownLine: View {
-    let period: Int
-
-    var body: some View {
-        TimelineView(.periodic(from: Date(timeIntervalSince1970: 0), by: 1)) { context in
-            let remaining = TOTP.secondsRemaining(period: period, at: context.date)
-            HStack(spacing: 8) {
-                ZStack {
-                    Circle().stroke(.quaternary, lineWidth: 3)
-                    Circle()
-                        .trim(from: 0, to: Double(remaining) / Double(max(1, period)))
-                        .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                }
-                .frame(width: 20, height: 20)
-                .accessibilityHidden(true)
-                // One short line: only the seconds change and digits are fixed-width, so nothing shifts. The longer explanation is in
-                // the info bubble.
-                Text("New codes in \(remaining) s").monospacedDigit()
-                InfoButton(topic: HelpTopics.verificationCodes)
-            }
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel(Text("New codes in \(remaining) seconds"))
-        }
-    }
-}
-
-/// Icon, name and account on the left, which open the login, and the code button on the right. A seed that cannot make a code has no
-/// button: the whole row opens the login, with a chevron, and says what to do.
+/// The shared row with the code button as its accessory. A row whose seed cannot make a code has no button and no message here: it
+/// is listed like the others, opens the login, and the login's page says what is wrong.
 private struct CodeRow: View {
     let item: VaultItem
     let state: CodeCopyState
-    let stacked: Bool
     let open: () -> Void
     let used: () -> Void
 
     /// Not the usual 30 seconds: this row names its period, in place of the account.
-    private var secondary: Text? {
-        if !item.makesCode { return Text("Can't make a code. Open the login to replace it.") }
-        if item.otpSettings.period != 30 { return Text("Every \(item.otpSettings.period) s") }
+    private var subtitle: Text? {
+        if item.makesCode, item.otpSettings.period != 30 { return Text("Every \(item.otpSettings.period) s") }
         return item.account.isEmpty ? nil : Text(verbatim: item.account)
     }
 
-    private var opener: some View {
-        Button(action: open) {
-            HStack(spacing: 12) {
-                ItemIcon(item: item)
-                    .alignmentGuide(.listRowSeparatorLeading) { $0[.trailing] + 12 }
-                VStack(alignment: .leading, spacing: 2) {
-                    // The name may wrap to a second line rather than be cut ("Harbor Vault (8 dig…").
-                    Text(verbatim: item.displayTitle.breakableAfterDots).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                    if let secondary {
-                        secondary.foregroundStyle(.secondary).lineLimit(item.makesCode ? 1 : 2).truncationMode(.middle)
-                    }
-                }
-                Spacer(minLength: 0)
-                if !item.makesCode {
-                    Image(systemName: "chevron.right").foregroundStyle(.secondary).accessibilityHidden(true)
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
     var body: some View {
-        if stacked && item.makesCode {
-            VStack(alignment: .leading, spacing: 8) {
-                opener
-                CodeCopyButton(item: item, state: state, used: used)
-            }
-        } else {
-            HStack(spacing: 12) {
-                opener
-                if item.makesCode { CodeCopyButton(item: item, state: state, used: used) }
-            }
+        ItemListRow(item: item, subtitle: subtitle, open: open) {
+            if item.makesCode { CodeCopyButton(item: item, state: state, used: used) }
         }
     }
 }

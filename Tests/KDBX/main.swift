@@ -3160,6 +3160,7 @@ func reminderDisplay(_ vault: AutoFillVault, _ reading: AutoFillReading, _ memor
     expect("autofill copy: Mac confirmation says click", mac.confirmationBody.contains("click the password field"))
     expect("autofill copy: iPhone confirmation says tap", phone.confirmationBody.contains("tap the password field"))
     check("autofill copy: the two buttons", phone.buttonLabel(.askSystem) + "|" + phone.buttonLabel(.openSettings), "Turn On AutoFill|Open AutoFill Settings…")
+    check("autofill copy: the dismiss button says Later", phone.laterLabel + "|" + mac.laterLabel, "Later|Later")
     check("autofill copy: Setup status", phone.setupStatus(.off) ?? "nil", "AutoFill is off")
     check("autofill copy: Setup says nothing before the first reading", phone.setupStatus(.notRead) ?? "nil", "nil")
     expect("autofill copy: Setup footer after the prompt gives the steps", (phone.setupFooter(.off, promptUsed: true) ?? "").contains("tap General"))

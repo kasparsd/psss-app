@@ -25,12 +25,6 @@ enum HelpTopics {
     private static let aboutPasskeys = HelpTopic.Link(title: String(localized: "About passkeys"),
                                                       url: URL(string: "https://support.apple.com/en-us/102195")!)
 
-    /// The Codes countdown.
-    static let verificationCodes = HelpTopic(
-        id: "verification-codes", title: String(localized: "Verification codes"),
-        text: String(localized: "Each code works for 30 seconds. Most sites also accept the code just before, so one that has just changed usually still works."),
-        link: twoFactorDirectory)
-
     /// The editor's setup key row.
     static let setupKey = HelpTopic(
         id: "setup-key", title: String(localized: "Setup keys"),
@@ -66,5 +60,5 @@ enum HelpTopics {
         link: nil)
 
     /// Everything, in the order Setup lists it.
-    static let all: [HelpTopic] = [verificationCodes, setupKey, codeSetup, securityCode, passkeys, recentlyDeleted, clipboard]
+    static let all: [HelpTopic] = [setupKey, codeSetup, securityCode, passkeys, recentlyDeleted, clipboard]
 }

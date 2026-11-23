@@ -22,7 +22,7 @@ extension ItemKind {
     }
 }
 
-private extension ItemTrait {
+extension ItemTrait {
     var symbol: String {
         switch self {
         case .passkey: "person.badge.key"
@@ -775,7 +775,7 @@ struct VaultView: View {
     }
 
     private var cardsView: some View {
-        CardsView(items: items, selection: usesStack ? nil : selectionBinding, open: openItem(_:),
+        CardsView(items: items, selection: usesStack ? nil : selectionBinding,
                   add: { editor = VaultItem(kind: .creditCard) })
             #if os(iOS)
             .navigationBarTitleDisplayMode(usesStack ? .automatic : .inline)
@@ -903,9 +903,23 @@ struct VaultView: View {
             .onChange(of: regularVisibleItems.map(\.id)) { ensureSelection() }
     }
 
+    #if os(iOS)
+    private var setupButton: some View {
+        Button("Setup", systemImage: "gearshape") { showsSetup = true }
+            .labelStyle(.iconOnly)
+            .help("Setup")
+    }
+    #endif
+
     /// The list column's toolbar: the All | Codes | Cards control and a labeled Add (Delete All… in Recently Deleted).
     @ToolbarContentBuilder
     private var listToolbar: some ToolbarContent {
+        #if os(iOS)
+        // While the sidebar is hidden its gear would be out of reach, so it moves here, after the system's sidebar button.
+        if columns != .all {
+            ToolbarItem(placement: .topBarLeading) { setupButton }
+        }
+        #endif
         ToolbarItem(placement: .principal) {
             Picker("Place", selection: placeBinding) {
                 ForEach(VaultPlace.allCases) { Text($0.title).tag($0) }
@@ -953,14 +967,14 @@ struct VaultView: View {
                 }
                 .listStyle(.sidebar)
                 .navigationTitle("Vault")
-                .navigationSplitViewColumnWidth(min: 180, ideal: 220)
+                // Wide enough that "Recently Deleted" and its count stay on one line at the default text size on iPad (180 to 220 pt
+                // wrapped them), and the same on Mac.
+                .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 320)
                 #if os(iOS)
                 // The sidebar column: the system's sidebar button, and on iPad the Setup gear. On Mac, Setup is Psss, Settings… (⌘,).
                 .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Setup", systemImage: "gearshape") { showsSetup = true }
-                            .labelStyle(.iconOnly)
-                            .help("Setup")
+                    if columns == .all {
+                        ToolbarItem(placement: .topBarTrailing) { setupButton }
                     }
                 }
                 #endif
@@ -975,7 +989,7 @@ struct VaultView: View {
                     }
                 }
                 // Wide enough for the names, with the code button or the card's summary beside them.
-                .navigationSplitViewColumnWidth(min: 320, ideal: 400, max: 560)
+                .navigationSplitViewColumnWidth(min: 340, ideal: 400, max: 560)
                 .toolbar { listToolbar }
             } detail: {
                 regularDetail
@@ -1203,17 +1217,8 @@ struct VaultView: View {
                 }
             }
         }
-        #if os(iOS)
-        // HIG: touch targets are at least 44 x 44 pt.
-        .environment(\.defaultMinListRowHeight, 44)
-        #else
-        .environment(\.defaultMinListRowHeight, 32)
-        #endif
-        #if os(macOS)
-        .listStyle(.inset)
-        #else
-        .listStyle(.plain)
-        #endif
+        // The same list style as Codes and Cards (HIG: touch targets are at least 44 x 44 pt).
+        .itemListStyle()
         .overlay {
             Group {
             if results.isEmpty {
@@ -1365,42 +1370,25 @@ struct VaultView: View {
         .contextMenu {
             Button("Restore") { restore(entry.id) }
         }
-        #if os(iOS)
-        .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
-        #else
-        .listRowInsets(EdgeInsets(top: 11, leading: 4, bottom: 11, trailing: 4))
-        #endif
+        .itemRowInsets()
     }
 
+    /// A row of the All list, and of search results: the shared row, with the account (or the kind) as its second line. A result
+    /// with a code shows the live code as its accessory: tap it to copy, tap the rest to open.
     @ViewBuilder
     private func row(_ item: VaultItem) -> some View {
+        let subtitle = item.account.isEmpty ? Text(item.kind.label) : Text(verbatim: item.account)
         if isSearching, item.makesCode {
-            // A search result with a code shows the live code in place of the chevron: tap it to copy, tap the rest to open.
-            HStack(spacing: 12) {
-                // The name and the account are stacked, so the account has the room the Codes list gives it.
-                Button { openItem(item.id) } label: {
-                    ItemRow(item: item, stacked: true).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                }
-                    .buttonStyle(.plain)
-                    .layoutPriority(1)
+            ItemListRow(item: item, subtitle: subtitle, showsTraits: true, open: { openItem(item.id) }) {
                 CodeCopyButton(item: item, state: codeCopy, used: { markUsed(item.id) })
             }
             .tag(item.id)
-            #if os(iOS)
-            .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
-            #else
-            .listRowInsets(EdgeInsets(top: 11, leading: 4, bottom: 11, trailing: 4))
-            #endif
+            .itemRowInsets()
         } else {
             NavigationLink(value: item.id) {
-                // While searching, every result has the name over the account, so a long account is readable.
-                ItemRow(item: item, stacked: isSearching)
+                ItemListRow(item: item, subtitle: subtitle, showsTraits: true)
             }
-            #if os(iOS)
-            .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
-            #else
-            .listRowInsets(EdgeInsets(top: 11, leading: 4, bottom: 11, trailing: 4))
-            #endif
+            .itemRowInsets()
         }
     }
 
@@ -1630,54 +1618,6 @@ struct VaultView: View {
     }
 }
 
-/// One line per item: icon, name and login. The name is capped so the login always stays visible.
-private struct ItemRow: View {
-    let item: VaultItem
-    /// The name above the account instead of beside it: for a row that has a button at its end.
-    var stacked = false
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    private var secondary: Text {
-        item.account.isEmpty ? Text(item.kind.label) : Text(verbatim: item.account)
-    }
-
-    /// The name, then one quiet glyph per characteristic. Glyphs never truncate; the name does.
-    private var titleLine: some View {
-        HStack(spacing: 6) {
-            Text(verbatim: item.displayTitle).lineLimit(1)
-            ForEach(item.traits, id: \.self) { trait in
-                Image(systemName: trait.symbol)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .layoutPriority(1)
-                    .accessibilityLabel(trait.badgeLabel)
-            }
-        }
-    }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            ItemIcon(item: item)
-                // The separator starts where the text starts, the same on every row and every platform.
-                .alignmentGuide(.listRowSeparatorLeading) { $0[.trailing] + 12 }
-            if typeSize.isAccessibilitySize || stacked {
-                VStack(alignment: .leading, spacing: 2) {
-                    titleLine
-                    secondary.foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                }
-            } else {
-                TitleAndLogin {
-                    titleLine
-                    secondary
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-            }
-        }
-    }
-}
-
 /// The name and the login (or kind). Side by side while the login fits in at most 40% of the width, so both read in one line. When
 /// the login is longer than that, the two stack, name over login, and the login has the full width: near-duplicate logins stay
 /// distinguishable, and the middle of a login is cut only when even a whole line is too short (the caller's middle truncation).
@@ -1812,7 +1752,7 @@ private struct ItemDetail: View {
                     field(.secret, secretLabel, item.secret, hidden: true)
                 }
                 // In the order the fields are used: username, password, then the code, all in one card.
-                if item.kind == .login { if item.otpSecret.isEmpty { noCodeRow } else { codeRow } }
+                if item.kind == .login { if item.otpSecret.isEmpty { noCodeRow } else if !item.makesCode { brokenCodeRow } else { codeRow } }
                 if !item.expiry.isEmpty { field(.expiry, "Expiry", CardExpiry.displayed(item.expiry)) }
                 if !item.securityCode.isEmpty { field(.securityCode, "Security code", item.securityCode, hidden: true) }
                 if !item.website.isEmpty { field(.website, "Website", item.website) }
@@ -1899,6 +1839,19 @@ private struct ItemDetail: View {
             }
             Spacer(minLength: 8)
             Button("Set Up Code…", action: setUpCode)
+                .buttonStyle(.bordered)
+        }
+    }
+
+    /// A seed that cannot make a code: the row says so plainly and offers the fix, in the code's place. The Codes list shows nothing
+    /// about it; this page is where it is explained.
+    private var brokenCodeRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Verification code").foregroundStyle(.secondary)
+                Text("Psss can't make a code from this setup key. Replace it with a new key from the website.")
+            }
+            Button("Replace Code…", action: setUpCode)
                 .buttonStyle(.bordered)
         }
     }

@@ -29,7 +29,7 @@ enum AutoFillVault: Equatable, Sendable { case none, sample, real }
 
 /// What this device remembers, per device and never in the vault file: another device must not inherit any of it.
 struct AutoFillMemory: Codable, Equatable, Sendable {
-    /// Hide was chosen. Cleared whenever AutoFill is seen on, so the card returns if it is later turned off.
+    /// Later was chosen. Cleared whenever AutoFill is seen on, so the card returns if it is later turned off.
     var hidden = false
     /// The system's own prompt has been used for this stretch of AutoFill being off. It is asked for once; afterwards the
     /// button opens Settings. Cleared when AutoFill is seen on, so a later switch-off can be asked about once more.
@@ -174,7 +174,7 @@ struct AutoFillCopy: Equatable, Sendable {
         }
     }
 
-    var hideLabel: String { String(localized: "Hide") }
+    var laterLabel: String { String(localized: "Later") }
     var doneLabel: String { String(localized: "Done") }
     var hiddenNotice: String { String(localized: "Reminder hidden. AutoFill stays in Setup.") }
 
@@ -372,7 +372,7 @@ final class AutoFillStatus {
         }
     }
 
-    /// Hide: for good on this device, until AutoFill is seen on.
+    /// Later: for good on this device, until AutoFill is seen on.
     func hide() {
         update { $0.hidden = true }
         hiddenNoticeShown = true
