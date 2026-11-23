@@ -341,8 +341,8 @@ extension ImportItem {
         let shown = clean(title)
         func secret(_ name: String, empty: Bool) {
             let detail = empty
-                ? String(localized: "the \(name) could not be stored at all. Check it in 1Password before you rely on it.")
-                : String(localized: "the \(name) contained characters that cannot be stored and was changed. Check it in 1Password before you rely on it.")
+                ? String(localized: "\(name) could not be stored at all. Check it in 1Password before you rely on it.")
+                : String(localized: "\(name) contained characters that cannot be stored and was changed. Check it in 1Password before you rely on it.")
             found.append(ImportIssue(kind: .secretChanged, item: shown.isEmpty ? nil : shown, detail: detail))
         }
         if clean(title) != title, clean(title).isEmpty { emptied = true }
@@ -355,12 +355,12 @@ extension ImportItem {
                 if isSecret {
                     let name: String
                     switch field.role {
-                    case .password: name = "password"
-                    case .cardNumber: name = "card number"
-                    case .pin: name = "PIN"
-                    case .securityCode: name = "security code"
-                    case .code: name = "verification code setup"
-                    default: name = field.label.isEmpty ? "hidden field" : "hidden field \(clean(field.label))"
+                    case .password: name = "the password"
+                    case .cardNumber: name = "the card number"
+                    case .pin: name = "the PIN"
+                    case .securityCode: name = "the security code"
+                    case .code: name = "the verification code setup"
+                    default: name = field.label.isEmpty ? "one of its fields" : "\u{2018}\(clean(field.label))\u{2019}"
                     }
                     secret(name, empty: value.isEmpty)
                 } else if value.isEmpty {
@@ -371,15 +371,15 @@ extension ImportItem {
                field.concealed || [.password, .cardNumber, .pin, .securityCode, .code].contains(field.role) {
                 let name: String
                 switch field.role {
-                case .password: name = "password"
-                case .cardNumber: name = "card number"
-                case .pin: name = "PIN"
-                case .securityCode: name = "security code"
-                case .code: name = "verification code setup"
-                default: name = field.label.isEmpty ? "hidden field" : "hidden field \(clean(field.label))"
+                case .password: name = "the password"
+                case .cardNumber: name = "the card number"
+                case .pin: name = "the PIN"
+                case .securityCode: name = "the security code"
+                case .code: name = "the verification code setup"
+                default: name = field.label.isEmpty ? "one of its fields" : "\u{2018}\(clean(field.label))\u{2019}"
                 }
                 found.append(ImportIssue(kind: .secretSpaces, item: shown.isEmpty ? nil : shown,
-                                         detail: String(localized: "the \(name) is only spaces. Check it in 1Password.")))
+                                         detail: String(localized: "\(name) is only spaces. Check it in 1Password.")))
             }
             fields[index].value = value
             let label = clean(field.label)

@@ -206,7 +206,14 @@ enum PlanBuilder {
                     // Zero or empty is no part; a lone part is kept as written and reported; a fraction is not a month or a year.
                     switch Value.monthYear(month: flat[base + "_mm"], year: flat[base + "_yy"]) {
                     case .none: seen.insert(base)
-                    case .ok(let year, let month): ingest(SectionField(section: "", name: base, title: "", kind: "monthYear", value: NSNumber(value: year * 100 + month)))
+                    case .ok(let year, let month):
+                        if kind == .card, base == "expiry", !(2000...2099).contains(year) {
+                            // Two digits only say a year from 2000 to 2099; any other is kept as written, not cut short.
+                            ingest(SectionField(section: "", name: base, title: displayName(base), kind: "",
+                                                value: "\(Value.written(flat[base + "_mm"]))/\(Value.written(flat[base + "_yy"]))", raw: true))
+                        } else {
+                            ingest(SectionField(section: "", name: base, title: "", kind: "monthYear", value: NSNumber(value: year * 100 + month)))
+                        }
                     case .lone(let text): ingest(SectionField(section: "", name: base, title: displayName(base), kind: "", value: text, raw: true, incomplete: true))
                     case .unreadable(let text): ingest(SectionField(section: "", name: base, title: displayName(base), kind: "", value: text, raw: true))
                     }
@@ -374,23 +381,25 @@ enum PlanBuilder {
             if let day = Value.day(value) { text = day } else { text = raw; unreadable = true }
         case "monthYear":
             let result: Value.MonthYear
+            // The parts as written, for a year that two digits cannot show.
             var written = raw
             if let parts = value as? [String: Any], parts["month"] != nil || parts["year"] != nil {
                 result = Value.monthYear(month: parts["month"], year: parts["year"])
-                written = ""
+                written = "\(Value.written(parts["month"]))/\(Value.written(parts["year"]))"
             } else if let n = Value.number(value) {
-                // Zero means empty. A number is YYYYMM; with a zero month or year it holds one part only.
+                // Zero means empty. A number is exactly six digits, YYYYMM, with a month from 1 to 12.
                 if n == 0 { return nil }
-                if n == n.rounded(.down), n > 0, n <= 999_912 {
-                    result = Value.monthYear(month: Int(n) % 100, year: Int(n) / 100)
+                if n == n.rounded(.down), (100_000...999_999).contains(n), (1...12).contains(Int(n) % 100) {
+                    result = .ok(year: Int(n) / 100, month: Int(n) % 100)
                 } else { result = .unreadable(raw) }
             } else { result = .unreadable(raw) }
             switch result {
             case .none: return nil
             case .ok(let year, let month):
-                text = shortYear ? String(format: "%02d/%02d", month, year % 100) : String(format: "%02d/%04d", month, year)
+                if shortYear, !(2000...2099).contains(year) { text = written; unreadable = true }
+                else { text = shortYear ? String(format: "%02d/%02d", month, year % 100) : String(format: "%02d/%04d", month, year) }
             case .lone(let part): text = part; unreadable = true; incomplete = true
-            case .unreadable(let part): text = written.isEmpty ? part : written; unreadable = true
+            case .unreadable(let part): text = part; unreadable = true
             }
         default:
             if let dictionary = value as? [String: Any], field.kind == "address" || Value.looksLikeAddress(dictionary) {
@@ -421,14 +430,6 @@ enum PlanBuilder {
             else if let text = any as? String { d = Double(text.trimmingCharacters(in: .whitespacesAndNewlines)) }
             guard let d, d.isFinite else { return nil }
             return d
-        }
-
-        /// A whole number inside a range, from a number or string. Nil when it is not whole or out of the range.
-        static func integer(_ any: Any?, in range: ClosedRange<Int>) -> Int? {
-            guard let d = number(any) else { return nil }
-            // A fraction is not a whole number, and is not rounded into one.
-            guard d == d.rounded(.down), d >= Double(range.lowerBound), d <= Double(range.upperBound) else { return nil }
-            return Int(d)
         }
 
         /// Text for a string, number or boolean. Nil for objects, arrays and null.
@@ -491,6 +492,12 @@ enum PlanBuilder {
             return (y, m, d)
         }
 
+        /// A value as it was written, trimmed: text as it is, a number in its own digits, anything else as compact JSON.
+        static func written(_ any: Any?) -> String {
+            guard let any, !(any is NSNull) else { return "" }
+            return (scalarText(any) ?? compactJSON(any)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
         /// What a month and a year make together, however loosely they were written.
         enum MonthYear: Equatable {
             /// Both parts are empty or zero: there is no date.
@@ -538,13 +545,6 @@ enum PlanBuilder {
                 if let mv = monthValue(m), let yv = yearValue(y) { return .ok(year: yv, month: mv) }
                 return .unreadable("\(text(m, isMonth: true))/\(text(y, isMonth: false))")
             }
-        }
-
-        /// `YYYYMM` as a year and a month, or nil when it is not a whole number or the month is not 1 to 12 or the year not 1 to 9999.
-        static func yearMonth(_ any: Any?) -> (Int, Int)? {
-            guard let n = integer(any, in: 100...999_912) else { return nil }
-            let month = n % 100, year = n / 100
-            return (1...12).contains(month) && (1...9999).contains(year) ? (year, month) : nil
         }
 
         private static let addressKeys = ["street", "city", "state", "zip", "country"]

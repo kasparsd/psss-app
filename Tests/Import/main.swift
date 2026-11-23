@@ -1092,7 +1092,7 @@ do {
     check("numbers: text of the same", ["inf", "nan", "1e30", "-inf"].map { "\(V.stamp($0))" }.joined(separator: ","), "invalid,invalid,invalid,invalid")
     check("numbers: the edges of year 1 and 9999", "\(V.stamp(253_402_300_799.0)) \(V.stamp(253_402_300_800.0))", "ok(\(Date(timeIntervalSince1970: 253_402_300_799))) invalid")
     check("numbers: zero, a negative and null are missing, not invalid", "\(V.stamp(0)) \(V.stamp(-5)) \(V.stamp(NSNull())) \(V.stamp(nil))", "missing missing missing missing")
-    check("numbers: months are 1 to 12 and years 1 to 9999", "\(String(describing: V.yearMonth(202412))) \(String(describing: V.yearMonth(202413))) \(String(describing: V.yearMonth(1e30))) \(String(describing: V.yearMonth("nan"))) \(String(describing: V.yearMonth(99999999999999999)))", "Optional((2024, 12)) nil nil nil nil")
+    check("numbers: months are 1 to 12 and nothing special is a month", "\(V.monthYear(month: 12, year: 2024)) \(V.monthYear(month: 13, year: 2024)) \(V.monthYear(month: "nan", year: 2024)) \(V.monthYear(month: 0, year: "")) \(V.monthYear(month: 1.5, year: 2024))", "ok(year: 2024, month: 12) unreadable(\"13/2024\") unreadable(\"nan/2024\") none unreadable(\"1.5/2024\")")
     check("numbers: a day is a day or nothing", "\(V.day(9223372036854775807) ?? "nil") \(V.day(9.3e18) ?? "nil") \(V.day(0) ?? "nil") \(V.day(-62135596800) ?? "nil") \(V.day("inf") ?? "nil")", "nil nil 1970-01-01 0001-01-01 nil")
     check("numbers: the writer's time text clamps instead of trapping", "\(shown(Date(timeIntervalSince1970: 1e300))) \(shown(Date(timeIntervalSince1970: .nan))) \(KeePassTime.date(ImportTime.iso(Date(timeIntervalSince1970: -1e300)))?.timeIntervalSince1970 ?? 1)", "9999-12-31T23:59:59Z 1970-01-01T00:00:00Z -62135596800.0")
 
@@ -1503,7 +1503,7 @@ do {
           "\(secrets.password) | \(secrets.issues.first { $0.kind == .secretChanged }?.item ?? "-") | \(said.first ?? "-")",
           "pass | SecretSite | the password contained characters that cannot be stored and was changed. Check it in 1Password before you rely on it.")
     check("n1: a one-time code and a hidden field are named too", said.dropFirst().joined(separator: " | "),
-          "the verification code setup contained characters that cannot be stored and was changed. Check it in 1Password before you rely on it. | the hidden field Hidden contained characters that cannot be stored and was changed. Check it in 1Password before you rely on it.")
+          "the verification code setup contained characters that cannot be stored and was changed. Check it in 1Password before you rely on it. | \u{2018}Hidden\u{2019} contained characters that cannot be stored and was changed. Check it in 1Password before you rely on it.")
     check("n1: the title, notes and a plain field are cleaned without a word", "\(secrets.title) \(secrets.first(.notes) ?? "") \(secrets.issues.filter { $0.kind != .secretChanged }.count)", "SecretSite notes 0")
     check("n1: the plan counts them as a separate number", "\(planOf([secrets]).summary.secretsChanged) \(try emptyVault().preview(planOf([secrets])).secretsChanged)", "3 3")
     var card = ImportItem(sourceID: nil, kind: .card, title: "Card", fields: [ImportField(.cardNumber, value: "4111\u{FFFE}", concealed: true), ImportField(.pin, value: "\u{FFFF}", concealed: true), ImportField(.securityCode, value: "1\u{1}2", concealed: true)], created: now, modified: now)
@@ -1796,7 +1796,7 @@ do {
     let spaced = cardPlan.items[0]
     check("spaces: a card number, security code, PIN and hidden field of only spaces are kept exactly", "\(spaced.first(.cardNumber) ?? "-")|\(spaced.first(.securityCode) ?? "-")|\(spaced.first(.pin) ?? "-")|\(spaced.fields.first { $0.label == "Other" }?.value ?? "-")", "   |  | |\t")
     check("spaces: each is reported by name, an empty one and a plain one are skipped silently", cardPlan.items[0].issues.filter { $0.kind == .secretSpaces }.map(\.detail).joined(separator: " | "),
-          "the card number is only spaces. Check it in 1Password. | the security code is only spaces. Check it in 1Password. | the PIN is only spaces. Check it in 1Password. | the hidden field Other is only spaces. Check it in 1Password.")
+          "the card number is only spaces. Check it in 1Password. | the security code is only spaces. Check it in 1Password. | the PIN is only spaces. Check it in 1Password. | \u{2018}Other\u{2019} is only spaces. Check it in 1Password.")
     check("spaces: and no field is made for the empty or plain ones", "\(spaced.fields.contains { $0.label == "Empty" || $0.label == "Plain" })", "false")
     let spacedCSV = try csvPlan("title,url,username,password\nSp,site.example.net,u, \n")
     check("spaces: a CSV password of one space is kept and reported", "\(spacedCSV.items[0].password.count) \(issueCount(spacedCSV.items[0].issues, .secretSpaces))", "1 1")
@@ -2409,6 +2409,9 @@ do {
         ("number zero month", section("203000")), ("number zero year", section("7")), ("flat lone month", "\"expiry_mm\":\"07\""),
         ("flat fraction month", "\"expiry_mm\":\"1.5\",\"expiry_yy\":\"2027\""), ("flat fraction year", "\"expiry_mm\":\"3\",\"expiry_yy\":\"2027.9\""),
         ("object fraction", section("{\"month\":1.5,\"year\":2027}")), ("number fraction", section("202701.5")),
+        ("short 2100", "\"expiry_mm\":\"7\",\"expiry_yy\":\"2100\""), ("short 100", "\"expiry_mm\":\"7\",\"expiry_yy\":\"100\""),
+        ("short 9999", section("{\"month\":7,\"year\":9999}")), ("number 207", section("207")), ("number 100", section("100")), ("number 210001", section("210001")),
+        ("number 209912", section("209912")), ("flat two digits", "\"expiry_mm\":\"7\",\"expiry_yy\":\"31\""),
         ("object whole", section("{\"month\":\"07\",\"year\":2027}")), ("flat whole", "\"expiry_mm\":\"7\",\"expiry_yy\":\"2027\""), ("number whole", section("202707")),
     ]
     let dates = try OnePasswordPIF.plan(from: try writeExport("round7-dates", cases.enumerated().map { card($0.offset, $0.element.0, $0.element.1) }), now: now)
@@ -2420,13 +2423,18 @@ do {
         check("dates: \(title) is no date, stored nothing and said nothing", stored(title), " # ")
     }
     let incomplete = "the expiry date is incomplete in 1Password and was saved as written"
-    check("dates: a lone year is 2030 in every path", ["flat lone year", "flat zero month with year", "object zero month", "number zero month"].map { stored($0) }.joined(separator: " ; "),
-          Array(repeating: "2030 # \(incomplete)", count: 4).joined(separator: " ; "))
-    check("dates: a lone month is 07 in every path", ["flat lone month", "object lone month", "number zero year"].map { stored($0) }.joined(separator: " ; "),
-          Array(repeating: "07 # \(incomplete)", count: 3).joined(separator: " ; "))
+    check("dates: a lone year is 2030 in every path", ["flat lone year", "flat zero month with year", "object zero month"].map { stored($0) }.joined(separator: " ; "),
+          Array(repeating: "2030 # \(incomplete)", count: 3).joined(separator: " ; "))
+    check("dates: a lone month is 07 in every path", ["flat lone month", "object lone month"].map { stored($0) }.joined(separator: " ; "),
+          Array(repeating: "07 # \(incomplete)", count: 2).joined(separator: " ; "))
     let unread = "the \u{2018}Expiry date\u{2019} could not be read, so it was saved as text exactly as written"
     check("dates: a fraction is kept as written and not rounded", ["flat fraction month", "flat fraction year", "object fraction", "number fraction"].map { stored($0) }.joined(separator: " ; "),
           "1.5/2027 # \(unread) ; 03/2027.9 # \(unread) ; 1.5/2027 # \(unread) ; 202701.5 # \(unread)")
+    check("dates: a number is exactly six digits with a month from 1 to 12, otherwise as written", ["number zero month", "number zero year", "number 207", "number 100", "number 210001"].map { stored($0) }.joined(separator: " ; "),
+          "203000 # \(unread) ; 7 # \(unread) ; 207 # \(unread) ; 100 # \(unread) ; 210001 # \(unread)")
+    check("dates: two digits show only a year from 2000 to 2099, any other is kept as written", ["short 2100", "short 100", "short 9999"].map { stored($0) }.joined(separator: " ; "),
+          "7/2100 # \(unread) ; 7/100 # \(unread) ; 7/9999 # \(unread)")
+    check("dates: the last year two digits can show, and a two-digit year", "\(stored("number 209912")) ; \(stored("flat two digits"))", "12/99 #  ; 07/31 # ")
     check("dates: a whole month and year are the expiry in every path", ["object whole", "flat whole", "number whole"].map { stored($0) }.joined(separator: " ; "), Array(repeating: "07/27 # ", count: 3).joined(separator: " ; "))
     var slashed: [String] = []
     for title in cases.map(\.0) { for field in item(dates, title)!.fields where field.value.hasPrefix("/") || field.value.hasSuffix("/") { slashed.append("\(title): \(field.value)") } }
@@ -2478,7 +2486,7 @@ do {
         ("setup key", login7("p1", notes: "n", code: nil),
          "Emptied: the verification code setup was removed in 1Password, so it was removed here too. Psss kept the earlier value."),
         ("both", login7("", notes: "n", code: nil),
-         "Emptied: the password and the verification code setup are empty in 1Password now, so they were emptied here too. Psss kept the earlier values."),
+         "Emptied: the password is empty and the verification code setup was removed in 1Password, so they were emptied or removed here too. Psss kept the earlier values."),
         ("notes only", login7("p1", notes: "", code: "JBSWY3DPEHPK3PXP"), ""),
     ]
     for (name, changed, line) in cases {
@@ -2500,6 +2508,192 @@ do {
     _ = try vault.apply(try csvPlan("title,url,username,password\nFirst title,twin.example.net,u,p1\n"))
     let summary = try vault.apply(try csvPlan("title,url,username,password\nOther title,twin.example.net,u,p2\n"))
     check("look-alike: one line, the look-alike one, and the login still counts as similar", "\(issueCount(summary.issues, .looksLikeExisting)) \(issueCount(summary.issues, .similarLogin)) \(summary.similarAdded) \(allEntries(vault).count)", "1 0 1 2")
+}
+
+// MARK: Round 9: history limits, entries that lost their hashes, costly groups, removed secrets, stand-in characters
+
+func setString(_ node: XNode, _ key: String, _ value: String) {
+    node.children(named: "String").first { $0.child("Key")?.text == key }?.child("Value")?.text = value
+}
+func setMeta(_ document: KDBXDocument, _ key: String, _ value: String) { document.root.child("Meta")?.setChildText(key, value) }
+func stripHashes(_ node: XNode) { node.child("CustomData")?.children.removeAll { $0.child("Key")?.text == KeePassImport.hashesKey } }
+
+do {
+    // A line that says the earlier value was kept must be true in the saved file. With no history it says it is gone.
+    let kept = "Psss kept the earlier value."
+    let gone = "This vault keeps no earlier versions, so the earlier value is gone."
+    for (name, setting, value, claim, count) in [("no versions", "HistoryMaxItems", "0", gone, 0), ("versions kept", "HistoryMaxItems", "10", kept, 1),
+                                               ("a size too small for one", "HistoryMaxSize", "10", gone, 0), ("a size that fits", "HistoryMaxSize", "100000", kept, 1)] {
+        var vault = try emptyVault()
+        setMeta(vault, setting, value)
+        _ = try vault.apply(planOf([mk("1password:LIM", "Lim", password: "p1")]))
+        setString(entry(vault, "Lim")!, "Password", "mine")
+        let replaced = try vault.apply(planOf([mk("1password:LIM", "Lim", password: "p2")]))
+        check("history \(name): the edit line tells the truth", details(replaced, .updatedOverwrote),
+              "Lim: it changed in 1Password, so your edit to Password here was replaced with the new value. \(claim)")
+        var back = try reopen(vault)
+        check("history \(name): the saved file agrees", "\(strings(entry(back, "Lim")!)["Password"]?.value ?? "-") \(historyPasswords(entry(back, "Lim")!).count)", "p2 \(count)")
+        // The emptied password.
+        _ = try vault.apply(planOf([mk("1password:LIM", "Lim", password: "")]))
+        let line = details(try vault.apply(planOf([mk("1password:LIM", "Lim", password: "p3")])), .secretEmptied)
+        check("history \(name): going from empty to a password says nothing", line, "")
+        var other = try emptyVault()
+        setMeta(other, setting, value)
+        _ = try other.apply(planOf([mk("1password:LIM2", "Lim2", password: "p1")]))
+        let emptied = try other.apply(planOf([mk("1password:LIM2", "Lim2", password: "")]))
+        check("history \(name): the emptied-password line tells the truth", details(emptied, .secretEmptied),
+              "Lim2: the password is empty in 1Password now, so it was emptied here too. \(claim)")
+        back = try reopen(other)
+        check("history \(name): and the file holds \(count) earlier versions", "\(historyPasswords(entry(back, "Lim2")!).count)", "\(count)")
+    }
+    // The conflict line is about a field, which no history setting removes.
+    var hand = try emptyVault()
+    setMeta(hand, "HistoryMaxItems", "0")
+    _ = try hand.apply(try csvPlan("title,url,username,password\nHand,keep.example.net,u,p1\n"))
+    entry(hand, "Hand")!.children.removeAll { $0.name == "CustomData" }
+    entry(hand, "Hand")!.children.insert(XNode("String", children: [XNode("Key", text: "Pin"), XNode("Value", text: "1111")]), at: entry(hand, "Hand")!.children.lastIndex { $0.name == "String" }! + 1)
+    let conflict = try hand.apply(planOf([mk("1password:HAND", "Hand", password: "p1", site: "keep.example.net", extra: [ImportField(.custom, label: "Pin", value: "9999", concealed: true)])]))
+    check("history: the merge-conflict line is true with no history", details(conflict, .mergeConflict), "Hand: the vault already had a different value for Pin, so it was kept. Psss also kept the value from 1Password.")
+    check("history: and the value is in the saved file", strings(entry(try reopen(hand), "Hand")!)["Pin (1Password)"]?.value ?? "-", "9999")
+}
+
+do {
+    // An entry that names its source but has lost its stored hashes: nobody can tell who changed what, so nothing is replaced.
+    var vault = try emptyVault()
+    _ = try vault.apply(planOf([mk("1password:NB", "Nb", password: "p1")]))
+    setString(entry(vault, "Nb")!, "Password", "mine")
+    stripHashes(entry(vault, "Nb")!)
+    let source = planOf([mk("1password:NB", "Nb", password: "p1")])
+    let summary = try vault.apply(source)
+    check("no hashes: the person's password stays and the source's is kept apart", "\(strings(entry(vault, "Nb")!)["Password"]?.value ?? "-") \(strings(entry(vault, "Nb")!)["Password (1Password)"]?.value ?? "-") \(summary.merged) \(summary.updated)", "mine p1 1 0")
+    check("no hashes: the line says what was kept", details(summary, .mergeConflict), "Nb: the vault already had a different value for Password, so it was kept. Psss also kept the value from 1Password.")
+    check("no hashes: nothing says it replaced an edit", "\(issueCount(summary.issues, .updatedOverwrote))", "0")
+    let xml = XMLTree.serialize(vault.root)
+    let again = try vault.apply(source)
+    check("no hashes: the same export again changes nothing", "\(again.needsWrite) \(XMLTree.serialize(vault.root) == xml)", "false true")
+    // The same in a group of alike items.
+    var group = try emptyVault()
+    var rows = planOf([mk("1password:NBG", "Same", password: "p1"), mk("1password:NBG", "Same", password: "p2")])
+    rows.separateSharedIdentifiers()
+    _ = try group.apply(rows)
+    for node in allEntries(group) { if EntryMapping.string(node, "Password") == "p1" { setString(node, "Password", "m1") }; stripHashes(node) }
+    let groupSummary = try group.apply(rows)
+    check("no hashes in a group: no password was replaced", allEntries(group).compactMap { EntryMapping.string($0, "Password") }.sorted().joined(separator: ","), "m1,p2")
+    check("no hashes in a group: one conflict line, no replaced edit", "\(issueCount(groupSummary.issues, .mergeConflict)) \(issueCount(groupSummary.issues, .updatedOverwrote))", "1 0")
+    let groupXML = XMLTree.serialize(group.root)
+    let groupAgain = try group.apply(rows)
+    check("no hashes in a group: again changes nothing", "\(groupAgain.needsWrite) \(XMLTree.serialize(group.root) == groupXML)", "false true")
+}
+
+do {
+    // 100 alike items with 1,000 fields each: comparing every field of every pair would take far too long, so the group is paired
+    // by order, and says so.
+    func heavy(_ n: Int) -> ImportItem {
+        mk("1password:HEAVY", "Heavy", password: "pw-\(n)", extra: (0..<1000).map { ImportField(.custom, label: "Field \($0)", value: "value \(n)-\($0)") })
+    }
+    var group = planOf((0..<100).map(heavy))
+    group.separateSharedIdentifiers()
+    var vault = try emptyVault()
+    _ = try vault.apply(group)
+    let xml = XMLTree.serialize(vault.root)
+    let start = Date()
+    let second = try vault.apply(group)
+    let seconds = Date().timeIntervalSince(start)
+    print("note 100 alike items of 1000 fields: second import \(String(format: "%.1f", seconds)) s")
+    check("heavy group: the second import changes nothing and says the group was matched in order", "\(second.needsWrite) \(XMLTree.serialize(vault.root) == xml) \(issueCount(second.issues, .pairingLimit))", "false true 1")
+    expect("heavy group: the second import takes under 10 s", seconds < 10)
+    // The same group with a few fields is weighed, not matched in order.
+    var light = planOf((0..<30).map { n in mk("1password:LIGHT", "Light", password: "pw-\(n)", extra: (0..<20).map { f in ImportField(.custom, label: "Field \(f)", value: "value \(n)-\(f)") }) })
+    light.separateSharedIdentifiers()
+    var lightVault = try emptyVault()
+    _ = try lightVault.apply(light)
+    check("light group: the second import is weighed (no order line) and changes nothing", "\(issueCount(try lightVault.apply(light).issues, .pairingLimit)) \(try lightVault.apply(light).needsWrite)", "0 false")
+    // Assignments: the best total, whatever the order of the rows.
+    var random = SeededRandom(state: 99)
+    var worse = 0
+    for _ in 0..<300 {
+        let n = 1 + random.below(5), m = n + random.below(3)
+        let matrix = (0..<n).map { _ in (0..<m).map { _ in random.below(4) } }
+        let chosen = ImportDuplicates.assign(matrix).reduce(0) { $0 + matrix[$1.0][$1.1] }
+        // Brute force over every way to place the rows.
+        func best(_ row: Int, _ used: Set<Int>) -> Int {
+            if row == n { return 0 }
+            return (0..<m).filter { !used.contains($0) }.map { matrix[row][$0] + best(row + 1, used.union([$0])) }.max() ?? 0
+        }
+        if chosen != best(0, []) { worse += 1 }
+    }
+    check("assignment: the total is the best one in 300 random matrices", "\(worse)", "0")
+}
+
+do {
+    // A source that drops a PIN, a security code, a card expiry or a hidden field says so, by the names the app shows.
+    func card(pin: Bool, code: Bool, expiry: Bool, hidden: Bool, plain: Bool) -> ImportItem {
+        var fields = [ImportField(.cardholder, value: "Holder"), ImportField(.cardNumber, value: "4000000000000002", concealed: true)]
+        if expiry { fields.append(ImportField(.expiry, value: "01/30")) }
+        if code { fields.append(ImportField(.securityCode, label: "Security code", value: "123", concealed: true)) }
+        if pin { fields.append(ImportField(.pin, label: "PIN", value: "4321", concealed: true)) }
+        if hidden { fields.append(ImportField(.custom, label: "Account key", value: "k-1", concealed: true)) }
+        if plain { fields.append(ImportField(.custom, label: "Branch", value: "Main")) }
+        return ImportItem(sourceID: "1password:CARDX", kind: .card, title: "Dropped", fields: fields, created: now, modified: now)
+    }
+    let cases: [(String, ImportItem, String)] = [
+        ("PIN and security code", card(pin: false, code: false, expiry: true, hidden: true, plain: true), "Dropped: the PIN and the security code were removed in 1Password, so they were removed here too. Psss kept the earlier values."),
+        ("expiry and hidden field", card(pin: true, code: true, expiry: false, hidden: false, plain: true), "Dropped: \u{2018}Account key\u{2019} and the card expiry were removed in 1Password, so they were removed here too. Psss kept the earlier values."),
+        ("a plain field only", card(pin: true, code: true, expiry: true, hidden: true, plain: false), ""),
+        ("one PIN", card(pin: false, code: true, expiry: true, hidden: true, plain: true), "Dropped: the PIN was removed in 1Password, so it was removed here too. Psss kept the earlier value."),
+    ]
+    for (name, changed, line) in cases {
+        var vault = try emptyVault()
+        _ = try vault.apply(planOf([card(pin: true, code: true, expiry: true, hidden: true, plain: true)]))
+        let summary = try vault.apply(planOf([changed]))
+        check("dropped: \(name): the line, one per item", details(summary, .secretEmptied), line)
+        let again = try vault.apply(planOf([changed]))
+        check("dropped: \(name): again changes nothing and says nothing", "\(again.needsWrite) \(issueCount(again.issues, .secretEmptied))", "false 0")
+    }
+    // The same with the password and the setup key at once, and with no history kept.
+    var none = try emptyVault()
+    setMeta(none, "HistoryMaxItems", "0")
+    _ = try none.apply(planOf([card(pin: true, code: true, expiry: true, hidden: true, plain: true)]))
+    check("dropped: with no history the line says the values are gone", details(try none.apply(planOf([card(pin: false, code: false, expiry: true, hidden: true, plain: true)])), .secretEmptied),
+          "Dropped: the PIN and the security code were removed in 1Password, so they were removed here too. This vault keeps no earlier versions, so the earlier values are gone.")
+}
+
+do {
+    // U+FEFF at the start of a value survives whatever else the line holds. The stand-in is any of the 66 noncharacters the line
+    // does not hold; when it holds them all, the item is kept and says that a value may have changed.
+    var all: [UInt32] = Array(0xFDD0...0xFDEF)
+    for plane in 0...16 { all += [UInt32(plane) << 16 | 0xFFFE, UInt32(plane) << 16 | 0xFFFF] }
+    expect("stand-in: there are 66 noncharacters", all.count == 66)
+    func raw(_ list: [UInt32]) -> String { String(String.UnicodeScalarView(list.compactMap(Unicode.Scalar.init))) }
+    func escaped(_ list: [UInt32]) -> String {
+        list.map { $0 < 0x10000 ? String(format: "\\u%04X", $0) : String(format: "\\u%04X\\u%04X", 0xD800 + (($0 - 0x10000) >> 10), 0xDC00 + (($0 - 0x10000) & 0x3FF)) }.joined()
+    }
+    let mark = "\u{FEFF}"
+    func read(_ name: String, notes: String) throws -> ImportPlan {
+        try OnePasswordPIF.plan(from: try writeExport("stand-in-\(name)", [loginJSON(1, "Stand", user: "u", password: mark + "pw", site: "stand.example.net", extra: ",\"notesPlain\":\"\(notes)\"")]), now: now)
+    }
+    func scalars(_ text: String?) -> String { (text ?? "-").unicodeScalars.map { String($0.value, radix: 16) }.joined(separator: " ") }
+    let rawAll = try read("raw-all", notes: raw(all))
+    check("stand-in: every noncharacter in the line, the item is kept and says a value may have changed", "\(rawAll.items.count) \(issueCount(rawAll.items[0].issues, .secretChanged)) \(rawAll.summary.secretsChanged)", "1 1 1")
+    check("stand-in: and that line's text", details(rawAll.summary, .secretChanged), "Stand: a value in it holds a character that this file could not carry safely and may have been changed. Check it in 1Password before you rely on it.")
+    let last = all.last!
+    for (name, notes) in [("raw-65", raw(Array(all.dropLast()))), ("escaped-65", escaped(Array(all.dropLast()))), ("raw-first-free", raw(Array(all.dropFirst()))), ("both-forms", raw(Array(all.dropLast())) + escaped([all[0]]))] {
+        let plan = try read(name, notes: notes)
+        check("stand-in: \(name): the password keeps its U+FEFF and nothing is reported", "\(scalars(plan.items.first?.password)) \(plan.items.first?.issues.filter { $0.kind == .secretChanged }.count ?? -1)", "feff 70 77 0")
+    }
+    _ = last
+    // A long line with one U+FEFF is read in about the time of one without.
+    let filler = String(repeating: "a", count: 12 * 1024 * 1024)
+    let plain = try writeExport("long-plain", [noteJSON(1, "Long", notes: filler + "z")])
+    let marked = try writeExport("long-marked", [noteJSON(1, "Long", notes: filler + mark + "z")])
+    let t0 = Date()
+    let plainPlan = try OnePasswordPIF.plan(from: plain, now: now)
+    let t1 = Date()
+    let markedPlan = try OnePasswordPIF.plan(from: marked, now: now)
+    let t2 = Date()
+    print("note a 12 MB line: \(String(format: "%.2f", t1.timeIntervalSince(t0))) s without U+FEFF, \(String(format: "%.2f", t2.timeIntervalSince(t1))) s with one")
+    check("long line: the character is kept", "\(plainPlan.items[0].first(.notes)?.count ?? 0) \(markedPlan.items[0].first(.notes)?.unicodeScalars.contains("\u{FEFF}") ?? false)", "\(filler.count + 1) true")
+    expect("long line: one U+FEFF costs well under three times a line without", t2.timeIntervalSince(t1) < max(1.0, 3 * t1.timeIntervalSince(t0)))
 }
 
 // MARK: Round 6: every kind of issue, by construction
@@ -2678,7 +2872,7 @@ do {
     }
     var rawNames: [String] = []
     for issue in made {
-        for name in ["validFrom", "expiry_mm", "expiry_yy", "validFrom_mm", "ccnum", "cvv", "pop_", "smtp_", "reg_code", "UserName", "KP2A", "One-time", "TOTP", "Recently Deleted", "(1Password)", "history of this item"] where issue.detail.contains(name) {
+        for name in ["validFrom", "expiry_mm", "expiry_yy", "validFrom_mm", "ccnum", "cvv", "pop_", "smtp_", "reg_code", "UserName", "KP2A", "One-time", "TOTP", "Recently Deleted", "(1Password)", "history of this item", "hidden field"] where issue.detail.contains(name) {
             rawNames.append("\(issue.kind.rawValue): \(name) in \(issue.detail)")
         }
     }

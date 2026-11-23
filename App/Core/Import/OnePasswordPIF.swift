@@ -93,7 +93,7 @@ enum OnePasswordPIF {
                 return true
             }
             inBrokenRecord = false
-            guard let (object, fellBack, undefined) = parse(trimmed) else {
+            guard let (object, fellBack, undefined, bomLost) = parse(trimmed) else {
                 inBrokenRecord = true
                 brokenRecords += 1
                 unreadable(.unreadableRecord, String(localized: "line \(lineNumber) of the file could not be read, so it was skipped"))
@@ -123,6 +123,12 @@ enum OnePasswordPIF {
                 }
                 if plan.items.count >= limits.items { tooMany = true; return false }
                 var built = PlanBuilder.build(record, now: now)
+                if bomLost {
+                    // Every stand-in character is in the line, so a U+FEFF that opens a value may have been dropped by the reader.
+                    let shown = ImportText.clean(built.item.title)
+                    built.item.issues.append(ImportIssue(kind: .secretChanged, item: shown.isEmpty ? nil : shown,
+                                                         detail: String(localized: "a value in it holds a character that this file could not carry safely and may have been changed. Check it in 1Password before you rely on it.")))
+                }
                 plan.skipped.webFormFields += built.webFormFields
                 if built.missingDate { plan.missingDates += 1 }
                 tagsAltered += built.tagsAltered
@@ -381,7 +387,7 @@ enum OnePasswordPIF {
 
     /// One JSON object. Invalid UTF-8 is read as Windows-1252 (the flag says so, and the count says how many bytes had no
     /// meaning there). Raw control characters inside strings are escaped on a second try, since some exports hold them.
-    private static func parse(_ line: Data) -> ([String: Any], Bool, Int)? {
+    private static func parse(_ line: Data) -> ([String: Any], Bool, Int, Bool)? {
         var data = line
         var fellBack = false
         var undefined = 0
@@ -395,55 +401,102 @@ enum OnePasswordPIF {
         // other (a password can start with one), so each is swapped for a stand-in first and swapped back in what was read.
         let (guarded, stand) = protectingByteOrderMarks(data)
         func restored(_ object: [String: Any]) -> [String: Any] {
-            guard let stand else { return object }
-            return restore(object, from: stand) as? [String: Any] ?? object
+            guard case .some(.scalar(let scalar)) = stand else { return object }
+            return restore(object, from: scalar) as? [String: Any] ?? object
         }
-        if let object = (try? JSONSerialization.jsonObject(with: guarded)) as? [String: Any] { return (restored(object), fellBack, undefined) }
-        if let object = (try? JSONSerialization.jsonObject(with: escapeControlCharacters(guarded))) as? [String: Any] { return (restored(object), fellBack, undefined) }
+        var lost = false
+        if case .some(.none) = stand { lost = true }
+        if let object = (try? JSONSerialization.jsonObject(with: guarded)) as? [String: Any] { return (restored(object), fellBack, undefined, lost) }
+        if let object = (try? JSONSerialization.jsonObject(with: escapeControlCharacters(guarded))) as? [String: Any] { return (restored(object), fellBack, undefined, lost) }
         return nil
     }
 
-    /// Replaces every U+FEFF inside a JSON string (raw, or written `\uFEFF`) with a noncharacter that the line does not hold, and
-    /// returns it. A line with no U+FEFF is returned as it is.
-    private static func protectingByteOrderMarks(_ data: Data) -> (Data, Unicode.Scalar?) {
-        let raw: [UInt8] = [0xEF, 0xBB, 0xBF]
-        var has = data.range(of: Data(raw)) != nil
-        if !has, data.range(of: Data("\\u".utf8)) != nil {
-            let lower = String(decoding: data, as: UTF8.self).lowercased()
-            has = lower.contains("\\ufeff")
-        }
-        guard has else { return (data, nil) }
-        // A noncharacter (U+FDD0 to U+FDEF) that neither appears in the line nor is written as an escape.
-        let text = String(decoding: data, as: UTF8.self).lowercased()
-        guard let stand = (0xFDD0...0xFDEF).lazy.compactMap({ Unicode.Scalar($0) })
-            .first(where: { !text.unicodeScalars.contains($0) && !text.contains(String(format: "\\u%04x", $0.value)) }) else { return (data, nil) }
-        let replacement = Array(String(Character(stand)).utf8)
-        var out = Data(capacity: data.count)
+    /// What `protectingByteOrderMarks` decided for a line that holds a U+FEFF.
+    private enum StandIn { case scalar(Unicode.Scalar), none }
+
+    /// The 66 noncharacters: U+FDD0 to U+FDEF and the last two code points of each of the 17 planes.
+    private static let noncharacters: [UInt32] = Array(0xFDD0...0xFDEF) + (0...16).flatMap { [UInt32($0) << 16 | 0xFFFE, UInt32($0) << 16 | 0xFFFF] }
+
+    /// Replaces every U+FEFF inside a JSON string (raw, or written `\uFEFF`) with a noncharacter that the line does not hold (raw or
+    /// written as an escape). The line is scanned once; only a line that holds a U+FEFF is scanned a second time to make the
+    /// replacement. Nil when the line has no U+FEFF. `.none` when every noncharacter is in use, so nothing can stand in.
+    private static func protectingByteOrderMarks(_ data: Data) -> (Data, StandIn?) {
+        var hasMark = false
+        var present = Set<UInt32>()
         let bytes = [UInt8](data)
+        func hex4(_ at: Int) -> UInt32? {
+            guard at + 4 <= bytes.count else { return nil }
+            var value: UInt32 = 0
+            for k in 0..<4 {
+                let c = bytes[at + k]
+                let digit: UInt32
+                switch c {
+                case 0x30...0x39: digit = UInt32(c) - 0x30
+                case 0x41...0x46: digit = UInt32(c) - 0x41 + 10
+                case 0x61...0x66: digit = UInt32(c) - 0x61 + 10
+                default: return nil
+                }
+                value = value << 4 | digit
+            }
+            return value
+        }
         var inString = false
         var i = 0
-        while i < bytes.count {
+        let count = bytes.count
+        while i < count {
             let byte = bytes[i]
+            if byte == UInt8(ascii: "\"") { inString.toggle(); i += 1; continue }
+            if !inString { i += 1; continue }
+            if byte == UInt8(ascii: "\\") {
+                if i + 1 < count, bytes[i + 1] == UInt8(ascii: "u"), let unit = hex4(i + 2) {
+                    if unit == 0xFEFF { hasMark = true }
+                    else if (0xFDD0...0xFDEF).contains(unit) || unit == 0xFFFE || unit == 0xFFFF { present.insert(unit) }
+                    else if (0xD800...0xDBFF).contains(unit), i + 11 < count, bytes[i + 6] == UInt8(ascii: "\\"), bytes[i + 7] == UInt8(ascii: "u"),
+                            let low = hex4(i + 8), (0xDC00...0xDFFF).contains(low) {
+                        let scalar = 0x10000 + ((unit - 0xD800) << 10) + (low - 0xDC00)
+                        if scalar & 0xFFFE == 0xFFFE { present.insert(scalar) }
+                    }
+                    i += 6
+                } else { i += 2 }
+                continue
+            }
+            if byte == 0xEF, i + 2 < count {
+                if bytes[i + 1] == 0xBB, bytes[i + 2] == 0xBF { hasMark = true }
+                else if bytes[i + 1] == 0xB7, (0x90...0xAF).contains(bytes[i + 2]) { present.insert(0xFDD0 + UInt32(bytes[i + 2] - 0x90)) }
+                else if bytes[i + 1] == 0xBF, bytes[i + 2] == 0xBE || bytes[i + 2] == 0xBF { present.insert(0xFFFE + UInt32(bytes[i + 2] - 0xBE)) }
+            } else if byte >= 0xF0, byte <= 0xF4, i + 3 < count, bytes[i + 2] == 0xBF, bytes[i + 3] == 0xBE || bytes[i + 3] == 0xBF {
+                // A plane's last two code points: F0 9F BF BE, F0 AF BF BF, ... F4 8F BF BF.
+                let scalar = UInt32(byte & 0x07) << 18 | UInt32(bytes[i + 1] & 0x3F) << 12 | UInt32(bytes[i + 2] & 0x3F) << 6 | UInt32(bytes[i + 3] & 0x3F)
+                if scalar & 0xFFFE == 0xFFFE { present.insert(scalar) }
+            }
+            i += 1
+        }
+        guard hasMark else { return (data, nil) }
+        guard let stand = noncharacters.first(where: { !present.contains($0) }).flatMap(Unicode.Scalar.init) else { return (data, StandIn.none) }
+        let replacement = Array(String(Character(stand)).utf8)
+        var out: [UInt8] = []
+        out.reserveCapacity(count)
+        inString = false
+        i = 0
+        while i < count {
+            let byte = bytes[i]
+            if byte == UInt8(ascii: "\"") { inString.toggle(); out.append(byte); i += 1; continue }
             if inString {
                 if byte == UInt8(ascii: "\\") {
-                    if i + 5 < bytes.count, bytes[i + 1] == UInt8(ascii: "u"),
-                       String(decoding: bytes[(i + 2)...(i + 5)], as: UTF8.self).lowercased() == "feff" {
+                    if i + 5 < count, bytes[i + 1] == UInt8(ascii: "u"), hex4(i + 2) == 0xFEFF {
                         out.append(contentsOf: replacement); i += 6; continue
                     }
                     out.append(byte)
-                    if i + 1 < bytes.count { out.append(bytes[i + 1]) }
+                    if i + 1 < count { out.append(bytes[i + 1]) }
                     i += 2
                     continue
                 }
-                if byte == UInt8(ascii: "\"") { inString = false }
-                else if byte == 0xEF, i + 2 < bytes.count, bytes[i + 1] == 0xBB, bytes[i + 2] == 0xBF {
-                    out.append(contentsOf: replacement); i += 3; continue
-                }
-            } else if byte == UInt8(ascii: "\"") { inString = true }
+                if byte == 0xEF, i + 2 < count, bytes[i + 1] == 0xBB, bytes[i + 2] == 0xBF { out.append(contentsOf: replacement); i += 3; continue }
+            }
             out.append(byte)
             i += 1
         }
-        return (out, stand)
+        return (Data(out), .scalar(stand))
     }
 
     private static func restore(_ value: Any, from stand: Unicode.Scalar) -> Any {

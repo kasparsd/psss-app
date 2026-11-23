@@ -119,18 +119,14 @@ enum KeePassImport {
                 summary.attachments += change.attachments.count
                 summary.historyEntries += change.historyAdds.count
                 if !change.overwritten.isEmpty {
+                    let tail = change.keepsEarlier
+                        ? String(localized: "Psss kept the earlier value.")
+                        : String(localized: "This vault keeps no earlier versions, so the earlier value is gone.")
                     summary.issues.append(ImportIssue(kind: .updatedOverwrote, item: title,
-                                                      detail: String(localized: "it changed in 1Password, so your edit to \(change.overwritten.joined(separator: ", ")) here was replaced with the new value. Psss kept the earlier value.")))
+                                                      detail: String(localized: "it changed in 1Password, so your edit to \(change.overwritten.joined(separator: ", ")) here was replaced with the new value. \(tail)")))
                 }
-                if !change.emptiedSecrets.isEmpty {
-                    let both = change.emptiedSecrets.count > 1
-                    let what = change.emptiedSecrets.joined(separator: " and the ")
-                    let detail = both
-                        ? String(localized: "the \(what) are empty in 1Password now, so they were emptied here too. Psss kept the earlier values.")
-                        : change.emptiedSecrets[0] == "verification code setup"
-                            ? String(localized: "the verification code setup was removed in 1Password, so it was removed here too. Psss kept the earlier value.")
-                            : String(localized: "the \(what) is empty in 1Password now, so it was emptied here too. Psss kept the earlier value.")
-                    summary.issues.append(ImportIssue(kind: .secretEmptied, item: title, detail: detail))
+                if !change.emptied.isEmpty || !change.removed.isEmpty {
+                    summary.issues.append(ImportIssue(kind: .secretEmptied, item: title, detail: emptiedLine(change)))
                 }
                 summary.issues += item.issues
                 continue
@@ -181,6 +177,32 @@ enum KeePassImport {
         }
         summary.secretsChanged = summary.issues.filter { $0.kind == .secretChanged }.count
         return summary
+    }
+
+    /// "a", "a and b", "a, b and c".
+    private static func listed(_ names: [String]) -> String {
+        names.count < 2 ? names.joined() : names.dropLast().joined(separator: ", ") + " and " + names[names.count - 1]
+    }
+
+    /// The one line for an update that emptied the password or card number, or removed a setup key, PIN, security code, card
+    /// expiry or hidden custom field, because the source did.
+    static func emptiedLine(_ change: Change) -> String {
+        let total = change.emptied.count + change.removed.count
+        let isAre = change.emptied.count == 1 ? "is" : "are"
+        let wasWere = change.removed.count == 1 ? "was" : "were"
+        let emptied = "\(listed(change.emptied)) \(isAre) empty", removed = "\(listed(change.removed)) \(wasWere) removed"
+        let tail: String
+        if change.keepsEarlier { tail = total == 1 ? String(localized: "Psss kept the earlier value.") : String(localized: "Psss kept the earlier values.") }
+        else { tail = total == 1 ? String(localized: "This vault keeps no earlier versions, so the earlier value is gone.") : String(localized: "This vault keeps no earlier versions, so the earlier values are gone.") }
+        if change.removed.isEmpty {
+            return total == 1 ? String(localized: "\(emptied) in 1Password now, so it was emptied here too. \(tail)")
+                              : String(localized: "\(emptied) in 1Password now, so they were emptied here too. \(tail)")
+        }
+        if change.emptied.isEmpty {
+            return total == 1 ? String(localized: "\(removed) in 1Password, so it was removed here too. \(tail)")
+                              : String(localized: "\(removed) in 1Password, so they were removed here too. \(tail)")
+        }
+        return String(localized: "\(emptied) and \(removed) in 1Password, so they were emptied or removed here too. \(tail)")
     }
 
     // MARK: Existing entries
@@ -239,8 +261,12 @@ enum KeePassImport {
         var overwritten: [String] = []
         /// Labels of fields a merge left alone because they held another value.
         var conflicts: [String] = []
-        /// Secrets an update emptied or removed because the source did: "password", "card number", "verification code setup".
-        var emptiedSecrets: [String] = []
+        /// The password or card number an update emptied because the source did, as "the password".
+        var emptied: [String] = []
+        /// The setup key, PIN, security code, card expiry or hidden custom fields an update removed because the source did.
+        var removed: [String] = []
+        /// Whether the vault's history settings keep the version this change replaces (not with a limit of 0, nor one that is too big).
+        var keepsEarlier = true
         var creation: Date?
         var baseline: Baseline
 
@@ -387,6 +413,10 @@ enum KeePassImport {
         let decisions = outcome.decisions
         let protected = protectedStandard(in: document)
         let limit = historyLimit(in: document)
+        let maxSize = Int(document.root.child("Meta")?.child("HistoryMaxSize")?.text.trimmingCharacters(in: .whitespaces) ?? "") ?? 6_291_456
+        let keeps: (XNode, [ImportRevision]) -> Bool = { entry, adds in
+            historyKeeps(entry, adds: adds, limit: limit, maxSize: maxSize, document: document)
+        }
         var out: [Resolution] = []
         out.reserveCapacity(decisions.count)
         for (position, (item, decision)) in zip(plan.items, decisions).enumerated() {
@@ -397,8 +427,15 @@ enum KeePassImport {
             case .inRecycleBin: out.append(.inRecycleBin)
             case .deletedByPerson: out.append(.deletedByPerson)
             case .update(let index):
-                var change = diff(item, known: known[index], merge: false, protected: protected, binaries: document.binaries, limit: limit)
+                // An entry that still names its source but has lost the stored hashes (another app dropped the custom data) leaves
+                // no way to tell who changed what. It is treated like a merge: the vault's value stays and the source's is kept apart.
+                let hasBaseline = baseline(of: known[index].node) != nil
+                var change = diff(item, known: known[index], merge: !hasBaseline, protected: protected, binaries: document.binaries, limit: limit, keeps: keeps)
                 change.keepSource = outcome.keepsIdentifier.contains(position)
+                if !hasBaseline {
+                    out.append(change.isEmpty ? .refresh(change) : .merge(change))
+                    continue
+                }
                 // Nothing to change in the entry still needs a write when its hashes are old, or when it is now matched under a new
                 // identifier.
                 // It also needs one when the entry was last written from another version of the item, so that it is paired with this
@@ -407,7 +444,7 @@ enum KeePassImport {
                     || !known[index].existing.holds(item.fingerprint)
                 out.append(!change.isEmpty ? .update(change) : rewrites ? .refresh(change) : .skip)
             case .merge(let index):
-                out.append(.merge(diff(item, known: known[index], merge: true, protected: protected, binaries: document.binaries, limit: limit)))
+                out.append(.merge(diff(item, known: known[index], merge: true, protected: protected, binaries: document.binaries, limit: limit, keeps: keeps)))
             }
         }
         // Items that were deleted in the source after an earlier import stay in the vault, and the person is told.
@@ -629,7 +666,8 @@ enum KeePassImport {
     /// leaves what the source never had or the person changed. A merge (the same login from a richer source) only fills in: a user
     /// name, password or custom field that differs is kept and the imported one is added as a field ending in "(1Password)"; a
     /// title never conflicts; differing notes are joined; a differing one-time code is kept apart and is not in use.
-    private static func diff(_ item: ImportItem, known: Known, merge: Bool, protected: Set<String>, binaries: [Data], limit: Int) -> Change {
+    private static func diff(_ item: ImportItem, known: Known, merge: Bool, protected: Set<String>, binaries: [Data], limit: Int,
+                             keeps: (XNode, [ImportRevision]) -> Bool) -> Change {
         let entry = known.node
         let rendered = render(item, protected: protected)
         let entryID = entry.child("UUID")?.text ?? ""
@@ -724,7 +762,7 @@ enum KeePassImport {
             } else {
                 // Only a field the source changed is written. One the source left alone keeps what the person made of it.
                 if let known = before?.fields[key], known == fieldHash(entryID, key, pair.value) { continue }
-                if key == "Password", !now.isEmpty, pair.value.isEmpty { change.emptiedSecrets.append(item.kind == .card ? "card number" : "password") }
+                if key == "Password", !now.isEmpty, pair.value.isEmpty { change.emptied.append(item.kind == .card ? "the card number" : "the password") }
                 if let known = before?.fields[key], known != fieldHash(entryID, key, now), key != EntryMapping.typeKey,
                    !change.overwritten.contains(shown(key)) { change.overwritten.append(shown(key)) }
                 change.sets.append(pair)
@@ -736,7 +774,17 @@ enum KeePassImport {
             for (key, hash) in before.fields.sorted(by: { $0.key < $1.key }) where !live.contains(key) {
                 if let now = current[key], fieldHash(entryID, key, now) == hash {
                     change.removes.append(key)
-                    if key == "otp", !now.isEmpty { change.emptiedSecrets.append("verification code setup") }
+                    // A secret (hidden) field, a code setup or a card's expiry that the source dropped is said, by the name the app shows.
+                    let hidden = entry.children.first { $0.name == "String" && $0.child("Key")?.text == key }?.child("Value")?.attribute("Protected") == "True"
+                    if !now.isEmpty, hidden || key == "otp" || (item.kind == .card && key == EntryMapping.cardExpiryKey) {
+                        switch key {
+                        case "otp": change.removed.append("the verification code setup")
+                        case EntryMapping.cardExpiryKey: change.removed.append("the card expiry")
+                        case "PIN": change.removed.append("the PIN")
+                        case "Security code": change.removed.append("the security code")
+                        default: change.removed.append("\u{2018}\(key)\u{2019}")
+                        }
+                    }
                 }
             }
         }
@@ -794,10 +842,32 @@ enum KeePassImport {
         for revision in kept(item, limit: limit).revisions where passwords.insert(ImportText.clean(revision.password)).inserted {
             change.historyAdds.append(revision)
         }
+        change.keepsEarlier = keeps(entry, change.historyAdds)
         if merge, let heldDate = stamp(entry.child("Times")?.child("CreationTime")), item.created < heldDate {
             change.creation = item.created
         }
         return change
+    }
+
+    /// Whether the version an update replaces is still in the entry's history once the vault's limits have pruned it: not when the
+    /// vault keeps no versions, and not when that version alone is bigger than `HistoryMaxSize`. The records are ordered the way
+    /// `apply` orders them (by time, then as they were added) and pruned oldest first, as `KDBXDocument.trim` prunes.
+    static func historyKeeps(_ entry: XNode, adds: [ImportRevision], limit: Int, maxSize: Int, document: KDBXDocument) -> Bool {
+        if limit == 0 { return false }
+        var records: [(time: Date, size: Int, isNew: Bool)] = []
+        for record in entry.child("History")?.children(named: "Entry") ?? [] {
+            records.append((stamp(record.child("Times")?.child("LastModificationTime")) ?? .distantPast, document.historySize(of: record), false))
+        }
+        let own = document.historySize(of: entry)
+        records.append((stamp(entry.child("Times")?.child("LastModificationTime")) ?? .distantPast, own, true))
+        for revision in adds { records.append((revision.date, own, false)) }
+        let ordered = records.enumerated().sorted { ($0.element.time, $0.offset) < ($1.element.time, $1.offset) }.map(\.element)
+        var kept = limit > 0 && ordered.count > limit ? Array(ordered.suffix(limit)) : ordered
+        if maxSize >= 0 {
+            var total = kept.reduce(0) { $0 + $1.size }
+            while total > maxSize, !kept.isEmpty { total -= kept.removeFirst().size }
+        }
+        return kept.contains { $0.isNew }
     }
 
     // MARK: Writing
@@ -845,6 +915,15 @@ enum KeePassImport {
             case .refresh(let change):
                 refresh(change, item: item, state: state)
                 state.touched.append(change.entry)
+            }
+        }
+
+        // The vault's own limits on history (count and size) apply to what was written, as they do to every save.
+        document.binaries = state.binaries
+        for node in state.touched where node.name == "Entry" {
+            if let history = node.child("History") {
+                document.trim(history)
+                if history.children.isEmpty { node.children.removeAll { $0 === history } }
             }
         }
 

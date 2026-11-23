@@ -207,13 +207,13 @@ enum ImportDuplicates {
                     if let id = plan.items[position].sourceID, let index = byID[id], existing[index].inRecycleBin { return false }
                     return true
                 }
-                let pairs: [Int: Int]
-                if eligible.count * candidates.count <= pairingBound {
-                    pairs = optimalPairing(plan, eligible, candidates, existing, details)
-                } else {
-                    pairs = orderedPairing(plan, eligible, candidates, existing, byID)
+                var chosen: [Int: Int]?
+                if eligible.count * candidates.count <= pairingBound { chosen = optimalPairing(plan, eligible, candidates, existing, details) }
+                if chosen == nil {
+                    chosen = orderedPairing(plan, eligible, candidates, existing, byID)
                     if let first = eligible.first { limited.append((first, positions.count)) }
                 }
+                let pairs = chosen ?? [:]
                 for (position, index) in pairs { paired[position] = index; keeps.insert(position) }
                 claimed.formUnion(pairs.values)
             }
@@ -390,32 +390,52 @@ enum ImportDuplicates {
     /// worth more than every other sign together (there are at most `pairingBound` of those), so an entry stays with the item it
     /// was written from, however the person edited it since and however the export is ordered. After that a password the entry holds
     /// now counts for more than one it only held earlier, and each field that still has the value it was written with counts one.
-    private static let exactWeight = 1_000_000
+    private static let exactWeight = 10_000_000
+
+    /// The most field comparisons (items times entries times the fields that tell the items apart) a group may cost: a comparison is a
+    /// salted hash, about 4.5 microseconds, so this is under two seconds. Above it a group is paired by order.
+    static let fieldBound = 400_000
 
     /// A pairing of items with entries that maximises the total weight (the Hungarian method, so no item loses its best entry to a
-    /// tie that another item could have broken). Ties go to the earlier item and the earlier entry, so the result is a function of the
-    /// plan and the vault alone. Only pairs with some sign of belonging together are kept; the rest is paired by order.
+    /// tie that another item could have broken). When several pairings weigh the same, which one is taken depends only on the plan and
+    /// the vault, in a fixed order of rows and columns, but it is not always the earliest pair. Only pairs with some sign of belonging
+    /// together are kept; the rest is paired by order. Nil when the group costs more than `fieldBound`: the caller pairs by order.
+    ///
+    /// Fields cost the most, so only the ones that differ between the items of the group are compared (a field every item shares says
+    /// the same of every entry), and none at all for a pair that is an exact match already.
     static func optimalPairing(_ plan: ImportPlan, _ positions: [Int], _ candidates: [Int], _ existing: [Existing],
-                               _ details: ((Int) -> EntryDetail)?) -> [Int: Int] {
+                               _ details: ((Int) -> EntryDetail)?) -> [Int: Int]? {
         guard !positions.isEmpty, !candidates.isEmpty else { return [:] }
-        // What is asked of an entry once, not once per item.
+        // What is asked of an item and of an entry once, not once per pair.
         var entryDetail: [EntryDetail?] = []
         for index in candidates { entryDetail.append(details?(index)) }
+        let rendered: [[KeePassImport.Pair]] = positions.map { details != nil ? KeePassImport.render(plan.items[$0], protected: []).pairs : [] }
+        var first: [String: String] = [:]
+        var differs = Set<String>()
+        for pairs in rendered {
+            let keys = Set(pairs.map(\.key))
+            for pair in pairs { if let seen = first[pair.key] { if seen != pair.value { differs.insert(pair.key) } } else { first[pair.key] = pair.value } }
+            for key in first.keys where !keys.contains(key) { differs.insert(key) }
+        }
+        if positions.count * candidates.count * differs.count > fieldBound { return nil }
+        let compared: [[KeePassImport.Pair]] = rendered.map { $0.filter { differs.contains($0.key) } }
         var weight = [[Int]](repeating: [Int](repeating: 0, count: candidates.count), count: positions.count)
         for (row, position) in positions.enumerated() {
             let item = plan.items[position]
             let password = ImportText.clean(item.password)
             let fingerprint = item.fingerprint
-            let pairs = details != nil ? KeePassImport.render(item, protected: []).pairs : []
             for (column, index) in candidates.enumerated() {
+                if existing[index].holds(fingerprint) { weight[row][column] = exactWeight; continue }
                 var score = 0
-                if existing[index].holds(fingerprint) { score += exactWeight }
                 if let detail = entryDetail[column] {
                     // An empty password says nothing about which entry it was.
                     if !password.isEmpty {
                         if existing[index].password == password { score += 2000 } else if detail.history.contains(password) { score += 1000 }
                     }
-                    for pair in pairs where detail.fieldHashes[pair.key] == KeePassImport.fieldHash(existing[index].entryID, pair.key, pair.value) { score += 1 }
+                    for pair in compared[row] {
+                        guard let stored = detail.fieldHashes[pair.key] else { continue }
+                        if stored == KeePassImport.fieldHash(existing[index].entryID, pair.key, pair.value) { score += 1 }
+                    }
                 }
                 weight[row][column] = score
             }
