@@ -1813,7 +1813,7 @@ private struct ItemDetail: View {
                 }
                 // In the order the fields are used: username, password, then the code, all in one card.
                 if item.kind == .login { if item.otpSecret.isEmpty { noCodeRow } else { codeRow } }
-                if !item.expiry.isEmpty { field(.expiry, "Expiry", item.expiry) }
+                if !item.expiry.isEmpty { field(.expiry, "Expiry", CardExpiry.displayed(item.expiry)) }
                 if !item.securityCode.isEmpty { field(.securityCode, "Security code", item.securityCode, hidden: true) }
                 if !item.website.isEmpty { field(.website, "Website", item.website) }
                 if !item.notes.isEmpty {
@@ -2034,7 +2034,17 @@ private struct ItemEditor: View {
                 case .creditCard:
                     labeled("Name on card") { TextField("Name on card", text: $item.account, prompt: Text(verbatim: "")) }
                     labeled("Card number") { SecureField("Card number", text: $item.secret, prompt: Text(verbatim: "")) }
-                    labeled("Expiry") { TextField("Expiry", text: $item.expiry, prompt: Text("MM/YY")) }
+                    labeled("Expiry") {
+                        TextField("Expiry", text: $item.expiry, prompt: Text("MM/YY"))
+                            #if os(iOS)
+                            .keyboardType(.numberPad)
+                            #endif
+                            .onAppear { item.expiry = CardExpiry.displayed(item.expiry) }
+                            .onChange(of: item.expiry) { _, text in
+                                let clean = CardExpiry.normalizedInput(text)
+                                if clean != text { item.expiry = clean }
+                            }
+                    }
                     labeled("Security code (optional)", info: HelpTopics.securityCode) {
                         SecureField("Security code", text: $item.securityCode, prompt: Text(verbatim: ""))
                             #if os(iOS)
@@ -2121,6 +2131,7 @@ extension ItemEditor {
     /// A bare key keeps the parameters the login already has; a link brings its own.
     fileprivate var saved: VaultItem {
         var clean = item
+        if clean.kind == .creditCard { clean.expiry = CardExpiry.displayed(clean.expiry) }
         if case .setup(let setup) = TOTP.parse(item.otpSecret) {
             clean.otpSecret = setup.secret
             if item.otpSecret.lowercased().contains("otpauth://") { clean.otpSettings = setup.settings }

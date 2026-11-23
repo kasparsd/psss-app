@@ -1731,6 +1731,13 @@ do {
         check("expiry rejects \"\(input)\"", CardExpiry.parse(input).map { $0.formatted } ?? "nil", "nil")
     }
     check("formatted is MM/YY", [CardExpiry.parse("8/2030")!.formatted, CardExpiry.parse("12/05")!.formatted, CardExpiry.parse("2099-01")!.formatted].joined(separator: " "), "08/30 12/05 01/99")
+    let typed: [(String, String)] = [("", ""), ("0", "0"), ("02", "02"), ("022", "02/2"), ("0229", "02/29"), ("02/2029", "02/29"), ("2/29", "02/29"),
+                                     ("02 29", "02/29"), ("02/", "02"), ("2/", "02"), ("2/2", "02/2"), ("abc12x34", "12/34"), ("022999", "02/29"),
+                                     ("02-2029", "02/29"), ("2029-02", "02/29"), ("12/3", "12/3"), ("1330", "13/30"), ("02/29", "02/29")]
+    for (input, want) in typed { check("expiry typed \"\(input)\"", CardExpiry.normalizedInput(input), want) }
+    for (input, want) in [("0229", "02/29"), ("2/29", "02/29"), ("02/2029", "02/29"), ("2029-02", "02/29"), ("", ""), ("soon", "soon"), ("13/30", "13/30")] {
+        check("expiry displayed \"\(input)\"", CardExpiry.displayed(input), want)
+    }
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = TimeZone(identifier: "UTC")!
     let midAugust = Date(timeIntervalSince1970: 1_912_939_200)   // 2030-08-14T12:00:00Z

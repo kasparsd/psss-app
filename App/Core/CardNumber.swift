@@ -95,6 +95,31 @@ struct CardExpiry: Equatable, Sendable {
     /// `MM/YY`, the form stored in the vault.
     var formatted: String { String(format: "%02d/%02d", month, year % 100) }
 
+    /// An expiry as the person sees it: `MM/YY` for any value `parse` reads (`0229`, `2/29`, `02/2029`, `2029-02`), the stored
+    /// text unchanged when it cannot be read.
+    static func displayed(_ stored: String) -> String { parse(stored)?.formatted ?? stored }
+
+    /// The expiry field's text after each edit, typed or pasted. A complete expiry in any shape `parse` reads (`0229`, `02/2029`,
+    /// `2/29`, `02 29`) becomes `MM/YY`. Anything else keeps its digits only (at most four), with a slash after the month once a
+    /// third digit exists; a one-digit month before a separator (`2/2`) gets its zero. No slash follows two digits alone, so
+    /// Delete works on `02`.
+    static func normalizedInput(_ text: String) -> String {
+        let digitCount = text.filter { $0.isASCII && $0.isNumber }.count
+        if digitCount >= 4, let expiry = parse(text) { return expiry.formatted }
+        let separators: Set<Character> = ["/", "-", ".", " ", "\\"]
+        var digits = ""
+        let leading = text.prefix(while: { !separators.contains($0) }).filter { $0.isASCII && $0.isNumber }
+        let hasSeparator = text.contains(where: { separators.contains($0) })
+        if hasSeparator, leading.count == 1, leading != "0" {
+            digits = "0" + leading + text.dropFirst(text.prefix(while: { !separators.contains($0) }).count).filter { $0.isASCII && $0.isNumber }
+        } else {
+            digits = text.filter { $0.isASCII && $0.isNumber }
+        }
+        digits = String(digits.prefix(4))
+        guard digits.count > 2 else { return digits }
+        return String(digits.prefix(2)) + "/" + String(digits.dropFirst(2))
+    }
+
     /// Whether the card has expired. A card is good through the last day of its month. The month is read in the Gregorian
     /// calendar, in the time zone of `calendar` (the person's, by default): a card's year is a Gregorian year whatever calendar the
     /// device shows (Buddhist, Japanese, Islamic, Persian), so only the time zone of the calendar passed in is used.
