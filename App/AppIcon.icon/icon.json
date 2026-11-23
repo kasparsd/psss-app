@@ -29,18 +29,35 @@
       "layers": [
         {
           "glass": true,
-          "name": "Mark",
+          "name": "Dots",
           "image-name-specializations": [
             {
-              "value": "Mark.svg"
+              "value": "Dots.svg"
             },
             {
               "appearance": "dark",
-              "value": "Mark-Dark.svg"
+              "value": "Dots-Dark.svg"
             },
             {
               "appearance": "tinted",
-              "value": "Mark-Tint.svg"
+              "value": "Dots-Tint.svg"
+            }
+          ]
+        },
+        {
+          "glass": true,
+          "name": "Frame",
+          "image-name-specializations": [
+            {
+              "value": "Frame.svg"
+            },
+            {
+              "appearance": "dark",
+              "value": "Frame-Dark.svg"
+            },
+            {
+              "appearance": "tinted",
+              "value": "Frame-Tint.svg"
             }
           ]
         }
