@@ -32,15 +32,19 @@ struct VerificationCodeSheet: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                switch phase {
-                case .collect: collect
-                case .confirm(let setup, let fromImage): confirm(setup, fromImage: fromImage)
-                case .saved(let fromImage): saved(fromImage: fromImage)
+            // Scrolls instead of squeezing: at the medium detent the text must wrap in full, never end in "…".
+            ScrollView {
+                Group {
+                    switch phase {
+                    case .collect: collect
+                    case .confirm(let setup, let fromImage): confirm(setup, fromImage: fromImage)
+                    case .saved(let fromImage): saved(fromImage: fromImage)
+                    }
                 }
+                .fixedSize(horizontal: false, vertical: true)
+                .padding()
+                .frame(maxWidth: .infinity)
             }
-            .padding()
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .navigationTitle("Add verification code")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
