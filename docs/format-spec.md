@@ -1,8 +1,8 @@
 # Psss vault format, version 1: byte-level specification
 
-**Status: draft 4, 2026-11-23. Not reviewed, not implemented in the app.** The design and its reasons are in [vault format](format.md); this document says exactly what the bytes are, so that two people can implement it without talking to each other. Test vectors and a reference implementation for Node 24 are in `Packages/format/`. Post-quantum key wrapping is decided (2026-11-23, with a floor of iOS 26 and macOS 26). The draft still assumes one decision the owner has not confirmed: not reusing the age envelope. Everything is open to change until the independent review.
+**Status: draft 5, 2026-11-23. Not reviewed, not implemented in the app.** The design and its reasons are in [vault format](format.md); this document says exactly what the bytes are, so that two people can implement it without talking to each other. Test vectors and a reference implementation for Node 24 are in `Packages/format/`. Post-quantum key wrapping is decided (2026-11-23, with a floor of iOS 26 and macOS 26). The draft still assumes one decision the owner has not confirmed: not reusing the age envelope. Everything is open to change until the independent review.
 
-Draft 2 answered the 36 findings of the first independent implementation. Draft 3 answered the 12 findings of the second pass and the direction review of the same day. Draft 4 answers the third pass and its independent validation. The [lists of changes](#12-changes) are at the end. The reference implementation follows draft 3, with 95 tests and 481 vectors, until it is brought up to this one.
+Draft 2 answered the 36 findings of the first independent implementation. Draft 3 answered the 12 findings of the second pass and the direction review of the same day. Drafts 4 and 5 answer the later passes and their independent validation. The [lists of changes](#12-changes) are at the end. `Packages/format/README.md` says which draft the reference implementation follows.
 
 The words MUST, SHOULD and MAY are used as in RFC 2119. “Group” is the keyed unit with members; a person's vault is every group they belong to.
 
@@ -219,7 +219,7 @@ purged  = sorted array of [item_id, [wall_ms, counter, author, device, seq]]
 A checkpoint restates writes. Each write in `items` is folded exactly as the write it names, with the same place in the order, so a checkpoint, any number of overlapping checkpoints and the records themselves all fold to the same state in any order. A reader that still holds covered records goes on folding them, and SHOULD show the person any covered record that disagrees with a checkpoint.
 
 - **Who.** The author MUST be a manager as of `mhead`.
-- **Parts.** A state too large for one body is written as `parts` records with the same `set_id`, numbered `part` 0 to `parts - 1`. The parts of a set have the same author, device and `parts`; records that share a `set_id` and differ in any of these belong to no set, and neither do two different records with the same `part`. `covered` and `purged` are carried in part 0 and are empty in the others. The writes of each part fold as soon as it is accepted; `covered` and `purged` take effect only when every part of the set is accepted.
+- **Parts.** A state too large for one body is written as `parts` records with the same `set_id`, numbered `part` 0 to `parts - 1`. The parts of a set have the same author, device and `parts`, so they are consecutive records of one chain and a missing part makes the later ones wait like any gap; records that share a `set_id` and differ in any of these belong to no set, and neither do two different records with the same `part`. `covered` and `purged` are carried in part 0 and are empty in the others. The writes of each part fold as soon as it is accepted; `covered` and `purged` take effect only when every part of the set is accepted.
 - **History.** For each field a checkpoint carries at least the winning write and MAY carry earlier ones. Those earlier writes are the field's history after the records are gone, and are what Previous Passwords reads. The item schema says how many are kept per field; a write that a checkpoint leaves out is forgotten once the records it covers are deleted.
 - **Chains.** For a chain named in `covered`, records up to that `seq` count as present, so a reader that never received them can continue the chain from the next one. Where checkpoints overlap, the greatest `seq` per chain applies.
 - **Removing records.** Content records covered by a complete, accepted checkpoint MAY be deleted from every location. Membership records are never deleted.
@@ -231,7 +231,7 @@ A checkpoint restates writes. Each write in `items` is folded exactly as the wri
 payload = { 1: sorted array of item_id }
 ```
 
-Any writer may ask for items to be removed for good. The request covers every write of those items up to its own place in the order. Every reader hides those writes at once; a write that is later in the order stays, so an item edited after the request reappears with only what was written since. A manager's device, when it next runs, answers with a checkpoint that purges them. In a group of one the person is the manager, so their own device does both. A writer in a shared group can therefore delete for good without being a manager, and the copy on storage goes when a manager's device has been online. This gives a writer no power they lacked: a writer can already clear every field of every item. What a purge adds is that the earlier values go too, which is the point of it.
+Any writer may ask for items to be removed for good. The request covers every write of those items up to its own place in the order. Every reader hides those writes at once; a write that is later in the order stays, so an item edited after the request reappears with only what was written since. A manager's device, when it next runs, answers with a checkpoint that purges them; a request is answered once a complete, accepted checkpoint names the item in `purged` at or after the request's place in the order. Because the order is by clock, a write made earlier on a device that was offline is covered too when it arrives. In a group of one the person is the manager, so their own device does both. A writer in a shared group can therefore delete for good without being a manager, and the copy on storage goes when a manager's device has been online. This gives a writer no power they lacked: a writer can already clear every field of every item. What a purge adds is that the earlier values go too, which is the point of it.
 
 ## 6. Membership records
 
@@ -243,7 +243,7 @@ Membership records form one chain per group, separate from the device chains: ea
 payload = { 1: genesis_nonce, 2: card of the creator, 3: commit(0), 4: min_reader }
 ```
 
-The first record of a group: epoch 0, `seq` 1, no `mprev`. The creator is a manager. `min_reader` is the lowest format version that may read this group, at least `1` and `1` here; an implementation of a lower version MUST NOT read or write the group and tells the person to update. A reader MUST check that the card's `pid` is `author`, that `gid` in the header equals the derivation in section 3.3 from `author`, `genesis_nonce` and the `K_0` it holds, and that the commitment matches. If a reader holds more than one valid genesis for a `gid`, it uses the one with the smallest `record_id`; they can differ only in the creator's own card, device and clock.
+The first record of a group: epoch 0, `seq` 1, no `mprev`. The creator is a manager. `min_reader` is the lowest format version that may read this group, from `1` to 2^32 − 1, and `1` here; an implementation of a lower version MUST NOT read or write the group and tells the person to update. A reader MUST check that the card's `pid` is `author`, that `gid` in the header equals the derivation in section 3.3 from `author`, `genesis_nonce` and the `K_0` it holds, and that the commitment matches. If a reader holds more than one valid genesis for a `gid`, it uses the one with the smallest `record_id`; they can differ only in the creator's own card, device and clock.
 
 ### 6.2 Member, kind 2
 
@@ -264,7 +264,7 @@ Adds a person or changes a role. The author MUST be a manager as of `mprev`. `ro
 payload = { 1: mprev, 2: e, 3: commit(e), 4: K_(e-1) }
 ```
 
-Starts epoch `e`, which MUST be one more than the epoch as of `mprev`, with no other change. The author MUST be a manager as of `mprev`. The record is sealed under `K_e` and carries the previous key, so a member who can read epoch `e` can read everything before it. A reader MUST check `K_(e-1)` against `commit(e-1)`. Writers MUST seal new records under the newest epoch they have accepted.
+Starts epoch `e`, which MUST be one more than the epoch as of `mprev`, with no other change. The author MUST be a manager as of `mprev`. The record is sealed under `K_e` and carries the previous key, so a member who can read epoch `e` can read everything before it. A reader MUST check `K_(e-1)` against `commit(e-1)`, and MUST refuse a record that starts an epoch whose key equals the previous one: `K_e` is new random bytes, and a record that carried the old key forward would look like a rotation and rotate nothing. Writers MUST seal new records under the newest epoch they have accepted.
 
 ### 6.4 Remove, kind 5, and replace, kind 4
 
@@ -273,7 +273,7 @@ remove  = { 1: mprev, 2: pid, 3: cut, 4: e, 5: commit(e), 6: K_(e-1) }
 replace = { 1: mprev, 2: old pid, 3: new card, 4: cut, 5: e, 6: commit(e), 7: K_(e-1) }
 ```
 
-Removing a person and replacing a person's secret each start a new epoch in the same record. The record is sealed under the new key `K_e`, so the removed person, or whoever holds the old secret, cannot read it or anything after it, and there is no moment when the person is gone and the old key is still in use. `e`, the commitment and `K_(e-1)` are as in section 6.3. The header of the record MUST name epoch `e`; a reader refuses a record of kind 3, 4 or 5 whose header names any other epoch. `cut` is always present, may be empty, and applies to the removed or old `pid`: their records beyond it, and all of their records in chains it does not list, are ignored if they are sealed in an epoch before `e`. A person who is removed and later added again writes in the epoch of their return with nothing further needed.
+Removing a person and replacing a person's secret each start a new epoch in the same record. The record is sealed under the new key `K_e`, so the removed person, or whoever holds the old secret, cannot read it or anything after it, and there is no moment when the person is gone and the old key is still in use. `e`, the commitment and `K_(e-1)` are as in section 6.3. The header of the record MUST name epoch `e`; a reader refuses a record of kind 3, 4 or 5 whose header names any other epoch. `cut` is always present, may be empty, and applies to the removed or old `pid`: their records beyond it, and all of their records in chains it does not list, are ignored if they are sealed in an epoch before `e`. A person who is removed and later added again writes in the epoch of their return with nothing further needed. Anything they seal in between is ignored by the ordinary rule of section 5, since they are not a member as of its `mhead`.
 
 - **Remove** is written by a manager. The person MUST be a member as of `mprev`.
 - **Replace** is written by a manager, or by the person themselves signed with the old key. The new `pid` MUST NOT already be a member and takes the old one's role. Whoever holds a person's secret is that person as far as this format can tell: if a thief replaces the secret first, a manager removes the thief's `pid` and adds the person again.
@@ -318,7 +318,7 @@ A slot is a deterministic CBOR map `{ 1: 1, 2: type, 3: pid, 4: slot_id (16 rand
 
 - **Every slot.** After opening a slot a reader MUST check that the `PS` inside derives the slot's `pid`. Slots are not signed, and anyone who knows a device's public key can make one.
 - **Password.** The password is the UTF-8 bytes of what the person typed, normalized to NFC by the device. Argon2id defaults are 131,072 KiB (128 MiB), 3 passes, 4 lanes. A reader MUST refuse less than 65,536 KiB or fewer than 2 passes, MUST refuse zero lanes or less than 8 KiB of memory per lane, and MUST refuse more than 1,048,576 KiB, 16 passes or 16 lanes, since a slot comes from storage and could otherwise demand unbounded work. An implementation MAY offer an explicit test-only switch that lifts the lower bounds for the published vectors. The AutoFill extension never opens a password slot.
-- **Recovery kit.** 20 random bytes. It is shown as `RK1-` followed by 36 characters of Crockford base32 in nine groups of four separated by hyphens. The 36 characters encode the kit followed by the first two bytes of `SHA-256("psss/v1/kit-check" || kit)`, with four zero bits at the end; a reader rejects a text whose last four bits are not zero. When reading one, case, hyphens and spaces are ignored, `I` and `L` read as `1` and `O` reads as `0`, in the prefix too. A reader checks the two bytes before trying the kit, so a mistyped kit is told apart from a kit that opens nothing.
+- **Recovery kit.** 20 random bytes. It is shown as `RK1-` followed by 36 characters of Crockford base32 in nine groups of four separated by hyphens. The 36 characters encode the kit followed by the first two bytes of `SHA-256("psss/v1/kit-check" || kit)`, with four zero bits at the end; a reader rejects a text whose last four bits are not zero, and checks that before the check bytes. When reading one, case, hyphens and spaces are ignored, `I` and `L` read as `1` and `O` reads as `0`, in the prefix too. A reader checks the two bytes before trying the kit, so a mistyped kit is told apart from a kit that opens nothing.
 - **iCloud Keychain.** On Apple devices `PS` is by default also kept as an item in iCloud Keychain. That is a matter for the platform, not a slot, and is not part of this format.
 
 ## 8. Storage
@@ -391,6 +391,11 @@ A discarded record is as if it had never been written. If a device finds that a 
 - X-Wing comes from an Internet-Draft, and the only independent evidence that the reference implementation is right is that it agrees with Python's `cryptography` in both directions. CryptoKit and Go must be shown to agree on the vectors before anything depends on them. The signature checks of section 1.2 must likewise be shown to hold in each platform's library.
 
 ## 12. Changes
+
+### From draft 4
+
+- **A record that starts an epoch must bring a key that differs from the previous one** (6.3). Without the rule a removal could pass every check and rotate nothing.
+- **Small points.** An upper bound on `min_reader`, the order of the two recovery kit checks, when a purge request counts as answered, and that checkpoint parts are consecutive records of one chain (5.3, 5.4, 6.1, 7.2).
 
 ### From draft 3
 
