@@ -432,7 +432,18 @@ func runRecord(_ v: Vector) throws -> Outcome {
         if v.name.hasSuffix("different-body-different-record") {
             return .partial("\(f1); the bytes match with the vector's signature injected")
         }
-        return .fail("the same body sealed twice with CryptoKit gives two different sealed records and record ids: \(f1); spec 4.1 and 4.4 assume sealing is deterministic")
+        // Specification 4.1: a signer may add randomness, so two seals of one body may differ, but only in the signature and what
+        // follows from it. Everything fixed by the body must be equal, both must open, and a writer never seals a body twice.
+        guard a.salt == b.salt, a.header == b.header, a.bodyWithoutSignature == b.bodyWithoutSignature, a.signedMessage == b.signedMessage,
+              a.paddedLength == b.paddedLength, a.sealed.count == b.sealed.count else {
+            return .fail("two seals of one body differ in more than the signature")
+        }
+        let keyring = try singleKeyring(v.input)
+        let openedA = try RecordCodec.open(a.sealed, groupKey: keyring), openedB = try RecordCodec.open(b.sealed, groupKey: keyring)
+        guard openedA.recordID == a.recordID, openedB.recordID == b.recordID, a.recordID != b.recordID, a.signature != b.signature else {
+            return .fail("two seals of one body do not open to their own record ids")
+        }
+        return .partial("\(f1); the bytes match with the vector's signature injected, and two seals by CryptoKit differ only in the signature, as specification 4.1 allows")
     case "record.seal_large":
         let size = Int(try v.expected.uint("body_len"))
         // The vector gives the item id and the length of one byte-string field but not its name or the ramp. Any name of the
