@@ -36,6 +36,25 @@ enum PlanBuilder {
         var tagsAltered: Int
     }
 
+    /// What a person sees for a field the source names only by an internal name: the standard card names, and any other name
+    /// spelled out in words (`pop_server` is "Pop server", `validFrom` is "Valid from").
+    static func displayName(_ name: String) -> String {
+        let known = ["ccnum": "Card number", "cvv": "Security code", "cardholder": "Cardholder", "expiry": "Expiry date", "validFrom": "Valid from",
+                     "pin": "PIN", "type": "Type"]
+        if let label = known[name] { return label }
+        var words = ""
+        var previousLower = false
+        for character in name {
+            if character == "_" || character == "-" { words += " "; previousLower = false; continue }
+            if character.isUppercase, previousLower { words += " " }
+            words.append(character)
+            previousLower = character.isLowercase || character.isNumber
+        }
+        let text = words.trimmingCharacters(in: .whitespaces)
+        guard let first = text.first else { return name }
+        return first.uppercased() + text.dropFirst().lowercased()
+    }
+
     static let loginType = "webforms.WebForm"
     static let passwordType = "passwords.Password"
     static let noteType = "securenotes.SecureNote"
@@ -65,6 +84,8 @@ enum PlanBuilder {
         var value: Any?
         /// A value that could not be made into a month and year: kept as written, as a plain custom field.
         var raw = false
+        /// A date with only one of its parts: kept as written, and reported as incomplete.
+        var incomplete = false
     }
 
     private struct Custom {
@@ -99,7 +120,7 @@ enum PlanBuilder {
         default:
             kind = .custom
             if !customTypes.contains(r.typeName) {
-                issue(.unknownKind, String(localized: "the item type \(r.typeName) is not known, so its fields were kept as custom fields"))
+                issue(.unknownKind, String(localized: "this is an item type Psss does not know, so its fields were kept as a custom item"))
             }
         }
 
@@ -129,6 +150,7 @@ enum PlanBuilder {
         var codes: [(text: String, section: String)] = []
         var blankCodes: [ImportField] = []
         var unreadableValues: [String] = []
+        var incompleteDates = Set<String>()
 
         func ingest(_ field: SectionField) {
             if field.name.hasPrefix("TOTP_") {
@@ -138,7 +160,7 @@ enum PlanBuilder {
                         codes.append((text, ImportText.clean(field.section)))
                     } else if ImportText.clean(text) == text {
                         // Spaces are not a code: it is left out, and the item says so.
-                        issue(.secretSpaces, String(localized: "the one-time code is only spaces and was left out"))
+                        issue(.secretSpaces, String(localized: "the one-time code was only spaces and was left out. Set it up again from the site if you need one."))
                     } else {
                         // Characters the file cannot hold: kept as it is so that cleaning reports it like any other secret.
                         blankCodes.append(ImportField(.code, value: text, concealed: true))
@@ -149,7 +171,11 @@ enum PlanBuilder {
             if kind == .card, field.name == "type" || field.kind == "cctype" { seen.insert(field.name); return }
             guard let rendered = render(field, typeName: r.typeName, shortYear: kind == .card && field.name == "expiry") else { return }
             seen.insert(field.name)
-            if rendered.unreadable || field.raw { unreadableValues.append(field.title.isEmpty ? field.name : field.title) }
+            if rendered.unreadable || field.raw {
+                let shown = field.title.isEmpty ? displayName(field.name) : field.title
+                unreadableValues.append(shown)
+                if field.incomplete { incompleteDates.insert(shown) }
+            }
             if kind == .card, !rendered.unreadable, !field.raw {
                 switch field.name {
                 case "cardholder": cardFields.append(ImportField(.cardholder, value: rendered.text)); return
@@ -172,17 +198,26 @@ enum PlanBuilder {
             let reserved: Set<String> = ["fields", "URLs", "notesPlain", "passwordHistory", "sections", "unknown_details"]
             let flat = secure.filter { !reserved.contains($0.key) }
             for key in flat.keys.sorted() {
-                if key.hasSuffix("_yy"), flat[String(key.dropLast(3)) + "_mm"] != nil { continue }
-                if key.hasSuffix("_mm"), let year = flat[String(key.dropLast(3)) + "_yy"] {
+                if key.hasSuffix("_yy") || key.hasSuffix("_mm") {
                     let base = String(key.dropLast(3))
+                    // The pair is read once, at its month; a year without a month is read at the year.
+                    if key.hasSuffix("_yy"), flat[base + "_mm"] != nil { continue }
                     guard !seen.contains(base) else { continue }
-                    if let month = Value.integer(flat[key], in: 1...12), var yyyy = Value.integer(year, in: 0...9999), yyyy > 0 {
+                    let month = flat[base + "_mm"], year = flat[base + "_yy"]
+                    if let month, let year, let m = Value.integer(month, in: 1...12), var yyyy = Value.integer(year, in: 0...9999), yyyy > 0 {
                         if yyyy < 100 { yyyy += 2000 }
-                        ingest(SectionField(section: "", name: base, title: "", kind: "monthYear", value: NSNumber(value: yyyy * 100 + month)))
-                    } else {
-                        let text = "\(Value.scalarText(flat[key]) ?? "")/\(Value.scalarText(year) ?? "")"
-                        ingest(SectionField(section: "", name: base, title: "", kind: "", value: text, raw: true))
+                        ingest(SectionField(section: "", name: base, title: "", kind: "monthYear", value: NSNumber(value: yyyy * 100 + m)))
+                        continue
                     }
+                    let monthText = Value.scalarText(month) ?? "", yearText = Value.scalarText(year) ?? ""
+                    // Nothing to read in either part means no date: nothing is stored and nothing is reported.
+                    if monthText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, yearText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        seen.insert(base)
+                        continue
+                    }
+                    let text = month != nil && year != nil ? "\(monthText)/\(yearText)" : monthText + yearText
+                    let partial = monthText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || yearText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ingest(SectionField(section: "", name: base, title: displayName(base), kind: "", value: text, raw: true, incomplete: partial))
                     continue
                 }
                 guard !seen.contains(key) else { continue }
@@ -208,17 +243,25 @@ enum PlanBuilder {
         // is named after its section when it has one, and by its position when not.
         var codeValue: String?
         for (index, code) in codes.enumerated() {
+            let label = index == 0 ? "One-time code" : !code.section.isEmpty ? "One-time code (\(code.section))" : "One-time code \(index + 1)"
             if case .setup = TOTP.parse(code.text) {
                 if kind == .login, codeValue == nil { codeValue = code.text; continue }
-                if kind == .login { issue(.extraCode, String(localized: "another one-time code was kept as a hidden field")) }
+                if kind == .login {
+                    issue(.extraCode, String(localized: "a second one-time code was saved in the field \u{2018}\(label)\u{2019}. It is not used for signing in."))
+                }
             } else {
-                issue(.unreadableCode, String(localized: "the one-time code could not be read and was kept as a hidden field"))
+                issue(.unreadableCode, String(localized: "the one-time code could not be read. It was saved as written in the field \u{2018}\(label)\u{2019}, hidden; set it up again from the site."))
             }
-            let label = index == 0 ? "One-time code" : !code.section.isEmpty ? "One-time code (\(code.section))" : "One-time code \(index + 1)"
             addCustom(Custom(name: "", label: label, section: "", value: code.text, concealed: true))
         }
         for name in unreadableValues {
-            issue(.unreadableValue, String(localized: "the value of \(name) could not be read as a date and was kept as written"))
+            // "Valid from" is a date and "Expiry date" already says so.
+            let isDate = name.lowercased().hasSuffix("date")
+            if incompleteDates.contains(name) {
+                issue(.unreadableValue, String(localized: "the \(name.lowercased())\(isDate ? "" : " date") is incomplete in 1Password and was saved as written"))
+            } else {
+                issue(.unreadableValue, String(localized: "the \u{2018}\(name)\u{2019}\(isDate ? "" : " date") could not be read, so it was saved as text exactly as written"))
+            }
         }
 
         // The host or address of a server, router, database or mail account also becomes its website.
@@ -244,18 +287,17 @@ enum PlanBuilder {
         // Dates. A missing or unusable one is replaced by the other, else by the import time, and the item says so.
         var missingDate = false
         let created: Date, modified: Date
-        func why(_ stamp: Stamp) -> String { stamp == .invalid ? "out of range" : "missing" }
         switch (r.created, r.updated) {
         case (.ok(let c), .ok(let u)): created = c; modified = u
-        case (.ok(let c), let other):
+        case (.ok(let c), _):
             created = c; modified = c; missingDate = true
-            issue(.dateMissing, String(localized: "last edit date \(why(other)), used the creation date"))
-        case (let other, .ok(let u)):
+            issue(.dateMissing, String(localized: "the last edit date was missing or not a valid date, so the creation date was used instead"))
+        case (_, .ok(let u)):
             created = u; modified = u; missingDate = true
-            issue(.dateMissing, String(localized: "creation date \(why(other)), used the last edit date"))
+            issue(.dateMissing, String(localized: "the creation date was missing or not a valid date, so the last edit date was used instead"))
         default:
             created = now; modified = now; missingDate = true
-            issue(.dateMissing, String(localized: "creation and last edit dates \(why(r.created == .invalid || r.updated == .invalid ? .invalid : .missing)), used the import time"))
+            issue(.dateMissing, String(localized: "the creation and last edit dates were missing or not valid dates, so the time of the import was used instead"))
         }
 
         // Everything is cleaned the way the writer stores it before it is compared.
@@ -273,7 +315,9 @@ enum PlanBuilder {
             revisions.append((when ?? modified, index, value))
         }
         if badTimes > 0 {
-            issue(.dateMissing, String(localized: "\(badTimes) password history dates missing or out of range, used the last edit date"))
+            issue(.dateMissing, badTimes == 1
+                ? String(localized: "one earlier password has no valid date, so the last edit date was used for it")
+                : String(localized: "\(badTimes) earlier passwords have no valid date, so the last edit date was used for them"))
         }
         revisions.sort { ($0.date, $0.index) < ($1.date, $1.index) }
 
@@ -324,6 +368,9 @@ enum PlanBuilder {
     /// could not be read, so the raw text is kept instead.
     private static func render(_ field: SectionField, typeName: String, shortYear: Bool) -> (text: String, concealed: Bool, unreadable: Bool)? {
         guard let value = field.value, !(value is NSNull) else { return nil }
+        // A date or month and year whose parts are all empty has nothing to read: nothing is stored and nothing is reported.
+        if ["date", "monthYear"].contains(field.kind), let parts = value as? [String: Any],
+           parts.values.allSatisfy({ $0 is NSNull || (Value.scalarText($0) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { return nil }
         let concealed = field.kind == "concealed" || isSecretName(field.name, typeName: typeName)
         var text: String
         var unreadable = false
@@ -333,6 +380,8 @@ enum PlanBuilder {
             // A date of 0 is a real date (1970-01-01) as long as the field has a value key, which this function has checked.
             if let day = Value.day(value) { text = day } else { text = raw; unreadable = true }
         case "monthYear":
+            // Zero means empty.
+            if !(value is [String: Any]), Value.number(value) == 0 { return nil }
             if let (year, month) = Value.yearMonth(value) {
                 text = shortYear ? String(format: "%02d/%02d", month, year % 100) : String(format: "%02d/%04d", month, year)
             } else { text = raw; unreadable = true }

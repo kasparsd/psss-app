@@ -66,19 +66,20 @@ enum KeePassImport {
                 summary.similarAdded += 1
                 let why: String
                 switch resolved.similar[position] ?? .password {
-                case .password: why = String(localized: "a login for this site and username with another password was already in the vault, so this one was added separately")
-                case .incomingHasNone: why = String(localized: "a login for this site and username with a password was already in the vault and this one has none, so it was added separately")
-                case .existingHasNone: why = String(localized: "a login for this site and username with no password was already in the vault and this one has one, so it was added separately")
-                case .otherTitle: why = String(localized: "a login for this site and username with no password and another title was already in the vault, so this one was added separately")
-                case .mergeTaken: why = String(localized: "the login it matches already took another item of this import, so this one was added separately")
+                case .password: why = String(localized: "the vault already has a login for this site and user name with a different password, so this one was added as a separate entry. Delete the one you do not need.")
+                case .incomingHasNone: why = String(localized: "the vault already has a login for this site and user name with a password, and this one has none, so it was added as a separate entry. Delete the one you do not need.")
+                case .existingHasNone: why = String(localized: "the vault already has a login for this site and user name without a password, and this one has one, so it was added as a separate entry. Delete the one you do not need.")
+                case .otherTitle: why = String(localized: "the vault already has a login for this site and user name with another title and no password, so this one was added as a separate entry. Delete the one you do not need.")
+                case .mergeTaken: why = String(localized: "the login it matches was already combined with another item of this import, so this one was added as a separate entry")
                 }
-                summary.issues.append(ImportIssue(kind: .similarLogin, item: title, detail: why))
+                // A look-alike of a CSV login is told once, in the look-alike line below.
+                if resolved.looksLike[position] == nil { summary.issues.append(ImportIssue(kind: .similarLogin, item: title, detail: why)) }
             case .refresh:
                 summary.refreshed += 1
                 continue
             case .inRecycleBin:
                 summary.issues.append(ImportIssue(kind: .inRecycleBin, item: title,
-                                                  detail: String(localized: "it is in Recently Deleted; it was not imported again")))
+                                                  detail: String(localized: "it is in Recently Deleted, so it was not imported again. Restore it there if you want it back.")))
                 continue
             case .deletedByPerson:
                 summary.deletedNotImported += 1
@@ -87,11 +88,24 @@ enum KeePassImport {
             case .update(let change):
                 summary.updated += 1
                 for name in change.removedFiles { summary.removedAttachments.append(RemovedAttachment(item: item.title, file: name)) }
+                if !change.removedFiles.isEmpty {
+                    let names = change.removedFiles.prefix(3).joined(separator: ", ")
+                    let more = change.removedFiles.count - 3
+                    let detail: String
+                    if change.removedFiles.count == 1 {
+                        detail = String(localized: "an attachment removed in 1Password was removed here too: \(names)")
+                    } else if more > 0 {
+                        detail = String(localized: "\(change.removedFiles.count) attachments removed in 1Password were removed here too: \(names) and \(more) more")
+                    } else {
+                        detail = String(localized: "\(change.removedFiles.count) attachments removed in 1Password were removed here too: \(names)")
+                    }
+                    summary.issues.append(ImportIssue(kind: .attachmentRemoved, item: title, detail: detail))
+                }
                 summary.attachments += change.attachments.count
                 summary.historyEntries += change.historyAdds.count
                 if !change.overwritten.isEmpty {
                     summary.issues.append(ImportIssue(kind: .updatedOverwrote, item: title,
-                                                      detail: String(localized: "it changed in 1Password, so \(change.overwritten.joined(separator: ", ")) here was replaced with the new value. The earlier version is in its history")))
+                                                      detail: String(localized: "it changed in 1Password, so your edit to \(change.overwritten.joined(separator: ", ")) here was replaced with the new value. The earlier value is in the history of this item.")))
                 }
                 summary.issues += item.issues
                 continue
@@ -101,15 +115,15 @@ enum KeePassImport {
                 summary.historyEntries += change.historyAdds.count
                 if !change.conflicts.isEmpty {
                     summary.issues.append(ImportIssue(kind: .mergeConflict, item: title,
-                                                      detail: String(localized: "it already held another value for \(change.conflicts.joined(separator: ", ")), so that value was kept and the imported one was saved in a field ending in (1Password)")))
+                                                      detail: String(localized: "the vault already had a different value for \(change.conflicts.joined(separator: ", ")), so it was kept. The value from 1Password was saved in a field whose name ends in (1Password).")))
                 }
                 if change.notesCombined {
                     summary.issues.append(ImportIssue(kind: .notesCombined, item: title,
-                                                      detail: String(localized: "its notes differed, so the notes from 1Password were added below the ones already here")))
+                                                      detail: String(localized: "its notes differed, so the notes from 1Password were added below the notes already here")))
                 }
                 if change.codeNotInUse {
                     summary.issues.append(ImportIssue(kind: .codeNotInUse, item: title,
-                                                      detail: String(localized: "it already had another one-time code, so the one from 1Password was saved in the hidden field One-time code (1Password). It is not in use")))
+                                                      detail: String(localized: "it already had another one-time code, so the one from 1Password was saved in the field \u{2018}One-time code (1Password)\u{2019}. It is not used for signing in.")))
                 }
                 summary.issues += item.issues
                 continue
@@ -119,14 +133,16 @@ enum KeePassImport {
                 summary.possibleMatches.append(PossibleMatch(title: item.title, kind: item.kind, existingTitle: other.title))
                 summary.issues.append(ImportIssue(kind: .looksLikeExisting, item: title,
                                                   detail: other.differsInTitle
-                                                    ? String(localized: "it looks like \(other.title), which has a different title; it was added separately")
-                                                    : String(localized: "it looks like \(other.title), which has a different site; it was added separately")))
+                                                    ? String(localized: "it looks like \u{2018}\(other.title)\u{2019}, which has a different title, so it was added as a separate entry. Delete the one you do not need.")
+                                                    : String(localized: "it looks like \u{2018}\(other.title)\u{2019}, which has a different site, so it was added as a separate entry. Delete the one you do not need.")))
             }
             summary.issues += item.issues
             let (revisions, dropped) = kept(item, limit: limit)
             if dropped > 0 {
                 summary.issues.append(ImportIssue(kind: .historyTrimmed, item: title,
-                                                  detail: String(localized: "\(dropped) older passwords were not kept because the vault keeps \(limit)")))
+                                                  detail: dropped == 1
+                                                    ? String(localized: "1 older password was not kept because the vault keeps at most \(limit) per item")
+                                                    : String(localized: "\(dropped) older passwords were not kept because the vault keeps at most \(limit) per item")))
             }
             var counted = item
             counted.history = revisions
@@ -167,6 +183,9 @@ enum KeePassImport {
         var similar: [Int: ImportDuplicates.SimilarReason] = [:]
         /// CSV rows that look like an earlier CSV login: the title of that entry and what differs.
         var looksLike: [Int: (title: String, differsInTitle: Bool)] = [:]
+        /// The identifier an item is stored under when it is not the one it carries, by position in the plan. It differs when the
+        /// identifier is already held by another entry of the vault, so that no two live entries ever hold the same one.
+        var identifiers: [Int: String] = [:]
     }
 
     /// Everything an update or merge would do to one entry, worked out without touching it.
@@ -363,27 +382,108 @@ enum KeePassImport {
         }
         // Items that were deleted in the source after an earlier import stay in the vault, and the person is told.
         var issues: [ImportIssue] = []
+        var saidGroups = Set<String>()
         for (position, index) in outcome.matchedByFields.sorted(by: { $0.key < $1.key }) {
             let title = plan.items[position].title
             let plainID = known[index].existing.sourceID.map { !$0.contains("#") } ?? false
+            if plainID, let base = plan.items[position].sharedBase {
+                // The first item of a group carries the line about the shared internal ID, when that item is shown. Otherwise it is
+                // said once here.
+                let carrier = plan.items.firstIndex { $0.sharedBase == base } ?? position
+                var shown = false
+                switch out[carrier] { case .add, .addSimilar, .update, .merge: shown = true; default: break }
+                if shown || !saidGroups.insert(base).inserted { continue }
+                issues.append(ImportIssue(kind: .sharedIdentifier, item: plan.items[carrier].title.isEmpty ? nil : plan.items[carrier].title,
+                                          detail: String(localized: "\(plan.items.filter { $0.sharedBase == base }.count) items shared one internal ID in 1Password and were kept as separate entries")))
+                continue
+            }
             issues.append(ImportIssue(kind: .sharedIdentifier, item: title.isEmpty ? nil : title,
-                                      detail: plainID
-                                        ? String(localized: "another item of the export now has the same identifier, so it was matched to the entry it had before by its fields")
-                                        : String(localized: "its title or site changed since the last import, so it was matched to the existing entry by its fields")))
+                                      detail: String(localized: "its title or site changed in 1Password since the last import, so it was matched to the entry it had before instead of being added again")))
         }
         if !plan.trashedSources.isEmpty {
             var live = Set<String>()
             for entry in known where !entry.existing.inRecycleBin { if let id = entry.existing.sourceID { live.insert(id) } }
             for trashed in plan.trashedSources where live.contains(trashed.id) {
                 issues.append(ImportIssue(kind: .trashedInSource, item: trashed.title.isEmpty ? nil : trashed.title,
-                                          detail: String(localized: "it was deleted in 1Password; it is still in your vault")))
+                                          detail: String(localized: "it was deleted in 1Password, but it is still in your vault")))
             }
         }
         var resolved = Resolved(items: out, issues: issues, similar: outcome.similar)
+        separateIdentifiers(plan, known: known, outcome: outcome, resolved: &resolved)
         for (position, found) in outcome.looksLike {
             resolved.looksLike[position] = (known[found.existing].existing.title, found.differsInTitle)
         }
         return resolved
+    }
+
+    /// No two live entries may end up with the same `PSSS_SOURCE`. Pairing among alike items lets an entry keep its own identifier,
+    /// and an item that found no entry would then be added under an identifier that entry holds. Whoever holds an identifier now
+    /// keeps it: an added item gets the next free one, and an entry that would take another's identifier keeps its own.
+    private static func separateIdentifiers(_ plan: ImportPlan, known: [Known], outcome: ImportDuplicates.Outcome, resolved: inout Resolved) {
+        var held: [Int: String] = [:]
+        for (index, entry) in known.enumerated() where !entry.existing.inRecycleBin { if let id = entry.existing.sourceID { held[index] = id } }
+        // The identifier each entry will hold once the import is written.
+        var target: [Int: Int] = [:]
+        var indexOf: [ObjectIdentifier: Int] = [:]
+        for (index, entry) in known.enumerated() { indexOf[ObjectIdentifier(entry.node)] = index }
+        for (position, resolution) in resolved.items.enumerated() {
+            switch resolution {
+            case .update(let change), .merge(let change), .refresh(let change):
+                if let index = indexOf[ObjectIdentifier(change.entry)] { target[position] = index }
+            default: break
+            }
+        }
+        var final = held
+        for (position, index) in target.sorted(by: { $0.key < $1.key }) {
+            guard let id = plan.items[position].sourceID, !outcome.keepsIdentifier.contains(position), !known[index].existing.inRecycleBin else { continue }
+            final[index] = id
+        }
+        var counts: [String: Int] = [:]
+        for id in final.values { counts[id, default: 0] += 1 }
+        func keepOwn(_ position: Int, _ index: Int) {
+            switch resolved.items[position] {
+            case .update(var change): change.keepSource = true; resolved.items[position] = .update(change)
+            case .merge(var change): change.keepSource = true; resolved.items[position] = .merge(change)
+            case .refresh(var change): change.keepSource = true; resolved.items[position] = .refresh(change)
+            default: break
+            }
+            if let own = held[index] { counts[final[index] ?? "", default: 0] -= 1; final[index] = own; counts[own, default: 0] += 1 }
+        }
+        func fresh(_ id: String) -> String {
+            var stem = id
+            if let dash = id.lastIndex(of: "-"), id[id.index(after: dash)...].allSatisfy(\.isNumber), !id[id.index(after: dash)...].isEmpty,
+               id[..<dash].contains("#") { stem = String(id[..<dash]) }
+            var n = 2
+            while counts[stem + "-\(n)", default: 0] > 0 { n += 1 }
+            return stem + "-\(n)"
+        }
+        // An entry that takes an identifier somebody else holds keeps its own instead.
+        for (position, index) in target.sorted(by: { $0.key < $1.key }) {
+            guard let id = final[index], counts[id, default: 0] > 1 else { continue }
+            if held[index] == id { continue }
+            // A merge target has no 1Password identifier of its own (it is typed by hand or from a CSV): it takes a free one, or the
+            // next import would merge the same item into it again.
+            var isMerge = false
+            if case .merge = resolved.items[position] { isMerge = true }
+            if held[index] != nil, !isMerge { keepOwn(position, index) } else {
+                let other = fresh(id)
+                final[index] = other; counts[id, default: 0] -= 1; counts[other, default: 0] += 1
+                resolved.identifiers[position] = other
+            }
+        }
+        for (position, resolution) in resolved.items.enumerated() {
+            switch resolution {
+            case .add, .addSimilar:
+                guard let id = plan.items[position].sourceID, counts[id, default: 0] > 0 else {
+                    if let id = plan.items[position].sourceID { counts[id, default: 0] += 1 }
+                    continue
+                }
+                let other = fresh(id)
+                counts[other, default: 0] += 1
+                resolved.identifiers[position] = other
+            default: break
+            }
+        }
     }
 
     private static func protectedStandard(in document: KDBXDocument) -> Set<String> {
@@ -687,7 +787,9 @@ enum KeePassImport {
                           now: ImportTime.iso(plan.importedAt))
         state.rootGroup = rootGroup
 
-        for (item, resolution) in zip(plan.items, resolved.items) {
+        for (position, (original, resolution)) in zip(plan.items, resolved.items).enumerated() {
+            var item = original
+            if let id = resolved.identifiers[position] { item.sourceID = id }
             switch resolution {
             case .skip, .inRecycleBin, .deletedByPerson: continue
             case .add, .addSimilar:

@@ -77,7 +77,7 @@ enum OnePasswordPIF {
             lineNumber += 1
             guard case .line(var bytes) = event else {
                 longLines += 1
-                unreadable(.lineTooLong, String(localized: "Line \(lineNumber) is longer than \(limitMegabytes) MB and was not read"))
+                unreadable(.lineTooLong, String(localized: "line \(lineNumber) of the file is longer than \(limitMegabytes) MB, so it was skipped"))
                 inBrokenRecord = true
                 sawContent = true
                 return true
@@ -89,14 +89,14 @@ enum OnePasswordPIF {
             sawContent = true
             if trimmed == separator { inBrokenRecord = false; return true }
             guard trimmed.first == UInt8(ascii: "{") else {
-                if !inBrokenRecord { unreadable(.unreadableRecord, String(localized: "Line \(lineNumber) is not a record and was skipped")) }
+                if !inBrokenRecord { unreadable(.unreadableRecord, String(localized: "line \(lineNumber) of the file is not an item, so it was skipped")) }
                 return true
             }
             inBrokenRecord = false
             guard let (object, fellBack, undefined) = parse(trimmed) else {
                 inBrokenRecord = true
                 brokenRecords += 1
-                unreadable(.unreadableRecord, String(localized: "Line \(lineNumber) could not be read and was skipped"))
+                unreadable(.unreadableRecord, String(localized: "line \(lineNumber) of the file could not be read, so it was skipped"))
                 return true
             }
             if fellBack { encodingFallbacks += 1 }
@@ -105,7 +105,7 @@ enum OnePasswordPIF {
             switch classify(object) {
             case .ignored: validRecords += 1
             case .invalid:
-                unreadable(.unreadableRecord, String(localized: "Line \(lineNumber) is not a 1Password item and was skipped"))
+                unreadable(.unreadableRecord, String(localized: "line \(lineNumber) of the file does not look like a 1Password item, so it was skipped"))
             case .folder(let id, let title, let parent):
                 validRecords += 1
                 folders[id] = (ImportText.clean(title), parent)
@@ -143,7 +143,7 @@ enum OnePasswordPIF {
             // Lines that look like records but cannot be parsed (a lone surrogate, a cut-off line) are not the same as a file that is
             // not an export: say what happened.
             if brokenRecords > 0, plan.skipped.unreadable == brokenRecords {
-                throw ImportError.unreadable(String(localized: "None of the \(brokenRecords) records in it could be read."))
+                throw ImportError.unreadable(brokenRecords == 1 ? String(localized: "The one item in the file could not be read.") : String(localized: "None of the \(brokenRecords) items in the file could be read."))
             }
             throw sawContent ? ImportError.notAnExport : ImportError.empty
         }
@@ -151,25 +151,27 @@ enum OnePasswordPIF {
 
         if encodingFallbacks > 0 {
             plan.issues.append(ImportIssue(kind: .textEncoding, item: nil,
-                                           detail: String(localized: "\(encodingFallbacks) records were not UTF-8 and were read as Windows text, so some characters may differ")))
+                                           detail: String(localized: "the file is not saved as UTF-8, so it was read as Windows text and accented or special characters may look different")))
         }
         if undefinedBytes > 0 {
             plan.issues.append(ImportIssue(kind: .textEncoding, item: nil,
-                                           detail: String(localized: "\(undefinedBytes) records held bytes that Windows text leaves undefined. They were kept and those characters were replaced with \u{FFFD}")))
+                                           detail: String(localized: "some characters could not be read and are shown as a replacement mark (\u{FFFD})")))
         }
         if tagsAltered > 0 {
             plan.issues.append(ImportIssue(kind: .tagsChanged, item: nil,
-                                           detail: String(localized: "\(tagsAltered) tags held a semicolon or comma, which the vault file uses to separate tags, and got a space instead")))
+                                           detail: tagsAltered == 1
+                                            ? String(localized: "a tag contained a semicolon or comma, which a tag cannot hold, so it was replaced with a space")
+                                            : String(localized: "\(tagsAltered) tags contained a semicolon or comma, which a tag cannot hold, so each was replaced with a space")))
         }
         if sawWindows {
             plan.lowConfidence = true
             plan.issues.append(ImportIssue(kind: .windowsExport, item: nil,
-                                           detail: String(localized: "This export looks like 1Password for Windows, which is less tested. Check the imported items")))
+                                           detail: String(localized: "this export came from 1Password for Windows, which Psss has tested less. Check a few items, especially cards and attachments.")))
         }
         var flattened = false
         for index in plan.items.indices { plan.items[index].folder = path(of: folderIDs[index], in: folders, flattened: &flattened) }
         if flattened {
-            plan.issues.append(ImportIssue(kind: .foldersFlattened, item: nil, detail: String(localized: "Folders nested deeper than 32 levels were flattened.")))
+            plan.issues.append(ImportIssue(kind: .foldersFlattened, item: nil, detail: String(localized: "some folders were nested more than 32 levels deep and were flattened, so a few items are in a different folder than in 1Password")))
         }
         plan.separateSharedIdentifiers()
         return plan
@@ -429,6 +431,14 @@ enum OnePasswordPIF {
             if case .directory = OnePasswordPIF.node(path), let real = OnePasswordPIF.realPath(path) { folder = real } else { folder = nil }
         }
 
+        /// The one sentence for everything that is not an ordinary file inside the export folder, with the count when it is known.
+        private func notFilesInFolder(_ count: Int?) -> String {
+            guard let count else { return String(localized: "some attachments were not imported because they are not ordinary files inside the export folder") }
+            return count == 1
+                ? String(localized: "1 attachment was not imported because it is not an ordinary file inside the export folder")
+                : String(localized: "\(count) attachments were not imported because they are not ordinary files inside the export folder")
+        }
+
         func list(uuid: String, title: String, totalBytes: inout Int) -> (files: [ImportAttachment], issues: [ImportIssue]) {
             guard let folder, !uuid.isEmpty else { return ([], []) }
             let shown = title.isEmpty ? nil : ImportText.clean(title)
@@ -438,13 +448,13 @@ enum OnePasswordPIF {
             guard safe else {
                 // Only worth a word when something sits there to be followed.
                 guard FileManager.default.fileExists(atPath: folder + "/" + uuid) else { return ([], []) }
-                return ([], [issue(.attachmentRejected, String(localized: "its identifier is not a plain name, so the attachments folder was not followed"))])
+                return ([], [issue(.attachmentRejected, notFilesInFolder(nil))])
             }
             let itemFolder = folder + "/" + uuid
             switch OnePasswordPIF.node(itemFolder) {
             case .missing: return ([], [])
             case .directory: break
-            default: return ([], [issue(.attachmentSkipped, String(localized: "its attachments folder is not a plain folder, so it was not followed"))])
+            default: return ([], [issue(.attachmentSkipped, notFilesInFolder(nil))])
             }
             guard let names = try? FileManager.default.contentsOfDirectory(atPath: itemFolder) else { return ([], []) }
             var files: [ImportAttachment] = []
@@ -471,19 +481,22 @@ enum OnePasswordPIF {
             var issues: [ImportIssue] = []
             func megabytes(_ bytes: Int) -> String { bytes >= 1024 * 1024 ? "\(bytes / (1024 * 1024)) MB" : "\(bytes) bytes" }
             if tooLarge > 0 {
-                issues.append(issue(.attachmentTooLarge, String(localized: "\(tooLarge) attachment(s) larger than the limit of \(megabytes(limits.attachmentBytes)) each were not imported")))
+                issues.append(issue(.attachmentTooLarge, tooLarge == 1
+                    ? String(localized: "1 attachment is larger than the limit of \(megabytes(limits.attachmentBytes)), so it was not imported")
+                    : String(localized: "\(tooLarge) attachments are larger than the limit of \(megabytes(limits.attachmentBytes)) each, so they were not imported")))
             }
             if overTotal > 0 {
-                issues.append(issue(.attachmentsTotalLimit, String(localized: "\(overTotal) attachment(s) were not imported: all attachments together can hold \(megabytes(limits.allAttachmentBytes))")))
+                issues.append(issue(.attachmentsTotalLimit, overTotal == 1
+                    ? String(localized: "1 attachment was not imported because all attachments together can hold at most \(megabytes(limits.allAttachmentBytes))")
+                    : String(localized: "\(overTotal) attachments were not imported because all attachments together can hold at most \(megabytes(limits.allAttachmentBytes))")))
             }
             if overCount > 0 {
-                issues.append(issue(.attachmentLimitPerItem, String(localized: "\(overCount) attachment(s) were not imported: an item can hold \(limits.attachmentsPerItem) files")))
+                issues.append(issue(.attachmentLimitPerItem, overCount == 1
+                    ? String(localized: "1 attachment was not imported because an item can hold at most \(limits.attachmentsPerItem) files")
+                    : String(localized: "\(overCount) attachments were not imported because an item can hold at most \(limits.attachmentsPerItem) files")))
             }
-            if outside > 0 {
-                issues.append(issue(.attachmentRejected, String(localized: "\(outside) attachment(s) point outside the export folder, or through more than one link, and were not imported")))
-            }
-            if skipped > 0 {
-                issues.append(issue(.attachmentSkipped, String(localized: "skipped \(skipped) in its attachments folder that are not files (a folder, a pipe or a link to one)")))
+            if outside + skipped > 0 {
+                issues.append(issue(outside > 0 ? .attachmentRejected : .attachmentSkipped, notFilesInFolder(outside + skipped)))
             }
             return (files, issues)
         }

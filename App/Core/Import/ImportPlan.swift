@@ -69,19 +69,38 @@ struct ImportItem: Sendable {
 
 /// Something worth telling the person. `detail` is a plain sentence and never holds a secret or a field value.
 struct ImportIssue: Sendable, Equatable {
-    enum Kind: String, Sendable {
+    enum Kind: String, Sendable, CaseIterable {
         case unreadableRecord, lineTooLong, textEncoding, unknownKind, unreadableCode, extraCode
-        case attachmentTooLarge, attachmentsTotalLimit, attachmentLimitPerItem, attachmentRejected, attachmentMissingFolder
-        case historyTrimmed, similarLogin, skippedRow, unsafeIdentifier, windowsExport
+        case attachmentTooLarge, attachmentsTotalLimit, attachmentLimitPerItem, attachmentRejected
+        case historyTrimmed, similarLogin, skippedRow, windowsExport
         case dateMissing, unreadableValue, attachmentSkipped, tagsChanged, updatedOverwrote, mergeConflict
-        case secretChanged, secretSpaces, looksLikeExisting, textEmptied, foldersFlattened, sharedIdentifier, deletedNotImported, inRecycleBin, trashedInSource, notesCombined, codeNotInUse
+        case secretChanged, secretSpaces, looksLikeExisting, textEmptied, foldersFlattened, sharedIdentifier, deletedNotImported, inRecycleBin, trashedInSource, notesCombined, codeNotInUse, attachmentRemoved
     }
 
     var kind: Kind
     /// The item's title, never a value.
     var item: String?
     var detail: String
+
+    init(kind: Kind, item: String?, detail: String) {
+        self.kind = kind
+        self.item = item
+        self.detail = detail
+        #if HOSTLESS_TESTS
+        ImportIssueLog.record(self)
+        #endif
+    }
 }
+
+#if HOSTLESS_TESTS
+/// Every issue ever made, so a test can check by construction that each kind has a fixture and that no text names a secret.
+final class ImportIssueLog: @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var issues: [ImportIssue] = []
+    static func record(_ issue: ImportIssue) { lock.lock(); issues.append(issue); lock.unlock() }
+    static var all: [ImportIssue] { lock.lock(); defer { lock.unlock() }; return issues }
+}
+#endif
 
 /// Why records or rows were left out, for the one-line report.
 struct ImportSkipped: Sendable, Equatable {
@@ -147,9 +166,12 @@ struct ImportSummary: Sendable, Equatable {
     var needsWrite: Bool { itemCount > 0 || refreshed > 0 }
     /// The issues grouped by kind, each group in order.
     var issuesByKind: [ImportIssue.Kind: [ImportIssue]] { Dictionary(grouping: issues, by: \.kind) }
-    /// Nothing a person needs to read: no issue, no changed secret, no unreadable record and nothing left out because it was deleted
-    /// here. Counts of what was added, skipped as duplicate or refreshed do not make an import unclean.
-    var isClean: Bool { issues.isEmpty && secretsChanged == 0 && unreadable == 0 && deletedNotImported == 0 && possibleMatches.isEmpty }
+    /// Nothing a person needs to read: no issue, no changed secret, no unreadable record, nothing left out because it was deleted
+    /// here, no possible match and no attachment removed from an entry. Counts of what was added, skipped as duplicate or
+    /// refreshed do not make an import unclean: a refresh only rewrites stored bookkeeping, so a refresh-only import stays clean.
+    var isClean: Bool {
+        issues.isEmpty && secretsChanged == 0 && unreadable == 0 && deletedNotImported == 0 && possibleMatches.isEmpty && removedAttachments.isEmpty
+    }
 }
 
 struct PossibleMatch: Sendable, Equatable {
@@ -391,7 +413,7 @@ extension ImportItem {
         }
         if emptied {
             found.append(ImportIssue(kind: .textEmptied, item: shown.isEmpty ? nil : shown,
-                                     detail: String(localized: "some text contained only characters that cannot be stored, so it is empty now")))
+                                     detail: String(localized: "some text contained only characters Psss cannot store, so that text is now empty")))
         }
         // A one-time code with nothing left in it is not a code.
         fields.removeAll { $0.role == .code && $0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -420,6 +442,11 @@ extension ImportPlan {
             }
             guard kept.count > 1 else { continue }
             var used: [String: Int] = [:]
+            // Said once for the group, on its first item.
+            if let first = kept.first {
+                items[first].issues.append(ImportIssue(kind: .sharedIdentifier, item: items[first].title.isEmpty ? nil : items[first].title,
+                                                       detail: String(localized: "\(kept.count) items shared one internal ID in 1Password and were kept as separate entries")))
+            }
             for index in kept {
                 var digest = items[index].identityDigest
                 let n = (used[digest] ?? 0) + 1
@@ -427,8 +454,6 @@ extension ImportPlan {
                 if n > 1 { digest += "-\(n)" }
                 items[index].sharedBase = id
                 items[index].sourceID = "\(id)#\(digest)"
-                items[index].issues.append(ImportIssue(kind: .sharedIdentifier, item: items[index].title.isEmpty ? nil : items[index].title,
-                                                       detail: String(localized: "two items in the export share one identifier, and the items are kept as separate entries")))
             }
         }
         if !dropped.isEmpty { items = items.enumerated().filter { !dropped.contains($0.offset) }.map(\.element) }

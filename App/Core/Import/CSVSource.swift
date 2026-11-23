@@ -24,7 +24,7 @@ enum CSVSource {
         var plan = try plan(from: text, now: now)
         if fellBack {
             plan.issues.append(ImportIssue(kind: .textEncoding, item: nil,
-                                           detail: String(localized: "The file was not UTF-8 and was read as Windows text, so some characters may differ")))
+                                           detail: String(localized: "the file is not saved as UTF-8, so it was read as Windows text and accented or special characters may look different")))
         }
         return plan
     }
@@ -72,7 +72,7 @@ enum CSVSource {
                 else {
                     fields.append(ImportField(.custom, label: "One-time code", value: code, concealed: true))
                     issues.append(ImportIssue(kind: .unreadableCode, item: rowTitle.isEmpty ? nil : rowTitle,
-                                              detail: String(localized: "the one-time code could not be read and was kept as a hidden field")))
+                                              detail: String(localized: "the one-time code could not be read. It was saved as written in the field \u{2018}One-time code\u{2019}, hidden; set it up again from the site.")))
                 }
             }
             if !value(notes).isEmpty { fields.append(ImportField(.notes, value: value(notes))) }

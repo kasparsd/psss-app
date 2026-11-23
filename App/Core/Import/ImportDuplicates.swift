@@ -132,8 +132,15 @@ enum ImportDuplicates {
                        details: ((Int) -> EntryDetail)? = nil) -> Outcome {
         var byID: [String: Int] = [:]
         var byBase: [String: [Int]] = [:]
-        var passwords: [String: Set<String>] = [:]
-        var withoutPassword = Set<String>()
+        // The live entries by site and user name, and the ones without a password by site, user name and title. What an item is
+        // judged against is read from these, minus the entries its siblings claim (see `known`).
+        var entriesBySiteUser: [String: [Int]] = [:]
+        var entriesWithoutPassword: [String: [Int]] = [:]
+        // What items of this import added, with the shared identifier of the item that added it.
+        var addedPasswords: [String: [(base: String?, password: String)]] = [:]
+        var addedWithout: [String: [String?]] = [:]
+        // The entries that the items of each group of a shared identifier claim, and so change, in this same import.
+        var groupClaimed: [String: Set<Int>] = [:]
         var mergeable: [String: [Int]] = [:]
         var csvBySiteUser: [String: [Int]] = [:]
         var csvByTitleUser: [String: [Int]] = [:]
@@ -150,8 +157,6 @@ enum ImportDuplicates {
             // An entry in the recycle bin never blocks or absorbs an imported item.
             guard !entry.inRecycleBin else { continue }
             for host in entry.hosts {
-                passwords[key(host, entry.username), default: []].insert(entry.password)
-                if entry.password.isEmpty { withoutPassword.insert(key(host, entry.username, entry.title)) }
                 if entry.isPlain, !entry.password.isEmpty { mergeable[key(host, entry.username, entry.password), default: []].append(index) }
                 if entry.isFromCSV {
                     csvBySiteUser[key(host, entry.username), default: []].append(index)
@@ -204,7 +209,11 @@ enum ImportDuplicates {
                         var score = 0
                         if let details {
                             let detail = details(index)
-                            if !password.isEmpty, existing[index].password == password || detail.history.contains(password) { score += 1000 }
+                            // An empty password says nothing about which entry it was. A password an entry holds now counts for more than
+                            // one it only held earlier.
+                            if !password.isEmpty {
+                                if existing[index].password == password { score += 2000 } else if detail.history.contains(password) { score += 1000 }
+                            }
                             for pair in pairs where detail.fieldHashes[pair.key] == KeePassImport.fieldHash(existing[index].entryID, pair.key, pair.value) { score += 1 }
                         }
                         scored.append((score, position, index))
@@ -220,6 +229,28 @@ enum ImportDuplicates {
                     paired[pick.position] = pick.entry
                     taken.insert(pick.entry)
                 }
+                // A greedy pick can take an entry that fits another item better. Swapping two picks, or moving a pick to a free
+                // entry, while the total fit grows settles on the pairing that a second import finds again.
+                var weight: [Int: [Int: Int]] = [:]
+                for pick in scored where pick.score > 0 { weight[pick.position, default: [:]][pick.entry] = pick.score }
+                let pickedPositions = positions.filter { paired[$0] != nil }
+                var pass = 0, improved = true
+                while improved, pass < 20, pickedPositions.count <= 64 {
+                    improved = false; pass += 1
+                    for p in pickedPositions {
+                        for q in pickedPositions where p < q {
+                            guard let e = paired[p], let f = paired[q] else { continue }
+                            let now = (weight[p]?[e] ?? 0) + (weight[q]?[f] ?? 0)
+                            guard let pf = weight[p]?[f], let qe = weight[q]?[e], pf + qe > now else { continue }
+                            paired[p] = f; paired[q] = e; improved = true
+                        }
+                        guard let e = paired[p] else { continue }
+                        for g in candidates where !pickedPositions.contains(where: { paired[$0] == g }) {
+                            if let wg = weight[p]?[g], wg > (weight[p]?[e] ?? 0) { paired[p] = g; improved = true; break }
+                        }
+                    }
+                }
+                taken = Set(pickedPositions.compactMap { paired[$0] })
                 candidates.removeAll { taken.contains($0) }
                 for position in positions where paired[position] == nil && !candidates.isEmpty {
                     if let id = plan.items[position].sourceID, let index = byID[id], existing[index].inRecycleBin { continue }
@@ -227,9 +258,10 @@ enum ImportDuplicates {
                 }
                 for position in positions where paired[position] != nil { keeps.insert(position) }
                 claimed.formUnion(taken)
-                claimed.formUnion(paired.values)
+                claimed.formUnion(positions.compactMap { paired[$0] })
             }
             var candidates = (byBase[base] ?? []).filter { !claimed.contains($0) }
+            defer { groupClaimed[base] = claimed }
             for position in open where !candidates.isEmpty {
                 let item = plan.items[position]
                 let title = effectiveTitle(item)
@@ -240,109 +272,154 @@ enum ImportDuplicates {
                     let score = (entry.title == title ? 1 : 0) + (entry.username == item.username ? 1 : 0) + (entry.hosts.contains { hosts.contains($0) } ? 1 : 0)
                     if score >= 2, best == nil || score > best!.score { best = (score, slot) }
                 }
-                if let best { fuzzy[position] = candidates[best.at]; candidates.remove(at: best.at) }
+                if let best { fuzzy[position] = candidates[best.at]; claimed.insert(candidates[best.at]); candidates.remove(at: best.at) }
             }
         }
-        var matchedByFields: [Int: Int] = [:]
-        var similar: [Int: SimilarReason] = [:]
-        var looksLike: [Int: LooksLike] = [:]
-        var planIDs = Set<String>()
+        var excluded = Set<Int>()
+        func buildSets() {
+            entriesBySiteUser.removeAll(); entriesWithoutPassword.removeAll()
+            for (index, entry) in existing.enumerated() where !entry.inRecycleBin && !excluded.contains(index) {
+                for host in entry.hosts {
+                    entriesBySiteUser[key(host, entry.username), default: []].append(index)
+                    if entry.password.isEmpty { entriesWithoutPassword[key(host, entry.username, entry.title)] = (entriesWithoutPassword[key(host, entry.username, entry.title)] ?? []) + [index] }
+                }
+            }
+        }
+        /// The passwords the vault and this import hold for a site and user name, as an item of group `base` sees them: the entries
+        /// that its siblings claim change in this same import, and what a sibling added is its own, so neither counts. Every other
+        /// entry (typed by hand, from a CSV, from another 1Password item) counts as for any item.
+        func known(_ siteUser: String, base: String?) -> [String] {
+            let claimed = base.flatMap { groupClaimed[$0] }
+            var out = (entriesBySiteUser[siteUser] ?? []).filter { claimed?.contains($0) != true }.map { existing[$0].password }
+            for added in addedPasswords[siteUser] ?? [] where base == nil || added.base != base { out.append(added.password) }
+            return out
+        }
+        func knownWithoutPassword(_ siteUserTitle: String, base: String?) -> Bool {
+            let claimed = base.flatMap { groupClaimed[$0] }
+            if (entriesWithoutPassword[siteUserTitle] ?? []).contains(where: { claimed?.contains($0) != true }) { return true }
+            return (addedWithout[siteUserTitle] ?? []).contains { base == nil || $0 != base }
+        }
+        buildSets()
+        // The decisions are made in a sweep over the plan. Entries that an item updates change in this same import, so what they
+        // held before must not make another item look like a duplicate (a second import would see them changed and add it after
+        // all). When any entry is updated, the sweep runs again with the sets of passwords built without those entries: what they
+        // will hold is not known here (a field the person changed is kept), so they count for nothing.
+        func sweep() -> (decisions: [Decision], matched: [Int: Int], similar: [Int: SimilarReason], looksLike: [Int: LooksLike]) {
+            consumed.removeAll(); addedPasswords.removeAll(); addedWithout.removeAll()
+            var matchedByFields: [Int: Int] = [:]
+            var similar: [Int: SimilarReason] = [:]
+            var looksLike: [Int: LooksLike] = [:]
+            var planIDs = Set<String>()
 
-        var decisions: [Decision] = []
-        decisions.reserveCapacity(plan.items.count)
-        for (position, item) in plan.items.enumerated() {
-            if let id = item.sourceID {
-                if planIDs.contains(id) { decisions.append(.duplicate); continue }
-                var direct: Int?
-                if tied.contains(position) {
-                    direct = paired[position]
-                    if direct == nil, let index = byID[id], existing[index].inRecycleBin { direct = index }
-                } else if let index = byID[id], !(existing[index].inRecycleBin && fuzzy[position] != nil) {
-                    direct = index
-                }
-                if let index = direct ?? fuzzy[position] {
-                    planIDs.insert(id)
-                    if direct == nil { matchedByFields[position] = index }
-                    if existing[index].inRecycleBin {
-                        decisions.append(.inRecycleBin(index))
-                    } else if consumed.contains(index) {
-                        decisions.append(.duplicate)
-                    } else if direct != nil, existing[index].holds(item.fingerprint), !existing[index].baselineStale {
-                        decisions.append(.duplicate)
-                    } else {
-                        // Other content, or the same content with hashes in an older form that a write brings up to date.
-                        consumed.insert(index)
-                        decisions.append(.update(index))
+            var decisions: [Decision] = []
+            decisions.reserveCapacity(plan.items.count)
+            for (position, item) in plan.items.enumerated() {
+                if let id = item.sourceID {
+                    if planIDs.contains(id) { decisions.append(.duplicate); continue }
+                    var direct: Int?
+                    if tied.contains(position) {
+                        direct = paired[position]
+                        if direct == nil, let index = byID[id], existing[index].inRecycleBin { direct = index }
+                    } else if let index = byID[id], !(existing[index].inRecycleBin && fuzzy[position] != nil) {
+                        direct = index
                     }
-                    continue
-                }
-                if !plan.includeDeleted, deleted.contains(id) {
-                    planIDs.insert(id)
-                    decisions.append(.deletedByPerson)
-                    continue
-                }
-            }
-            let hosts = item.kind == .login ? item.websites.map(host).filter { !$0.isEmpty } : []
-            // Only a 1Password item is richer than a plain entry. A CSV row never is.
-            let richer = item.sourceID.map { !$0.hasPrefix("csv:") } ?? false
-            var forcedSimilar = false
-            if richer, !item.password.isEmpty {
-                var target: Int?
-                var matched = false
-                for host in hosts where target == nil {
-                    guard let candidates = mergeable[key(host, item.username, item.password)] else { continue }
-                    matched = true
-                    target = candidates.first { !consumed.contains($0) }
-                }
-                if let target {
-                    consumed.insert(target)
-                    planIDs.insert(item.sourceID ?? "")
-                    decisions.append(.merge(target))
-                    continue
-                }
-                // Every entry it would merge into was taken by an earlier item of this import: this one is its own item.
-                forcedSimilar = matched
-            }
-            // Without a password, the same site, user name and title as an entry that has none is the same login.
-            let title = effectiveTitle(item)
-            if item.password.isEmpty, !hosts.isEmpty {
-                if hosts.contains(where: { withoutPassword.contains(key($0, item.username, title)) }) {
-                    decisions.append(.duplicate)
-                    continue
-                }
-            }
-            var decision = Decision.add
-            if forcedSimilar {
-                decision = .addSimilar
-                similar[position] = .mergeTaken
-            } else if !hosts.isEmpty {
-                var reason: SimilarReason?
-                for host in hosts {
-                    guard let known = passwords[key(host, item.username)] else { continue }
-                    if !item.password.isEmpty, known.contains(item.password) { decision = .duplicate; break }
-                    let anyPassword = known.contains { !$0.isEmpty }
-                    reason = reason ?? (item.password.isEmpty ? (anyPassword ? .incomingHasNone : .otherTitle) : (anyPassword ? .password : .existingHasNone))
-                }
-                if decision != .duplicate, let reason { decision = .addSimilar; similar[position] = reason }
-            }
-            decisions.append(decision)
-            if decision != .duplicate {
-                if let id = item.sourceID { planIDs.insert(id) }
-                // A CSV row that matches no marker may still be a login the vault holds under another title or site.
-                if item.sourceID?.hasPrefix("csv:") == true, !hosts.isEmpty {
-                    if let other = hosts.lazy.compactMap({ csvBySiteUser[key($0, item.username)]?.first { existing[$0].title != title } }).first {
-                        looksLike[position] = LooksLike(existing: other, differsInTitle: true)
-                    } else if let other = csvByTitleUser[key(title, item.username)]?.first(where: { entry in !existing[entry].hosts.contains { hosts.contains($0) } }) {
-                        looksLike[position] = LooksLike(existing: other, differsInTitle: false)
+                    if let index = direct ?? fuzzy[position] {
+                        planIDs.insert(id)
+                        if direct == nil { matchedByFields[position] = index }
+                        if existing[index].inRecycleBin {
+                            decisions.append(.inRecycleBin(index))
+                        } else if consumed.contains(index) {
+                            decisions.append(.duplicate)
+                        } else if direct != nil, existing[index].holds(item.fingerprint), !existing[index].baselineStale {
+                            decisions.append(.duplicate)
+                        } else {
+                            // Other content, or the same content with hashes in an older form that a write brings up to date.
+                            consumed.insert(index)
+                            decisions.append(.update(index))
+                        }
+                        continue
+                    }
+                    if !plan.includeDeleted, deleted.contains(id) {
+                        planIDs.insert(id)
+                        decisions.append(.deletedByPerson)
+                        continue
                     }
                 }
-                for host in hosts {
-                    passwords[key(host, item.username), default: []].insert(item.password)
-                    if item.password.isEmpty { withoutPassword.insert(key(host, item.username, title)) }
+                let hosts = item.kind == .login ? item.websites.map(host).filter { !$0.isEmpty } : []
+                // Only a 1Password item is richer than a plain entry. A CSV row never is.
+                let richer = item.sourceID.map { !$0.hasPrefix("csv:") } ?? false
+                var forcedSimilar = false
+                // An item that shares an identifier is judged like any other, except that the entries its siblings claim do not count:
+                // they change in this same import, and a second import would see them changed and add this item after all.
+                let base = item.sharedBase
+                if richer, !item.password.isEmpty {
+                    var target: Int?
+                    var matched = false
+                    for host in hosts where target == nil {
+                        guard let candidates = mergeable[key(host, item.username, item.password)] else { continue }
+                        matched = true
+                        target = candidates.first { !consumed.contains($0) }
+                    }
+                    if let target {
+                        consumed.insert(target)
+                        planIDs.insert(item.sourceID ?? "")
+                        decisions.append(.merge(target))
+                        continue
+                    }
+                    // Every entry it would merge into was taken by an earlier item of this import: this one is its own item.
+                    forcedSimilar = matched
+                }
+                // Without a password, the same site, user name and title as an entry that has none is the same login.
+                let title = effectiveTitle(item)
+                if item.password.isEmpty, !hosts.isEmpty {
+                    if hosts.contains(where: { knownWithoutPassword(key($0, item.username, title), base: base) }) {
+                        decisions.append(.duplicate)
+                        continue
+                    }
+                }
+                var decision = Decision.add
+                if forcedSimilar {
+                    decision = .addSimilar
+                    similar[position] = .mergeTaken
+                } else if !hosts.isEmpty {
+                    var reason: SimilarReason?
+                    for host in hosts {
+                        let seen = known(key(host, item.username), base: base)
+                        if seen.isEmpty { continue }
+                        if !item.password.isEmpty, seen.contains(item.password) { decision = .duplicate; break }
+                        let anyPassword = seen.contains { !$0.isEmpty }
+                        reason = reason ?? (item.password.isEmpty ? (anyPassword ? .incomingHasNone : .otherTitle) : (anyPassword ? .password : .existingHasNone))
+                    }
+                    if decision != .duplicate, let reason { decision = .addSimilar; similar[position] = reason }
+                }
+                decisions.append(decision)
+                if decision != .duplicate {
+                    if let id = item.sourceID { planIDs.insert(id) }
+                    // A CSV row that matches no marker may still be a login the vault holds under another title or site.
+                    if item.sourceID?.hasPrefix("csv:") == true, !hosts.isEmpty {
+                        if let other = hosts.lazy.compactMap({ csvBySiteUser[key($0, item.username)]?.first { existing[$0].title != title } }).first {
+                            looksLike[position] = LooksLike(existing: other, differsInTitle: true)
+                        } else if let other = csvByTitleUser[key(title, item.username)]?.first(where: { entry in !existing[entry].hosts.contains { hosts.contains($0) } }) {
+                            looksLike[position] = LooksLike(existing: other, differsInTitle: false)
+                        }
+                    }
+                    for host in hosts {
+                        addedPasswords[key(host, item.username), default: []].append((base, item.password))
+                        if item.password.isEmpty { addedWithout[key(host, item.username, title), default: []].append(base) }
+                    }
                 }
             }
+            return (decisions, matchedByFields, similar, looksLike)
         }
-        return Outcome(decisions: decisions, matchedByFields: matchedByFields, keepsIdentifier: keeps, similar: similar, looksLike: looksLike)
+        var result = sweep()
+        var updatedEntries: [Int: Int] = [:]
+        for (position, decision) in result.decisions.enumerated() { if case .update(let index) = decision { updatedEntries[index] = position } }
+        if !updatedEntries.isEmpty {
+            excluded = Set(updatedEntries.keys)
+            buildSets()
+            result = sweep()
+        }
+        return Outcome(decisions: result.decisions, matchedByFields: result.matched, keepsIdentifier: keeps, similar: result.similar, looksLike: result.looksLike)
     }
 
     static func host(_ website: String) -> String { SiteMatch.normalizedHost(website) }
