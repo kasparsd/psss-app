@@ -1,6 +1,6 @@
 # Vault format: a record log in place of a single file
 
-**Status: adopted by the owner on 2026-11-23. Not built.** This format becomes the source of truth for a vault, and KDBX becomes import and export. It reverses the decision of the same morning that KDBX is canonical. Today's build still stores KDBX, and [vaults](vaults.md) describes that build. Four narrower decisions in the [table below](#decisions-for-the-owner) are still open.
+**Status: adopted by the owner on 2026-11-23. Not built.** This format becomes the source of truth for a vault, and KDBX becomes import and export. It reverses the decision of the same morning that KDBX is canonical. Today's build still stores KDBX, and [vaults](vaults.md) describes that build. Three narrower decisions in the [table below](#decisions-for-the-owner) are still open: post-quantum wrapping with its OS floor, the age envelope, and the order of work.
 
 ## Why it changed
 
@@ -65,9 +65,9 @@ Every change is one record. Its plaintext holds:
 - the hash of that device's previous record, which chains each device's records together,
 - a hybrid logical clock (wall time plus a counter, so order survives a wrong clock),
 - the kind of change and its content: fields set or cleared on one item, an item moved to Recently Deleted or restored, a membership change, a checkpoint,
-- an Ed25519 signature by the author's device over all of the above.
+- an Ed25519 signature by the author over all of the above. The key is the person's, held by each of their devices; the [specification](format-spec.md#31-person) says why it is not a key per device, and the review of 2026-11-23 questions that.
 
-The record is serialized in deterministic CBOR (RFC 8949, section 4.2), padded to a size bucket and sealed with one AEAD under a key derived for that record. Its id is the SHA-256 of the sealed bytes. The signature is inside the encryption, so storage does not learn who wrote what.
+The record is serialized in deterministic CBOR (RFC 8949, section 4.2), padded to a size bucket and sealed with one AEAD under a key derived for that record. Its id is the SHA-256 of the sealed bytes. The signature is inside the encryption, so storage cannot read who wrote a record from the record itself. A folder location still shows it: file paths carry person and device identifiers, and the [specification](format-spec.md#11-known-weaknesses-to-put-to-the-reviewer) lists that as a weakness to fix.
 
 **Merging.** The state of an item is the fold of its records in clock order.
 
@@ -76,7 +76,7 @@ The record is serialized in deterministic CBOR (RFC 8949, section 4.2), padded t
 - Fields that must not be half-merged travel in one record and win or lose together: the one-time code's settings, a passkey's five fields, a card number with its expiry. This is the unit rule already written in [vaults](vaults.md#the-merge).
 - An edit against a delete: the item is kept and shown, as the approved principle says nothing is deleted outright.
 
-**What the log gives for free.** Previous passwords, Recently Deleted, restore and undo are all reads of the log. The conflict screen is no longer needed.
+**What the log gives.** Previous passwords, Recently Deleted, restore and undo are all reads of the log, and the conflict screen is no longer needed. Not yet true past a checkpoint: as specified in draft 2, a checkpoint keeps only the current value of each field, so previous passwords would end at the first one. Checkpoints must carry bounded history before Previous Passwords can be built on this format.
 
 **Checkpoints and permanent delete.** A checkpoint record carries the folded state up to a stated position in each device's chain. Records it covers can then be removed from storage. This keeps the log small and is how a confirmed permanent delete actually removes a secret. A device that was offline simply adds its newer records on top.
 
@@ -93,7 +93,7 @@ unlock secret   iCloud Keychain · device key · vault password (Argon2id) · re
             └─ record key    derived per record with HKDF
 ```
 
-- **Unlocking** with a device key (held in the Secure Enclave on Apple devices, a TPM or OS keystore elsewhere) needs no password hashing. That is what the AutoFill extension uses.
+- **Unlocking** needs no password hashing, which is what lets the AutoFill extension open the vault. Where the person secret sits on a device is not settled: an item that syncs through iCloud Keychain cannot, as far as is known, be bound to Face ID or Touch ID the way today's device-only key is, so the working design is a synced copy for reaching new devices and a device-only key behind biometrics that guards the local index. This needs a spike (S6) before anything relies on it.
 - **Changing the vault password** rewrites one wrapped key. Nothing is re-encrypted.
 - **iCloud Keychain holds the person key by default on Apple devices** (asked for by the owner, 2026-11-23). It is one more wrapped copy, so the format does not depend on it. A new device on the same Apple Account has the key as soon as the keychain arrives, with no approval step and nothing to type. Protection is then exactly that of Apple Passwords: the Apple Account, the device passcode and Apple's own recovery. Without iCloud Keychain, and on Windows and Linux, a device is let in by approving it on one that is already in, or with the vault password or recovery kit.
 - **A vault password and a recovery kit are optional,** under Advanced. They matter to someone who wants a way in that does not go through their Apple Account: a non-Apple device, a backup kept elsewhere, or losing the account itself. A kit alone does not survive losing the Apple Account, because the iCloud copy of the vault goes with the account: it has to be paired with a copy somewhere else, on a device, in a folder or server location, or in a backup file. The app says so once, plainly, and does not nag.
@@ -114,7 +114,7 @@ A vault begins with a genesis record signed by its creator. The vault id is the 
 
 The specification defines records. A transport needs only three operations: list what is new, get, and put if absent. It never needs to understand a record.
 
-- **CloudKit, the default on Apple devices.** One zone per vault in the person's private database and one `CKRecord` per record. Change tokens fetch only what is new, and push notifications make it prompt. A Family vault is that zone shared with `CKShare`. CloudKit's permissions are a convenience; the cryptography is the security boundary.
+- **CloudKit, the default on Apple devices.** One zone per group and one `CKRecord` per record. Change tokens fetch only what is new, and push notifications make it prompt. A group shared with other people is that zone with a `CKShare`, in the private database of the person who made it. CloudKit's permissions are a convenience; the cryptography is the security boundary. How the list of people on the share is kept equal to the group's members is not yet specified.
 - **A folder.** Each device appends to its own segment files and seals them at a size limit, so no file ever has two writers. This works in iCloud Drive, Syncthing, Nextcloud, Dropbox or on a USB stick, with no code specific to any of them.
 - **A server.** Three endpoints over any blob store. Psss defines it and never hosts it. WebDAV and S3-compatible storage can also serve as the folder transport directly.
 - **Bridging.** A client connected to two transports for one vault joins them, because merging is union. A Mac can keep a CloudKit vault and a folder on a home server in step, and a Windows or Linux client reads the folder.
@@ -153,7 +153,7 @@ The mock pages hold the frames, the rejected alternatives and the reasons. The d
 - **Words.** “Vault”, “group”, “Kept in”, “location”, “backup copy”, “KeePass file”, “recovery kit”. “iCloud Keychain” appears only where it is explained. “Up to date” and “Behind” have one meaning each, and Behind says what Psss cannot know.
 - **Locations.** They belong to a device, not to the vault. Add a Location is in the vault's details under Setup, never on the main path. A second location is described as a live copy where it is added. A single file is never a location. A server has one Address field and can be added only after Test Connection passes. Removing a location never deletes what is in it.
 - **Backup.** Manual, not scheduled. Restore offers “Add to” the vault or “Open as a Separate Vault”, never “replace”. The recovery kit screen says the kit brings back the key and not the data, and offers a backup copy too. A KeePass export asks for its own file password and says what does not travel.
-- **Simultaneous edits.** No alert. A quiet note appears only on an item whose password was changed on two devices, and History lists every change.
+- **Simultaneous edits.** No alert. A quiet note appears only on an item whose password was changed on two devices, and the losing value is kept under Previous Passwords. A full history view is not approved or planned; [items](items.md) keeps “no history table”.
 - **Groups.** Role names are “Manages members”, “Can change items” and “Can view only”; managing includes changing. A person is invited once, in person or on a trusted call, with a code and confirmation words on which neither button is primary; after that they are picked for other groups with no code. Moving items into a shared group states the three truths on the sheet. New logins from Safari go to Only Me. A view-only member is not offered backup or export, and view-only protects against accidents, not against the member.
 - **Removing a person** comes first, and the list of passwords they could see second, scoped to the group, marked off as each is changed.
 
@@ -191,7 +191,7 @@ Still open, listed as questions on the mock pages: whether a vault needs a name 
 ## Roadmap
 
 - [x] Owner decision to adopt (2026-11-23).
-- [ ] Owner decision on the four open rows above.
+- [ ] Owner decision on the three open rows above.
 - [x] Verified X-Wing HPKE in CryptoKit, Go and Python, and age's post-quantum recipients (2026-11-23).
 - [~] Byte-level [specification](format-spec.md): draft 2 (2026-11-23), which answers the 36 findings of the first independent implementation. The reference implementation for Node 24 and 240 test vectors are in `Packages/format/` and pass (`scripts/test-format.sh`), checked by a second independent run; they follow draft 1 until brought up to draft 2. Not yet specified: the item schema, the invitation and approval exchanges, the backup file and the CloudKit record types. Not yet shown: that CryptoKit and Go agree with the X-Wing and HPKE vectors.
 - [ ] Spike: CloudKit zone per vault with `CKShare`, including whether a child's Apple Account can accept the share, and convergence times on real devices.
