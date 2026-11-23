@@ -1,0 +1,339 @@
+{
+  "description": "Clock and total order (section 4.5).",
+  "vectors": [
+    {
+      "name": "clock/order/wall-first",
+      "description": "wall_ms dominates the counter.",
+      "type": "clock.order",
+      "input": {
+        "clocks": [
+          {
+            "wall": 2,
+            "counter": 0,
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1
+          },
+          {
+            "wall": 1,
+            "counter": 9,
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1
+          }
+        ]
+      },
+      "expected": {
+        "order": [
+          1,
+          0
+        ]
+      }
+    },
+    {
+      "name": "clock/order/counter",
+      "description": "Equal wall_ms: counter decides.",
+      "type": "clock.order",
+      "input": {
+        "clocks": [
+          {
+            "wall": 5,
+            "counter": 2,
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1
+          },
+          {
+            "wall": 5,
+            "counter": 1,
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1
+          },
+          {
+            "wall": 5,
+            "counter": 3,
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1
+          }
+        ]
+      },
+      "expected": {
+        "order": [
+          1,
+          0,
+          2
+        ]
+      }
+    },
+    {
+      "name": "clock/order/author-bytes",
+      "description": "Equal wall_ms and counter: author, compared bytewise.",
+      "type": "clock.order",
+      "input": {
+        "clocks": [
+          {
+            "wall": 5,
+            "counter": 0,
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1
+          },
+          {
+            "wall": 5,
+            "counter": 0,
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1
+          }
+        ]
+      },
+      "expected": {
+        "order": [
+          1,
+          0
+        ]
+      }
+    },
+    {
+      "name": "clock/order/device",
+      "description": "Same author: device, bytewise.",
+      "type": "clock.order",
+      "input": {
+        "clocks": [
+          {
+            "wall": 5,
+            "counter": 0,
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "85d922c7e256a809f956e6a3d37e1f3f",
+            "seq": 1
+          },
+          {
+            "wall": 5,
+            "counter": 0,
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1
+          }
+        ]
+      },
+      "expected": {
+        "order": [
+          0,
+          1
+        ]
+      }
+    },
+    {
+      "name": "clock/order/seq",
+      "description": "Same chain: seq.",
+      "type": "clock.order",
+      "input": {
+        "clocks": [
+          {
+            "wall": 5,
+            "counter": 0,
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 3
+          },
+          {
+            "wall": 5,
+            "counter": 0,
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 2
+          }
+        ]
+      },
+      "expected": {
+        "order": [
+          1,
+          0
+        ]
+      }
+    },
+    {
+      "name": "clock/order/bytes-not-hex-text",
+      "description": "Author 0x0a.. against 0x9f..: bytewise numeric order, not text order of unrelated encodings.",
+      "type": "clock.order",
+      "input": {
+        "clocks": [
+          {
+            "wall": 5,
+            "counter": 0,
+            "author": "9f00000000000000000000000000000000000000000000000000000000000000",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1
+          },
+          {
+            "wall": 5,
+            "counter": 0,
+            "author": "0affffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1
+          }
+        ]
+      },
+      "expected": {
+        "order": [
+          1,
+          0
+        ]
+      }
+    },
+    {
+      "name": "clock/order/large-values",
+      "description": "wall_ms and counter beyond 32 bits.",
+      "type": "clock.order",
+      "input": {
+        "clocks": [
+          {
+            "wall": 4294967296,
+            "counter": 0,
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1
+          },
+          {
+            "wall": 4294967295,
+            "counter": 4294967296,
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1
+          }
+        ]
+      },
+      "expected": {
+        "order": [
+          1,
+          0
+        ]
+      }
+    },
+    {
+      "name": "clock/next/own-time-ahead",
+      "description": "Own time later than anything seen: counter 0.",
+      "type": "clock.next",
+      "input": {
+        "now_ms": 1000,
+        "seen": [
+          [
+            900,
+            4
+          ]
+        ]
+      },
+      "expected": {
+        "clock": [
+          1000,
+          0
+        ]
+      }
+    },
+    {
+      "name": "clock/next/equal-wall",
+      "description": "Own time equals the largest seen wall_ms: counter one more.",
+      "type": "clock.next",
+      "input": {
+        "now_ms": 900,
+        "seen": [
+          [
+            900,
+            4
+          ],
+          [
+            800,
+            9
+          ]
+        ]
+      },
+      "expected": {
+        "clock": [
+          900,
+          5
+        ]
+      }
+    },
+    {
+      "name": "clock/next/behind",
+      "description": "Own clock behind: take the largest wall_ms seen, counter one more than the largest there.",
+      "type": "clock.next",
+      "input": {
+        "now_ms": 100,
+        "seen": [
+          [
+            900,
+            4
+          ],
+          [
+            900,
+            2
+          ],
+          [
+            800,
+            9
+          ]
+        ]
+      },
+      "expected": {
+        "clock": [
+          900,
+          5
+        ]
+      }
+    },
+    {
+      "name": "clock/next/nothing-seen",
+      "description": "Nothing seen.",
+      "type": "clock.next",
+      "input": {
+        "now_ms": 7,
+        "seen": []
+      },
+      "expected": {
+        "clock": [
+          7,
+          0
+        ]
+      }
+    },
+    {
+      "name": "clock/held-back/exactly-24h",
+      "description": "Exactly 24 hours ahead: not more than 24 hours, so not held back.",
+      "type": "clock.held_back",
+      "input": {
+        "wall_ms": 86401000,
+        "now_ms": 1000
+      },
+      "expected": {
+        "held_back": false
+      }
+    },
+    {
+      "name": "clock/held-back/one-ms-over",
+      "description": "24 hours and 1 ms ahead: held back.",
+      "type": "clock.held_back",
+      "input": {
+        "wall_ms": 86401001,
+        "now_ms": 1000
+      },
+      "expected": {
+        "held_back": true
+      }
+    },
+    {
+      "name": "clock/held-back/past",
+      "description": "In the past.",
+      "type": "clock.held_back",
+      "input": {
+        "wall_ms": 5,
+        "now_ms": 1000
+      },
+      "expected": {
+        "held_back": false
+      }
+    }
+  ]
+}

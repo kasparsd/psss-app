@@ -1,0 +1,102 @@
+{
+  "description": "Attachment chunks (section 5.2).",
+  "vectors": [
+    {
+      "name": "chunk/seal-index-0",
+      "description": "Chunk 0: nonce u96(index), aad \"psss/v1/chunk\".",
+      "type": "chunk.seal",
+      "input": {
+        "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
+        "index": 0,
+        "data": "68656c6c6f206174746163686d656e74"
+      },
+      "expected": {
+        "sealed": "f8b94bbd94dd3940ab9ef1732a4c89cb45186855f158ffbf30a8932672ddb537",
+        "chunk_id": "5f427b4b47cbf7349633fb25e367b05c788bab7b6e0873407d11cfb3025645dc"
+      }
+    },
+    {
+      "name": "chunk/open-index-0",
+      "description": "Opens.",
+      "type": "chunk.open",
+      "input": {
+        "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
+        "index": 0,
+        "sealed": "f8b94bbd94dd3940ab9ef1732a4c89cb45186855f158ffbf30a8932672ddb537"
+      },
+      "expected": {
+        "data": "68656c6c6f206174746163686d656e74"
+      }
+    },
+    {
+      "name": "chunk/seal-index-1",
+      "description": "Chunk 1: nonce u96(index), aad \"psss/v1/chunk\".",
+      "type": "chunk.seal",
+      "input": {
+        "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
+        "index": 1,
+        "data": "7365636f6e64206368756e6b"
+      },
+      "expected": {
+        "sealed": "2cc2d0d4cf5f573e2ab3a409e761a42b8a1b2f45bf8c4e4aef797084",
+        "chunk_id": "292f291f6ab3e8a3253b719b6d1d143b463bf26a73e22c1fffd288e5944c70dc"
+      }
+    },
+    {
+      "name": "chunk/open-index-1",
+      "description": "Opens.",
+      "type": "chunk.open",
+      "input": {
+        "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
+        "index": 1,
+        "sealed": "2cc2d0d4cf5f573e2ab3a409e761a42b8a1b2f45bf8c4e4aef797084"
+      },
+      "expected": {
+        "data": "7365636f6e64206368756e6b"
+      }
+    },
+    {
+      "name": "chunk/seal-index-4294967296",
+      "description": "Chunk 4294967296: nonce u96(index), aad \"psss/v1/chunk\".",
+      "type": "chunk.seal",
+      "input": {
+        "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
+        "index": 4294967296,
+        "data": "696e646578206265796f6e642033322062697473"
+      },
+      "expected": {
+        "sealed": "a3f445e6d4ea629a11f73c4e1942bf388711a4c76175c20935e673dae8b67bda24ce7f8e",
+        "chunk_id": "09340a6823c6f27d98190d1e5b27785ec603708244d4e355935072cc5d3b2dd8"
+      }
+    },
+    {
+      "name": "chunk/open-index-4294967296",
+      "description": "Opens.",
+      "type": "chunk.open",
+      "input": {
+        "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
+        "index": 4294967296,
+        "sealed": "a3f445e6d4ea629a11f73c4e1942bf388711a4c76175c20935e673dae8b67bda24ce7f8e"
+      },
+      "expected": {
+        "data": "696e646578206265796f6e642033322062697473"
+      }
+    },
+    {
+      "name": "chunk/open-wrong-index",
+      "description": "The nonce binds the chunk index.",
+      "type": "chunk.open",
+      "input": {
+        "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
+        "index": 1,
+        "sealed": "e8a3d9773a11f06a6a5a920bd5528e7af6"
+      },
+      "expected": {
+        "error": {
+          "code": "failure",
+          "message": "tag"
+        }
+      }
+    }
+  ]
+}

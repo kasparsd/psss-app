@@ -1,0 +1,1133 @@
+{
+  "description": "Deterministic CBOR (section 2).",
+  "vectors": [
+    {
+      "name": "cbor/encode/uint-0",
+      "description": "Unsigned integer 0 in its shortest encoding.",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "uint": "0"
+        }
+      },
+      "expected": {
+        "hex": "00"
+      }
+    },
+    {
+      "name": "cbor/encode/uint-23",
+      "description": "Unsigned integer 23 in its shortest encoding.",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "uint": "23"
+        }
+      },
+      "expected": {
+        "hex": "17"
+      }
+    },
+    {
+      "name": "cbor/encode/uint-24",
+      "description": "Unsigned integer 24 in its shortest encoding.",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "uint": "24"
+        }
+      },
+      "expected": {
+        "hex": "1818"
+      }
+    },
+    {
+      "name": "cbor/encode/uint-255",
+      "description": "Unsigned integer 255 in its shortest encoding.",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "uint": "255"
+        }
+      },
+      "expected": {
+        "hex": "18ff"
+      }
+    },
+    {
+      "name": "cbor/encode/uint-256",
+      "description": "Unsigned integer 256 in its shortest encoding.",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "uint": "256"
+        }
+      },
+      "expected": {
+        "hex": "190100"
+      }
+    },
+    {
+      "name": "cbor/encode/uint-65535",
+      "description": "Unsigned integer 65535 in its shortest encoding.",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "uint": "65535"
+        }
+      },
+      "expected": {
+        "hex": "19ffff"
+      }
+    },
+    {
+      "name": "cbor/encode/uint-65536",
+      "description": "Unsigned integer 65536 in its shortest encoding.",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "uint": "65536"
+        }
+      },
+      "expected": {
+        "hex": "1a00010000"
+      }
+    },
+    {
+      "name": "cbor/encode/uint-4294967295",
+      "description": "Unsigned integer 4294967295 in its shortest encoding.",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "uint": "4294967295"
+        }
+      },
+      "expected": {
+        "hex": "1affffffff"
+      }
+    },
+    {
+      "name": "cbor/encode/uint-4294967296",
+      "description": "Unsigned integer 4294967296 in its shortest encoding.",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "uint": "4294967296"
+        }
+      },
+      "expected": {
+        "hex": "1b0000000100000000"
+      }
+    },
+    {
+      "name": "cbor/encode/uint-18446744073709551615",
+      "description": "Unsigned integer 18446744073709551615 in its shortest encoding.",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "uint": "18446744073709551615"
+        }
+      },
+      "expected": {
+        "hex": "1bffffffffffffffff"
+      }
+    },
+    {
+      "name": "cbor/encode/text-empty",
+      "description": "Empty text string.",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "text": ""
+        }
+      },
+      "expected": {
+        "hex": "60"
+      }
+    },
+    {
+      "name": "cbor/encode/text-ietf",
+      "description": "Text string \"IETF\".",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "text": "IETF"
+        }
+      },
+      "expected": {
+        "hex": "6449455446"
+      }
+    },
+    {
+      "name": "cbor/encode/text-nfc-e-acute",
+      "description": "U+00E9 (already NFC) is two UTF-8 bytes.",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "text": "é"
+        }
+      },
+      "expected": {
+        "hex": "62c3a9"
+      }
+    },
+    {
+      "name": "cbor/encode/bytes-empty",
+      "description": "Empty byte string.",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "bytes": ""
+        }
+      },
+      "expected": {
+        "hex": "40"
+      }
+    },
+    {
+      "name": "cbor/encode/bytes-4",
+      "description": "Four-byte string.",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "bytes": "01020304"
+        }
+      },
+      "expected": {
+        "hex": "4401020304"
+      }
+    },
+    {
+      "name": "cbor/encode/array-empty",
+      "description": "Empty array.",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "array": []
+        }
+      },
+      "expected": {
+        "hex": "80"
+      }
+    },
+    {
+      "name": "cbor/encode/array-123",
+      "description": "Array [1,2,3].",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "array": [
+            {
+              "uint": "1"
+            },
+            {
+              "uint": "2"
+            },
+            {
+              "uint": "3"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "hex": "83010203"
+      }
+    },
+    {
+      "name": "cbor/encode/array-nested",
+      "description": "Nested arrays.",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "array": [
+            {
+              "uint": "1"
+            },
+            {
+              "array": [
+                {
+                  "uint": "2"
+                },
+                {
+                  "uint": "3"
+                }
+              ]
+            },
+            {
+              "array": [
+                {
+                  "uint": "4"
+                },
+                {
+                  "uint": "5"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expected": {
+        "hex": "8301820203820405"
+      }
+    },
+    {
+      "name": "cbor/encode/false",
+      "description": "false.",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "bool": false
+        }
+      },
+      "expected": {
+        "hex": "f4"
+      }
+    },
+    {
+      "name": "cbor/encode/true",
+      "description": "true.",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "bool": true
+        }
+      },
+      "expected": {
+        "hex": "f5"
+      }
+    },
+    {
+      "name": "cbor/encode/null",
+      "description": "null.",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "null": true
+        }
+      },
+      "expected": {
+        "hex": "f6"
+      }
+    },
+    {
+      "name": "cbor/encode/map-empty",
+      "description": "Empty map.",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "map": []
+        }
+      },
+      "expected": {
+        "hex": "a0"
+      }
+    },
+    {
+      "name": "cbor/encode/map-int-keys-sorted",
+      "description": "Integer keys given out of order are sorted by their encodings: 1, 10, 24, 256.",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "map": [
+            [
+              {
+                "uint": "24"
+              },
+              {
+                "uint": "0"
+              }
+            ],
+            [
+              {
+                "uint": "1"
+              },
+              {
+                "uint": "0"
+              }
+            ],
+            [
+              {
+                "uint": "256"
+              },
+              {
+                "uint": "0"
+              }
+            ],
+            [
+              {
+                "uint": "10"
+              },
+              {
+                "uint": "0"
+              }
+            ]
+          ]
+        }
+      },
+      "expected": {
+        "hex": "a401000a0018180019010000"
+      }
+    },
+    {
+      "name": "cbor/encode/map-text-keys-length-first",
+      "description": "Text keys sort by their encoding, so \"b\" comes before \"aa\" (shorter first).",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "map": [
+            [
+              {
+                "text": "aa"
+              },
+              {
+                "uint": "2"
+              }
+            ],
+            [
+              {
+                "text": "b"
+              },
+              {
+                "uint": "1"
+              }
+            ]
+          ]
+        }
+      },
+      "expected": {
+        "hex": "a261620162616102"
+      }
+    },
+    {
+      "name": "cbor/encode/map-text-keys-upper-before-lower",
+      "description": "Same length: bytewise, so \"B\" (0x42) before \"a\" (0x61).",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "map": [
+            [
+              {
+                "text": "a"
+              },
+              {
+                "uint": "1"
+              }
+            ],
+            [
+              {
+                "text": "B"
+              },
+              {
+                "uint": "2"
+              }
+            ]
+          ]
+        }
+      },
+      "expected": {
+        "hex": "a2614202616101"
+      }
+    },
+    {
+      "name": "cbor/encode/map-text-keys-multibyte",
+      "description": "Encoded length counts UTF-8 bytes: \"z\" (1 byte) before U+00E9 (2 bytes).",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "map": [
+            [
+              {
+                "text": "é"
+              },
+              {
+                "uint": "1"
+              }
+            ],
+            [
+              {
+                "text": "z"
+              },
+              {
+                "uint": "2"
+              }
+            ]
+          ]
+        }
+      },
+      "expected": {
+        "hex": "a2617a0262c3a901"
+      }
+    },
+    {
+      "name": "cbor/encode/map-nested",
+      "description": "Map inside a map value.",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "map": [
+            [
+              {
+                "uint": "1"
+              },
+              {
+                "map": [
+                  [
+                    {
+                      "text": "k"
+                    },
+                    {
+                      "bytes": "ff"
+                    }
+                  ]
+                ]
+              }
+            ]
+          ]
+        }
+      },
+      "expected": {
+        "hex": "a101a1616b41ff"
+      }
+    },
+    {
+      "name": "cbor/reject/uint-0-in-two-bytes",
+      "description": "Integer 0 with a one-byte argument.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "1800"
+      },
+      "expected": {
+        "error": {
+          "code": "non_shortest"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/uint-23-in-two-bytes",
+      "description": "Integer 23 with a one-byte argument.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "1817"
+      },
+      "expected": {
+        "error": {
+          "code": "non_shortest"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/uint-255-in-three-bytes",
+      "description": "Integer 255 with a two-byte argument.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "1900ff"
+      },
+      "expected": {
+        "error": {
+          "code": "non_shortest"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/uint-65535-in-five-bytes",
+      "description": "Integer 65535 with a four-byte argument.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "1a0000ffff"
+      },
+      "expected": {
+        "error": {
+          "code": "non_shortest"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/uint-in-nine-bytes",
+      "description": "Integer 2^32-1 with an eight-byte argument.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "1b00000000ffffffff"
+      },
+      "expected": {
+        "error": {
+          "code": "non_shortest"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/bytes-length-not-shortest",
+      "description": "Byte string length 1 written as a one-byte argument.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "580100"
+      },
+      "expected": {
+        "error": {
+          "code": "non_shortest"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/negative-integer",
+      "description": "Negative integer -1.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "20"
+      },
+      "expected": {
+        "error": {
+          "code": "negative_integer"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/negative-integer-long",
+      "description": "Negative integer -100.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "3863"
+      },
+      "expected": {
+        "error": {
+          "code": "negative_integer"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/float-half",
+      "description": "Half-precision float.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "f90000"
+      },
+      "expected": {
+        "error": {
+          "code": "float"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/float-single",
+      "description": "Single-precision float.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "fa3fc00000"
+      },
+      "expected": {
+        "error": {
+          "code": "float"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/float-double",
+      "description": "Double-precision float.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "fb3ff0000000000000"
+      },
+      "expected": {
+        "error": {
+          "code": "float"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/undefined",
+      "description": "undefined.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "f7"
+      },
+      "expected": {
+        "error": {
+          "code": "undefined"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/simple-16",
+      "description": "Simple value 16.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "f0"
+      },
+      "expected": {
+        "error": {
+          "code": "simple_value"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/simple-32",
+      "description": "Simple value 32 (one-byte form).",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "f820"
+      },
+      "expected": {
+        "error": {
+          "code": "simple_value"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/tag-1",
+      "description": "Tag 1 (epoch time).",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "c11a514b67b0"
+      },
+      "expected": {
+        "error": {
+          "code": "tag"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/tag-0-text",
+      "description": "Tag 0 on a text string.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "c074323031332d30332d32315432303a30343a30305a"
+      },
+      "expected": {
+        "error": {
+          "code": "tag"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/indefinite-bytes",
+      "description": "Indefinite-length byte string.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "5f4100ff"
+      },
+      "expected": {
+        "error": {
+          "code": "indefinite_length"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/indefinite-text",
+      "description": "Indefinite-length text string.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "7f6161ff"
+      },
+      "expected": {
+        "error": {
+          "code": "indefinite_length"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/indefinite-array",
+      "description": "Indefinite-length array.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "9f01ff"
+      },
+      "expected": {
+        "error": {
+          "code": "indefinite_length"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/indefinite-map",
+      "description": "Indefinite-length map.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "bf0100ff"
+      },
+      "expected": {
+        "error": {
+          "code": "indefinite_length"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/break-alone",
+      "description": "A stray break byte.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "ff"
+      },
+      "expected": {
+        "error": {
+          "code": "break"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/reserved-ai-28",
+      "description": "Reserved additional information 28.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "1c"
+      },
+      "expected": {
+        "error": {
+          "code": "reserved_additional_info"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/reserved-ai-30",
+      "description": "Reserved additional information 30.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "1e"
+      },
+      "expected": {
+        "error": {
+          "code": "reserved_additional_info"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/ai-31-on-uint",
+      "description": "Additional information 31 on an unsigned integer.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "1f"
+      },
+      "expected": {
+        "error": {
+          "code": "malformed"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/ai-31-on-tag",
+      "description": "Additional information 31 on a tag.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "df"
+      },
+      "expected": {
+        "error": {
+          "code": "malformed"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/map-unsorted-int-keys",
+      "description": "Map keys 2 then 1.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "a202000100"
+      },
+      "expected": {
+        "error": {
+          "code": "unsorted_keys"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/map-duplicate-int-keys",
+      "description": "Map key 1 twice.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "a201000100"
+      },
+      "expected": {
+        "error": {
+          "code": "duplicate_key"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/map-unsorted-text-keys",
+      "description": "Text keys \"aa\" then \"b\": \"aa\" encodes longer, so it must come second.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "a262616100616200"
+      },
+      "expected": {
+        "error": {
+          "code": "unsorted_keys"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/map-duplicate-text-keys",
+      "description": "Text key \"a\" twice.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "a2616100616100"
+      },
+      "expected": {
+        "error": {
+          "code": "duplicate_key"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/map-mixed-key-kinds",
+      "description": "Integer key then text key in one map.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "a20100616100"
+      },
+      "expected": {
+        "error": {
+          "code": "mixed_key_kinds"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/map-bytes-key",
+      "description": "Byte string as a map key.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "a1410000"
+      },
+      "expected": {
+        "error": {
+          "code": "bad_key_type"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/map-array-key",
+      "description": "Array as a map key.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "a18000"
+      },
+      "expected": {
+        "error": {
+          "code": "bad_key_type"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/map-bool-key",
+      "description": "Boolean as a map key.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "a1f400"
+      },
+      "expected": {
+        "error": {
+          "code": "bad_key_type"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/text-invalid-utf8",
+      "description": "Truncated UTF-8 sequence.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "62c328"
+      },
+      "expected": {
+        "error": {
+          "code": "invalid_utf8"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/text-overlong-utf8",
+      "description": "Overlong encoding of U+0000.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "62c080"
+      },
+      "expected": {
+        "error": {
+          "code": "invalid_utf8"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/text-surrogate",
+      "description": "UTF-8 encoding of a surrogate.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "63eda080"
+      },
+      "expected": {
+        "error": {
+          "code": "invalid_utf8"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/text-not-nfc",
+      "description": "\"e\" followed by a combining acute accent is not NFC.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "6365cc81"
+      },
+      "expected": {
+        "error": {
+          "code": "non_nfc"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/map-key-not-nfc",
+      "description": "A map key that is not NFC.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "a16365cc8100"
+      },
+      "expected": {
+        "error": {
+          "code": "non_nfc"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/trailing-bytes",
+      "description": "Two items where one was expected.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "0000"
+      },
+      "expected": {
+        "error": {
+          "code": "trailing_bytes"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/truncated-array",
+      "description": "Array of two with one item.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "8201"
+      },
+      "expected": {
+        "error": {
+          "code": "truncated"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/truncated-bytes",
+      "description": "Byte string shorter than its length.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "4201"
+      },
+      "expected": {
+        "error": {
+          "code": "truncated"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/truncated-head",
+      "description": "Argument byte missing.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "18"
+      },
+      "expected": {
+        "error": {
+          "code": "truncated"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/empty-input",
+      "description": "No bytes at all.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": ""
+      },
+      "expected": {
+        "error": {
+          "code": "truncated"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/huge-array-length",
+      "description": "Array claiming 2^64-1 items.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "9bffffffffffffffff"
+      },
+      "expected": {
+        "error": {
+          "code": "truncated"
+        }
+      }
+    },
+    {
+      "name": "cbor/reject/too-deep",
+      "description": "Seventy nested arrays. The spec sets no depth limit; this implementation refuses beyond 64 (finding).",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "8181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818100"
+      },
+      "expected": {
+        "error": {
+          "code": "too_deep"
+        }
+      }
+    },
+    {
+      "name": "cbor/accept/mixed-values",
+      "description": "A canonical map decodes and re-encodes to the same bytes.",
+      "type": "cbor.accept",
+      "input": {
+        "hex": "a30181f6020a03a1626b3081f5"
+      },
+      "expected": {
+        "value": {
+          "map": [
+            [
+              {
+                "uint": "1"
+              },
+              {
+                "array": [
+                  {
+                    "null": true
+                  }
+                ]
+              }
+            ],
+            [
+              {
+                "uint": "2"
+              },
+              {
+                "uint": "10"
+              }
+            ],
+            [
+              {
+                "uint": "3"
+              },
+              {
+                "map": [
+                  [
+                    {
+                      "text": "k0"
+                    },
+                    {
+                      "array": [
+                        {
+                          "bool": true
+                        }
+                      ]
+                    }
+                  ]
+                ]
+              }
+            ]
+          ]
+        },
+        "reencoded": "a30181f6020a03a1626b3081f5"
+      }
+    }
+  ]
+}

@@ -1,0 +1,518 @@
+{
+  "description": "Checkpoints (section 5.3).",
+  "vectors": [
+    {
+      "name": "checkpoint/fold-on-top",
+      "description": "Checkpoint of four records; then a later edit, a record with an older clock (loses to the checkpointed winner), and an edit of a deleted item (revives it). History before the checkpoint is gone.",
+      "type": "checkpoint.fold",
+      "input": {
+        "before": [
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a26375726c6175657469746c65636f6c640380"
+          },
+          {
+            "clock": [
+              12,
+              0
+            ],
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "85d922c7e256a809f956e6a3d37e1f3f",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a1657469746c65636d69640380"
+          },
+          {
+            "clock": [
+              14,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 2,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a003816375726c"
+          },
+          {
+            "clock": [
+              15,
+              0
+            ],
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "85d922c7e256a809f956e6a3d37e1f3f",
+            "seq": 2,
+            "payload": "a30150b83ea2ef4c034f83891ec457ae7b111702a26174016764656c657465640f0380"
+          }
+        ],
+        "after": [
+          {
+            "clock": [
+              20,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 3,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a1657469746c65636e65770380"
+          },
+          {
+            "clock": [
+              11,
+              0
+            ],
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "85d922c7e256a809f956e6a3d37e1f3f",
+            "seq": 3,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a1657469746c65782b6c61746520627574206561726c696572207468616e2074686520636865636b706f696e742077696e6e65720380"
+          },
+          {
+            "clock": [
+              30,
+              0
+            ],
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "85d922c7e256a809f956e6a3d37e1f3f",
+            "seq": 4,
+            "payload": "a30150b83ea2ef4c034f83891ec457ae7b111702a16174020380"
+          }
+        ],
+        "covered": [
+          {
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 2,
+            "record_id": "c7c7538a675d3a9b9306d348a73cdd441c988cad0d071e8ede75e542dcdfbe52"
+          },
+          {
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "85d922c7e256a809f956e6a3d37e1f3f",
+            "seq": 2,
+            "record_id": "a978d168aa2ea8c8deee7aa30a92138b474002dc6f31f7ee74f76aa59b5584f9"
+          }
+        ],
+        "mhead": "cf6c034e7748367add6ddc2426f5c02c470eb2376b8ef419436b1653796aee2d"
+      },
+      "expected": {
+        "payload": "a30182845820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd748733850f0e83fb87620a2a38491013294e49a66025820c7c7538a675d3a9b9306d348a73cdd441c988cad0d071e8ede75e542dcdfbe52845820df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f5085d922c7e256a809f956e6a3d37e1f3f025820a978d168aa2ea8c8deee7aa30a92138b474002dc6f31f7ee74f76aa59b5584f9025820cf6c034e7748367add6ddc2426f5c02c470eb2376b8ef419436b1653796aee2d03828250ace6ac12170622a576ae87e46e42123ba26375726c82f6850e005820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd748733850f0e83fb87620a2a38491013294e49a6602657469746c6582636d6964850c005820df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f5085d922c7e256a809f956e6a3d37e1f3f018250b83ea2ef4c034f83891ec457ae7b1117a261748201850f005820df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f5085d922c7e256a809f956e6a3d37e1f3f026764656c65746564820f850f005820df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f5085d922c7e256a809f956e6a3d37e1f3f02",
+        "state_after": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": false,
+            "fields": {
+              "title": {
+                "current": "636e6577",
+                "clock": [
+                  20,
+                  0,
+                  "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  3
+                ],
+                "history": [
+                  {
+                    "value": "782b6c61746520627574206561726c696572207468616e2074686520636865636b706f696e742077696e6e6572",
+                    "clock": [
+                      11,
+                      0,
+                      "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                      "85d922c7e256a809f956e6a3d37e1f3f",
+                      3
+                    ]
+                  },
+                  {
+                    "value": "636d6964",
+                    "clock": [
+                      12,
+                      0,
+                      "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                      "85d922c7e256a809f956e6a3d37e1f3f",
+                      1
+                    ]
+                  }
+                ]
+              },
+              "url": {
+                "current": null,
+                "clock": [
+                  14,
+                  0,
+                  "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  2
+                ],
+                "history": []
+              }
+            }
+          },
+          "b83ea2ef4c034f83891ec457ae7b1117": {
+            "deleted": false,
+            "fields": {
+              "deleted": {
+                "current": "0f",
+                "clock": [
+                  15,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "85d922c7e256a809f956e6a3d37e1f3f",
+                  2
+                ],
+                "history": []
+              },
+              "t": {
+                "current": "02",
+                "clock": [
+                  30,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "85d922c7e256a809f956e6a3d37e1f3f",
+                  4
+                ],
+                "history": [
+                  {
+                    "value": "01",
+                    "clock": [
+                      15,
+                      0,
+                      "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                      "85d922c7e256a809f956e6a3d37e1f3f",
+                      2
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "state_full": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": false,
+            "fields": {
+              "title": {
+                "current": "636e6577",
+                "clock": [
+                  20,
+                  0,
+                  "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  3
+                ],
+                "history": [
+                  {
+                    "value": "636f6c64",
+                    "clock": [
+                      10,
+                      0,
+                      "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                      "f0e83fb87620a2a38491013294e49a66",
+                      1
+                    ]
+                  },
+                  {
+                    "value": "782b6c61746520627574206561726c696572207468616e2074686520636865636b706f696e742077696e6e6572",
+                    "clock": [
+                      11,
+                      0,
+                      "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                      "85d922c7e256a809f956e6a3d37e1f3f",
+                      3
+                    ]
+                  },
+                  {
+                    "value": "636d6964",
+                    "clock": [
+                      12,
+                      0,
+                      "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                      "85d922c7e256a809f956e6a3d37e1f3f",
+                      1
+                    ]
+                  }
+                ]
+              },
+              "url": {
+                "current": null,
+                "clock": [
+                  14,
+                  0,
+                  "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  2
+                ],
+                "history": [
+                  {
+                    "value": "6175",
+                    "clock": [
+                      10,
+                      0,
+                      "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                      "f0e83fb87620a2a38491013294e49a66",
+                      1
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "b83ea2ef4c034f83891ec457ae7b1117": {
+            "deleted": false,
+            "fields": {
+              "deleted": {
+                "current": "0f",
+                "clock": [
+                  15,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "85d922c7e256a809f956e6a3d37e1f3f",
+                  2
+                ],
+                "history": []
+              },
+              "t": {
+                "current": "02",
+                "clock": [
+                  30,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "85d922c7e256a809f956e6a3d37e1f3f",
+                  4
+                ],
+                "history": [
+                  {
+                    "value": "01",
+                    "clock": [
+                      15,
+                      0,
+                      "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                      "85d922c7e256a809f956e6a3d37e1f3f",
+                      2
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "checkpoint/nothing-after",
+      "description": "A checkpoint and no later records.",
+      "type": "checkpoint.fold",
+      "input": {
+        "before": [
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a26375726c6175657469746c65636f6c640380"
+          },
+          {
+            "clock": [
+              12,
+              0
+            ],
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "85d922c7e256a809f956e6a3d37e1f3f",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a1657469746c65636d69640380"
+          },
+          {
+            "clock": [
+              14,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 2,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a003816375726c"
+          },
+          {
+            "clock": [
+              15,
+              0
+            ],
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "85d922c7e256a809f956e6a3d37e1f3f",
+            "seq": 2,
+            "payload": "a30150b83ea2ef4c034f83891ec457ae7b111702a26174016764656c657465640f0380"
+          }
+        ],
+        "after": [],
+        "covered": [
+          {
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 2,
+            "record_id": "c7c7538a675d3a9b9306d348a73cdd441c988cad0d071e8ede75e542dcdfbe52"
+          },
+          {
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "85d922c7e256a809f956e6a3d37e1f3f",
+            "seq": 2,
+            "record_id": "a978d168aa2ea8c8deee7aa30a92138b474002dc6f31f7ee74f76aa59b5584f9"
+          }
+        ],
+        "mhead": "cf6c034e7748367add6ddc2426f5c02c470eb2376b8ef419436b1653796aee2d"
+      },
+      "expected": {
+        "payload": "a30182845820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd748733850f0e83fb87620a2a38491013294e49a66025820c7c7538a675d3a9b9306d348a73cdd441c988cad0d071e8ede75e542dcdfbe52845820df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f5085d922c7e256a809f956e6a3d37e1f3f025820a978d168aa2ea8c8deee7aa30a92138b474002dc6f31f7ee74f76aa59b5584f9025820cf6c034e7748367add6ddc2426f5c02c470eb2376b8ef419436b1653796aee2d03828250ace6ac12170622a576ae87e46e42123ba26375726c82f6850e005820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd748733850f0e83fb87620a2a38491013294e49a6602657469746c6582636d6964850c005820df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f5085d922c7e256a809f956e6a3d37e1f3f018250b83ea2ef4c034f83891ec457ae7b1117a261748201850f005820df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f5085d922c7e256a809f956e6a3d37e1f3f026764656c65746564820f850f005820df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f5085d922c7e256a809f956e6a3d37e1f3f02",
+        "state_after": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": false,
+            "fields": {
+              "title": {
+                "current": "636d6964",
+                "clock": [
+                  12,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "85d922c7e256a809f956e6a3d37e1f3f",
+                  1
+                ],
+                "history": []
+              },
+              "url": {
+                "current": null,
+                "clock": [
+                  14,
+                  0,
+                  "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  2
+                ],
+                "history": []
+              }
+            }
+          },
+          "b83ea2ef4c034f83891ec457ae7b1117": {
+            "deleted": true,
+            "fields": {
+              "deleted": {
+                "current": "0f",
+                "clock": [
+                  15,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "85d922c7e256a809f956e6a3d37e1f3f",
+                  2
+                ],
+                "history": []
+              },
+              "t": {
+                "current": "01",
+                "clock": [
+                  15,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "85d922c7e256a809f956e6a3d37e1f3f",
+                  2
+                ],
+                "history": []
+              }
+            }
+          }
+        },
+        "state_full": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": false,
+            "fields": {
+              "title": {
+                "current": "636d6964",
+                "clock": [
+                  12,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "85d922c7e256a809f956e6a3d37e1f3f",
+                  1
+                ],
+                "history": [
+                  {
+                    "value": "636f6c64",
+                    "clock": [
+                      10,
+                      0,
+                      "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                      "f0e83fb87620a2a38491013294e49a66",
+                      1
+                    ]
+                  }
+                ]
+              },
+              "url": {
+                "current": null,
+                "clock": [
+                  14,
+                  0,
+                  "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  2
+                ],
+                "history": [
+                  {
+                    "value": "6175",
+                    "clock": [
+                      10,
+                      0,
+                      "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                      "f0e83fb87620a2a38491013294e49a66",
+                      1
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "b83ea2ef4c034f83891ec457ae7b1117": {
+            "deleted": true,
+            "fields": {
+              "deleted": {
+                "current": "0f",
+                "clock": [
+                  15,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "85d922c7e256a809f956e6a3d37e1f3f",
+                  2
+                ],
+                "history": []
+              },
+              "t": {
+                "current": "01",
+                "clock": [
+                  15,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "85d922c7e256a809f956e6a3d37e1f3f",
+                  2
+                ],
+                "history": []
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "checkpoint/null-collision",
+      "description": "A field set to the value null and a cleared field give identical checkpoint bytes (finding).",
+      "type": "checkpoint.null_collision",
+      "input": {
+        "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+        "device": "f0e83fb87620a2a38491013294e49a66",
+        "item": "ace6ac12170622a576ae87e46e42123b"
+      },
+      "expected": {
+        "payload_field_set_to_null": "a30180025820000000000000000000000000000000000000000000000000000000000000000003818250ace6ac12170622a576ae87e46e42123ba1616682f68501005820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd748733850f0e83fb87620a2a38491013294e49a6601",
+        "payload_field_cleared": "a30180025820000000000000000000000000000000000000000000000000000000000000000003818250ace6ac12170622a576ae87e46e42123ba1616682f68501005820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd748733850f0e83fb87620a2a38491013294e49a6601",
+        "identical": true
+      }
+    }
+  ]
+}

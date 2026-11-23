@@ -1,0 +1,14 @@
+{
+  "name": "@psss/format",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Reference implementation and test vectors for the Psss vault format, version 1 (docs/format-spec.md).",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "vectors": "node --disable-warning=ExperimentalWarning scripts/make-vectors.ts",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts"
+  }
+}

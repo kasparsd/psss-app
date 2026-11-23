@@ -1,0 +1,1519 @@
+{
+  "description": "Folding item changes into state (section 5.1).",
+  "vectors": [
+    {
+      "name": "fold/different-fields",
+      "description": "Two records set different fields of one item: both fields keep their values.",
+      "type": "fold.run",
+      "input": {
+        "changes": [
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a1657469746c6561540380"
+          },
+          {
+            "clock": [
+              11,
+              0
+            ],
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a16375726c61550380"
+          }
+        ]
+      },
+      "expected": {
+        "state": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": false,
+            "fields": {
+              "title": {
+                "current": "6154",
+                "clock": [
+                  10,
+                  0,
+                  "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  1
+                ],
+                "history": []
+              },
+              "url": {
+                "current": "6155",
+                "clock": [
+                  11,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  1
+                ],
+                "history": []
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "fold/same-field",
+      "description": "Same field set twice: the later one wins, the earlier is history.",
+      "type": "fold.run",
+      "input": {
+        "changes": [
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a1657469746c65636f6c640380"
+          },
+          {
+            "clock": [
+              20,
+              0
+            ],
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a1657469746c65636e65770380"
+          }
+        ]
+      },
+      "expected": {
+        "state": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": false,
+            "fields": {
+              "title": {
+                "current": "636e6577",
+                "clock": [
+                  20,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  1
+                ],
+                "history": [
+                  {
+                    "value": "636f6c64",
+                    "clock": [
+                      10,
+                      0,
+                      "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                      "f0e83fb87620a2a38491013294e49a66",
+                      1
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "fold/same-field-reversed-input",
+      "description": "The same two records listed in the other order give the same state.",
+      "type": "fold.run",
+      "input": {
+        "changes": [
+          {
+            "clock": [
+              20,
+              0
+            ],
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a1657469746c65636e65770380"
+          },
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a1657469746c65636f6c640380"
+          }
+        ]
+      },
+      "expected": {
+        "state": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": false,
+            "fields": {
+              "title": {
+                "current": "636e6577",
+                "clock": [
+                  20,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  1
+                ],
+                "history": [
+                  {
+                    "value": "636f6c64",
+                    "clock": [
+                      10,
+                      0,
+                      "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                      "f0e83fb87620a2a38491013294e49a66",
+                      1
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "fold/tie-wall-counter-author",
+      "description": "Equal wall_ms and counter: the greater author (bytewise) wins.",
+      "type": "fold.run",
+      "input": {
+        "changes": [
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a161666a66726f6d20616c6963650380"
+          },
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a161666866726f6d20626f620380"
+          }
+        ]
+      },
+      "expected": {
+        "state": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": false,
+            "fields": {
+              "f": {
+                "current": "6866726f6d20626f62",
+                "clock": [
+                  10,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  1
+                ],
+                "history": [
+                  {
+                    "value": "6a66726f6d20616c696365",
+                    "clock": [
+                      10,
+                      0,
+                      "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                      "f0e83fb87620a2a38491013294e49a66",
+                      1
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "fold/tie-counter",
+      "description": "Equal wall_ms: the greater counter wins even from the smaller author.",
+      "type": "fold.run",
+      "input": {
+        "changes": [
+          {
+            "clock": [
+              10,
+              1
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a1616669636f756e74657220310380"
+          },
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a1616669636f756e74657220300380"
+          }
+        ]
+      },
+      "expected": {
+        "state": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": false,
+            "fields": {
+              "f": {
+                "current": "69636f756e7465722031",
+                "clock": [
+                  10,
+                  1,
+                  "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  1
+                ],
+                "history": [
+                  {
+                    "value": "69636f756e7465722030",
+                    "clock": [
+                      10,
+                      0,
+                      "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                      "f0e83fb87620a2a38491013294e49a66",
+                      1
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "fold/clear-after-set",
+      "description": "A later clear beats an earlier set: the field is cleared and the value is history.",
+      "type": "fold.run",
+      "input": {
+        "changes": [
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a1646e6f746561780380"
+          },
+          {
+            "clock": [
+              20,
+              0
+            ],
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a00381646e6f7465"
+          }
+        ]
+      },
+      "expected": {
+        "state": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": false,
+            "fields": {
+              "note": {
+                "current": null,
+                "clock": [
+                  20,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  1
+                ],
+                "history": [
+                  {
+                    "value": "6178",
+                    "clock": [
+                      10,
+                      0,
+                      "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                      "f0e83fb87620a2a38491013294e49a66",
+                      1
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "fold/set-after-clear",
+      "description": "A later set beats an earlier clear.",
+      "type": "fold.run",
+      "input": {
+        "changes": [
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a00381646e6f7465"
+          },
+          {
+            "clock": [
+              20,
+              0
+            ],
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a1646e6f7465646261636b0380"
+          }
+        ]
+      },
+      "expected": {
+        "state": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": false,
+            "fields": {
+              "note": {
+                "current": "646261636b",
+                "clock": [
+                  20,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  1
+                ],
+                "history": [
+                  {
+                    "value": null,
+                    "clock": [
+                      10,
+                      0,
+                      "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                      "f0e83fb87620a2a38491013294e49a66",
+                      1
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "fold/set-and-clear-different-fields-one-record",
+      "description": "One record sets one field and clears another.",
+      "type": "fold.run",
+      "input": {
+        "changes": [
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a26161016162020380"
+          },
+          {
+            "clock": [
+              20,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 2,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a161610303816162"
+          }
+        ]
+      },
+      "expected": {
+        "state": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": false,
+            "fields": {
+              "a": {
+                "current": "03",
+                "clock": [
+                  20,
+                  0,
+                  "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  2
+                ],
+                "history": [
+                  {
+                    "value": "01",
+                    "clock": [
+                      10,
+                      0,
+                      "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                      "f0e83fb87620a2a38491013294e49a66",
+                      1
+                    ]
+                  }
+                ]
+              },
+              "b": {
+                "current": null,
+                "clock": [
+                  20,
+                  0,
+                  "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  2
+                ],
+                "history": [
+                  {
+                    "value": "02",
+                    "clock": [
+                      10,
+                      0,
+                      "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                      "f0e83fb87620a2a38491013294e49a66",
+                      1
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "fold/null-value-vs-clear",
+      "description": "A field set to the value null is not the same as a cleared field (until a checkpoint, see findings).",
+      "type": "fold.run",
+      "input": {
+        "changes": [
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a16166f60380"
+          },
+          {
+            "clock": [
+              11,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 2,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a003816167"
+          }
+        ]
+      },
+      "expected": {
+        "state": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": false,
+            "fields": {
+              "f": {
+                "current": "f6",
+                "clock": [
+                  10,
+                  0,
+                  "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  1
+                ],
+                "history": []
+              },
+              "g": {
+                "current": null,
+                "clock": [
+                  11,
+                  0,
+                  "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  2
+                ],
+                "history": []
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "fold/delete-after-edit",
+      "description": "deleted later than every other field: the item is in Recently Deleted.",
+      "type": "fold.run",
+      "input": {
+        "changes": [
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a1657469746c6561540380"
+          },
+          {
+            "clock": [
+              20,
+              0
+            ],
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a16764656c65746564140380"
+          }
+        ]
+      },
+      "expected": {
+        "state": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": true,
+            "fields": {
+              "deleted": {
+                "current": "14",
+                "clock": [
+                  20,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  1
+                ],
+                "history": []
+              },
+              "title": {
+                "current": "6154",
+                "clock": [
+                  10,
+                  0,
+                  "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  1
+                ],
+                "history": []
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "fold/edit-after-delete",
+      "description": "An edit later than the delete brings the item back.",
+      "type": "fold.run",
+      "input": {
+        "changes": [
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a1657469746c6561540380"
+          },
+          {
+            "clock": [
+              20,
+              0
+            ],
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a16764656c65746564140380"
+          },
+          {
+            "clock": [
+              30,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 2,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a1657469746c656254320380"
+          }
+        ]
+      },
+      "expected": {
+        "state": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": false,
+            "fields": {
+              "deleted": {
+                "current": "14",
+                "clock": [
+                  20,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  1
+                ],
+                "history": []
+              },
+              "title": {
+                "current": "625432",
+                "clock": [
+                  30,
+                  0,
+                  "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  2
+                ],
+                "history": [
+                  {
+                    "value": "6154",
+                    "clock": [
+                      10,
+                      0,
+                      "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                      "f0e83fb87620a2a38491013294e49a66",
+                      1
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "fold/clear-after-delete",
+      "description": "A later clear of another field also counts as an edit.",
+      "type": "fold.run",
+      "input": {
+        "changes": [
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a1657469746c6561540380"
+          },
+          {
+            "clock": [
+              20,
+              0
+            ],
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a16764656c65746564140380"
+          },
+          {
+            "clock": [
+              30,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 2,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a00381657469746c65"
+          }
+        ]
+      },
+      "expected": {
+        "state": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": false,
+            "fields": {
+              "deleted": {
+                "current": "14",
+                "clock": [
+                  20,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  1
+                ],
+                "history": []
+              },
+              "title": {
+                "current": null,
+                "clock": [
+                  30,
+                  0,
+                  "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  2
+                ],
+                "history": [
+                  {
+                    "value": "6154",
+                    "clock": [
+                      10,
+                      0,
+                      "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                      "f0e83fb87620a2a38491013294e49a66",
+                      1
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "fold/delete-in-same-record-as-edit",
+      "description": "A record that sets deleted and another field: the other field is not later than the delete, so the item stays deleted.",
+      "type": "fold.run",
+      "input": {
+        "changes": [
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a2657469746c6561546764656c657465640a0380"
+          }
+        ]
+      },
+      "expected": {
+        "state": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": true,
+            "fields": {
+              "deleted": {
+                "current": "0a",
+                "clock": [
+                  10,
+                  0,
+                  "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  1
+                ],
+                "history": []
+              },
+              "title": {
+                "current": "6154",
+                "clock": [
+                  10,
+                  0,
+                  "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  1
+                ],
+                "history": []
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "fold/clear-deleted-field",
+      "description": "Clearing deleted undeletes the item.",
+      "type": "fold.run",
+      "input": {
+        "changes": [
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a16764656c657465640a0380"
+          },
+          {
+            "clock": [
+              20,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 2,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a003816764656c65746564"
+          }
+        ]
+      },
+      "expected": {
+        "state": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": false,
+            "fields": {
+              "deleted": {
+                "current": null,
+                "clock": [
+                  20,
+                  0,
+                  "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  2
+                ],
+                "history": [
+                  {
+                    "value": "0a",
+                    "clock": [
+                      10,
+                      0,
+                      "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                      "f0e83fb87620a2a38491013294e49a66",
+                      1
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "fold/delete-twice",
+      "description": "Deleted set twice: the later value wins; still deleted.",
+      "type": "fold.run",
+      "input": {
+        "changes": [
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a16764656c657465640a0380"
+          },
+          {
+            "clock": [
+              20,
+              0
+            ],
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a16764656c65746564140380"
+          }
+        ]
+      },
+      "expected": {
+        "state": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": true,
+            "fields": {
+              "deleted": {
+                "current": "14",
+                "clock": [
+                  20,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  1
+                ],
+                "history": [
+                  {
+                    "value": "0a",
+                    "clock": [
+                      10,
+                      0,
+                      "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                      "f0e83fb87620a2a38491013294e49a66",
+                      1
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "fold/two-items",
+      "description": "Records for two items stay separate.",
+      "type": "fold.run",
+      "input": {
+        "changes": [
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a16174010380"
+          },
+          {
+            "clock": [
+              11,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 2,
+            "payload": "a30150b83ea2ef4c034f83891ec457ae7b111702a16174020380"
+          }
+        ]
+      },
+      "expected": {
+        "state": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": false,
+            "fields": {
+              "t": {
+                "current": "01",
+                "clock": [
+                  10,
+                  0,
+                  "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  1
+                ],
+                "history": []
+              }
+            }
+          },
+          "b83ea2ef4c034f83891ec457ae7b1117": {
+            "deleted": false,
+            "fields": {
+              "t": {
+                "current": "02",
+                "clock": [
+                  11,
+                  0,
+                  "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  2
+                ],
+                "history": []
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "fold/structured-values",
+      "description": "Values are opaque: a map value wins or loses whole.",
+      "type": "fold.run",
+      "input": {
+        "changes": [
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a167706173736b6579a201420102026272700380"
+          },
+          {
+            "clock": [
+              20,
+              0
+            ],
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a167706173736b6579a10141030380"
+          }
+        ]
+      },
+      "expected": {
+        "state": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": false,
+            "fields": {
+              "passkey": {
+                "current": "a1014103",
+                "clock": [
+                  20,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  1
+                ],
+                "history": [
+                  {
+                    "value": "a20142010202627270",
+                    "clock": [
+                      10,
+                      0,
+                      "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                      "f0e83fb87620a2a38491013294e49a66",
+                      1
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "fold/three-orders-one-state",
+      "description": "The same four records folded in three different orders (listed) give one state.",
+      "type": "fold.run",
+      "input": {
+        "changes": [
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a26375726c627531657469746c6561610380"
+          },
+          {
+            "clock": [
+              12,
+              0
+            ],
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "85d922c7e256a809f956e6a3d37e1f3f",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a1657469746c6561620381646e6f7465"
+          },
+          {
+            "clock": [
+              14,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 2,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a1646e6f7465616e0380"
+          },
+          {
+            "clock": [
+              16,
+              0
+            ],
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "85d922c7e256a809f956e6a3d37e1f3f",
+            "seq": 2,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a16375726c6275320380"
+          }
+        ],
+        "orders": [
+          [
+            0,
+            1,
+            2,
+            3
+          ],
+          [
+            3,
+            2,
+            1,
+            0
+          ],
+          [
+            2,
+            0,
+            3,
+            1
+          ]
+        ]
+      },
+      "expected": {
+        "state": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": false,
+            "fields": {
+              "note": {
+                "current": "616e",
+                "clock": [
+                  14,
+                  0,
+                  "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  2
+                ],
+                "history": [
+                  {
+                    "value": null,
+                    "clock": [
+                      12,
+                      0,
+                      "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                      "85d922c7e256a809f956e6a3d37e1f3f",
+                      1
+                    ]
+                  }
+                ]
+              },
+              "title": {
+                "current": "6162",
+                "clock": [
+                  12,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "85d922c7e256a809f956e6a3d37e1f3f",
+                  1
+                ],
+                "history": [
+                  {
+                    "value": "6161",
+                    "clock": [
+                      10,
+                      0,
+                      "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                      "f0e83fb87620a2a38491013294e49a66",
+                      1
+                    ]
+                  }
+                ]
+              },
+              "url": {
+                "current": "627532",
+                "clock": [
+                  16,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "85d922c7e256a809f956e6a3d37e1f3f",
+                  2
+                ],
+                "history": [
+                  {
+                    "value": "627531",
+                    "clock": [
+                      10,
+                      0,
+                      "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                      "f0e83fb87620a2a38491013294e49a66",
+                      1
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "states_by_order": [
+          {
+            "ace6ac12170622a576ae87e46e42123b": {
+              "deleted": false,
+              "fields": {
+                "note": {
+                  "current": "616e",
+                  "clock": [
+                    14,
+                    0,
+                    "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                    "f0e83fb87620a2a38491013294e49a66",
+                    2
+                  ],
+                  "history": [
+                    {
+                      "value": null,
+                      "clock": [
+                        12,
+                        0,
+                        "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                        "85d922c7e256a809f956e6a3d37e1f3f",
+                        1
+                      ]
+                    }
+                  ]
+                },
+                "title": {
+                  "current": "6162",
+                  "clock": [
+                    12,
+                    0,
+                    "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                    "85d922c7e256a809f956e6a3d37e1f3f",
+                    1
+                  ],
+                  "history": [
+                    {
+                      "value": "6161",
+                      "clock": [
+                        10,
+                        0,
+                        "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                        "f0e83fb87620a2a38491013294e49a66",
+                        1
+                      ]
+                    }
+                  ]
+                },
+                "url": {
+                  "current": "627532",
+                  "clock": [
+                    16,
+                    0,
+                    "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                    "85d922c7e256a809f956e6a3d37e1f3f",
+                    2
+                  ],
+                  "history": [
+                    {
+                      "value": "627531",
+                      "clock": [
+                        10,
+                        0,
+                        "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                        "f0e83fb87620a2a38491013294e49a66",
+                        1
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "ace6ac12170622a576ae87e46e42123b": {
+              "deleted": false,
+              "fields": {
+                "note": {
+                  "current": "616e",
+                  "clock": [
+                    14,
+                    0,
+                    "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                    "f0e83fb87620a2a38491013294e49a66",
+                    2
+                  ],
+                  "history": [
+                    {
+                      "value": null,
+                      "clock": [
+                        12,
+                        0,
+                        "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                        "85d922c7e256a809f956e6a3d37e1f3f",
+                        1
+                      ]
+                    }
+                  ]
+                },
+                "title": {
+                  "current": "6162",
+                  "clock": [
+                    12,
+                    0,
+                    "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                    "85d922c7e256a809f956e6a3d37e1f3f",
+                    1
+                  ],
+                  "history": [
+                    {
+                      "value": "6161",
+                      "clock": [
+                        10,
+                        0,
+                        "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                        "f0e83fb87620a2a38491013294e49a66",
+                        1
+                      ]
+                    }
+                  ]
+                },
+                "url": {
+                  "current": "627532",
+                  "clock": [
+                    16,
+                    0,
+                    "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                    "85d922c7e256a809f956e6a3d37e1f3f",
+                    2
+                  ],
+                  "history": [
+                    {
+                      "value": "627531",
+                      "clock": [
+                        10,
+                        0,
+                        "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                        "f0e83fb87620a2a38491013294e49a66",
+                        1
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "ace6ac12170622a576ae87e46e42123b": {
+              "deleted": false,
+              "fields": {
+                "note": {
+                  "current": "616e",
+                  "clock": [
+                    14,
+                    0,
+                    "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                    "f0e83fb87620a2a38491013294e49a66",
+                    2
+                  ],
+                  "history": [
+                    {
+                      "value": null,
+                      "clock": [
+                        12,
+                        0,
+                        "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                        "85d922c7e256a809f956e6a3d37e1f3f",
+                        1
+                      ]
+                    }
+                  ]
+                },
+                "title": {
+                  "current": "6162",
+                  "clock": [
+                    12,
+                    0,
+                    "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                    "85d922c7e256a809f956e6a3d37e1f3f",
+                    1
+                  ],
+                  "history": [
+                    {
+                      "value": "6161",
+                      "clock": [
+                        10,
+                        0,
+                        "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                        "f0e83fb87620a2a38491013294e49a66",
+                        1
+                      ]
+                    }
+                  ]
+                },
+                "url": {
+                  "current": "627532",
+                  "clock": [
+                    16,
+                    0,
+                    "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                    "85d922c7e256a809f956e6a3d37e1f3f",
+                    2
+                  ],
+                  "history": [
+                    {
+                      "value": "627531",
+                      "clock": [
+                        10,
+                        0,
+                        "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                        "f0e83fb87620a2a38491013294e49a66",
+                        1
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "fold/duplicate-record",
+      "description": "The same record twice changes nothing.",
+      "type": "fold.run",
+      "input": {
+        "changes": [
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a1657469746c6561540380"
+          },
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a1657469746c6561540380"
+          },
+          {
+            "clock": [
+              11,
+              0
+            ],
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a1657469746c6561550380"
+          }
+        ]
+      },
+      "expected": {
+        "state": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": false,
+            "fields": {
+              "title": {
+                "current": "6155",
+                "clock": [
+                  11,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  1
+                ],
+                "history": [
+                  {
+                    "value": "6154",
+                    "clock": [
+                      10,
+                      0,
+                      "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                      "f0e83fb87620a2a38491013294e49a66",
+                      1
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
