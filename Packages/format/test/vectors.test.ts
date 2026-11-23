@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildVectors, loadMinted, serialize, VECTOR_DIR } from '../scripts/make-vectors.ts';
+import { argonStats } from '../src/prims.ts';
 import { compute } from './compute.ts';
 
 const onDisk = readdirSync(VECTOR_DIR).filter((n) => n.endsWith('.json')).sort();
+const heavy = !!process.env.PSSS_HEAVY;
 
 test('regenerating the vectors gives the committed files byte for byte', () => {
   const built = buildVectors(loadMinted());
@@ -23,6 +25,7 @@ for (const name of onDisk) {
       assert(typeof v.name === 'string' && typeof v.description === 'string' && v.description.length > 0 && typeof v.type === 'string', `shape of ${v.name}`);
       assert(!names.has(v.name), `duplicate ${v.name}`);
       names.add(v.name);
+      if (v.heavy && !heavy) continue; // needs more memory than a routine run should use; set PSSS_HEAVY=1
       assert.deepEqual(compute(v.type, v.input), v.expected, v.name);
     }
   });
@@ -41,14 +44,47 @@ test('every hex string in the vectors is lowercase hex of even length', () => {
   assert.deepEqual(bad, []);
 });
 
+const allVectors = () => onDisk.flatMap((n) => JSON.parse(readFileSync(join(VECTOR_DIR, n), 'utf8')).vectors as any[]);
+
 test('the vectors cover the required topics', () => {
-  const all = onDisk.flatMap((n) => JSON.parse(readFileSync(join(VECTOR_DIR, n), 'utf8')).vectors.map((v: any) => v.name as string));
-  for (const p of ['cbor/reject/', 'person/derive', 'card/verify', 'gid/', 'commit/', 'record/key', 'record/seal-item', 'padding/record-255', 'padding/record-256',
-    'padding/record-257', 'padding/record-4096', 'padding/record-4097', 'record/open/bad-signature', 'record/open/moved-header', 'clock/order', 'fold/different-fields',
-    'fold/same-field', 'fold/clear-after-set', 'fold/edit-after-delete', 'fold/delete-after-edit', 'fold/three-orders-one-state', 'fold/duplicate-record',
-    'checkpoint/fold-on-top', 'group/remove-with-cut', 'group/fork-removal-beats-smaller-id', 'group/fork-smaller-id', 'group/fork-mutual-removal',
-    'slot/password-test-params', 'slot/password-default-params', 'kit/text', 'slot/kit', 'slot/device-seal-fixed', 'slot/device-open', 'wrap/seal-fixed', 'wrap/open',
-    'folder/segment-partial-length']) {
+  const all = allVectors().map((v) => v.name as string);
+  for (const p of ['cbor/reject/', 'cbor/accept/depth-16', 'cbor/reject/depth-17', 'cbor/accept/text-not-nfc', 'person/derive', 'card/verify', 'signature/s-plus-l', 'signature/pk-small-order-1',
+    'gid/', 'commit/', 'record/key', 'record/seal-item', 'padding/record-255', 'padding/record-256', 'padding/record-257', 'padding/record-512', 'padding/record-513', 'padding/record-2048',
+    'padding/record-2049', 'padding/record-3000', 'padding/record-4094', 'padding/record-4096', 'padding/record-4097', 'record/open/bad-signature', 'record/open/moved-header',
+    'record/open/author-small-order', 'record/open/bad-signature-s-not-reduced', 'record/largest-body', 'record/body-one-over', 'clock/order', 'fold/different-fields', 'fold/same-field',
+    'fold/clear-after-set', 'fold/edit-after-delete', 'fold/delete-after-edit', 'fold/three-orders-one-state', 'fold/duplicate-record', 'checkpoint/fold-on-top', 'checkpoint/null-versus-cleared',
+    'checkpoint/overlapping-both-orders', 'checkpoint/purged', 'group/fork-three-candidates', 'group/fork-1-epoch-record-after-removal', 'group/fork-2-author-removed-by-another-candidate',
+    'group/fork-2-mutual-removal-keeps-all', 'group/fork-3-least-author', 'group/remove-with-cut-unlisted-device-and-new-epoch', 'group/waiting-for-new-key-after-removal',
+    'group/content-mhead-on-losing-branch', 'group/held-back-one-ms-over', 'group/chain-same-body-sealed-twice', 'group/checkpoint-purged', 'group/checkpoint-overlapping-order-1',
+    'slot/password-test-params', 'slot/password-default-params', 'slot/argon2-memory-one-above-maximum', 'slot/device-forged-ps', 'slot/device-open-sealed-by-python', 'kit/text',
+    'kit/parse-all-confusables-lowercase', 'kit/parse-o-for-zero', 'kit/parse-i-for-one', 'slot/kit', 'slot/device-seal-fixed', 'wrap/seal-fixed', 'wrap/open-ciphertext-bit-flipped',
+    'wrap/open-enc-bit-flipped', 'wrap/select-right-among-garbage', 'hpke/open-sealed-by-python-with-aad', 'attachment/size-claimed-too-large', 'attachment/last-chunk-dropped',
+    'folder/segment-partial-length', 'folder/frame-length-one-over-largest', 'folder/rotate-after-65536-bytes']) {
     assert(all.some((n) => n.startsWith(p)), `missing vectors: ${p}`);
   }
+});
+
+test('every vector that tampers with an input names a tampered input that differs (generation-time assertion, checked again here)', () => {
+  const byName = new Map(allVectors().map((v) => [v.name as string, v]));
+  const wrapOpen = byName.get('wrap/open')!.input.wrap;
+  for (const n of ['wrap/open-ciphertext-bit-flipped', 'wrap/open-tag-bit-flipped', 'wrap/open-enc-bit-flipped-ml-kem-part', 'wrap/open-enc-bit-flipped-x25519-part']) {
+    const w = byName.get(n)!.input.wrap as string;
+    assert.equal(w.length, wrapOpen.length, n);
+    let diff = 0;
+    for (let i = 0; i < w.length; i += 2) if (w.slice(i, i + 2) !== wrapOpen.slice(i, i + 2)) diff++;
+    assert.equal(diff, 1, `${n} must differ from the original in exactly one byte`);
+    assert.notDeepEqual(byName.get(n)!.expected, byName.get('wrap/open')!.expected, `${n} must fail where the original succeeds`);
+  }
+});
+
+test('the Argon2id default parameters are derived at most once in a run, and a slot that must be refused derives nothing', () => {
+  assert.equal(argonStats.byMemory.get(131072), 1, 'default parameters (131,072 KiB) derived once for sealing, opening, regenerating and checking');
+  for (const memory of argonStats.byMemory.keys()) assert([64, 65536, 131072].includes(memory) || heavy, `unexpected derivation with ${memory} KiB`);
+  const before = argonStats.derivations;
+  let refusals = 0;
+  for (const v of allVectors()) {
+    if (v.type === 'slot.open' && ['argon2_too_weak', 'argon2_too_strong', 'bad_slot'].includes(v.expected?.error?.code)) { compute(v.type, v.input); refusals++; }
+  }
+  assert(refusals >= 9);
+  assert.equal(argonStats.derivations, before, 'a refused slot must not start Argon2id');
 });

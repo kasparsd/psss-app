@@ -1,16 +1,20 @@
 // Section 3: person, card, gid, key commitment.
 import { concat, eq, label, u32 } from './bytes.ts';
 import { CborError, cmap, decode, encode, isBytes, isMap, onlyKeys, type CMap } from './cbor.ts';
-import { ed25519PublicFromSeed, ed25519Sign, ed25519Verify, hkdf, sha256 } from './prims.ts';
+import { ed25519Check, ed25519PublicFromSeed, ed25519Sign, hkdf, sha256 } from './prims.ts';
 import * as xwing from './xwing.ts';
+
+/** What a reader does with the thing that failed (section 9): discard it for good, let it wait for more records or a key,
+ *  keep it and ignore it, or (outside the record pipeline: slots, wraps, files) reject it. */
+export type Disposition = 'discard' | 'wait' | 'ignore' | 'reject';
 
 export class FormatError extends Error {
   code: string;
-  step: number;
-  constructor(code: string, step = 0, detail = '') {
+  disposition: Disposition;
+  constructor(code: string, disposition: Disposition = 'reject', detail = '') {
     super(detail ? `${code}: ${detail}` : code);
     this.code = code;
-    this.step = step;
+    this.disposition = disposition;
   }
 }
 
@@ -52,16 +56,17 @@ export function verifyCard(v: unknown): Card {
   const m = cardShape(v);
   const pid = m.get(1) as Uint8Array;
   const kemPk = m.get(2) as Uint8Array;
-  if (!ed25519Verify(pid, concat(label('psss/v1/card'), pid, kemPk), m.get(3) as Uint8Array)) throw new FormatError('bad_card_signature');
+  const problem = ed25519Check(pid, concat(label('psss/v1/card'), pid, kemPk), m.get(3) as Uint8Array);
+  if (problem) throw new FormatError('bad_card_signature', 'reject', problem);
   return { pid, kemPk };
 }
 
 export const cardBytes = (p: Person): Uint8Array => encode(makeCard(p));
 export const verifyCardBytes = (b: Uint8Array): Card => verifyCard(decode(b));
 
-/** 3.3 gid = SHA-256("psss/v1/gid" || creator_pid || genesis_nonce) */
-export const gidOf = (creatorPid: Uint8Array, genesisNonce: Uint8Array): Uint8Array =>
-  sha256(label('psss/v1/gid'), creatorPid, genesisNonce);
+/** 3.3 gid = SHA-256("psss/v1/gid" || creator_pid || genesis_nonce || SHA-256("psss/v1/gid-key" || K_0)) */
+export const gidOf = (creatorPid: Uint8Array, genesisNonce: Uint8Array, k0: Uint8Array): Uint8Array =>
+  sha256(label('psss/v1/gid'), creatorPid, genesisNonce, sha256(label('psss/v1/gid-key'), k0));
 
 /** 3.3 commit(e) = SHA-256("psss/v1/key-commit" || gid || u32(e) || K_e) */
 export const commitOf = (gid: Uint8Array, epoch: number, key: Uint8Array): Uint8Array =>

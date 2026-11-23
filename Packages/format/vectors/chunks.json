@@ -3,98 +3,426 @@
   "vectors": [
     {
       "name": "chunk/seal-index-0",
-      "description": "Chunk 0: nonce u96(index), aad \"psss/v1/chunk\".",
+      "description": "Chunk 0 of a 16-byte file in 1 chunks: nonce u32(0) || u64(index), aad \"psss/v1/chunk\" || u64(size) || u32(count).",
       "type": "chunk.seal",
       "input": {
         "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
         "index": 0,
+        "size": 16,
+        "count": 1,
         "data": "68656c6c6f206174746163686d656e74"
       },
       "expected": {
-        "sealed": "f8b94bbd94dd3940ab9ef1732a4c89cb45186855f158ffbf30a8932672ddb537",
-        "chunk_id": "5f427b4b47cbf7349633fb25e367b05c788bab7b6e0873407d11cfb3025645dc"
-      }
-    },
-    {
-      "name": "chunk/open-index-0",
-      "description": "Opens.",
-      "type": "chunk.open",
-      "input": {
-        "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
-        "index": 0,
-        "sealed": "f8b94bbd94dd3940ab9ef1732a4c89cb45186855f158ffbf30a8932672ddb537"
-      },
-      "expected": {
-        "data": "68656c6c6f206174746163686d656e74"
+        "sealed": "f8b94bbd94dd3940ab9ef1732a4c89cbe34c0ae67021ddf68c2fd8a35d97773d",
+        "chunk_id": "9bb73adcb9eb7bc9089619bd8922f6dc69f3ea795451b75a66b0e5d49ba48a2b"
       }
     },
     {
       "name": "chunk/seal-index-1",
-      "description": "Chunk 1: nonce u96(index), aad \"psss/v1/chunk\".",
+      "description": "Chunk 1 of a 1048588-byte file in 2 chunks: nonce u32(0) || u64(index), aad \"psss/v1/chunk\" || u64(size) || u32(count).",
       "type": "chunk.seal",
       "input": {
         "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
         "index": 1,
+        "size": 1048588,
+        "count": 2,
         "data": "7365636f6e64206368756e6b"
       },
       "expected": {
-        "sealed": "2cc2d0d4cf5f573e2ab3a409e761a42b8a1b2f45bf8c4e4aef797084",
-        "chunk_id": "292f291f6ab3e8a3253b719b6d1d143b463bf26a73e22c1fffd288e5944c70dc"
+        "sealed": "2cc2d0d4cf5f573e2ab3a409c9f8dff828b46cbb946cec6cd3eab1b9",
+        "chunk_id": "868b6c01beefaac015b1f672ae1f57cbdcc30f77f93d154e037952e69dc33144"
       }
     },
     {
-      "name": "chunk/open-index-1",
-      "description": "Opens.",
-      "type": "chunk.open",
-      "input": {
-        "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
-        "index": 1,
-        "sealed": "2cc2d0d4cf5f573e2ab3a409e761a42b8a1b2f45bf8c4e4aef797084"
-      },
-      "expected": {
-        "data": "7365636f6e64206368756e6b"
-      }
-    },
-    {
-      "name": "chunk/seal-index-4294967296",
-      "description": "Chunk 4294967296: nonce u96(index), aad \"psss/v1/chunk\".",
+      "name": "chunk/seal-index-4294967294",
+      "description": "Chunk 4294967294 of a 4503599625273364-byte file in 4294967295 chunks: nonce u32(0) || u64(index), aad \"psss/v1/chunk\" || u64(size) || u32(count).",
       "type": "chunk.seal",
       "input": {
         "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
-        "index": 4294967296,
-        "data": "696e646578206265796f6e642033322062697473"
+        "index": 4294967294,
+        "size": 4503599625273364,
+        "count": 4294967295,
+        "data": "746865206c617374206368756e6b206f6620746865206c6172676573742066696c65"
       },
       "expected": {
-        "sealed": "a3f445e6d4ea629a11f73c4e1942bf388711a4c76175c20935e673dae8b67bda24ce7f8e",
-        "chunk_id": "09340a6823c6f27d98190d1e5b27785ec603708244d4e355935072cc5d3b2dd8"
+        "sealed": "5b011ad5f1ae4ebad4e0715e40dc7e9f1d99591f913ada600ab69803a89f58af8001879134eb08d22d1ec31cde8867f82365",
+        "chunk_id": "2effc2d30f44ff5b78c6a990d6355350367b025578b2c14eeff0bf4c5c20f4a3"
       }
     },
     {
-      "name": "chunk/open-index-4294967296",
-      "description": "Opens.",
-      "type": "chunk.open",
+      "name": "chunk/size-binds",
+      "description": "The same data and index with size 101 instead of 100 seal differently.",
+      "type": "chunk.seal",
       "input": {
         "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
-        "index": 4294967296,
-        "sealed": "a3f445e6d4ea629a11f73c4e1942bf388711a4c76175c20935e673dae8b67bda24ce7f8e"
+        "index": 0,
+        "size": 101,
+        "count": 1,
+        "data": "78"
       },
       "expected": {
-        "data": "696e646578206265796f6e642033322062697473"
+        "sealed": "e8f373048ab20cfacbc406b5ac5ecbf3d0",
+        "chunk_id": "143202e0964ff884c785d1dd5e47bcabae4fe19954b6ad6f8ff70585a7fcbbe7"
       }
     },
     {
-      "name": "chunk/open-wrong-index",
-      "description": "The nonce binds the chunk index.",
-      "type": "chunk.open",
+      "name": "chunk/count-binds",
+      "description": "The same with a count of 2 instead of 1.",
+      "type": "chunk.seal",
+      "input": {
+        "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
+        "index": 0,
+        "size": 100,
+        "count": 2,
+        "data": "78"
+      },
+      "expected": {
+        "sealed": "e8149b3adf446aacc17f8c55dcc4f31360",
+        "chunk_id": "6803bd80124bf6ad5cbc2564ba6b8759c5a95ba877fd21d93c725ebeae63ed6a"
+      }
+    },
+    {
+      "name": "chunk/index-binds",
+      "description": "The same with index 1.",
+      "type": "chunk.seal",
       "input": {
         "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
         "index": 1,
-        "sealed": "e8a3d9773a11f06a6a5a920bd5528e7af6"
+        "size": 100,
+        "count": 1,
+        "data": "78"
       },
       "expected": {
+        "sealed": "27a36f143153828aff48716f928e7cbe21",
+        "chunk_id": "502e2e2d4b726c41af5e8da9969888828c5b7db6dae0431ba8dbdb7e8e6381b7"
+      }
+    },
+    {
+      "name": "attachment/one-byte",
+      "description": "A one-byte file: one chunk.",
+      "type": "attachment.run",
+      "input": {
+        "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
+        "data_len": 1
+      },
+      "expected": {
+        "chunk_count": 1,
+        "chunk_ids": [
+          "2b3b39232907631d8081997bd77f1ee0bb97bb60b635b504a5205caa59354155"
+        ],
+        "data_sha256": "084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c5",
+        "opens": true,
+        "bytes": 1,
+        "sha256": "084fed08b978af4d7d196a7446a86b58009e636b611db16211b65a9aadff29c5"
+      }
+    },
+    {
+      "name": "attachment/exactly-one-chunk",
+      "description": "A file of exactly 1,048,576 bytes: one full chunk.",
+      "type": "attachment.run",
+      "input": {
+        "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
+        "data_len": 1048576
+      },
+      "expected": {
+        "chunk_count": 1,
+        "chunk_ids": [
+          "87cc5f3df91777b9c66505e26d7e3134341d4c4111b3745632548984aac5b51c"
+        ],
+        "data_sha256": "172c15dc2e12b50e523d8e657cbe7fbb11c1053252bbf1e1431077d57d8128fd",
+        "opens": true,
+        "bytes": 1048576,
+        "sha256": "172c15dc2e12b50e523d8e657cbe7fbb11c1053252bbf1e1431077d57d8128fd"
+      }
+    },
+    {
+      "name": "attachment/one-chunk-and-a-byte",
+      "description": "A file of 1,048,577 bytes: a full chunk and a chunk of one byte.",
+      "type": "attachment.run",
+      "input": {
+        "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
+        "data_len": 1048577
+      },
+      "expected": {
+        "chunk_count": 2,
+        "chunk_ids": [
+          "2a55b853a1bb652d7d9a371ef46a790c19d453a6f1013c817a647e7a0bcd83c7",
+          "d66129fbd73881b81f3871ca7fd6641643441ef6eef157256d7c3253e428b1d1"
+        ],
+        "data_sha256": "75059752ce0b546127d584a3992627babb59950933c6d82d10ad46fec48e7c96",
+        "opens": true,
+        "bytes": 1048577,
+        "sha256": "75059752ce0b546127d584a3992627babb59950933c6d82d10ad46fec48e7c96"
+      }
+    },
+    {
+      "name": "attachment/two-full-chunks",
+      "description": "A file of exactly 2,097,152 bytes: two full chunks, no short one.",
+      "type": "attachment.run",
+      "input": {
+        "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
+        "data_len": 2097152
+      },
+      "expected": {
+        "chunk_count": 2,
+        "chunk_ids": [
+          "036b229b858046e6c4976cc1e7c4033872db9d76dd8ff43ae584e9f0c6d6ef48",
+          "1420e1af53f390de3048be6ab852edf46f39eae3dd1691a9975669632a98b99d"
+        ],
+        "data_sha256": "c1b153e61d7d7835c625cc3077b85c18808a8c0f6e6b157b9bfc4546b5a34abb",
+        "opens": true,
+        "bytes": 2097152,
+        "sha256": "c1b153e61d7d7835c625cc3077b85c18808a8c0f6e6b157b9bfc4546b5a34abb"
+      }
+    },
+    {
+      "name": "attachment/empty-file",
+      "description": "An empty file: no chunks at all (the specification does not say; finding).",
+      "type": "attachment.run",
+      "input": {
+        "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
+        "data_len": 0
+      },
+      "expected": {
+        "chunk_count": 0,
+        "chunk_ids": [],
+        "data_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "opens": true,
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "name": "attachment/size-claimed-too-large",
+      "description": "The reader is told the file is 1 MiB larger than it is (the sealer used the true size): the aad differs and the first chunk fails.",
+      "type": "attachment.run",
+      "input": {
+        "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
+        "data_len": 1048581,
+        "reader_size": 2097157
+      },
+      "expected": {
+        "chunk_count": 2,
+        "chunk_ids": [
+          "4e8c16f6be932d924e69db1cb709fc49e90b76b67c6ddeea24f4c3b26d139d46",
+          "f59d52c7adad3908229e37e701bf015531545a28ecc79506beac1226647c1499"
+        ],
+        "data_sha256": "925197be3ab2011bae3afd2c8bd521a918aaf9971c56aaabaa6a5b4bdd57043a",
+        "opens": false,
         "error": {
-          "code": "failure",
-          "message": "tag"
+          "code": "chunk_tag",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "attachment/size-claimed-one-too-large",
+      "description": "The reader is told the size is one more than it is.",
+      "type": "attachment.run",
+      "input": {
+        "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
+        "data_len": 100,
+        "reader_size": 101
+      },
+      "expected": {
+        "chunk_count": 1,
+        "chunk_ids": [
+          "80dd78afa9d92ec0af8e72e39dcd74b922c9856a0c3601a0cba9955d5fd7b674"
+        ],
+        "data_sha256": "5a2cda2351d1cdd9dd7957e57c0b3c8522451f25b6494569b7e94388c46f0980",
+        "opens": false,
+        "error": {
+          "code": "chunk_tag",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "attachment/size-claimed-one-too-small",
+      "description": "The reader is told the size is one less.",
+      "type": "attachment.run",
+      "input": {
+        "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
+        "data_len": 100,
+        "reader_size": 99
+      },
+      "expected": {
+        "chunk_count": 1,
+        "chunk_ids": [
+          "80dd78afa9d92ec0af8e72e39dcd74b922c9856a0c3601a0cba9955d5fd7b674"
+        ],
+        "data_sha256": "5a2cda2351d1cdd9dd7957e57c0b3c8522451f25b6494569b7e94388c46f0980",
+        "opens": false,
+        "error": {
+          "code": "chunk_tag",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "attachment/last-chunk-dropped",
+      "description": "The last chunk is missing but its id is still listed.",
+      "type": "attachment.run",
+      "input": {
+        "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
+        "data_len": 1048581,
+        "drop_last_chunk": true
+      },
+      "expected": {
+        "chunk_count": 2,
+        "chunk_ids": [
+          "4e8c16f6be932d924e69db1cb709fc49e90b76b67c6ddeea24f4c3b26d139d46",
+          "f59d52c7adad3908229e37e701bf015531545a28ecc79506beac1226647c1499"
+        ],
+        "data_sha256": "925197be3ab2011bae3afd2c8bd521a918aaf9971c56aaabaa6a5b4bdd57043a",
+        "opens": false,
+        "error": {
+          "code": "chunk_count_mismatch",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "attachment/last-id-dropped",
+      "description": "The last chunk id is missing from the list, so the reader holds one chunk more than ids.",
+      "type": "attachment.run",
+      "input": {
+        "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
+        "data_len": 1048581,
+        "drop_last_id": true
+      },
+      "expected": {
+        "chunk_count": 2,
+        "chunk_ids": [
+          "4e8c16f6be932d924e69db1cb709fc49e90b76b67c6ddeea24f4c3b26d139d46",
+          "f59d52c7adad3908229e37e701bf015531545a28ecc79506beac1226647c1499"
+        ],
+        "data_sha256": "925197be3ab2011bae3afd2c8bd521a918aaf9971c56aaabaa6a5b4bdd57043a",
+        "opens": false,
+        "error": {
+          "code": "chunk_count_mismatch",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "attachment/chunk-repeated",
+      "description": "The last chunk and its id repeated: the count the reader sees (3) is not the count it was sealed with (2).",
+      "type": "attachment.run",
+      "input": {
+        "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
+        "data_len": 1048581,
+        "duplicate_last_chunk": true
+      },
+      "expected": {
+        "chunk_count": 2,
+        "chunk_ids": [
+          "4e8c16f6be932d924e69db1cb709fc49e90b76b67c6ddeea24f4c3b26d139d46",
+          "f59d52c7adad3908229e37e701bf015531545a28ecc79506beac1226647c1499"
+        ],
+        "data_sha256": "925197be3ab2011bae3afd2c8bd521a918aaf9971c56aaabaa6a5b4bdd57043a",
+        "opens": false,
+        "error": {
+          "code": "chunk_tag",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "attachment/sealed-for-more-chunks",
+      "description": "Sealed as if the file had 3 chunks (count in the aad) though only 2 exist.",
+      "type": "attachment.run",
+      "input": {
+        "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
+        "data_len": 1048581,
+        "claimed_count": 3
+      },
+      "expected": {
+        "chunk_count": 2,
+        "chunk_ids": [
+          "c519789deeedf3540aa6ae0d93cb1f8d7a677afe919e30e600c938a6618bf27e",
+          "87a5d3eafe677ba68e19c71aaef34ad420eed37016da721d306505c35dcd4f1e"
+        ],
+        "data_sha256": "925197be3ab2011bae3afd2c8bd521a918aaf9971c56aaabaa6a5b4bdd57043a",
+        "opens": false,
+        "error": {
+          "code": "chunk_tag",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "attachment/short-chunk-in-the-middle",
+      "description": "A chunk that is not the last holds fewer than 1,048,576 bytes (sealed with a consistent aad): refused.",
+      "type": "attachment.run",
+      "input": {
+        "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
+        "chunk_lens": [
+          1048575,
+          10
+        ]
+      },
+      "expected": {
+        "chunk_count": 2,
+        "chunk_ids": [
+          "de5327e7d1d7e55135c39187d0f2acffc62431b31984dd699e3844b9d3a5c4b4",
+          "846882d0ffd1c22ebf71234d6a34e2d525b8a8e6f588544735ad81a17e34c0a7"
+        ],
+        "data_sha256": "35d58703d1bf13c23c280e21c2ae7ebfa86a7c990cc8149314ebd45f6a60fdbe",
+        "opens": false,
+        "error": {
+          "code": "bad_chunk_size",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "attachment/lengths-do-not-add-up",
+      "description": "Sealed with a size in the aad that is 3 more than the chunk lengths add up to: the tags verify, the lengths do not add up to size.",
+      "type": "attachment.run",
+      "input": {
+        "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
+        "chunk_lens": [
+          1048576,
+          10
+        ],
+        "claimed_size": 1048589
+      },
+      "expected": {
+        "chunk_count": 2,
+        "chunk_ids": [
+          "57a94e126489a3f2bb4f819976e1a687e58815fdb8919c90f0b4779a108e601a",
+          "47fac28b9f1adf9a7b358e250a0a1e5ad76a19bba50c6d59da8897cfbd6b2a0b"
+        ],
+        "data_sha256": "08e33a5dca4bc98a343a27d75c84cadae8694a436f5c63e1031bad1757e65609",
+        "opens": false,
+        "error": {
+          "code": "size_mismatch",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "attachment/last-chunk-too-long",
+      "description": "The last chunk holds more than 1,048,576 bytes.",
+      "type": "attachment.run",
+      "input": {
+        "key": "c8ac393f486bfed6f15b25bf6452f374dc893203191a5a1c6835f05c717a6d45",
+        "chunk_lens": [
+          1048577
+        ],
+        "claimed_size": 1048577
+      },
+      "expected": {
+        "chunk_count": 1,
+        "chunk_ids": [
+          "dfc49a8f2a67b383794beef367fa953df17c9cbf2d1f1af631d81a89fc91b2cc"
+        ],
+        "data_sha256": "75059752ce0b546127d584a3992627babb59950933c6d82d10ad46fec48e7c96",
+        "opens": false,
+        "error": {
+          "code": "bad_chunk_size",
+          "disposition": "reject"
         }
       }
     }

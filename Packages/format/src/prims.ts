@@ -1,6 +1,7 @@
 // Thin wrappers over node:crypto for the primitives of section 1. No other dependency.
 import * as c from 'node:crypto';
-import { concat } from './bytes.ts';
+import { concat, hex } from './bytes.ts';
+import { checkSignatureInputs, type SigProblem } from './edwards.ts';
 
 const b = (x: Uint8Array | Buffer): Uint8Array => new Uint8Array(x.buffer, x.byteOffset, x.byteLength).slice();
 
@@ -52,10 +53,20 @@ const rawPub = (k: c.KeyObject) => b(k.export({ format: 'der', type: 'spki' }).s
 
 export const ed25519PublicFromSeed = (seed: Uint8Array): Uint8Array => rawPub(c.createPublicKey(edPriv(seed)));
 export const ed25519Sign = (seed: Uint8Array, msg: Uint8Array): Uint8Array => b(c.sign(null, msg, edPriv(seed)));
-export function ed25519Verify(pub: Uint8Array, msg: Uint8Array, sig: Uint8Array): boolean {
+/** Section 1.2: the checks are made here (src/edwards.ts); node:crypto then verifies the equation. */
+export function ed25519Check(pub: Uint8Array, msg: Uint8Array, sig: Uint8Array): SigProblem | 'bad_signature' | null {
+  const p = checkSignatureInputs(pub, sig);
+  if (p) return p;
   try {
     const k = c.createPublicKey({ key: Buffer.concat([ED_PUB, pub]), format: 'der', type: 'spki' });
-    return c.verify(null, msg, k, sig);
+    return c.verify(null, msg, k, sig) ? null : 'bad_signature';
+  } catch { return 'bad_signature'; }
+}
+export const ed25519Verify = (pub: Uint8Array, msg: Uint8Array, sig: Uint8Array): boolean => ed25519Check(pub, msg, sig) === null;
+/** What node:crypto alone says, without the checks of section 1.2 (for the report and tests). */
+export function ed25519VerifyPlatformOnly(pub: Uint8Array, msg: Uint8Array, sig: Uint8Array): boolean {
+  try {
+    return c.verify(null, msg, c.createPublicKey({ key: Buffer.concat([ED_PUB, pub]), format: 'der', type: 'spki' }), sig);
   } catch { return false; }
 }
 export const x25519PublicFromSeed = (sk: Uint8Array): Uint8Array =>
@@ -84,10 +95,25 @@ export function mlkem768Encapsulate(pk: Uint8Array): { ct: Uint8Array; ss: Uint8
 }
 
 export interface Argon2Params { memory: number; passes: number; lanes: number }
+
+// Argon2id with the default parameters takes about a second, and the same derivation is needed to seal a slot, to open it
+// and to check a vector. Results can be remembered for the life of the process (tests turn this on).
+let argonCache: Map<string, Uint8Array> | null = null;
+/** `dryRun` skips the work and returns 32 zero bytes: the mutation tests use it so that a mutated limit cannot make a run allocate a gigabyte. */
+export const argonStats = { derivations: 0, byMemory: new Map<number, number>(), dryRun: false };
+export const rememberArgon2 = (on: boolean) => { argonCache = on ? new Map() : null; };
+
 export function argon2id(password: Uint8Array, salt: Uint8Array, p: Argon2Params,
                          extra?: { secret?: Uint8Array; ad?: Uint8Array }): Uint8Array {
-  return b(c.argon2Sync('argon2id', {
+  const key = argonCache && !extra ? `${hex(password)}|${hex(salt)}|${p.memory}|${p.passes}|${p.lanes}` : null;
+  if (key && argonCache!.has(key)) return argonCache!.get(key)!.slice();
+  if (argonStats.dryRun) { argonStats.derivations++; return new Uint8Array(32); }
+  argonStats.derivations++;
+  argonStats.byMemory.set(p.memory, (argonStats.byMemory.get(p.memory) ?? 0) + 1);
+  const out = b(c.argon2Sync('argon2id', {
     message: password, nonce: salt, parallelism: p.lanes, tagLength: 32, memory: p.memory, passes: p.passes,
     ...(extra?.secret ? { secret: extra.secret } : {}), ...(extra?.ad ? { associatedData: extra.ad } : {}),
   }));
+  if (key) argonCache!.set(key, out.slice());
+  return out;
 }

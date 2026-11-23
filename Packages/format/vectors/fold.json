@@ -36,6 +36,7 @@
             "fields": {
               "title": {
                 "current": "6154",
+                "cleared": false,
                 "clock": [
                   10,
                   0,
@@ -47,6 +48,7 @@
               },
               "url": {
                 "current": "6155",
+                "cleared": false,
                 "clock": [
                   11,
                   0,
@@ -96,6 +98,7 @@
             "fields": {
               "title": {
                 "current": "636e6577",
+                "cleared": false,
                 "clock": [
                   20,
                   0,
@@ -106,6 +109,7 @@
                 "history": [
                   {
                     "value": "636f6c64",
+                    "cleared": false,
                     "clock": [
                       10,
                       0,
@@ -156,6 +160,7 @@
             "fields": {
               "title": {
                 "current": "636e6577",
+                "cleared": false,
                 "clock": [
                   20,
                   0,
@@ -166,6 +171,7 @@
                 "history": [
                   {
                     "value": "636f6c64",
+                    "cleared": false,
                     "clock": [
                       10,
                       0,
@@ -195,7 +201,7 @@
             "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
             "device": "f0e83fb87620a2a38491013294e49a66",
             "seq": 1,
-            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a161666a66726f6d20616c6963650380"
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a161667766726f6d2074686520736d616c6c657220617574686f720380"
           },
           {
             "clock": [
@@ -205,7 +211,7 @@
             "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
             "device": "f0e83fb87620a2a38491013294e49a66",
             "seq": 1,
-            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a161666866726f6d20626f620380"
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a161667766726f6d20746865206772656174657220617574686f720380"
           }
         ]
       },
@@ -215,7 +221,8 @@
             "deleted": false,
             "fields": {
               "f": {
-                "current": "6866726f6d20626f62",
+                "current": "7766726f6d20746865206772656174657220617574686f72",
+                "cleared": false,
                 "clock": [
                   10,
                   0,
@@ -225,7 +232,8 @@
                 ],
                 "history": [
                   {
-                    "value": "6a66726f6d20616c696365",
+                    "value": "7766726f6d2074686520736d616c6c657220617574686f72",
+                    "cleared": false,
                     "clock": [
                       10,
                       0,
@@ -276,6 +284,7 @@
             "fields": {
               "f": {
                 "current": "69636f756e7465722031",
+                "cleared": false,
                 "clock": [
                   10,
                   1,
@@ -286,6 +295,7 @@
                 "history": [
                   {
                     "value": "69636f756e7465722030",
+                    "cleared": false,
                     "clock": [
                       10,
                       0,
@@ -336,6 +346,7 @@
             "fields": {
               "note": {
                 "current": null,
+                "cleared": true,
                 "clock": [
                   20,
                   0,
@@ -346,6 +357,7 @@
                 "history": [
                   {
                     "value": "6178",
+                    "cleared": false,
                     "clock": [
                       10,
                       0,
@@ -396,6 +408,7 @@
             "fields": {
               "note": {
                 "current": "646261636b",
+                "cleared": false,
                 "clock": [
                   20,
                   0,
@@ -406,6 +419,7 @@
                 "history": [
                   {
                     "value": null,
+                    "cleared": true,
                     "clock": [
                       10,
                       0,
@@ -456,6 +470,7 @@
             "fields": {
               "a": {
                 "current": "03",
+                "cleared": false,
                 "clock": [
                   20,
                   0,
@@ -466,6 +481,7 @@
                 "history": [
                   {
                     "value": "01",
+                    "cleared": false,
                     "clock": [
                       10,
                       0,
@@ -478,6 +494,7 @@
               },
               "b": {
                 "current": null,
+                "cleared": true,
                 "clock": [
                   20,
                   0,
@@ -488,6 +505,7 @@
                 "history": [
                   {
                     "value": "02",
+                    "cleared": false,
                     "clock": [
                       10,
                       0,
@@ -505,7 +523,7 @@
     },
     {
       "name": "fold/null-value-vs-clear",
-      "description": "A field set to the value null is not the same as a cleared field (until a checkpoint, see findings).",
+      "description": "A field set to the value null is not the same as a cleared field: the first has current null and cleared false, the second cleared true.",
       "type": "fold.run",
       "input": {
         "changes": [
@@ -538,6 +556,7 @@
             "fields": {
               "f": {
                 "current": "f6",
+                "cleared": false,
                 "clock": [
                   10,
                   0,
@@ -549,6 +568,7 @@
               },
               "g": {
                 "current": null,
+                "cleared": true,
                 "clock": [
                   11,
                   0,
@@ -598,6 +618,7 @@
             "fields": {
               "deleted": {
                 "current": "14",
+                "cleared": false,
                 "clock": [
                   20,
                   0,
@@ -609,6 +630,7 @@
               },
               "title": {
                 "current": "6154",
+                "cleared": false,
                 "clock": [
                   10,
                   0,
@@ -668,6 +690,7 @@
             "fields": {
               "deleted": {
                 "current": "14",
+                "cleared": false,
                 "clock": [
                   20,
                   0,
@@ -679,6 +702,7 @@
               },
               "title": {
                 "current": "625432",
+                "cleared": false,
                 "clock": [
                   30,
                   0,
@@ -689,6 +713,7 @@
                 "history": [
                   {
                     "value": "6154",
+                    "cleared": false,
                     "clock": [
                       10,
                       0,
@@ -749,6 +774,7 @@
             "fields": {
               "deleted": {
                 "current": "14",
+                "cleared": false,
                 "clock": [
                   20,
                   0,
@@ -760,6 +786,7 @@
               },
               "title": {
                 "current": null,
+                "cleared": true,
                 "clock": [
                   30,
                   0,
@@ -770,6 +797,7 @@
                 "history": [
                   {
                     "value": "6154",
+                    "cleared": false,
                     "clock": [
                       10,
                       0,
@@ -787,7 +815,7 @@
     },
     {
       "name": "fold/delete-in-same-record-as-edit",
-      "description": "A record that sets deleted and another field: the other field is not later than the delete, so the item stays deleted.",
+      "description": "A record that sets deleted and another field: the other field is not strictly later than deleted (same write position), so the item stays deleted.",
       "type": "fold.run",
       "input": {
         "changes": [
@@ -810,6 +838,7 @@
             "fields": {
               "deleted": {
                 "current": "0a",
+                "cleared": false,
                 "clock": [
                   10,
                   0,
@@ -821,6 +850,7 @@
               },
               "title": {
                 "current": "6154",
+                "cleared": false,
                 "clock": [
                   10,
                   0,
@@ -829,6 +859,192 @@
                   1
                 ],
                 "history": []
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "fold/delete-tie-with-edit-by-greater-author",
+      "description": "An edit with the same wall_ms and counter as the delete but a greater author (and the delete by the smaller) sorts later: strictly later, so the item is back.",
+      "type": "fold.run",
+      "input": {
+        "changes": [
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a16764656c657465640a0380"
+          },
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a1657469746c6561540380"
+          }
+        ]
+      },
+      "expected": {
+        "state": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": false,
+            "fields": {
+              "deleted": {
+                "current": "0a",
+                "cleared": false,
+                "clock": [
+                  10,
+                  0,
+                  "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  1
+                ],
+                "history": []
+              },
+              "title": {
+                "current": "6154",
+                "cleared": false,
+                "clock": [
+                  10,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  1
+                ],
+                "history": []
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "fold/delete-tie-with-edit-by-smaller-author",
+      "description": "The same, but the edit has the smaller author: it sorts earlier than the delete, so the item stays deleted.",
+      "type": "fold.run",
+      "input": {
+        "changes": [
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a16764656c657465640a0380"
+          },
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a1657469746c6561540380"
+          }
+        ]
+      },
+      "expected": {
+        "state": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": true,
+            "fields": {
+              "deleted": {
+                "current": "0a",
+                "cleared": false,
+                "clock": [
+                  10,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  1
+                ],
+                "history": []
+              },
+              "title": {
+                "current": "6154",
+                "cleared": false,
+                "clock": [
+                  10,
+                  0,
+                  "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  1
+                ],
+                "history": []
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "fold/delete-value-plays-no-part",
+      "description": "The value of deleted is a time shown to the person and does not decide anything: a later write with a smaller value wins.",
+      "type": "fold.run",
+      "input": {
+        "changes": [
+          {
+            "clock": [
+              10,
+              0
+            ],
+            "author": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a16764656c657465641913880380"
+          },
+          {
+            "clock": [
+              20,
+              0
+            ],
+            "author": "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+            "device": "f0e83fb87620a2a38491013294e49a66",
+            "seq": 1,
+            "payload": "a30150ace6ac12170622a576ae87e46e42123b02a16764656c65746564010380"
+          }
+        ]
+      },
+      "expected": {
+        "state": {
+          "ace6ac12170622a576ae87e46e42123b": {
+            "deleted": true,
+            "fields": {
+              "deleted": {
+                "current": "01",
+                "cleared": false,
+                "clock": [
+                  20,
+                  0,
+                  "df93434c24736593a5d88b596e29fc215c78babb05bcb74961af0bb9f3135f0f",
+                  "f0e83fb87620a2a38491013294e49a66",
+                  1
+                ],
+                "history": [
+                  {
+                    "value": "191388",
+                    "cleared": false,
+                    "clock": [
+                      10,
+                      0,
+                      "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+                      "f0e83fb87620a2a38491013294e49a66",
+                      1
+                    ]
+                  }
+                ]
               }
             }
           }
@@ -870,6 +1086,7 @@
             "fields": {
               "deleted": {
                 "current": null,
+                "cleared": true,
                 "clock": [
                   20,
                   0,
@@ -880,6 +1097,7 @@
                 "history": [
                   {
                     "value": "0a",
+                    "cleared": false,
                     "clock": [
                       10,
                       0,
@@ -897,7 +1115,7 @@
     },
     {
       "name": "fold/delete-twice",
-      "description": "Deleted set twice: the later value wins; still deleted.",
+      "description": "Deleted set twice: the later write wins; still deleted.",
       "type": "fold.run",
       "input": {
         "changes": [
@@ -930,6 +1148,7 @@
             "fields": {
               "deleted": {
                 "current": "14",
+                "cleared": false,
                 "clock": [
                   20,
                   0,
@@ -940,6 +1159,7 @@
                 "history": [
                   {
                     "value": "0a",
+                    "cleared": false,
                     "clock": [
                       10,
                       0,
@@ -990,6 +1210,7 @@
             "fields": {
               "t": {
                 "current": "01",
+                "cleared": false,
                 "clock": [
                   10,
                   0,
@@ -1006,6 +1227,7 @@
             "fields": {
               "t": {
                 "current": "02",
+                "cleared": false,
                 "clock": [
                   11,
                   0,
@@ -1055,6 +1277,7 @@
             "fields": {
               "passkey": {
                 "current": "a1014103",
+                "cleared": false,
                 "clock": [
                   20,
                   0,
@@ -1065,6 +1288,7 @@
                 "history": [
                   {
                     "value": "a20142010202627270",
+                    "cleared": false,
                     "clock": [
                       10,
                       0,
@@ -1155,6 +1379,7 @@
             "fields": {
               "note": {
                 "current": "616e",
+                "cleared": false,
                 "clock": [
                   14,
                   0,
@@ -1165,6 +1390,7 @@
                 "history": [
                   {
                     "value": null,
+                    "cleared": true,
                     "clock": [
                       12,
                       0,
@@ -1177,6 +1403,7 @@
               },
               "title": {
                 "current": "6162",
+                "cleared": false,
                 "clock": [
                   12,
                   0,
@@ -1187,6 +1414,7 @@
                 "history": [
                   {
                     "value": "6161",
+                    "cleared": false,
                     "clock": [
                       10,
                       0,
@@ -1199,6 +1427,7 @@
               },
               "url": {
                 "current": "627532",
+                "cleared": false,
                 "clock": [
                   16,
                   0,
@@ -1209,6 +1438,7 @@
                 "history": [
                   {
                     "value": "627531",
+                    "cleared": false,
                     "clock": [
                       10,
                       0,
@@ -1229,6 +1459,7 @@
               "fields": {
                 "note": {
                   "current": "616e",
+                  "cleared": false,
                   "clock": [
                     14,
                     0,
@@ -1239,6 +1470,7 @@
                   "history": [
                     {
                       "value": null,
+                      "cleared": true,
                       "clock": [
                         12,
                         0,
@@ -1251,6 +1483,7 @@
                 },
                 "title": {
                   "current": "6162",
+                  "cleared": false,
                   "clock": [
                     12,
                     0,
@@ -1261,6 +1494,7 @@
                   "history": [
                     {
                       "value": "6161",
+                      "cleared": false,
                       "clock": [
                         10,
                         0,
@@ -1273,6 +1507,7 @@
                 },
                 "url": {
                   "current": "627532",
+                  "cleared": false,
                   "clock": [
                     16,
                     0,
@@ -1283,6 +1518,7 @@
                   "history": [
                     {
                       "value": "627531",
+                      "cleared": false,
                       "clock": [
                         10,
                         0,
@@ -1302,6 +1538,7 @@
               "fields": {
                 "note": {
                   "current": "616e",
+                  "cleared": false,
                   "clock": [
                     14,
                     0,
@@ -1312,6 +1549,7 @@
                   "history": [
                     {
                       "value": null,
+                      "cleared": true,
                       "clock": [
                         12,
                         0,
@@ -1324,6 +1562,7 @@
                 },
                 "title": {
                   "current": "6162",
+                  "cleared": false,
                   "clock": [
                     12,
                     0,
@@ -1334,6 +1573,7 @@
                   "history": [
                     {
                       "value": "6161",
+                      "cleared": false,
                       "clock": [
                         10,
                         0,
@@ -1346,6 +1586,7 @@
                 },
                 "url": {
                   "current": "627532",
+                  "cleared": false,
                   "clock": [
                     16,
                     0,
@@ -1356,6 +1597,7 @@
                   "history": [
                     {
                       "value": "627531",
+                      "cleared": false,
                       "clock": [
                         10,
                         0,
@@ -1375,6 +1617,7 @@
               "fields": {
                 "note": {
                   "current": "616e",
+                  "cleared": false,
                   "clock": [
                     14,
                     0,
@@ -1385,6 +1628,7 @@
                   "history": [
                     {
                       "value": null,
+                      "cleared": true,
                       "clock": [
                         12,
                         0,
@@ -1397,6 +1641,7 @@
                 },
                 "title": {
                   "current": "6162",
+                  "cleared": false,
                   "clock": [
                     12,
                     0,
@@ -1407,6 +1652,7 @@
                   "history": [
                     {
                       "value": "6161",
+                      "cleared": false,
                       "clock": [
                         10,
                         0,
@@ -1419,6 +1665,7 @@
                 },
                 "url": {
                   "current": "627532",
+                  "cleared": false,
                   "clock": [
                     16,
                     0,
@@ -1429,6 +1676,7 @@
                   "history": [
                     {
                       "value": "627531",
+                      "cleared": false,
                       "clock": [
                         10,
                         0,
@@ -1490,6 +1738,7 @@
             "fields": {
               "title": {
                 "current": "6155",
+                "cleared": false,
                 "clock": [
                   11,
                   0,
@@ -1500,6 +1749,7 @@
                 "history": [
                   {
                     "value": "6154",
+                    "cleared": false,
                     "clock": [
                       10,
                       0,

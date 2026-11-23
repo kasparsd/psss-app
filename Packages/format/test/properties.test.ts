@@ -76,7 +76,7 @@ test('a checkpoint of any prefix plus the remaining records equals folding every
     const cp = checkpointItems(fold(before));
     // The checkpoint goes through its encoding, as it would on disk.
     const parsed = decode(encode(cp)) as CborValue[];
-    assert.equal(strip(fold(after, [parsed])), strip(fold(changes)), `seed ${seed}`);
+    assert.equal(strip(fold(after, [{ items: parsed, purged: [] }])), strip(fold(changes)), `seed ${seed}`);
   }
 });
 

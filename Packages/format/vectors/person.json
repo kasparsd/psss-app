@@ -1,5 +1,5 @@
 {
-  "description": "Person, card, gid, commitment, X-Wing and HPKE (sections 1 and 3).",
+  "description": "Person, card, signature checks, gid, commitment, X-Wing and HPKE (sections 1 and 3).",
   "vectors": [
     {
       "name": "person/derive-alice",
@@ -55,7 +55,7 @@
       "expected": {
         "error": {
           "code": "bad_card_signature",
-          "step": 0
+          "disposition": "reject"
         }
       }
     },
@@ -69,7 +69,7 @@
       "expected": {
         "error": {
           "code": "bad_card_signature",
-          "step": 0
+          "disposition": "reject"
         }
       }
     },
@@ -83,7 +83,7 @@
       "expected": {
         "error": {
           "code": "bad_card_signature",
-          "step": 0
+          "disposition": "reject"
         }
       }
     },
@@ -127,15 +127,330 @@
       }
     },
     {
+      "name": "card/verify-s-not-reduced",
+      "description": "The card signature with S replaced by S + L: the same equation holds, but section 1.2 requires S < L.",
+      "type": "card.verify",
+      "input": {
+        "card": "a3015820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338025904c01cd90c583796bf517769b72cf5514d3e2938beda75932923be68797325315afc0b56dc4de5b59da341cd526001f4f36b442b91b555912eeacff18842fd7657eb6c0fc2129951c3c1b0b24402f47eeeb92400db6369ab76b2970972d416ea7abc6c5a516bd829f4783ec09abbcaf96ad9c081a75ca5c0c10131db1ee18309305a44a1387b93e0c9a30317b4c784b37ab412c42385649ae45c79fa022bd763cfbc7c893c7358e7b68d3fa6180227627abb7fee1556ba0529a8fa315cd66d085370ef0640deb43f4f01b983177e1463b9a2c60ed5b45d0c58c1327c5fc0491362a655746463afa494fd61115011acb0f19a8ec77be5ec0dca77650fe7bd755a6ae56cc0dc71a05bf98bf5187b5b8b0ba0328f049c1697b18745038d8810316673a15c45a59bf4186c166546e94801f64386d817cd923d52625442f71de4781d0a4740ea74b9bad3720c50850d07c601649e0cec70bda70245ab8e8a362e07d073e36039c2d880e64016ddf9c52323110d75a26a77694839b3fbac8edd622fd97cc59b590b781834cc438f86baa9e5b28d71917a513a00ea0aa86a61852db90500b0ce1a89c080593b0f407d57c11f636cbe4a604148a6993c3a6b5fb1b7db36be0c491200978fe5f04c07cc6614550e8f550f15670c1a798ec47a8469ac4d44e6ca119029826142eaa68a011c485cc5403c1241af9c05b305ac015bcc8c13ce5eb4aa8bb2774832939c87179af9bffd7275ebc53ebd6a334ceb35d9eb8549266cc5cba12957359acc2cd838b64fbbcf67951d5e27c6ced1797a4b0bbc90918d292764602e1c900037f55c619780fd3b097c929010da7505d51df0558ae8c6341d043f6a8684ef958bf671cdbc46800f203eed5b62cdd30ae047b86611befb0685e96034f88a69eea892d72539181ccbcf5a3ba3a47e8af79d7352688ada8dc8d6466a351554795614a73233e1b5bd1622591611b9f2695d42935d6409d88a31982a6e8017b6fd84632e0481f1e59de34c3b79abc91b08ad2d3a7ff3f37ad989bcbf35655fb678e2ca81a05a72d7fbb680956549f6505533c965c97081104f08b9c3e6241ff864588d01c7eb21a9de145bdb6a08200743d39aaea8589ad34a8475d79e4cc8c29d94141a1296c418521d4bbba830a59d9a7e091a15a10b7720a037710206867b2413c4c4a6e38db65c6b3a77b11122581224451b40478d557a184710e8b096422410b24926438cc2cd43313e52cc70973617c58d22ccc6dca998459855c2b3cb4d280229327208757e1fd834c588cdee0a2dd0da61b2a06f69d8bc68a739df53c94f717b7b49cc220250bd58bd97b047d9b3381c751978140af13b2b1fdccbfca952c790c3dcb142d0dac04ed05b73959fd73ac12e7c491797c2cf819e8d5308f6db9e8f20c3100a3ef1397027f5c7471a9e8e4429c545844ea76bdca8a204713ddd735b98f316e75a1a53fa2b62c4aed4e361f0d200bf3758f3e9c3e3dcabd8325df75130fa769f31447d304941d43cc41a82743562cb37c176b5b05e36f76880f144775b2dcc0990d373893bea6f8f2534d66c4ad5a6a436054cfe3010806894d525ab9fb227b6a7c09c8ca984d8b3c07b9dfb0c10de29914c21968332a6944000664e832518cddbde07541a0358246f4adc39ae6067c6694e4b01d9efc2985fc2cb331b3ca6274efa447cd77e76e5af5edea3f0a067b7210dca7c0358408c14ff4355bb07e4eb07c26008b5cf37d161b337711380534b850bb027d9e1216b574718b79dae6c41634b6274deb2fa96da5c5bbe0be54f1e257d4e42d33e19"
+      },
+      "expected": {
+        "error": {
+          "code": "bad_card_signature",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "card/verify-small-order-pid",
+      "description": "A card whose pid is the identity point, with the all-zero signature a forger would use.",
+      "type": "card.verify",
+      "input": {
+        "card": "a30158200100000000000000000000000000000000000000000000000000000000000000025904c01cd90c583796bf517769b72cf5514d3e2938beda75932923be68797325315afc0b56dc4de5b59da341cd526001f4f36b442b91b555912eeacff18842fd7657eb6c0fc2129951c3c1b0b24402f47eeeb92400db6369ab76b2970972d416ea7abc6c5a516bd829f4783ec09abbcaf96ad9c081a75ca5c0c10131db1ee18309305a44a1387b93e0c9a30317b4c784b37ab412c42385649ae45c79fa022bd763cfbc7c893c7358e7b68d3fa6180227627abb7fee1556ba0529a8fa315cd66d085370ef0640deb43f4f01b983177e1463b9a2c60ed5b45d0c58c1327c5fc0491362a655746463afa494fd61115011acb0f19a8ec77be5ec0dca77650fe7bd755a6ae56cc0dc71a05bf98bf5187b5b8b0ba0328f049c1697b18745038d8810316673a15c45a59bf4186c166546e94801f64386d817cd923d52625442f71de4781d0a4740ea74b9bad3720c50850d07c601649e0cec70bda70245ab8e8a362e07d073e36039c2d880e64016ddf9c52323110d75a26a77694839b3fbac8edd622fd97cc59b590b781834cc438f86baa9e5b28d71917a513a00ea0aa86a61852db90500b0ce1a89c080593b0f407d57c11f636cbe4a604148a6993c3a6b5fb1b7db36be0c491200978fe5f04c07cc6614550e8f550f15670c1a798ec47a8469ac4d44e6ca119029826142eaa68a011c485cc5403c1241af9c05b305ac015bcc8c13ce5eb4aa8bb2774832939c87179af9bffd7275ebc53ebd6a334ceb35d9eb8549266cc5cba12957359acc2cd838b64fbbcf67951d5e27c6ced1797a4b0bbc90918d292764602e1c900037f55c619780fd3b097c929010da7505d51df0558ae8c6341d043f6a8684ef958bf671cdbc46800f203eed5b62cdd30ae047b86611befb0685e96034f88a69eea892d72539181ccbcf5a3ba3a47e8af79d7352688ada8dc8d6466a351554795614a73233e1b5bd1622591611b9f2695d42935d6409d88a31982a6e8017b6fd84632e0481f1e59de34c3b79abc91b08ad2d3a7ff3f37ad989bcbf35655fb678e2ca81a05a72d7fbb680956549f6505533c965c97081104f08b9c3e6241ff864588d01c7eb21a9de145bdb6a08200743d39aaea8589ad34a8475d79e4cc8c29d94141a1296c418521d4bbba830a59d9a7e091a15a10b7720a037710206867b2413c4c4a6e38db65c6b3a77b11122581224451b40478d557a184710e8b096422410b24926438cc2cd43313e52cc70973617c58d22ccc6dca998459855c2b3cb4d280229327208757e1fd834c588cdee0a2dd0da61b2a06f69d8bc68a739df53c94f717b7b49cc220250bd58bd97b047d9b3381c751978140af13b2b1fdccbfca952c790c3dcb142d0dac04ed05b73959fd73ac12e7c491797c2cf819e8d5308f6db9e8f20c3100a3ef1397027f5c7471a9e8e4429c545844ea76bdca8a204713ddd735b98f316e75a1a53fa2b62c4aed4e361f0d200bf3758f3e9c3e3dcabd8325df75130fa769f31447d304941d43cc41a82743562cb37c176b5b05e36f76880f144775b2dcc0990d373893bea6f8f2534d66c4ad5a6a436054cfe3010806894d525ab9fb227b6a7c09c8ca984d8b3c07b9dfb0c10de29914c21968332a6944000664e832518cddbde07541a0358246f4adc39ae6067c6694e4b01d9efc2985fc2cb331b3ca6274efa447cd77e76e5af5edea3f0a067b7210dca7c03584001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "error": {
+          "code": "bad_card_signature",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "signature/valid",
+      "description": "RFC 8032 test 1: a valid signature of the empty message.",
+      "type": "signature.verify",
+      "input": {
+        "pk": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "msg": "",
+        "sig": "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"
+      },
+      "expected": {
+        "result": "ok"
+      }
+    },
+    {
+      "name": "signature/wrong-message",
+      "description": "The same signature over another message: an ordinary failure.",
+      "type": "signature.verify",
+      "input": {
+        "pk": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "msg": "78",
+        "sig": "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"
+      },
+      "expected": {
+        "result": "bad_signature"
+      }
+    },
+    {
+      "name": "signature/s-plus-l",
+      "description": "S + L: still satisfies the verification equation, rejected because S is not less than L (1.2).",
+      "type": "signature.verify",
+      "input": {
+        "pk": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "msg": "",
+        "sig": "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901554c8c7872aa064e049dbb3013fbf29380d25bf5f0595bbe24655141438e7a101b"
+      },
+      "expected": {
+        "result": "scalar_not_reduced"
+      }
+    },
+    {
+      "name": "signature/s-equals-l",
+      "description": "S = L exactly.",
+      "type": "signature.verify",
+      "input": {
+        "pk": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "msg": "",
+        "sig": "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e06522490155edd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010"
+      },
+      "expected": {
+        "result": "scalar_not_reduced"
+      }
+    },
+    {
+      "name": "signature/s-l-minus-1",
+      "description": "S = L - 1: the largest S the rule allows. Passes the checks and then fails the equation.",
+      "type": "signature.verify",
+      "input": {
+        "pk": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "msg": "",
+        "sig": "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e06522490155ecd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010"
+      },
+      "expected": {
+        "result": "bad_signature"
+      }
+    },
+    {
+      "name": "signature/s-top-bit-set",
+      "description": "S with its top bit set (well above L).",
+      "type": "signature.verify",
+      "input": {
+        "pk": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "msg": "",
+        "sig": "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a108b"
+      },
+      "expected": {
+        "result": "scalar_not_reduced"
+      }
+    },
+    {
+      "name": "signature/r-non-canonical",
+      "description": "R written with y = p + 1 (a non-canonical encoding of y = 1).",
+      "type": "signature.verify",
+      "input": {
+        "pk": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "msg": "",
+        "sig": "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f5fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"
+      },
+      "expected": {
+        "result": "bad_signature_encoding"
+      }
+    },
+    {
+      "name": "signature/r-off-curve",
+      "description": "R is not a point of the curve.",
+      "type": "signature.verify",
+      "input": {
+        "pk": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "msg": "",
+        "sig": "02000000000000000000000000000000000000000000000000000000000000005fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"
+      },
+      "expected": {
+        "result": "bad_signature_encoding"
+      }
+    },
+    {
+      "name": "signature/pk-non-canonical-y",
+      "description": "Public key with y = p (non-canonical).",
+      "type": "signature.verify",
+      "input": {
+        "pk": "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+        "msg": "",
+        "sig": "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"
+      },
+      "expected": {
+        "result": "bad_public_key"
+      }
+    },
+    {
+      "name": "signature/pk-non-canonical-identity",
+      "description": "Public key y = p + 1: a non-canonical encoding of the identity.",
+      "type": "signature.verify",
+      "input": {
+        "pk": "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+        "msg": "",
+        "sig": "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"
+      },
+      "expected": {
+        "result": "bad_public_key"
+      }
+    },
+    {
+      "name": "signature/pk-sign-bit-on-zero-x",
+      "description": "Identity point with the sign bit set (x = 0 cannot be negative).",
+      "type": "signature.verify",
+      "input": {
+        "pk": "0100000000000000000000000000000000000000000000000000000000000080",
+        "msg": "",
+        "sig": "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"
+      },
+      "expected": {
+        "result": "bad_public_key"
+      }
+    },
+    {
+      "name": "signature/pk-off-curve",
+      "description": "Public key that is not a point of the curve.",
+      "type": "signature.verify",
+      "input": {
+        "pk": "0200000000000000000000000000000000000000000000000000000000000000",
+        "msg": "",
+        "sig": "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"
+      },
+      "expected": {
+        "result": "bad_public_key"
+      }
+    },
+    {
+      "name": "signature/pk-short",
+      "description": "Public key of 31 bytes.",
+      "type": "signature.verify",
+      "input": {
+        "pk": "5a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+        "msg": "",
+        "sig": "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"
+      },
+      "expected": {
+        "result": "bad_public_key"
+      }
+    },
+    {
+      "name": "signature/pk-small-order-1",
+      "description": "Public key 01000000...: a point of order dividing 8, with R = identity and S = 0.",
+      "type": "signature.verify",
+      "input": {
+        "pk": "0100000000000000000000000000000000000000000000000000000000000000",
+        "msg": "666f72676564",
+        "sig": "01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "result": "small_order_public_key"
+      }
+    },
+    {
+      "name": "signature/pk-small-order-2",
+      "description": "Public key ecffffff...: a point of order dividing 8, with R = identity and S = 0.",
+      "type": "signature.verify",
+      "input": {
+        "pk": "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+        "msg": "666f72676564",
+        "sig": "01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "result": "small_order_public_key"
+      }
+    },
+    {
+      "name": "signature/pk-small-order-3",
+      "description": "Public key 00000000...: a point of order dividing 8, with R = identity and S = 0.",
+      "type": "signature.verify",
+      "input": {
+        "pk": "0000000000000000000000000000000000000000000000000000000000000000",
+        "msg": "666f72676564",
+        "sig": "01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "result": "small_order_public_key"
+      }
+    },
+    {
+      "name": "signature/pk-small-order-4",
+      "description": "Public key 00000000...: a point of order dividing 8, with R = identity and S = 0.",
+      "type": "signature.verify",
+      "input": {
+        "pk": "0000000000000000000000000000000000000000000000000000000000000080",
+        "msg": "666f72676564",
+        "sig": "01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "result": "small_order_public_key"
+      }
+    },
+    {
+      "name": "signature/pk-small-order-5",
+      "description": "Public key c7176a70...: a point of order dividing 8, with R = identity and S = 0.",
+      "type": "signature.verify",
+      "input": {
+        "pk": "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+        "msg": "666f72676564",
+        "sig": "01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "result": "small_order_public_key"
+      }
+    },
+    {
+      "name": "signature/pk-small-order-6",
+      "description": "Public key c7176a70...: a point of order dividing 8, with R = identity and S = 0.",
+      "type": "signature.verify",
+      "input": {
+        "pk": "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa",
+        "msg": "666f72676564",
+        "sig": "01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "result": "small_order_public_key"
+      }
+    },
+    {
+      "name": "signature/pk-small-order-7",
+      "description": "Public key 26e8958f...: a point of order dividing 8, with R = identity and S = 0.",
+      "type": "signature.verify",
+      "input": {
+        "pk": "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+        "msg": "666f72676564",
+        "sig": "01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "result": "small_order_public_key"
+      }
+    },
+    {
+      "name": "signature/pk-small-order-8",
+      "description": "Public key 26e8958f...: a point of order dividing 8, with R = identity and S = 0.",
+      "type": "signature.verify",
+      "input": {
+        "pk": "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85",
+        "msg": "666f72676564",
+        "sig": "01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expected": {
+        "result": "small_order_public_key"
+      }
+    },
+    {
       "name": "gid/alice",
-      "description": "gid from a creator pid and a genesis nonce.",
+      "description": "gid from a creator pid, a genesis nonce and K_0.",
       "type": "gid",
       "input": {
         "creator_pid": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
-        "genesis_nonce": "f2b425ef36de6563de7ec80b3b0bc0ea557ac865c92a0be43601201431765d6b"
+        "genesis_nonce": "f2b425ef36de6563de7ec80b3b0bc0ea557ac865c92a0be43601201431765d6b",
+        "k0": "84a8b2fea7a7a34fe2b1ecfa3c34fa0f0d7f06ebd07897e93282e8ae54e55307"
       },
       "expected": {
-        "gid": "1791dea60be301ab45ce731587b79e6dcba3c6e40d967863f4b348eacb80af5c"
+        "gid": "955211c57fb87ca1064d6c3e9c0fb9e0c4958cff42407aa6f2d7fa9c641ebd87"
+      }
+    },
+    {
+      "name": "gid/other-k0",
+      "description": "The same creator and nonce with another K_0 give another gid: the first key is bound in.",
+      "type": "gid",
+      "input": {
+        "creator_pid": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+        "genesis_nonce": "f2b425ef36de6563de7ec80b3b0bc0ea557ac865c92a0be43601201431765d6b",
+        "k0": "f91b65b239e3671381874e7f2505ba10eb77dccc5180fa83c0c41bce7afcd7ea"
+      },
+      "expected": {
+        "gid": "63ba39fbce114db6a41e50082b96a91dadc4b3f968b13928d4575786f457eb9d"
       }
     },
     {
@@ -143,12 +458,12 @@
       "description": "Key commitment for epoch 0.",
       "type": "commit",
       "input": {
-        "gid": "1791dea60be301ab45ce731587b79e6dcba3c6e40d967863f4b348eacb80af5c",
+        "gid": "955211c57fb87ca1064d6c3e9c0fb9e0c4958cff42407aa6f2d7fa9c641ebd87",
         "epoch": 0,
         "key": "84a8b2fea7a7a34fe2b1ecfa3c34fa0f0d7f06ebd07897e93282e8ae54e55307"
       },
       "expected": {
-        "commit": "b42563176287516fc0d3d076223859de9e286bcdeb50207808c06853eff1c4e1"
+        "commit": "5e484d73f68c4bd500e6be729332d6431a497533b0d414cec94a44f8ff631d66"
       }
     },
     {
@@ -156,12 +471,12 @@
       "description": "Key commitment for epoch 1.",
       "type": "commit",
       "input": {
-        "gid": "1791dea60be301ab45ce731587b79e6dcba3c6e40d967863f4b348eacb80af5c",
+        "gid": "955211c57fb87ca1064d6c3e9c0fb9e0c4958cff42407aa6f2d7fa9c641ebd87",
         "epoch": 1,
         "key": "84a8b2fea7a7a34fe2b1ecfa3c34fa0f0d7f06ebd07897e93282e8ae54e55307"
       },
       "expected": {
-        "commit": "a69a28f1b847295f89b181ff46201525081756bd858ed0e23bea7b808cc15010"
+        "commit": "0a9a119466eb35c060229a9c212ea8264c01fb2a2a09f0da22d3a2d5de97cea1"
       }
     },
     {
@@ -169,12 +484,12 @@
       "description": "Key commitment for epoch 4294967295.",
       "type": "commit",
       "input": {
-        "gid": "1791dea60be301ab45ce731587b79e6dcba3c6e40d967863f4b348eacb80af5c",
+        "gid": "955211c57fb87ca1064d6c3e9c0fb9e0c4958cff42407aa6f2d7fa9c641ebd87",
         "epoch": 4294967295,
         "key": "84a8b2fea7a7a34fe2b1ecfa3c34fa0f0d7f06ebd07897e93282e8ae54e55307"
       },
       "expected": {
-        "commit": "573e22828ca22de3e56b92e18b46266518faa417ee18a15583e24f75b80903e5"
+        "commit": "5702348b4c446ab5b6d0d9138f0b1d5edc9c201b5580cb2773783b9804cea30d"
       }
     },
     {
@@ -217,7 +532,7 @@
     },
     {
       "name": "hpke/seal-fixed",
-      "description": "HPKE base-mode single-shot seal, KEM id 0x647a, HKDF-SHA256, AES-256-GCM, with fixed KEM randomness.",
+      "description": "HPKE base-mode single-shot seal with a non-empty aad, KEM id 0x647a, HKDF-SHA256, AES-256-GCM, fixed KEM randomness.",
       "type": "hpke.seal",
       "input": {
         "pk": "6f54098a0a0e641146614b6960ba60d8603d62f447f9ab499b47bd6906cc40b061d8634a3e88906f284958e7441ca6c725cbb97095b7671a462b6681c9e6580bbc8d60b149fa60261043afbba52f205a6028384851596adf371abea98d3347383d2bb673438f6783612bf87014f7b91a89740265345df679340473d1c4c176886e5e29b8f058bb7c735316686cff5c3beb8c261cb00970a69c1afcc54b94cb86e1ce63ba636e395ca45101e21c7bd04c313ea19af24141efd2ad44416a25ba4f65910ef7d8809c3093f04aaf00e3cd96e35c4aa3c802c18ad6f39da4b4b8d98c8bd7902d83a07ba45396674a60243cab93e80fd9b1c8777376a9cc0d6fa115e2639380b9c6be7848bd13588c64703a0535d19a0f81633a976a0a105b66ee285d0fd255e82c0331925f4383b6efc761ef6099235a0b98726358aa9d01b8b896519f921474bb7c14bb22252b5c2f10d41246c9b23e7644849367f541a15f63bc928a39bb7bc73f07b665c496bb6558c8f45489a72ec4bacd34e9c594c33871b723f03495e88b4391ab26e43043deb6117b3919e45c4c1b16ab28e47ddd723663854766192fc1806ca70abb786cbdb30932e68c8a370bcfb07983a012c3266b93efa62657f4b838374cb0bb95e0ec06541b0765d99cf153bc6b96135ca780a55b3647789e31915e46283cf9c7bb6e8453fb6682105141f1dc0d00d85eed703b6c6c961f79c845276b4248949c06782e513eb2991b95d96042e38cbeda352449b2b5084ebda5226a6206400789130a3096449848b629feea4a2c2a743c4a0ddc9cb3f3d676fc563731b26c4a1a66dc8459170056d57697f1443b81a9a34412bb7bf05f3327575a5911dd301d6053867f3c3080711f1bf11587b0bb2984276b2685e7756210e4b3f8955384231e558c6f510c91e0fc56b5d1885ff2949e95a46bc1bee1fa71f5027e10c443b0e91d0fd7440f467a27221212e88f5c6ba64296cae0d207bfc60f88c7cfb5c45aa1839d18cb37c45843e5426a4a90c802b6428f953c359c4ac0603452fac0b7361e2fd35dcc885a92145d4fca0158f1b7d70b4bcd118e4a2a4154438df310c44a9a1b99ea415907267a88b0624241579c1722f46ed61c2e3eca545c9970517175399b800db25da39593d06490d7142c00e88d2db047e9898bdb7acb7ed907f6e30416cc0de54a242c0a2126302f5d54c85bc66ac2f83c797945b5067caa42bd2e0c19ca97506e507ab0a5c9f5633708499c19f24aec513bd3903a5d73b6ec4991f7c72eb991c1c37889805cb1ea38a0cc02176b27c58d638ce5a32668457cf9b9be027ca0214057971725d54102e8996716eb2ad823453b605b855370b1b21b3932cded4160aa9973c7ebae5ac4764d94cf7cc9506f077bad73012dbb4ac8140a38746412eb33c9514596205f707635862217d9b60918c6268d9344915b847a2476c1a270f154a5c84234165acfc869398702cea9e9a07e7b0e99ea9bdcb7841fe9c0fa25c8338092561a3edddc7001f478ad65781a6024aad165d9b6979adac448a4462f564685527f762434fe9a425a84437b457392eca80c913506151e3a13239f342fca7655b6eaae845a221ceb3e67f5639c6193f6fdeef57e399b808b7f3aa2b5740aaded90163dc5d775c9faf7f1fbd075dab344e9d7d146647281fbba7b3c56cafd5833b7a930ec4206e7c3a6d7764fe81d7a",
@@ -258,8 +573,25 @@
       },
       "expected": {
         "error": {
-          "code": "failure",
-          "message": "tag"
+          "code": "bad_hpke",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "hpke/open-empty-aad-for-aad-seal",
+      "description": "The blob was sealed with a non-empty aad; opening with an empty one fails.",
+      "type": "hpke.open",
+      "input": {
+        "seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "info": "7465737420696e666f",
+        "aad": "",
+        "blob": "bd782f9f68d5a02b7db5292924b97736af64e5abfe0ee7299f748cc0bb21becbf43a456b09dc3ce24714bb789b84d54b7983cdad7a3f88ed5de6742db60b4ba550537d2fc551bf9def6c7492c7d26e3224082cd3994c5148f96afacce278b4a6d35c6ace025dc14cf34a40f51769326ccb5c5423201452693d8b71090d50057bb35d38827f2b683d1b143f836151e37fb4a9cd0465a002254df63c86fc5b36aa64ac1d087b6798c0fa0b566e7493fcee8dbaf9adce7f01da894e08d2728260acbf067652bdba2985747f618a13fd6f5da3c20dec83d93d4076362952195784948c6b90702c5f73bcaaa8b4850ee9252e43b0f439aa66861dd3b22a388ff465366bef77f48b0f5afc08ce92ecce54f50e81ec75a188691990c333ca7b58e723970cb2c699566368fe188fbcbf1d2ee100189618e3463b79278b9030ea82a6cbf438836dd94767d10a246f54207046799e65a1bab124b8506fbc4377cdd87cb33195cc6ceff83dcbeebb4cc4c4e4e37b61d75063c6f6483d2101fc1d63c41731f5ebd5cc6ed3e4a1c70c81f210db64b018ae0f34b2c1d3b8481faa39f81cb6154a429e3b65a8e9a9120e1029970f5f41390fde33185cfe897deea71aed52a6c3e0f8152151919148c0768de254b980c0aac1082c90fc973109130900755143f35c045bf22d78c1ab8af24543367530a2740892cf5c14ca4167467b94620a2ff31b691420a22b198edf03488ae21570acc80dd9dfbf520223fd0eaab9065a5bbb879845e9697ae59edf595d5648f9d24fc3399dce2eec498999b08b0a84900e3454420bb8deb1164f0b76ac0521c34a74b904d3c86506b6427449c741bb001ad8e671d1d3f0c826bd242d40930c66bcab3d2903322aeb04cdc8dfa0dadad759a802e761829f3197aefd5004176d66fe69d5f48c3458ec473279f9dc3e5fb0880b36d5920b9a1f3dabf8e5990bb7792a487b0360a0da4a2296a3854598fb61488aeadf70b256071a057600a9e05aeca0d9671c2048e1b573bdf3ef0f83de370ad153fb5462cefb609c92e368ece18c742ae49a089e7b90e80162e10eac2fbf559e6e7f8b72bec1f01decbf00f3ef0302f981f3bb7041ca8093d399434c4fded6705b2d1fb7e6451bc43b1d0464d439cd2d3a74ed47abb8f8435824a56fd8a5d75cdb0024648a47f420e0d6300803b220d90d443de1c65416bb83ca6e675732368b9cae48083034ca04fca2a698a560d7006de665e658a413495e8ffdb5a8ec7723db7e303d68d6e15cc510dc7077d4e2c72e4dad76b9571cb7c279439315bd8a43f5e0e37524242a4e57d298f463b18f73573d6548a1b24c79512157a88412aa7dec20f8d554ce6af8e569b7b0e4d4320bebec7025c5868f2c168b8bd28d5ebb7ed35588c354878ed4c6ffd9828e6b0e40c2adc26fcd4ad8759dc6b321f94841aeaebc6174a9015d80cf93ac71daa2c2301aab82980a7614b1849eea3174d401dac3cc15bb7e589a50b7e3c57c5aa102970a4f332c4902ff41c7eca4dcd43c5e1fc27d9c24316539825c1896e57f28197746793ce60cbee3ad47da9d07b85fa55e2acf3a009129a5f550bac54f9c39b5975e07a83115f76f4904934eb8c6aa803f7aa5943e6ac758fac1e3ad44e772a83fa5"
+      },
+      "expected": {
+        "error": {
+          "code": "bad_hpke",
+          "disposition": "reject"
         }
       }
     },
@@ -275,9 +607,74 @@
       },
       "expected": {
         "error": {
-          "code": "failure",
-          "message": "tag"
+          "code": "bad_hpke",
+          "disposition": "reject"
         }
+      }
+    },
+    {
+      "name": "hpke/open-enc-bit-flipped",
+      "description": "A bit of the encapsulated key (enc) flipped: the shared secret changes and the open fails.",
+      "type": "hpke.open",
+      "input": {
+        "seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "info": "7465737420696e666f",
+        "aad": "7465737420616164",
+        "blob": "bd782f9f68d4a02b7db5292924b97736af64e5abfe0ee7299f748cc0bb21becbf43a456b09dc3ce24714bb789b84d54b7983cdad7a3f88ed5de6742db60b4ba550537d2fc551bf9def6c7492c7d26e3224082cd3994c5148f96afacce278b4a6d35c6ace025dc14cf34a40f51769326ccb5c5423201452693d8b71090d50057bb35d38827f2b683d1b143f836151e37fb4a9cd0465a002254df63c86fc5b36aa64ac1d087b6798c0fa0b566e7493fcee8dbaf9adce7f01da894e08d2728260acbf067652bdba2985747f618a13fd6f5da3c20dec83d93d4076362952195784948c6b90702c5f73bcaaa8b4850ee9252e43b0f439aa66861dd3b22a388ff465366bef77f48b0f5afc08ce92ecce54f50e81ec75a188691990c333ca7b58e723970cb2c699566368fe188fbcbf1d2ee100189618e3463b79278b9030ea82a6cbf438836dd94767d10a246f54207046799e65a1bab124b8506fbc4377cdd87cb33195cc6ceff83dcbeebb4cc4c4e4e37b61d75063c6f6483d2101fc1d63c41731f5ebd5cc6ed3e4a1c70c81f210db64b018ae0f34b2c1d3b8481faa39f81cb6154a429e3b65a8e9a9120e1029970f5f41390fde33185cfe897deea71aed52a6c3e0f8152151919148c0768de254b980c0aac1082c90fc973109130900755143f35c045bf22d78c1ab8af24543367530a2740892cf5c14ca4167467b94620a2ff31b691420a22b198edf03488ae21570acc80dd9dfbf520223fd0eaab9065a5bbb879845e9697ae59edf595d5648f9d24fc3399dce2eec498999b08b0a84900e3454420bb8deb1164f0b76ac0521c34a74b904d3c86506b6427449c741bb001ad8e671d1d3f0c826bd242d40930c66bcab3d2903322aeb04cdc8dfa0dadad759a802e761829f3197aefd5004176d66fe69d5f48c3458ec473279f9dc3e5fb0880b36d5920b9a1f3dabf8e5990bb7792a487b0360a0da4a2296a3854598fb61488aeadf70b256071a057600a9e05aeca0d9671c2048e1b573bdf3ef0f83de370ad153fb5462cefb609c92e368ece18c742ae49a089e7b90e80162e10eac2fbf559e6e7f8b72bec1f01decbf00f3ef0302f981f3bb7041ca8093d399434c4fded6705b2d1fb7e6451bc43b1d0464d439cd2d3a74ed47abb8f8435824a56fd8a5d75cdb0024648a47f420e0d6300803b220d90d443de1c65416bb83ca6e675732368b9cae48083034ca04fca2a698a560d7006de665e658a413495e8ffdb5a8ec7723db7e303d68d6e15cc510dc7077d4e2c72e4dad76b9571cb7c279439315bd8a43f5e0e37524242a4e57d298f463b18f73573d6548a1b24c79512157a88412aa7dec20f8d554ce6af8e569b7b0e4d4320bebec7025c5868f2c168b8bd28d5ebb7ed35588c354878ed4c6ffd9828e6b0e40c2adc26fcd4ad8759dc6b321f94841aeaebc6174a9015d80cf93ac71daa2c2301aab82980a7614b1849eea3174d401dac3cc15bb7e589a50b7e3c57c5aa102970a4f332c4902ff41c7eca4dcd43c5e1fc27d9c24316539825c1896e57f28197746793ce60cbee3ad47da9d07b85fa55e2acf3a009129a5f550bac54f9c39b5975e07a83115f76f4904934eb8c6aa803f7aa5943e6ac758fac1e3ad44e772a83fa5"
+      },
+      "expected": {
+        "error": {
+          "code": "bad_hpke",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "hpke/open-ciphertext-bit-flipped",
+      "description": "A bit of the AEAD ciphertext flipped.",
+      "type": "hpke.open",
+      "input": {
+        "seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "info": "7465737420696e666f",
+        "aad": "7465737420616164",
+        "blob": "bd782f9f68d5a02b7db5292924b97736af64e5abfe0ee7299f748cc0bb21becbf43a456b09dc3ce24714bb789b84d54b7983cdad7a3f88ed5de6742db60b4ba550537d2fc551bf9def6c7492c7d26e3224082cd3994c5148f96afacce278b4a6d35c6ace025dc14cf34a40f51769326ccb5c5423201452693d8b71090d50057bb35d38827f2b683d1b143f836151e37fb4a9cd0465a002254df63c86fc5b36aa64ac1d087b6798c0fa0b566e7493fcee8dbaf9adce7f01da894e08d2728260acbf067652bdba2985747f618a13fd6f5da3c20dec83d93d4076362952195784948c6b90702c5f73bcaaa8b4850ee9252e43b0f439aa66861dd3b22a388ff465366bef77f48b0f5afc08ce92ecce54f50e81ec75a188691990c333ca7b58e723970cb2c699566368fe188fbcbf1d2ee100189618e3463b79278b9030ea82a6cbf438836dd94767d10a246f54207046799e65a1bab124b8506fbc4377cdd87cb33195cc6ceff83dcbeebb4cc4c4e4e37b61d75063c6f6483d2101fc1d63c41731f5ebd5cc6ed3e4a1c70c81f210db64b018ae0f34b2c1d3b8481faa39f81cb6154a429e3b65a8e9a9120e1029970f5f41390fde33185cfe897deea71aed52a6c3e0f8152151919148c0768de254b980c0aac1082c90fc973109130900755143f35c045bf22d78c1ab8af24543367530a2740892cf5c14ca4167467b94620a2ff31b691420a22b198edf03488ae21570acc80dd9dfbf520223fd0eaab9065a5bbb879845e9697ae59edf595d5648f9d24fc3399dce2eec498999b08b0a84900e3454420bb8deb1164f0b76ac0521c34a74b904d3c86506b6427449c741bb001ad8e671d1d3f0c826bd242d40930c66bcab3d2903322aeb04cdc8dfa0dadad759a802e761829f3197aefd5004176d66fe69d5f48c3458ec473279f9dc3e5fb0880b36d5920b9a1f3dabf8e5990bb7792a487b0360a0da4a2296a3854598fb61488aeadf70b256071a057600a9e05aeca0d9671c2048e1b573bdf3ef0f83de370ad153fb5462cefb609c92e368ece18c742ae49a089e7b90e80162e10eac2fbf559e6e7f8b72bec1f01decbf00f3ef0302f981f3bb7041ca8093d399434c4fded6705b2d1fb7e6451bc43b1d0464d439cd2d3a74ed47abb8f8435824a56fd8a5d75cdb0024648a47f420e0d6300803b220d90d443de1c65416bb83ca6e675732368b9cae48083034ca04fca2a698a560d7006de665e658a413495e8ffdb5a8ec7723db7e303d68d6e15cc510dc7077d4e2c72e4dad76b9571cb7c279439315bd8a43f5e0e37524242a4e57d298f463b18f73573d6548a1b24c79512157a88412aa7dec20f8d554ce6af8e569b7b0e4d4320bebec7025c5868f2c168b8bd28d5ebb7ed35588c354878ed4c6ffd9828e6b0e40c2adc26fcd4ad8759dc6b321f94841aeaebc6174a9015d80cf93ac71daa2c2301aab82980a7614b1849eea3174d401dac3cc15bb7e589a50b7e3c57c5aa102970a4f332c4902ff41c7eca4dcd43c5e1fc27d9c24316539825c1896e57f28197746793ce60cbee3ad47da9d07b85fa55e2acf3a009029a5f550bac54f9c39b5975e07a83115f76f4904934eb8c6aa803f7aa5943e6ac758fac1e3ad44e772a83fa5"
+      },
+      "expected": {
+        "error": {
+          "code": "bad_hpke",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "hpke/open-tag-bit-flipped",
+      "description": "A bit of the AEAD tag flipped.",
+      "type": "hpke.open",
+      "input": {
+        "seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "info": "7465737420696e666f",
+        "aad": "7465737420616164",
+        "blob": "bd782f9f68d5a02b7db5292924b97736af64e5abfe0ee7299f748cc0bb21becbf43a456b09dc3ce24714bb789b84d54b7983cdad7a3f88ed5de6742db60b4ba550537d2fc551bf9def6c7492c7d26e3224082cd3994c5148f96afacce278b4a6d35c6ace025dc14cf34a40f51769326ccb5c5423201452693d8b71090d50057bb35d38827f2b683d1b143f836151e37fb4a9cd0465a002254df63c86fc5b36aa64ac1d087b6798c0fa0b566e7493fcee8dbaf9adce7f01da894e08d2728260acbf067652bdba2985747f618a13fd6f5da3c20dec83d93d4076362952195784948c6b90702c5f73bcaaa8b4850ee9252e43b0f439aa66861dd3b22a388ff465366bef77f48b0f5afc08ce92ecce54f50e81ec75a188691990c333ca7b58e723970cb2c699566368fe188fbcbf1d2ee100189618e3463b79278b9030ea82a6cbf438836dd94767d10a246f54207046799e65a1bab124b8506fbc4377cdd87cb33195cc6ceff83dcbeebb4cc4c4e4e37b61d75063c6f6483d2101fc1d63c41731f5ebd5cc6ed3e4a1c70c81f210db64b018ae0f34b2c1d3b8481faa39f81cb6154a429e3b65a8e9a9120e1029970f5f41390fde33185cfe897deea71aed52a6c3e0f8152151919148c0768de254b980c0aac1082c90fc973109130900755143f35c045bf22d78c1ab8af24543367530a2740892cf5c14ca4167467b94620a2ff31b691420a22b198edf03488ae21570acc80dd9dfbf520223fd0eaab9065a5bbb879845e9697ae59edf595d5648f9d24fc3399dce2eec498999b08b0a84900e3454420bb8deb1164f0b76ac0521c34a74b904d3c86506b6427449c741bb001ad8e671d1d3f0c826bd242d40930c66bcab3d2903322aeb04cdc8dfa0dadad759a802e761829f3197aefd5004176d66fe69d5f48c3458ec473279f9dc3e5fb0880b36d5920b9a1f3dabf8e5990bb7792a487b0360a0da4a2296a3854598fb61488aeadf70b256071a057600a9e05aeca0d9671c2048e1b573bdf3ef0f83de370ad153fb5462cefb609c92e368ece18c742ae49a089e7b90e80162e10eac2fbf559e6e7f8b72bec1f01decbf00f3ef0302f981f3bb7041ca8093d399434c4fded6705b2d1fb7e6451bc43b1d0464d439cd2d3a74ed47abb8f8435824a56fd8a5d75cdb0024648a47f420e0d6300803b220d90d443de1c65416bb83ca6e675732368b9cae48083034ca04fca2a698a560d7006de665e658a413495e8ffdb5a8ec7723db7e303d68d6e15cc510dc7077d4e2c72e4dad76b9571cb7c279439315bd8a43f5e0e37524242a4e57d298f463b18f73573d6548a1b24c79512157a88412aa7dec20f8d554ce6af8e569b7b0e4d4320bebec7025c5868f2c168b8bd28d5ebb7ed35588c354878ed4c6ffd9828e6b0e40c2adc26fcd4ad8759dc6b321f94841aeaebc6174a9015d80cf93ac71daa2c2301aab82980a7614b1849eea3174d401dac3cc15bb7e589a50b7e3c57c5aa102970a4f332c4902ff41c7eca4dcd43c5e1fc27d9c24316539825c1896e57f28197746793ce60cbee3ad47da9d07b85fa55e2acf3a009129a5f550bac54f9c39b5975e07a83115f76f4904934eb8c6aa803f7aa5943e6ac758fac1e3ad44e772a83fa4"
+      },
+      "expected": {
+        "error": {
+          "code": "bad_hpke",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "hpke/open-sealed-by-python-with-aad",
+      "description": "A blob sealed by Python's cryptography 50 with aad \"aad\" and info \"info\": an independent implementation, so open only.",
+      "type": "hpke.open",
+      "input": {
+        "seed": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+        "info": "696e666f",
+        "aad": "616164",
+        "blob": "8c6399c9ebd35f494b725f6ca9bfb1e6ea939411a442546ea2d7b4d0af0d61b2be327947223107793c1e6dd88ab61bfda40b8acd9a3b366f0fdb58bccadb7bd6fcab33187a0c58be6dc91081ee6a2547f90f042f748392c7be943e4a81c0b099decf7ae449088a3090293f3fcee02e0b0e933c39a704f02a0503082a36d54007f25125a1987332c4cd37d4cece3c99f307a3fd62cbd8827b004396e38d63745f74141455b0d6c89fe8e5b15286d5119d0314100017fa94a8f41455b4732969311c2b658011c9277899014d7e13ee3b72cf921fa14f2adf99d7bb1176124d2536a9648faa72e4ec3fd12d40edd01852eea38a892401da1a8b55ca21eb5ef9469c6770f3c4789030d081f1f14fc9dc5cd19e03a010a2a815b206b21f0f6c909ecbac0e87d80fa196e26c73fb87071368883a6a24f2f6a975f782e4cbacfa97e418540b516d7a5c9c127d569b279e3664a6576fa59fb96d7e57179fa67d50da5a9ba0c14d214b0b2568705f9e629cef1810a9ab997f3f5da283408a58777614d9f017810c1aca6e54736eceeeb02aa0e1f6e481fa83defa4851873545e4344e51b9a219750d72187ddf7f7bfa7361cff72e1b3cbc494d3fb3ea8bf674adfc8591422c9e1dd5772f895076a593a838139c96041622b1c5973ed122646b4885fdcd07ca2ea2b8acf8c11049c22e9d25245eb4f7c139e9fc765e62bb31ca4a50c8602f6919a7b6b72af0b4d668fc9056f70343eb4172c854f24fdcf416f3d12e2ec89a579fe0c20c657c2baff9821314159ae1258d1d6f07f0bda257f5d21d17647680a862f5ae781207aad6cdf2f601842ed634254bc2e88885e7e98d8bf37ea5374bbecb190f25643e4b92c6f6f7afcbdb935bad8cc96948d6a348c03065a0f6603f94f79c5e308e88a543978acb4d7605be31b19de5d239269d414061e9a60ea91971b62fce9fe925b9a3f2deb17f50351d6d69d773da6c45cc5fc1361a28417d8e1dffd56ddf81e94299a396ce14177b8923053ca51c278f52ace2dd81ac551fa91904976125edc201645fc7cbfe739d724b7504c4e08c71d4617d21f5669322ce8dc5cef1e3166ffa76603dbd6b23e690bffd1e11af50586654b8d1abc0b5b79884b5d31be66ec315c11bc9567ca179c2071154e29465bc7962353aaefa20b8eef6d805ad22d970969c7d584557033227412f50a2622f0e2fcb3cf718f83a9a81b5df6381e476179c072b353716c105ac1aff539ef1b82e0aae13b8adf7efa16f671d8b2b8538995c1da8c2ba20869efa10a8de1a1b3ab35eb1f2a630504a6a74d72d99446a9d2eb5f2a4954ce074145c14e6aff3ba978b0723c02c3cfdf31b0c82edd751024d89b2df4ffd78c6cf1e3762e634f0494a01701b875a6901ae683a53d3de77e4f8ff571724607cbd1e085b02cb697bb0369a8f66eb2a2126eba7238240f0f8705426d286032ac08098280bc88c37f0ebda0ca19bce03d8202414be5d215e78f78f9f71bda12414d8aca5b1675fde842fae88b32bbe75fa4aa9939df8cc3429f8789206836ff70c0fd8c64bec4079d219129426c9cdc27ac953a33b888d3bf282de75d727a5dabc925647671530e19aaa5fdcf3b655bee72091f6fffa1cfb531ad6679a622ab4831c2a64ea"
+      },
+      "expected": {
+        "pt": "c8c7c6c5c4c3c2c1c0bfbebdbcbbbab9b8b7b6b5b4b3b2b1b0afaeadacabaaa9"
       }
     }
   ]

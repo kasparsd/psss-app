@@ -2,31 +2,44 @@
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { concat, hex, readU32, u32 } from './bytes.ts';
+import { limits } from './limits.ts';
 
-export const SEGMENT_LIMIT = 64 * 1024;
-export const INFO_JSON = '{"format":"psss-vault","version":1}';
+/** 8.1: a writer produces exactly these bytes and a line feed. */
+export const INFO_JSON = '{"format":"psss-vault","version":1}\n';
 
 /** 8.1: a segment is a sequence of frames u32(len(sealed)) || sealed. */
 export const frame = (sealed: Uint8Array): Uint8Array => concat(u32(sealed.length), sealed);
 
-/** Read frames; an incomplete final frame (an upload in progress) is ignored. */
-export function readFrames(data: Uint8Array): { frames: Uint8Array[]; incompleteTail: number } {
+/** Read frames. 8.1: stop at a frame longer than the largest sealed record or (when `seqOf` is given) out of sequence, and ignore an
+ *  incomplete final frame (an upload in progress). `stopped` says why reading ended early. */
+export function readFrames(data: Uint8Array, seqOf?: (sealed: Uint8Array) => number | null):
+    { frames: Uint8Array[]; incompleteTail: number; stopped: 'oversized' | 'out_of_sequence' | null } {
   const frames: Uint8Array[] = [];
-  let pos = 0;
+  let pos = 0, last: number | null = null, stopped: 'oversized' | 'out_of_sequence' | null = null;
   while (pos < data.length) {
     if (data.length - pos < 4) break;
     const len = readU32(data, pos);
+    if (len > limits.maxSealed) { stopped = 'oversized'; break; }
     if (len > data.length - pos - 4) break;
-    frames.push(data.slice(pos + 4, pos + 4 + len));
+    const f = data.slice(pos + 4, pos + 4 + len);
+    if (seqOf) {
+      const q = seqOf(f); // null: the frame cannot be opened here (no key yet), so its place cannot be judged
+      if (q !== null) {
+        if (last !== null && q !== last + 1) { stopped = 'out_of_sequence'; break; }
+        last = q;
+      }
+    }
+    frames.push(f);
     pos += 4 + len;
   }
-  return { frames, incompleteTail: data.length - pos };
+  return { frames, incompleteTail: stopped ? data.length - pos : data.length - pos, stopped };
 }
 
 export const chainDir = (gid: string, pid: string, device: string) => join('groups', gid, 'log', `${pid}-${device}`);
-export const segmentName = (firstSeq: number) => `${String(firstSeq).padStart(10, '0')}.seg`;
+export const segmentName = (firstSeq: number, membership = false) => `${String(firstSeq).padStart(10, '0')}${membership ? '.mseg' : '.seg'}`;
 export const slotPath = (pid: string, slotId: string) => join('people', pid, 'slots', `${slotId}.slot`);
-export const keyPath = (gid: string, epoch: number, pid: string) => join('groups', gid, 'keys', String(epoch), `${pid}.key`);
+/** `name` is 8 random bytes in hexadecimal, so two wraps never share a path. */
+export const keyPath = (gid: string, epoch: number, pid: string, name: string) => join('groups', gid, 'keys', String(epoch), `${pid}-${name}.key`);
 export const blobPath = (gid: string, chunkId: string) => join('groups', gid, 'blobs', chunkId.slice(0, 2), chunkId);
 
 function putIfAbsent(root: string, rel: string, data: Uint8Array): void {
@@ -44,17 +57,32 @@ export function initFolder(root: string): void {
   putIfAbsent(root, 'psss.json', new TextEncoder().encode(INFO_JSON));
 }
 export const putSlot = (root: string, pid: Uint8Array, slotId: Uint8Array, slot: Uint8Array) => putIfAbsent(root, slotPath(hex(pid), hex(slotId)), slot);
-export const putWrap = (root: string, gid: Uint8Array, epoch: number, pid: Uint8Array, wrap: Uint8Array) => putIfAbsent(root, keyPath(hex(gid), epoch, hex(pid)), wrap);
+export const putWrap = (root: string, gid: Uint8Array, epoch: number, pid: Uint8Array, name: Uint8Array, wrap: Uint8Array) =>
+  putIfAbsent(root, keyPath(hex(gid), epoch, hex(pid), hex(name)), wrap);
 
-/** 8.1: append to the newest segment of the chain; start a new one once it passes 64 KiB. */
-export function appendRecord(root: string, gid: Uint8Array, author: Uint8Array, device: Uint8Array, seq: number, sealed: Uint8Array): string {
-  const dir = join(root, chainDir(hex(gid), hex(author), hex(device)));
+/** 7.1: every wrap a location holds for one person and epoch. */
+export function readWraps(root: string, gid: Uint8Array, epoch: number, pid: Uint8Array): Uint8Array[] {
+  const dir = join(root, 'groups', hex(gid), 'keys', String(epoch));
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir).filter((n) => n.startsWith(`${hex(pid)}-`) && n.endsWith('.key')).sort().map((n) => new Uint8Array(readFileSync(join(dir, n))));
+}
+
+/** 8.1: append to the newest `.seg` of the chain; start a new one once it has reached 65,536 bytes or follows a membership record.
+ *  A membership record is written alone in a `.mseg`. */
+export function appendRecord(root: string, gid: Uint8Array, author: Uint8Array, device: Uint8Array, seq: number, sealed: Uint8Array, membership = false): string {
+  const rel = chainDir(hex(gid), hex(author), hex(device));
+  const dir = join(root, rel);
   mkdirSync(dir, { recursive: true });
-  const segs = readdirSync(dir).filter((n) => n.endsWith('.seg')).sort();
-  let name = segs.length ? segs[segs.length - 1]! : segmentName(seq);
-  if (segs.length && statSync(join(dir, name)).size > SEGMENT_LIMIT) name = segmentName(seq);
+  let name: string;
+  if (membership) {
+    name = segmentName(seq, true);
+  } else {
+    const all = readdirSync(dir).filter((n) => n.endsWith('.seg') || n.endsWith('.mseg')).sort();
+    const newest = all[all.length - 1];
+    name = newest && newest.endsWith('.seg') && statSync(join(dir, newest)).size < limits.segmentLimit ? newest : segmentName(seq);
+  }
   appendFileSync(join(dir, name), frame(sealed));
-  return join(chainDir(hex(gid), hex(author), hex(device)), name);
+  return join(rel, name);
 }
 
 export function listFiles(root: string): string[] {
@@ -75,13 +103,13 @@ export function checkInfo(root: string): void {
 }
 
 /** Read every sealed record under a group's log, in file order. */
-export function readGroupLog(root: string, gid: Uint8Array): { path: string; sealed: Uint8Array }[] {
+export function readGroupLog(root: string, gid: Uint8Array, seqOf?: (sealed: Uint8Array) => number | null): { path: string; sealed: Uint8Array }[] {
   const base = join('groups', hex(gid), 'log');
   if (!existsSync(join(root, base))) return [];
   const out: { path: string; sealed: Uint8Array }[] = [];
   for (const chain of readdirSync(join(root, base)).sort()) {
-    for (const seg of readdirSync(join(root, base, chain)).filter((n) => n.endsWith('.seg')).sort()) {
-      for (const f of readFrames(new Uint8Array(readFileSync(join(root, base, chain, seg)))).frames) out.push({ path: join(base, chain, seg), sealed: f });
+    for (const seg of readdirSync(join(root, base, chain)).filter((n) => n.endsWith('.seg') || n.endsWith('.mseg')).sort()) {
+      for (const f of readFrames(new Uint8Array(readFileSync(join(root, base, chain, seg))), seqOf).frames) out.push({ path: join(base, chain, seg), sealed: f });
     }
   }
   return out;

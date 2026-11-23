@@ -159,7 +159,7 @@
     },
     {
       "name": "cbor/encode/text-nfc-e-acute",
-      "description": "U+00E9 (already NFC) is two UTF-8 bytes.",
+      "description": "U+00E9 is two UTF-8 bytes.",
       "type": "cbor.encode",
       "input": {
         "value": {
@@ -168,6 +168,19 @@
       },
       "expected": {
         "hex": "62c3a9"
+      }
+    },
+    {
+      "name": "cbor/encode/text-not-nfc-kept",
+      "description": "Section 2: text is never changed for its normal form. \"e\" followed by U+0301 encodes as the three bytes it is.",
+      "type": "cbor.encode",
+      "input": {
+        "value": {
+          "text": "é"
+        }
+      },
+      "expected": {
+        "hex": "6365cc81"
       }
     },
     {
@@ -957,32 +970,6 @@
       }
     },
     {
-      "name": "cbor/reject/text-not-nfc",
-      "description": "\"e\" followed by a combining acute accent is not NFC.",
-      "type": "cbor.reject",
-      "input": {
-        "hex": "6365cc81"
-      },
-      "expected": {
-        "error": {
-          "code": "non_nfc"
-        }
-      }
-    },
-    {
-      "name": "cbor/reject/map-key-not-nfc",
-      "description": "A map key that is not NFC.",
-      "type": "cbor.reject",
-      "input": {
-        "hex": "a16365cc8100"
-      },
-      "expected": {
-        "error": {
-          "code": "non_nfc"
-        }
-      }
-    },
-    {
       "name": "cbor/reject/trailing-bytes",
       "description": "Two items where one was expected.",
       "type": "cbor.reject",
@@ -1061,16 +1048,289 @@
       }
     },
     {
-      "name": "cbor/reject/too-deep",
-      "description": "Seventy nested arrays. The spec sets no depth limit; this implementation refuses beyond 64 (finding).",
+      "name": "cbor/accept/depth-16-arrays",
+      "description": "Sixteen nested arrays: the innermost, empty, is level 16.",
+      "type": "cbor.accept",
+      "input": {
+        "hex": "81818181818181818181818181818180"
+      },
+      "expected": {
+        "value": {
+          "array": [
+            {
+              "array": [
+                {
+                  "array": [
+                    {
+                      "array": [
+                        {
+                          "array": [
+                            {
+                              "array": [
+                                {
+                                  "array": [
+                                    {
+                                      "array": [
+                                        {
+                                          "array": [
+                                            {
+                                              "array": [
+                                                {
+                                                  "array": [
+                                                    {
+                                                      "array": [
+                                                        {
+                                                          "array": [
+                                                            {
+                                                              "array": [
+                                                                {
+                                                                  "array": [
+                                                                    {
+                                                                      "array": []
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              ]
+                                                            }
+                                                          ]
+                                                        }
+                                                      ]
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "reencoded": "81818181818181818181818181818180"
+      }
+    },
+    {
+      "name": "cbor/reject/depth-17-arrays",
+      "description": "Seventeen nested arrays.",
       "type": "cbor.reject",
       "input": {
-        "hex": "8181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818181818100"
+        "hex": "8181818181818181818181818181818180"
       },
       "expected": {
         "error": {
           "code": "too_deep"
         }
+      }
+    },
+    {
+      "name": "cbor/accept/depth-16-maps",
+      "description": "Sixteen nested maps (key 1 each time).",
+      "type": "cbor.accept",
+      "input": {
+        "hex": "a101a101a101a101a101a101a101a101a101a101a101a101a101a101a101a0"
+      },
+      "expected": {
+        "value": {
+          "map": [
+            [
+              {
+                "uint": "1"
+              },
+              {
+                "map": [
+                  [
+                    {
+                      "uint": "1"
+                    },
+                    {
+                      "map": [
+                        [
+                          {
+                            "uint": "1"
+                          },
+                          {
+                            "map": [
+                              [
+                                {
+                                  "uint": "1"
+                                },
+                                {
+                                  "map": [
+                                    [
+                                      {
+                                        "uint": "1"
+                                      },
+                                      {
+                                        "map": [
+                                          [
+                                            {
+                                              "uint": "1"
+                                            },
+                                            {
+                                              "map": [
+                                                [
+                                                  {
+                                                    "uint": "1"
+                                                  },
+                                                  {
+                                                    "map": [
+                                                      [
+                                                        {
+                                                          "uint": "1"
+                                                        },
+                                                        {
+                                                          "map": [
+                                                            [
+                                                              {
+                                                                "uint": "1"
+                                                              },
+                                                              {
+                                                                "map": [
+                                                                  [
+                                                                    {
+                                                                      "uint": "1"
+                                                                    },
+                                                                    {
+                                                                      "map": [
+                                                                        [
+                                                                          {
+                                                                            "uint": "1"
+                                                                          },
+                                                                          {
+                                                                            "map": [
+                                                                              [
+                                                                                {
+                                                                                  "uint": "1"
+                                                                                },
+                                                                                {
+                                                                                  "map": [
+                                                                                    [
+                                                                                      {
+                                                                                        "uint": "1"
+                                                                                      },
+                                                                                      {
+                                                                                        "map": [
+                                                                                          [
+                                                                                            {
+                                                                                              "uint": "1"
+                                                                                            },
+                                                                                            {
+                                                                                              "map": [
+                                                                                                [
+                                                                                                  {
+                                                                                                    "uint": "1"
+                                                                                                  },
+                                                                                                  {
+                                                                                                    "map": []
+                                                                                                  }
+                                                                                                ]
+                                                                                              ]
+                                                                                            }
+                                                                                          ]
+                                                                                        ]
+                                                                                      }
+                                                                                    ]
+                                                                                  ]
+                                                                                }
+                                                                              ]
+                                                                            ]
+                                                                          }
+                                                                        ]
+                                                                      ]
+                                                                    }
+                                                                  ]
+                                                                ]
+                                                              }
+                                                            ]
+                                                          ]
+                                                        }
+                                                      ]
+                                                    ]
+                                                  }
+                                                ]
+                                              ]
+                                            }
+                                          ]
+                                        ]
+                                      }
+                                    ]
+                                  ]
+                                }
+                              ]
+                            ]
+                          }
+                        ]
+                      ]
+                    }
+                  ]
+                ]
+              }
+            ]
+          ]
+        },
+        "reencoded": "a101a101a101a101a101a101a101a101a101a101a101a101a101a101a101a0"
+      }
+    },
+    {
+      "name": "cbor/reject/depth-17-maps",
+      "description": "Seventeen nested maps.",
+      "type": "cbor.reject",
+      "input": {
+        "hex": "a101a101a101a101a101a101a101a101a101a101a101a101a101a101a101a101a0"
+      },
+      "expected": {
+        "error": {
+          "code": "too_deep"
+        }
+      }
+    },
+    {
+      "name": "cbor/accept/text-not-nfc",
+      "description": "Section 2: a reader MUST NOT reject or change text that is not normalized (\"e\" + U+0301).",
+      "type": "cbor.accept",
+      "input": {
+        "hex": "6365cc81"
+      },
+      "expected": {
+        "value": {
+          "text": "é"
+        },
+        "reencoded": "6365cc81"
+      }
+    },
+    {
+      "name": "cbor/accept/map-key-not-nfc",
+      "description": "A text key that is not NFC is accepted and kept.",
+      "type": "cbor.accept",
+      "input": {
+        "hex": "a16365cc8100"
+      },
+      "expected": {
+        "value": {
+          "map": [
+            [
+              {
+                "text": "é"
+              },
+              {
+                "uint": "0"
+              }
+            ]
+          ]
+        },
+        "reencoded": "a16365cc8100"
       }
     },
     {

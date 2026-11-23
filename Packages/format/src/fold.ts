@@ -1,10 +1,11 @@
-// Section 5.1 (folding item changes), 5.3 (checkpoints): a pure function from accepted records to state.
-import { cmp as cmpBytes, eq, hex } from './bytes.ts';
+// Section 5.1 (folding item changes) and 5.3 (checkpoints restate writes; purged): a pure function from writes to state.
+import { cmp as cmpBytes, hex } from './bytes.ts';
 import { cmap, encode, type CborValue, type CMap } from './cbor.ts';
 import { compareKeys, type OrderKey } from './record.ts';
 
+/** A write of one field with its place in the order (5.1). */
 export interface Entry { key: OrderKey; value: CborValue; cleared: boolean }
-/** item id (hex) -> field -> entries sorted ascending by order key; the last one is current, the rest are history. */
+/** item id (hex) -> field -> writes sorted ascending by order key; the last one is current, the rest are history. */
 export type State = Map<string, Map<string, Entry[]>>;
 
 /** Anything with an order tuple and a payload can be folded (a Rec, or a bare change in a vector). */
@@ -17,39 +18,67 @@ function put(state: State, itemHex: string, field: string, e: Entry): void {
   if (!fields) state.set(itemHex, (fields = new Map()));
   let list = fields.get(field);
   if (!list) fields.set(field, (list = []));
-  if (list.some((x) => sameKey(x.key, e.key))) return; // folding a record twice changes nothing
+  if (list.some((x) => sameKey(x.key, e.key))) return; // a write seen twice (record and checkpoint) is one write
   list.push(e);
   list.sort((a, b) => compareKeys(a.key, b.key));
 }
 
-/** 5.1: apply one item change. */
+/** 5.1: each record that sets or clears a field is a write of it. */
 export function applyChange(state: State, c: Change): void {
   const item = hex(c.payload.get(1) as Uint8Array);
   for (const [name, value] of c.payload.get(2) as CMap) put(state, item, name as string, { key: c.key5, value, cleared: false });
   for (const name of c.payload.get(3) as string[]) put(state, item, name, { key: c.key5, value: null, cleared: true });
 }
 
-/** 5.3: load a checkpoint's items. A null value is read as "cleared" (the spec's only distinction; see findings). */
-export function applyCheckpointItems(state: State, items: CborValue[]): void {
+const clockKey = (ck: CborValue[]): OrderKey => [ck[0] as number, ck[1] as number, ck[2] as Uint8Array, ck[3] as Uint8Array, ck[4] as number];
+
+/** The parts of a checkpoint payload (5.3) that affect state. */
+export interface CheckpointWrites { items: CborValue[]; purged: CborValue[] }
+export const checkpointWritesOf = (payload: CMap): CheckpointWrites => ({ items: payload.get(2) as CborValue[], purged: payload.get(3) as CborValue[] });
+
+/** 5.3: a checkpoint's entries are folded exactly as the writes they name. */
+function applyCheckpointItems(state: State, items: CborValue[]): void {
   for (const it of items as [Uint8Array, CMap][]) {
-    for (const [name, e] of it[1] as CMap) {
-      const [value, ck] = e as [CborValue, [number, number, Uint8Array, Uint8Array, number]];
-      put(state, hex(it[0]), name as string, { key: [ck[0], ck[1], ck[2], ck[3], ck[4]], value, cleared: value === null });
+    for (const [name, w] of it[1] as CMap) {
+      const write = w as CborValue[];
+      if (write[0] === 1) put(state, hex(it[0]), name as string, { key: clockKey(write[1] as CborValue[]), value: write[2]!, cleared: false });
+      else put(state, hex(it[0]), name as string, { key: clockKey(write[1] as CborValue[]), value: null, cleared: true });
     }
   }
 }
 
-/** Fold changes (any order) on top of zero or more checkpoints' items. */
-export function fold(changes: Change[], checkpointItems: CborValue[][] = []): State {
+/** 5.3 Permanent delete: writes of the item up to the named place in the order are forgotten. */
+function applyPurges(state: State, purged: CborValue[][]): void {
+  const upTo = new Map<string, OrderKey>();
+  for (const list of purged) for (const p of list as [Uint8Array, CborValue[]][]) {
+    const id = hex(p[0]), k = clockKey(p[1]);
+    const cur = upTo.get(id);
+    if (!cur || compareKeys(k, cur) > 0) upTo.set(id, k);
+  }
+  for (const [id, k] of upTo) {
+    const fields = state.get(id);
+    if (!fields) continue;
+    for (const [name, list] of [...fields]) {
+      const kept = list.filter((e) => compareKeys(e.key, k) > 0);
+      if (kept.length) fields.set(name, kept); else fields.delete(name);
+    }
+    if (fields.size === 0) state.delete(id);
+  }
+}
+
+/** Fold records' changes (any order) together with any number of accepted checkpoints' writes and purges. */
+export function fold(changes: Change[], checkpoints: CheckpointWrites[] = []): State {
   const state: State = new Map();
-  for (const items of checkpointItems) applyCheckpointItems(state, items);
+  for (const c of checkpoints) applyCheckpointItems(state, c.items);
   for (const c of changes) applyChange(state, c);
+  applyPurges(state, checkpoints.map((c) => c.purged));
   return state;
 }
 
 export const current = (list: Entry[]): Entry => list[list.length - 1]!;
 
-/** 5.1 Deleting: Recently Deleted when `deleted` is set and no other field was set or cleared later in the order. */
+/** 5.1 Deleting: Recently Deleted when `deleted` is set and no other field has a winning write strictly later than the
+ *  winning write of `deleted`. Clearing `deleted` restores the item. */
 export function isDeleted(fields: Map<string, Entry[]>): boolean {
   const d = fields.get('deleted');
   if (!d) return false;
@@ -61,22 +90,29 @@ export function isDeleted(fields: Map<string, Entry[]>): boolean {
   return true;
 }
 
-/** 5.3: a checkpoint's `items` from a state: the winner of every field with its clock (null = cleared). */
+const fromHexLocal = (s: string) => Uint8Array.from({ length: s.length / 2 }, (_, i) => parseInt(s.slice(2 * i, 2 * i + 2), 16));
+export const clockValue = (k: OrderKey): CborValue => [k[0], k[1], k[2], k[3], k[4]];
+
+/** 5.3 `items` of a checkpoint from a state: the winning write of every field (history is not restated). */
 export function checkpointItems(state: State): CborValue[] {
   const ids = [...state.keys()].sort();
   return ids.map((id) => {
     const fields = new Map<string, CborValue>();
     for (const [name, list] of state.get(id)!) {
       const w = current(list);
-      fields.set(name, [w.cleared ? null : w.value, [w.key[0], w.key[1], w.key[2], w.key[3], w.key[4]]]);
+      fields.set(name, w.cleared ? [0, clockValue(w.key)] : [1, clockValue(w.key), w.value]);
     }
     return [fromHexLocal(id), fields as CborValue] as CborValue;
-  });
+  }).sort((a, b) => cmpBytes(encode(a), encode(b)));
 }
-function fromHexLocal(s: string): Uint8Array {
-  const o = new Uint8Array(s.length / 2);
-  for (let i = 0; i < o.length; i++) o[i] = parseInt(s.slice(2 * i, 2 * i + 2), 16);
-  return o;
+
+/** 5.3 payload { 1: covered, 2: items, 3: purged }; `covered` is [author, device, seq, record_id] per chain, `purged` is
+ *  [item_id, clock] entries. Both are sorted here by encoding. */
+export function checkpointPayload(items: CborValue[], covered: [Uint8Array, Uint8Array, number, Uint8Array][],
+                                  purged: [Uint8Array, OrderKey][] = []): CMap {
+  const byEnc = (a: CborValue, b: CborValue) => cmpBytes(encode(a), encode(b));
+  const pu = purged.map(([id, k]) => [id, clockValue(k)] as CborValue).sort(byEnc);
+  return cmap([[1, [...covered].sort(byEnc as never) as CborValue], [2, [...items].sort(byEnc)], [3, pu]]);
 }
 
 /** A JSON-safe canonical summary of a state, for vectors and comparisons. Values are hex of their CBOR encoding. */
@@ -90,18 +126,13 @@ export function summarize(state: State): Record<string, unknown> {
       const cur = current(list);
       f[name] = {
         current: cur.cleared ? null : hex(encode(cur.value)),
+        cleared: cur.cleared,
         clock: clockJson(cur.key),
-        history: list.slice(0, -1).map((e) => ({ value: e.cleared ? null : hex(encode(e.value)), clock: clockJson(e.key) })),
+        history: list.slice(0, -1).map((e) => ({ value: e.cleared ? null : hex(encode(e.value)), cleared: e.cleared, clock: clockJson(e.key) })),
       };
     }
     out[id] = { deleted: isDeleted(fields), fields: f };
   }
   return out;
 }
-/** 5.3 checkpoint payload { 1: covered, 2: mhead, 3: items }; covered is [author, device, seq, record_id] per chain. */
-export function checkpointPayload(items: CborValue[], covered: [Uint8Array, Uint8Array, number, Uint8Array][], mhead: Uint8Array): CMap {
-  const sorted = [...covered].sort((a, b) => cmpBytes(encode(a as CborValue), encode(b as CborValue)));
-  return cmap([[1, sorted as CborValue], [2, mhead], [3, items]]);
-}
 export const clockJson = (k: OrderKey) => [k[0], k[1], hex(k[2]), hex(k[3]), k[4]];
-export { eq, cmap };

@@ -24,7 +24,7 @@
     },
     {
       "name": "slot/password-test-params-open",
-      "description": "Open it with the password.",
+      "description": "Open it with the password and the test-only switch.",
       "type": "slot.open",
       "input": {
         "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e5813170202184003020402065830230b8bab55bc5957a80da3b6cccd97519689aee61081bdf9dd8ea43358e56ed796479204be2b25c2da7214c7b041c851",
@@ -51,13 +51,13 @@
       "expected": {
         "error": {
           "code": "bad_unlock",
-          "step": 0
+          "disposition": "reject"
         }
       }
     },
     {
       "name": "slot/password-refused-outside-tests",
-      "description": "The same slot is refused when not running test vectors: below 65536 KiB and 2 passes.",
+      "description": "The same slot is refused when not running test vectors: below 65,536 KiB and 2 passes. Refused before any Argon2id work.",
       "type": "slot.open",
       "input": {
         "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e5813170202184003020402065830230b8bab55bc5957a80da3b6cccd97519689aee61081bdf9dd8ea43358e56ed796479204be2b25c2da7214c7b041c851",
@@ -69,13 +69,13 @@
       "expected": {
         "error": {
           "code": "argon2_too_weak",
-          "step": 0
+          "disposition": "reject"
         }
       }
     },
     {
       "name": "slot/password-nfc",
-      "description": "Password \"e\" + combining acute (NFD). It is normalised to NFC before hashing, so the precomposed spelling opens the same slot.",
+      "description": "The password is typed as \"cafe\" + U+0301 (NFD). The device normalizes it to NFC before hashing, so the precomposed spelling opens the same slot.",
       "type": "slot.seal_password",
       "input": {
         "ps": "b8fe1e8175ed89329a923350cab1db9bcd4cd9fb8aa1bdcb0030feac30fa86dc",
@@ -96,7 +96,7 @@
     },
     {
       "name": "slot/password-nfc-open-precomposed",
-      "description": "Open the NFD slot with the NFC spelling.",
+      "description": "Open the NFD slot with the NFC spelling (U+00E9).",
       "type": "slot.open",
       "input": {
         "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021840030204020658304975e413d7bacd5d78dd494532420cce0595f30669a93a80bbd92dde9d5e01af2c5a617c15430749717b651942046477",
@@ -110,8 +110,474 @@
       }
     },
     {
+      "name": "slot/argon2-memory-one-below-minimum-slot",
+      "description": "A password slot with params memory 65535 KiB, 2 passes, 1 lanes and made-up ciphertext.",
+      "type": "slot.craft_password",
+      "input": {
+        "pid": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+        "slot_id": "15ee74ff360146e35c056ed0a5c44db0",
+        "salt": "3ec651d34258e2822ab9350e58131702",
+        "params": {
+          "memory": 65535,
+          "passes": 2,
+          "lanes": 1
+        }
+      },
+      "expected": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e581317020219ffff03020401065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    {
+      "name": "slot/argon2-memory-one-below-minimum",
+      "description": "65,535 KiB: below the floor. Refused.",
+      "type": "slot.open",
+      "input": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e581317020219ffff03020401065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "unlock": {
+          "password": "x"
+        },
+        "test_only": false
+      },
+      "expected": {
+        "error": {
+          "code": "argon2_too_weak",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "slot/argon2-passes-one-below-minimum-slot",
+      "description": "A password slot with params memory 65536 KiB, 1 passes, 1 lanes and made-up ciphertext.",
+      "type": "slot.craft_password",
+      "input": {
+        "pid": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+        "slot_id": "15ee74ff360146e35c056ed0a5c44db0",
+        "salt": "3ec651d34258e2822ab9350e58131702",
+        "params": {
+          "memory": 65536,
+          "passes": 1,
+          "lanes": 1
+        }
+      },
+      "expected": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021a0001000003010401065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    {
+      "name": "slot/argon2-passes-one-below-minimum",
+      "description": "1 pass: below the floor. Refused.",
+      "type": "slot.open",
+      "input": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021a0001000003010401065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "unlock": {
+          "password": "x"
+        },
+        "test_only": false
+      },
+      "expected": {
+        "error": {
+          "code": "argon2_too_weak",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "slot/argon2-memory-one-above-maximum-slot",
+      "description": "A password slot with params memory 1048577 KiB, 2 passes, 1 lanes and made-up ciphertext.",
+      "type": "slot.craft_password",
+      "input": {
+        "pid": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+        "slot_id": "15ee74ff360146e35c056ed0a5c44db0",
+        "salt": "3ec651d34258e2822ab9350e58131702",
+        "params": {
+          "memory": 1048577,
+          "passes": 2,
+          "lanes": 1
+        }
+      },
+      "expected": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021a0010000103020401065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    {
+      "name": "slot/argon2-memory-one-above-maximum",
+      "description": "1,048,577 KiB: above the ceiling. Refused (not computed).",
+      "type": "slot.open",
+      "input": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021a0010000103020401065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "unlock": {
+          "password": "x"
+        },
+        "test_only": false
+      },
+      "expected": {
+        "error": {
+          "code": "argon2_too_strong",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "slot/argon2-passes-one-above-maximum-slot",
+      "description": "A password slot with params memory 65536 KiB, 17 passes, 1 lanes and made-up ciphertext.",
+      "type": "slot.craft_password",
+      "input": {
+        "pid": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+        "slot_id": "15ee74ff360146e35c056ed0a5c44db0",
+        "salt": "3ec651d34258e2822ab9350e58131702",
+        "params": {
+          "memory": 65536,
+          "passes": 17,
+          "lanes": 1
+        }
+      },
+      "expected": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021a0001000003110401065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    {
+      "name": "slot/argon2-passes-one-above-maximum",
+      "description": "17 passes. Refused.",
+      "type": "slot.open",
+      "input": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021a0001000003110401065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "unlock": {
+          "password": "x"
+        },
+        "test_only": false
+      },
+      "expected": {
+        "error": {
+          "code": "argon2_too_strong",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "slot/argon2-lanes-one-above-maximum-slot",
+      "description": "A password slot with params memory 65536 KiB, 2 passes, 17 lanes and made-up ciphertext.",
+      "type": "slot.craft_password",
+      "input": {
+        "pid": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+        "slot_id": "15ee74ff360146e35c056ed0a5c44db0",
+        "salt": "3ec651d34258e2822ab9350e58131702",
+        "params": {
+          "memory": 65536,
+          "passes": 2,
+          "lanes": 17
+        }
+      },
+      "expected": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021a0001000003020411065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    {
+      "name": "slot/argon2-lanes-one-above-maximum",
+      "description": "17 lanes. Refused.",
+      "type": "slot.open",
+      "input": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021a0001000003020411065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "unlock": {
+          "password": "x"
+        },
+        "test_only": false
+      },
+      "expected": {
+        "error": {
+          "code": "argon2_too_strong",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "slot/argon2-memory-huge-slot",
+      "description": "A password slot with params memory 4294967295 KiB, 2 passes, 1 lanes and made-up ciphertext.",
+      "type": "slot.craft_password",
+      "input": {
+        "pid": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+        "slot_id": "15ee74ff360146e35c056ed0a5c44db0",
+        "salt": "3ec651d34258e2822ab9350e58131702",
+        "params": {
+          "memory": 4294967295,
+          "passes": 2,
+          "lanes": 1
+        }
+      },
+      "expected": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021affffffff03020401065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    {
+      "name": "slot/argon2-memory-huge",
+      "description": "4,294,967,295 KiB. Refused.",
+      "type": "slot.open",
+      "input": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021affffffff03020401065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "unlock": {
+          "password": "x"
+        },
+        "test_only": false
+      },
+      "expected": {
+        "error": {
+          "code": "argon2_too_strong",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "slot/argon2-test-switch-keeps-upper-limits-slot",
+      "description": "A password slot with params memory 1048577 KiB, 2 passes, 1 lanes and made-up ciphertext.",
+      "type": "slot.craft_password",
+      "input": {
+        "pid": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+        "slot_id": "15ee74ff360146e35c056ed0a5c44db0",
+        "salt": "3ec651d34258e2822ab9350e58131702",
+        "params": {
+          "memory": 1048577,
+          "passes": 2,
+          "lanes": 1
+        }
+      },
+      "expected": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021a0010000103020401065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    {
+      "name": "slot/argon2-test-switch-keeps-upper-limits",
+      "description": "The test-only switch lifts the lower bounds only: 1,048,577 KiB is still refused.",
+      "type": "slot.open",
+      "input": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021a0010000103020401065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "unlock": {
+          "password": "x"
+        },
+        "test_only": true
+      },
+      "expected": {
+        "error": {
+          "code": "argon2_too_strong",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "slot/argon2-lanes-zero-slot",
+      "description": "A password slot with params memory 65536 KiB, 2 passes, 0 lanes and made-up ciphertext.",
+      "type": "slot.craft_password",
+      "input": {
+        "pid": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+        "slot_id": "15ee74ff360146e35c056ed0a5c44db0",
+        "salt": "3ec651d34258e2822ab9350e58131702",
+        "params": {
+          "memory": 65536,
+          "passes": 2,
+          "lanes": 0
+        }
+      },
+      "expected": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021a0001000003020400065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    {
+      "name": "slot/argon2-lanes-zero",
+      "description": "Zero lanes is not a parameter set Argon2id can run (the specification does not say what a reader does).",
+      "type": "slot.open",
+      "input": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021a0001000003020400065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "unlock": {
+          "password": "x"
+        },
+        "test_only": false
+      },
+      "expected": {
+        "error": {
+          "code": "bad_slot",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "slot/argon2-memory-below-eight-per-lane-slot",
+      "description": "A password slot with params memory 15 KiB, 2 passes, 2 lanes and made-up ciphertext.",
+      "type": "slot.craft_password",
+      "input": {
+        "pid": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+        "slot_id": "15ee74ff360146e35c056ed0a5c44db0",
+        "salt": "3ec651d34258e2822ab9350e58131702",
+        "params": {
+          "memory": 15,
+          "passes": 2,
+          "lanes": 2
+        }
+      },
+      "expected": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702020f03020402065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    {
+      "name": "slot/argon2-memory-below-eight-per-lane",
+      "description": "Memory below 8 KiB per lane is not valid for Argon2id.",
+      "type": "slot.open",
+      "input": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702020f03020402065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "unlock": {
+          "password": "x"
+        },
+        "test_only": true
+      },
+      "expected": {
+        "error": {
+          "code": "bad_slot",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "slot/argon2-at-minimum-seal",
+      "description": "Password slot sealed with 65536 KiB, 2 passes, 1 lanes.",
+      "type": "slot.seal_password",
+      "input": {
+        "ps": "b8fe1e8175ed89329a923350cab1db9bcd4cd9fb8aa1bdcb0030feac30fa86dc",
+        "pid": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+        "slot_id": "15ee74ff360146e35c056ed0a5c44db0",
+        "salt": "3ec651d34258e2822ab9350e58131702",
+        "params": {
+          "memory": 65536,
+          "passes": 2,
+          "lanes": 1
+        },
+        "password": "correct horse"
+      },
+      "expected": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021a0001000003020401065830e4540460dcfea0b1a080730aacd1813d660aeac2e38c0bd5f08fce8d63fc6dae741fbcb3873db38549c1c332f13f0895"
+      }
+    },
+    {
+      "name": "slot/argon2-at-minimum",
+      "description": "Exactly 65,536 KiB and 2 passes: accepted without the test-only switch.",
+      "type": "slot.open",
+      "input": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021a0001000003020401065830e4540460dcfea0b1a080730aacd1813d660aeac2e38c0bd5f08fce8d63fc6dae741fbcb3873db38549c1c332f13f0895",
+        "unlock": {
+          "password": "correct horse"
+        },
+        "test_only": false
+      },
+      "expected": {
+        "ps": "b8fe1e8175ed89329a923350cab1db9bcd4cd9fb8aa1bdcb0030feac30fa86dc"
+      }
+    },
+    {
+      "name": "slot/argon2-at-maximum-passes-seal",
+      "description": "Password slot sealed with 65536 KiB, 16 passes, 1 lanes.",
+      "type": "slot.seal_password",
+      "input": {
+        "ps": "b8fe1e8175ed89329a923350cab1db9bcd4cd9fb8aa1bdcb0030feac30fa86dc",
+        "pid": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+        "slot_id": "15ee74ff360146e35c056ed0a5c44db0",
+        "salt": "3ec651d34258e2822ab9350e58131702",
+        "params": {
+          "memory": 65536,
+          "passes": 16,
+          "lanes": 1
+        },
+        "password": "correct horse"
+      },
+      "expected": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021a00010000031004010658301ae3377f341271ad9b78b8a1aba7bb42ebae6a1f8f21b87ee19812a05f3886de6c0c101f5978d0f15a67fbf38f745cbc"
+      }
+    },
+    {
+      "name": "slot/argon2-at-maximum-passes",
+      "description": "Exactly 16 passes: accepted.",
+      "type": "slot.open",
+      "input": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021a00010000031004010658301ae3377f341271ad9b78b8a1aba7bb42ebae6a1f8f21b87ee19812a05f3886de6c0c101f5978d0f15a67fbf38f745cbc",
+        "unlock": {
+          "password": "correct horse"
+        },
+        "test_only": false
+      },
+      "expected": {
+        "ps": "b8fe1e8175ed89329a923350cab1db9bcd4cd9fb8aa1bdcb0030feac30fa86dc"
+      }
+    },
+    {
+      "name": "slot/argon2-at-maximum-lanes-seal",
+      "description": "Password slot sealed with 65536 KiB, 2 passes, 16 lanes.",
+      "type": "slot.seal_password",
+      "input": {
+        "ps": "b8fe1e8175ed89329a923350cab1db9bcd4cd9fb8aa1bdcb0030feac30fa86dc",
+        "pid": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+        "slot_id": "15ee74ff360146e35c056ed0a5c44db0",
+        "salt": "3ec651d34258e2822ab9350e58131702",
+        "params": {
+          "memory": 65536,
+          "passes": 2,
+          "lanes": 16
+        },
+        "password": "correct horse"
+      },
+      "expected": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021a0001000003020410065830453653d1ad393282fe81997f460c2968ce13774b619ed4705417453a5137e590f296098302eecb9c991cb3d681f01bed"
+      }
+    },
+    {
+      "name": "slot/argon2-at-maximum-lanes",
+      "description": "Exactly 16 lanes: accepted.",
+      "type": "slot.open",
+      "input": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021a0001000003020410065830453653d1ad393282fe81997f460c2968ce13774b619ed4705417453a5137e590f296098302eecb9c991cb3d681f01bed",
+        "unlock": {
+          "password": "correct horse"
+        },
+        "test_only": false
+      },
+      "expected": {
+        "ps": "b8fe1e8175ed89329a923350cab1db9bcd4cd9fb8aa1bdcb0030feac30fa86dc"
+      }
+    },
+    {
+      "name": "slot/argon2-at-maximum-memory-slot",
+      "description": "A password slot with 1,048,576 KiB (1 GiB) and made-up ciphertext.",
+      "type": "slot.craft_password",
+      "input": {
+        "pid": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+        "slot_id": "15ee74ff360146e35c056ed0a5c44db0",
+        "salt": "3ec651d34258e2822ab9350e58131702",
+        "params": {
+          "memory": 1048576,
+          "passes": 2,
+          "lanes": 1
+        }
+      },
+      "expected": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021a0010000003020401065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    {
+      "name": "slot/argon2-at-maximum-memory",
+      "description": "Exactly 1,048,576 KiB: not refused, so the reader runs Argon2id (1 GiB) and the made-up ciphertext fails to open. Needs a gigabyte of memory, so it is only run with PSSS_HEAVY=1.",
+      "type": "slot.open",
+      "input": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a401503ec651d34258e2822ab9350e58131702021a0010000003020401065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "unlock": {
+          "password": "x"
+        },
+        "test_only": false
+      },
+      "expected": {
+        "error": {
+          "code": "bad_unlock",
+          "disposition": "reject"
+        }
+      },
+      "heavy": "allocates 1 GiB"
+    },
+    {
       "name": "slot/password-default-params",
-      "description": "Password slot with the default Argon2id parameters: 131072 KiB, 3 passes, 4 lanes.",
+      "description": "Password slot with the default Argon2id parameters: 131,072 KiB, 3 passes, 4 lanes.",
       "type": "slot.seal_password",
       "input": {
         "ps": "b8fe1e8175ed89329a923350cab1db9bcd4cd9fb8aa1bdcb0030feac30fa86dc",
@@ -146,48 +612,161 @@
     },
     {
       "name": "kit/text",
-      "description": "The printed form of a 20-byte recovery kit: RK1- and 32 Crockford base32 characters in groups of four, hyphen-separated (the separator is not in the spec).",
+      "description": "The printed form of a 20-byte recovery kit: RK1- and its 32 Crockford base32 characters in groups of four separated by hyphens.",
       "type": "kit.text",
       "input": {
-        "kit": "5dacdc51c7ec41df124f8cd28d44f58644d83e15"
+        "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
       },
       "expected": {
-        "text": "RK1-BPPD-RME7-XH0X-Y4JF-HK98-TH7N-GS2D-GFGN"
+        "text": "RK1-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0D"
       }
     },
     {
-      "name": "kit/parse",
+      "name": "kit/parse-exact",
       "description": "Reading the printed form back.",
       "type": "kit.parse",
       "input": {
-        "text": "RK1-BPPD-RME7-XH0X-Y4JF-HK98-TH7N-GS2D-GFGN"
+        "text": "RK1-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0D"
       },
       "expected": {
-        "kit": "5dacdc51c7ec41df124f8cd28d44f58644d83e15"
+        "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
       }
     },
     {
-      "name": "kit/parse-lowercase-and-confusables",
-      "description": "Lower case, spaces for hyphens, and O/I/L for 0/1/1 (Crockford decoding; not in the spec).",
+      "name": "kit/parse-lowercase",
+      "description": "Lower case.",
       "type": "kit.parse",
       "input": {
-        "text": "rk1-bppd rme7 xhox y4jf hk98 th7n gs2d gfgn"
+        "text": "rk1-jfry-eejg-z1e1-06ds-0ezk-kwth-xstg-ft0d"
       },
       "expected": {
-        "kit": "5dacdc51c7ec41df124f8cd28d44f58644d83e15"
+        "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
+      }
+    },
+    {
+      "name": "kit/parse-spaces-for-hyphens",
+      "description": "Spaces instead of hyphens.",
+      "type": "kit.parse",
+      "input": {
+        "text": "RK1 JFRY EEJG Z1E1 06DS 0EZK KWTH XSTG FT0D"
+      },
+      "expected": {
+        "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
+      }
+    },
+    {
+      "name": "kit/parse-no-separators",
+      "description": "No separators at all.",
+      "type": "kit.parse",
+      "input": {
+        "text": "RK1JFRYEEJGZ1E106DS0EZKKWTHXSTGFT0D"
+      },
+      "expected": {
+        "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
+      }
+    },
+    {
+      "name": "kit/parse-extra-spaces",
+      "description": "Spaces and a hyphen in odd places.",
+      "type": "kit.parse",
+      "input": {
+        "text": " RK1-JFR - Y  EEJG  Z1E1  06DS  0EZK  KWTH  XSTG  FT0D "
+      },
+      "expected": {
+        "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
+      }
+    },
+    {
+      "name": "kit/parse-o-for-zero",
+      "description": "Every 0 written as the letter O.",
+      "type": "kit.parse",
+      "input": {
+        "text": "RK1-JFRY-EEJG-Z1E1-O6DS-OEZK-KWTH-XSTG-FTOD"
+      },
+      "expected": {
+        "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
+      }
+    },
+    {
+      "name": "kit/parse-lowercase-o-for-zero",
+      "description": "Every 0 written as a lower-case o.",
+      "type": "kit.parse",
+      "input": {
+        "text": "RK1-JFRY-EEJG-Z1E1-o6DS-oEZK-KWTH-XSTG-FToD"
+      },
+      "expected": {
+        "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
+      }
+    },
+    {
+      "name": "kit/parse-i-for-one",
+      "description": "Every 1 in the characters written as the letter I.",
+      "type": "kit.parse",
+      "input": {
+        "text": "RK1-JFRY-EEJG-ZIEI-06DS-0EZK-KWTH-XSTG-FT0D"
+      },
+      "expected": {
+        "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
+      }
+    },
+    {
+      "name": "kit/parse-l-for-one",
+      "description": "Every 1 in the characters written as the letter L.",
+      "type": "kit.parse",
+      "input": {
+        "text": "RK1-JFRY-EEJG-ZLEL-06DS-0EZK-KWTH-XSTG-FT0D"
+      },
+      "expected": {
+        "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
+      }
+    },
+    {
+      "name": "kit/parse-all-confusables-lowercase",
+      "description": "Lower case, spaces, O for 0, and I and L (alternating) for 1, together.",
+      "type": "kit.parse",
+      "input": {
+        "text": "rk1 jfry eejg zlei o6ds oezk kwth xstg ftod"
+      },
+      "expected": {
+        "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
+      }
+    },
+    {
+      "name": "kit/parse-prefix-written-with-l",
+      "description": "The prefix itself read the same way: \"RKL\" is \"RK1\".",
+      "type": "kit.parse",
+      "input": {
+        "text": "RKL-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0D"
+      },
+      "expected": {
+        "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
       }
     },
     {
       "name": "kit/parse-bad-prefix",
-      "description": "Wrong prefix.",
+      "description": "Wrong prefix RK2.",
       "type": "kit.parse",
       "input": {
-        "text": "RK2-BPPD-RME7-XH0X-Y4JF-HK98-TH7N-GS2D-GFGN"
+        "text": "RK2-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0D"
       },
       "expected": {
         "error": {
           "code": "bad_kit_prefix",
-          "step": 0
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "kit/parse-no-prefix",
+      "description": "The 32 characters without the prefix.",
+      "type": "kit.parse",
+      "input": {
+        "text": "JFRYEEJGZ1E106DS0EZKKWTHXSTGFT0D"
+      },
+      "expected": {
+        "error": {
+          "code": "bad_kit_prefix",
+          "disposition": "reject"
         }
       }
     },
@@ -196,12 +775,54 @@
       "description": "Thirty-one characters.",
       "type": "kit.parse",
       "input": {
-        "text": "RK1-BPPD-RME7-XH0X-Y4JF-HK98-TH7N-GS2D-GFG"
+        "text": "RK1-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0"
       },
       "expected": {
         "error": {
           "code": "bad_kit_length",
-          "step": 0
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "kit/parse-long",
+      "description": "Thirty-three characters.",
+      "type": "kit.parse",
+      "input": {
+        "text": "RK1-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0DA"
+      },
+      "expected": {
+        "error": {
+          "code": "bad_kit_length",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "kit/parse-letter-u",
+      "description": "The letter U is not a Crockford character (and not a confusable).",
+      "type": "kit.parse",
+      "input": {
+        "text": "RK1-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0U"
+      },
+      "expected": {
+        "error": {
+          "code": "bad_kit_character",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "kit/parse-other-symbol",
+      "description": "A character outside the alphabet.",
+      "type": "kit.parse",
+      "input": {
+        "text": "RK1-JFRY-EEJG-Z1E1-06DS-0EZK-KWTH-XSTG-FT0#"
+      },
+      "expected": {
+        "error": {
+          "code": "bad_kit_character",
+          "disposition": "reject"
         }
       }
     },
@@ -213,10 +834,10 @@
         "ps": "b8fe1e8175ed89329a923350cab1db9bcd4cd9fb8aa1bdcb0030feac30fa86dc",
         "pid": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
         "slot_id": "03baa4128a045f332b8a64bb3b5cc630",
-        "kit": "5dacdc51c7ec41df124f8cd28d44f58644d83e15"
+        "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
       },
       "expected": {
-        "slot": "a601010202035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045003baa4128a045f332b8a64bb3b5cc63005a0065830aa38f04574e782cea489d9ca44b5847bfacdb82559ba0747f2c886100d038d36b69144d3ff0f20e1626f9084a92c71f3"
+        "slot": "a601010202035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045003baa4128a045f332b8a64bb3b5cc63005a00658306c6f2c6e303a64767623b9c6ae1f1f4d92fb2e3910888f553f8ca41325a596ca7594d853ff722934f65b7a9ac3934e40"
       }
     },
     {
@@ -224,9 +845,9 @@
       "description": "Open with the kit.",
       "type": "slot.open",
       "input": {
-        "slot": "a601010202035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045003baa4128a045f332b8a64bb3b5cc63005a0065830aa38f04574e782cea489d9ca44b5847bfacdb82559ba0747f2c886100d038d36b69144d3ff0f20e1626f9084a92c71f3",
+        "slot": "a601010202035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045003baa4128a045f332b8a64bb3b5cc63005a00658306c6f2c6e303a64767623b9c6ae1f1f4d92fb2e3910888f553f8ca41325a596ca7594d853ff722934f65b7a9ac3934e40",
         "unlock": {
-          "kit": "5dacdc51c7ec41df124f8cd28d44f58644d83e15"
+          "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
         }
       },
       "expected": {
@@ -238,7 +859,7 @@
       "description": "Another kit.",
       "type": "slot.open",
       "input": {
-        "slot": "a601010202035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045003baa4128a045f332b8a64bb3b5cc63005a0065830aa38f04574e782cea489d9ca44b5847bfacdb82559ba0747f2c886100d038d36b69144d3ff0f20e1626f9084a92c71f3",
+        "slot": "a601010202035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045003baa4128a045f332b8a64bb3b5cc63005a00658306c6f2c6e303a64767623b9c6ae1f1f4d92fb2e3910888f553f8ca41325a596ca7594d853ff722934f65b7a9ac3934e40",
         "unlock": {
           "kit": "6f45e23229522ff7c1a8742eda43d95fe719acab"
         }
@@ -246,30 +867,47 @@
       "expected": {
         "error": {
           "code": "bad_unlock",
-          "step": 0
+          "disposition": "reject"
         }
       }
     },
     {
-      "name": "slot/kit-open-tampered-header",
-      "description": "One bit of the slot map changed: the map is the aad.",
+      "name": "slot/kit-open-tampered-slot-id",
+      "description": "One bit of the slot's slot-id changed.",
       "type": "slot.open",
       "input": {
-        "slot": "a601010202035820b4c4c380fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045003baa4128a045f332b8a64bb3b5cc63005a0065830aa38f04574e782cea489d9ca44b5847bfacdb82559ba0747f2c886100d038d36b69144d3ff0f20e1626f9084a92c71f3",
+        "slot": "a601010202035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045002baa4128a045f332b8a64bb3b5cc63005a00658306c6f2c6e303a64767623b9c6ae1f1f4d92fb2e3910888f553f8ca41325a596ca7594d853ff722934f65b7a9ac3934e40",
         "unlock": {
-          "kit": "5dacdc51c7ec41df124f8cd28d44f58644d83e15"
+          "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
         }
       },
       "expected": {
         "error": {
           "code": "bad_unlock",
-          "step": 0
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "slot/kit-open-tampered-ciphertext",
+      "description": "One bit of the slot's ciphertext changed.",
+      "type": "slot.open",
+      "input": {
+        "slot": "a601010202035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045003baa4128a045f332b8a64bb3b5cc63005a00658306c6f2c6e303a64767623b9c6ae1f1f4d92fb2e3910888f553f8ca41325a596ca7594d853ff722934f65b7a9bc3934e40",
+        "unlock": {
+          "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "bad_unlock",
+          "disposition": "reject"
         }
       }
     },
     {
       "name": "slot/device-seal-fixed",
-      "description": "Device slot sealed to a device X-Wing key, with fixed KEM randomness (deterministic).",
+      "description": "Device slot sealed to a device X-Wing key, with fixed KEM randomness (deterministic). The slot map is the aad.",
       "type": "slot.seal_device",
       "input": {
         "ps": "b8fe1e8175ed89329a923350cab1db9bcd4cd9fb8aa1bdcb0030feac30fa86dc",
@@ -311,7 +949,24 @@
       "expected": {
         "error": {
           "code": "bad_unlock",
-          "step": 0
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "slot/device-open-tampered-map",
+      "description": "One bit of the slot map (the slot id) changed: the map is the aad, so the open fails.",
+      "type": "slot.open",
+      "input": {
+        "slot": "a601010203035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd74873380450dfe1dc6f92d62b0f5be86cee216306bb05a1015904c085b5c5c07161d6132b795019658686f204368a2aaca33689f467166ab6989f764fa011cfbd13462b080070b76f0d753761040ba1d0a212c95330b9b300813d8663b84fb070d79599464793080abf39c7ac654716c35b983b577bb318ae4c1516d5a44e5bd74f60f74b06e40e71f246f348b041eb4f2209b4ecb5bd69b4817dd2bfefa846e6c83dc1990f7d168b30e62a274309545484ad36bc9a00ae59bb401ad206774387ac69ad70458e40411a0c0c2f839524ca58609dfa74c66a1d776c5a9a1b363eb6997e75562d2a1b8fc521e0b287ed2c77d7308379759d2d8c78bc142717274832635d20f28ce7454d206413efb82246957066280caeec456d50670a4b8d38f008bfb48c0d4c08c78737416222cb77a8be248b62649a381b499859381260956a999a6460797e3398f93a4906ab678c28bd5611865f005922c61604ea299c345f26244354948f35054c64306b7667b700ad796de1231b43159f1078dbe11b8507b51e50299bbbca7d819a23898a1fe225240167680520f274b2e65786ec62bab30110d2d819e997a1f4908d690a443fd4786b57ca28a7b74d5226f0e46b2a42cb49aa1e399c22806759ad4605ef3b04d5366e6da91e7d023bd3f444035acd0a257e39b079bd6a52fc44b01a477565ca95b0939aa0706c835b42a6632a3e0563b6fb6482dc632973b5ff25931e9a8ea2088b1b04ab09b17908d25eca01a950269a4335c72064a5fbb616f4923872388c1b13a1566786f1351250b94a409c65da355176b6473a4736ae10264b548b673acf8db3984b52bfa8ac3e43559b7561522ba7c1970a53c664ae92401fc6889fc7ab802f731351942dc5682a41d5889491cad02a2567484486f87a7a785e8dd39aafe86c5c4cbc4ed1ad69b29baf6c67de128d8ef6a7c287cd61a54cea8242c9077900236dbdfac36ee6678420ce55003b46e0097605318dea07982b2f3721348e858561a1184ed25f17b714be19b33cc5966a3a64a9fb99d24433ccc492f501080404ad3530bce6a5bbbab78773c362981207bf253159303d9217450f03a380139c382353fa6076a1930bd0857227b5b2a06494af21cc0f9b1b2e150f949c9f0f5ace657807808993cb93a991a54119e248ea4c9c9dd9024aa5250261c8891b1a7554bbeb096135f5babffa725ba461f6650d6bc5a592fca8d01a4546a94505746bb5a546e4ca4a579112333cbaa24a5c905687499abff536c0615c3eb9caaae9b8a9575cb86b4031d7497401d9303d6acea632c6f8a1adbe00a677a0064f14bc21808db94078c2679cbe3c407392afc1aa6720ec2dafc18b26c90e12518cbd371f6b93c78479a7f8f911de5a49306b4ef1b95dd95cafdf0b6c6a3a1ccaac6d16967fc01544fd511b2d245a643279b22aa8d0f1825df446d2bc9e67a68ae8296c882b83a1089127884efb993889f1a877d03af88417b440830d6ba898d0931b067f5a427403575031a22d412c2be9488838a48b254a4c6235085e550d9df4b8dd827af6650e1692138db1767a24bcbf2222f382be6e31b5555172008a5ba5a94c14aa0f7db2c31f50c36836acf1fc84ff46149e07403f9c9f4e88a5118bb70957a5a8ac39f3573b6a269a3c5ac9531bda8e360f4db2f9b5b047e97ab4431e9e783ece8370979a42c76b7e6b777dacc5ddd744f5caf9944e2574fe2ee4e81cf2f6c555a2ea31979d774920e5c921065904903f64d6392d638607e6e0b98b6c4c662a66e37b96374a3aa894ade11bf2ae168f44e825bc7ded4608aaf165fa5bcc3eca3ca0f5c5185f2d734a4a96c652dd4e424d6b76576c747c553e6e9db044b9ee7ff7aa32f02a1ebc7f28ada6d733e33b68f38cdc41f91f2f463bd224eede426edd8481544fbf9b70dba0d28bd091312d565f4e67f289521b142e3c557d26458baea89f628ff7cec67b96968dc1a31e168a455a881466cbb758785fee31d88a8a4e74d52811092ede424e6a7547a4e3739f130c0949ca270a886a7d9a4620e14bf6c4f6df583c0c87cace0c0613d563929f6be9fe2ad95104e58320e34893fd27cc437e459cf73d084b0dd71c360872a9b7303fcdb6f780d53fcaa0bb64f704c2010f5aad7c2cf4056f716b5dc8b9dfa63477b91c89282c7a6552d985d667fc05487a7b8b72e760248fb1b4e45c198dfc3218c4736ee718103d1c22970248e47db971f78ca899b4a43ffb1a41e1883697ff0a17d6e14688ec083eaa6ecb4a18c88013784ef123156f1dfeefec285ca3cabcaf84e4c221b9baa33bc210b1e489732200ba92dd873062d7b3ea337f5e0f62ca2b152e2a249457f0d0cb01b35abcedeeac44992f18015d9a531cfb6c5a316918aec9e7b64dbde4ac420663f9850bd920ca3f03e878355e1dd9bb12438d494015225c7b9324aa3f957e3c97d8dedccf0b1a5c7d2447bdedd8919502a7201a9dd707bd4711dd8e7721ac4e769546a2a0cf56ff14cc70322b25ffe404d42d7156f94ba7b069f622f22f5fb61e5634b675e6b8b699504953884da2c8a11639d1b073fb79217bbc2502c0f9e0ae5c86cd04ca1ad3ec5fbba37338905178f8380a39afc415099b98dfcbeea74b2a223bb39fab8e8af74218d013fc66fec5fba9f6f02d3f798078e26a8f82cd9816145f1daf954445703ffd2221f6fa440e7a2a4e6f81a2d9fcf6827dfd47f542f3106f6f568bede0623546c170ce106047a3742a2406c527927988e9d19988cbdd25672303eb86abce2c68676212571e86a2fc449298406ac631cc747f4ca38b2b7b3e1d7a2cd0d61263db69af03646b9bd0d30ec8de01c433185c5ee7ba6e45e5028c729d0c7675cfd11f76c08e0c5cc134b07a524eea2b22daf5028192d6661e10af2aae6cb21b1f7d5ca0698962ba48a7f9dfb23b5a9663288147e5e0f35ba96c4c3bd2cd0112f05272826c00ee8be2cb6d6777c16208a4d28734b6d92bb71fa9cdfc2abfab852c86b6506e0e44274737c6ce6833e664c015c0513af58efd24ece60f8b6981e3c3dfa70d80c25cfdbc78bc6cb05159a4fcfd968b9539743de6da1f78b0905d7ccd58d8483200f22840bf6479b501c888eb2100b2e642b74d0545ec84fd60019308f1809d0498df471cd319d30a57120815d629b3b323498d9bc7ba6256e1afd0cfe4dc872fff114bdf2134015adb88bef7c0390e7c4a73c8d925a815da0b8d1e3fc70d9cf85a84c6c40f09387bbabdb28683348458018ad8a3a8860787f0b54e3f1eab21373e585f5a778c0cdd76e05b1ae322024838095ffdefd865468ddb77b14b2dd275175ea0ab4294fa6d7a495120c059a16e46ed85c601d0d3fec844ba1508e28d299b771ea8709ed4d0a51d00f8c4831dde0e78e83e97683fc497",
+        "unlock": {
+          "device_kem_seed": "052ee6494a3ac882478748cb16d0e3d9878e5988e7386346735af19bee217653"
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "bad_unlock",
+          "disposition": "reject"
         }
       }
     },
@@ -328,13 +983,13 @@
       "expected": {
         "error": {
           "code": "wrong_unlock_for_slot_type",
-          "step": 0
+          "disposition": "reject"
         }
       }
     },
     {
       "name": "slot/device-forged-ps",
-      "description": "Anyone who knows a device's public key can seal garbage to it. The slot claims alice's pid but holds another secret; a reader must check (not in the spec).",
+      "description": "Anyone who knows a device's public key can seal garbage to it. This slot claims alice's pid but holds another secret.",
       "type": "slot.seal_device",
       "input": {
         "ps": "51fb4be55908fc38c58747853fc5e73bdd4c34fe63648c55d920842fb79be21f",
@@ -351,7 +1006,7 @@
     },
     {
       "name": "slot/device-forged-ps-open",
-      "description": "Opening yields a secret that does not derive the slot's pid.",
+      "description": "Opening works, but the secret does not derive the slot's pid: refused.",
       "type": "slot.open",
       "input": {
         "slot": "a601010203035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd74873380450e9492ab43ef8e4e084ed85c64ebf9f1005a1015904c085b5c5c07161d6132b795019658686f204368a2aaca33689f467166ab6989f764fa011cfbd13462b080070b76f0d753761040ba1d0a212c95330b9b300813d8663b84fb070d79599464793080abf39c7ac654716c35b983b577bb318ae4c1516d5a44e5bd74f60f74b06e40e71f246f348b041eb4f2209b4ecb5bd69b4817dd2bfefa846e6c83dc1990f7d168b30e62a274309545484ad36bc9a00ae59bb401ad206774387ac69ad70458e40411a0c0c2f839524ca58609dfa74c66a1d776c5a9a1b363eb6997e75562d2a1b8fc521e0b287ed2c77d7308379759d2d8c78bc142717274832635d20f28ce7454d206413efb82246957066280caeec456d50670a4b8d38f008bfb48c0d4c08c78737416222cb77a8be248b62649a381b499859381260956a999a6460797e3398f93a4906ab678c28bd5611865f005922c61604ea299c345f26244354948f35054c64306b7667b700ad796de1231b43159f1078dbe11b8507b51e50299bbbca7d819a23898a1fe225240167680520f274b2e65786ec62bab30110d2d819e997a1f4908d690a443fd4786b57ca28a7b74d5226f0e46b2a42cb49aa1e399c22806759ad4605ef3b04d5366e6da91e7d023bd3f444035acd0a257e39b079bd6a52fc44b01a477565ca95b0939aa0706c835b42a6632a3e0563b6fb6482dc632973b5ff25931e9a8ea2088b1b04ab09b17908d25eca01a950269a4335c72064a5fbb616f4923872388c1b13a1566786f1351250b94a409c65da355176b6473a4736ae10264b548b673acf8db3984b52bfa8ac3e43559b7561522ba7c1970a53c664ae92401fc6889fc7ab802f731351942dc5682a41d5889491cad02a2567484486f87a7a785e8dd39aafe86c5c4cbc4ed1ad69b29baf6c67de128d8ef6a7c287cd61a54cea8242c9077900236dbdfac36ee6678420ce55003b46e0097605318dea07982b2f3721348e858561a1184ed25f17b714be19b33cc5966a3a64a9fb99d24433ccc492f501080404ad3530bce6a5bbbab78773c362981207bf253159303d9217450f03a380139c382353fa6076a1930bd0857227b5b2a06494af21cc0f9b1b2e150f949c9f0f5ace657807808993cb93a991a54119e248ea4c9c9dd9024aa5250261c8891b1a7554bbeb096135f5babffa725ba461f6650d6bc5a592fca8d01a4546a94505746bb5a546e4ca4a579112333cbaa24a5c905687499abff536c0615c3eb9caaae9b8a9575cb86b4031d7497401d9303d6acea632c6f8a1adbe00a677a0064f14bc21808db94078c2679cbe3c407392afc1aa6720ec2dafc18b26c90e12518cbd371f6b93c78479a7f8f911de5a49306b4ef1b95dd95cafdf0b6c6a3a1ccaac6d16967fc01544fd511b2d245a643279b22aa8d0f1825df446d2bc9e67a68ae8296c882b83a1089127884efb993889f1a877d03af88417b440830d6ba898d0931b067f5a427403575031a22d412c2be9488838a48b254a4c6235085e550d9df4b8dd827af6650e1692138db1767a24bcbf2222f382be6e31b5555172008a5ba5a94c14aa0f7db2c31f50c36836acf1fc84ff46149e07403f9c9f4e88a5118bb70957a5a8ac39f3573b6a269a3c5ac9531bda8e360f4db2f9b5b047e97ab4431e9e783ece8370979a42c76b7e6b777dacc5ddd744f5caf9944e2574fe2ee4e81cf2f6c555a2ea31979d774920e5c921065904903f64d6392d638607e6e0b98b6c4c662a66e37b96374a3aa894ade11bf2ae168f44e825bc7ded4608aaf165fa5bcc3eca3ca0f5c5185f2d734a4a96c652dd4e424d6b76576c747c553e6e9db044b9ee7ff7aa32f02a1ebc7f28ada6d733e33b68f38cdc41f91f2f463bd224eede426edd8481544fbf9b70dba0d28bd091312d565f4e67f289521b142e3c557d26458baea89f628ff7cec67b96968dc1a31e168a455a881466cbb758785fee31d88a8a4e74d52811092ede424e6a7547a4e3739f130c0949ca270a886a7d9a4620e14bf6c4f6df583c0c87cace0c0613d563929f6be9fe2ad95104e58320e34893fd27cc437e459cf73d084b0dd71c360872a9b7303fcdb6f780d53fcaa0bb64f704c2010f5aad7c2cf4056f716b5dc8b9dfa63477b91c89282c7a6552d985d667fc05487a7b8b72e760248fb1b4e45c198dfc3218c4736ee718103d1c22970248e47db971f78ca899b4a43ffb1a41e1883697ff0a17d6e14688ec083eaa6ecb4a18c88013784ef123156f1dfeefec285ca3cabcaf84e4c221b9baa33bc210b1e489732200ba92dd873062d7b3ea337f5e0f62ca2b152e2a249457f0d0cb01b35abcedeeac44992f18015d9a531cfb6c5a316918aec9e7b64dbde4ac420663f9850bd920ca3f03e878355e1dd9bb12438d494015225c7b9324aa3f957e3c97d8dedccf0b1a5c7d2447bdedd8919502a7201a9dd707bd4711dd8e7721ac4e769546a2a0cf56ff14cc70322b25ffe404d42d7156f94ba7b069f622f22f5fb61e5634b675e6b8b699504953884da2c8a11639d1b073fb79217bbc2502c0f9e0ae5c86cd04ca1ad3ec5fbba37338905178f8380a39afc415099b98dfcbeea74b2a223bb39fab8e8af74218d013fc66fec5fba9f6f02d3f798078e26a8f82cd9816145f1daf954445703ffd2221f6fa440e7a2a4e6f81a2d9fcf6827dfd47f542f3106f6f568bede0623546c170ce106047a3742a2406c527927988e9d19988cbdd25672303eb86abce2c68676212571e86a2fc449298406ac631cc747f4ca38b2b7b3e1d7a2cd0d61263db69af03646b9bd0d30ec8de01c433185c5ee7ba6e45e5028c729d0c7675cfd11f76c08e0c5cc134b07a524eea2b22daf5028192d6661e10af2aae6cb21b1f7d5ca0698962ba48a7f9dfb23b5a9663288147e5e0f35ba96c4c3bd2cd0112f05272826c00ee8be2cb6d6777c16208a4d28734b6d92bb71fa9cdfc2abfab852c86b6506e0e44274737c6ce6833e664c015c0513af58efd24ece60f8b6981e3c3dfa70d80c25cfdbc78bc6cb05159a4fcfd968b9539743de6da1f78b0905d7ccd58d8483200f22840bf6479b501c888eb2100b2e642b74d0545ec84fd60019308f1809d0498df471cd319d30a57120815d629b3b323498d9bc7ba6256e1afd0cfe4dc872fff114bdf2134015adb88bef7c0390e7c4a73c8d925a815da0b8d1e3fc70d9cf85a84c6c40f09387bbabdb28683348458018ad8a3a8860787f0b54e3f1eab21373e585f5a778c0cdd76c15d2265459455c9ff156e6c1da6bfb7910bb8af50f2b2f9f853ea9325259d4d7d3ee3b277bdc6fb7c6211e4291bca1aa29c0c9c1bc659a58dcf6ccca390a7469a08880b0bd275ae125809affce72326",
@@ -362,8 +1017,185 @@
       "expected": {
         "error": {
           "code": "ps_does_not_match_pid",
-          "step": 0
+          "disposition": "reject"
         }
+      }
+    },
+    {
+      "name": "slot/kit-forged-ps",
+      "description": "A kit slot (made by anyone who knows the kit) claiming alice's pid but holding another secret.",
+      "type": "slot.seal_kit",
+      "input": {
+        "ps": "51fb4be55908fc38c58747853fc5e73bdd4c34fe63648c55d920842fb79be21f",
+        "pid": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+        "slot_id": "a0d8bfda43d03da963e8f40c835492ad",
+        "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
+      },
+      "expected": {
+        "slot": "a601010202035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd74873380450a0d8bfda43d03da963e8f40c835492ad05a00658307466d3ec693767a2602b02b882397ef47b8ddec78fadeb5795cb1f7609a3c0a03a3cd029a2ba3ad6119e1c064fff796b"
+      }
+    },
+    {
+      "name": "slot/kit-forged-ps-open",
+      "description": "Refused.",
+      "type": "slot.open",
+      "input": {
+        "slot": "a601010202035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd74873380450a0d8bfda43d03da963e8f40c835492ad05a00658307466d3ec693767a2602b02b882397ef47b8ddec78fadeb5795cb1f7609a3c0a03a3cd029a2ba3ad6119e1c064fff796b",
+        "unlock": {
+          "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "ps_does_not_match_pid",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "slot/password-forged-ps",
+      "description": "A password slot claiming alice's pid but holding another secret.",
+      "type": "slot.seal_password",
+      "input": {
+        "ps": "51fb4be55908fc38c58747853fc5e73bdd4c34fe63648c55d920842fb79be21f",
+        "pid": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+        "slot_id": "8c2369ba84bf07bfa126c0a90dccdc87",
+        "salt": "3ec651d34258e2822ab9350e58131702",
+        "params": {
+          "memory": 64,
+          "passes": 2,
+          "lanes": 2
+        },
+        "password": "correct horse",
+        "test_only": true
+      },
+      "expected": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd748733804508c2369ba84bf07bfa126c0a90dccdc8705a401503ec651d34258e2822ab9350e5813170202184003020402065830ef4de154d2cbb60e6c68167593af185fe86983a7aefc11798e3ed608bbd3b34688905f34bb7e8dc2e5008da0d4540d44"
+      }
+    },
+    {
+      "name": "slot/password-forged-ps-open",
+      "description": "Refused.",
+      "type": "slot.open",
+      "input": {
+        "slot": "a601010201035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd748733804508c2369ba84bf07bfa126c0a90dccdc8705a401503ec651d34258e2822ab9350e5813170202184003020402065830ef4de154d2cbb60e6c68167593af185fe86983a7aefc11798e3ed608bbd3b34688905f34bb7e8dc2e5008da0d4540d44",
+        "unlock": {
+          "password": "correct horse"
+        },
+        "test_only": true
+      },
+      "expected": {
+        "error": {
+          "code": "ps_does_not_match_pid",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "slot/kit-short-ps",
+      "description": "A kit slot whose secret is 31 bytes.",
+      "type": "slot.seal_kit",
+      "input": {
+        "ps": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a48",
+        "pid": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+        "slot_id": "ff5250eefaf273ed23eb09a74410c32f",
+        "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
+      },
+      "expected": {
+        "slot": "a601010202035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd74873380450ff5250eefaf273ed23eb09a74410c32f05a006582f1c93e37f4b8e7ae796d763d1f52363867e5a3183af9b0bc186d5ecfb3d111759403c734189f1e2e7ca884f587b2cca"
+      }
+    },
+    {
+      "name": "slot/kit-short-ps-open",
+      "description": "Refused: not a 32-byte secret.",
+      "type": "slot.open",
+      "input": {
+        "slot": "a601010202035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd74873380450ff5250eefaf273ed23eb09a74410c32f05a006582f1c93e37f4b8e7ae796d763d1f52363867e5a3183af9b0bc186d5ecfb3d111759403c734189f1e2e7ca884f587b2cca",
+        "unlock": {
+          "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "ps_does_not_match_pid",
+          "disposition": "reject"
+        }
+      }
+    },
+    {
+      "name": "slot/unknown-type-slot",
+      "description": "A well-formed slot of type 9.",
+      "type": "slot.craft_other",
+      "input": {
+        "version": 1,
+        "slot_type": 9,
+        "pid": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+        "slot_id": "15ee74ff360146e35c056ed0a5c44db0"
+      },
+      "expected": {
+        "slot": "a601010209035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a0065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    {
+      "name": "slot/unknown-type",
+      "description": "A reader ignores a slot whose version or type it does not know.",
+      "type": "slot.open",
+      "input": {
+        "slot": "a601010209035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a0065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "unlock": {
+          "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "unknown_slot",
+          "disposition": "ignore"
+        }
+      }
+    },
+    {
+      "name": "slot/unknown-version-slot",
+      "description": "A well-formed slot of version 2.",
+      "type": "slot.craft_other",
+      "input": {
+        "version": 2,
+        "slot_type": 2,
+        "pid": "b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338",
+        "slot_id": "15ee74ff360146e35c056ed0a5c44db0"
+      },
+      "expected": {
+        "slot": "a601020202035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a0065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    {
+      "name": "slot/unknown-version",
+      "description": "A reader ignores a slot whose version or type it does not know.",
+      "type": "slot.open",
+      "input": {
+        "slot": "a601020202035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd7487338045015ee74ff360146e35c056ed0a5c44db005a0065830000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "unlock": {
+          "kit": "93f1e73a50f85c1019b903bf39f351ee7507e80d"
+        }
+      },
+      "expected": {
+        "error": {
+          "code": "unknown_slot",
+          "disposition": "ignore"
+        }
+      }
+    },
+    {
+      "name": "slot/device-open-sealed-by-python",
+      "description": "A device slot whose HPKE ciphertext (with the slot map as aad) was sealed by Python's cryptography 50: an independent implementation, so open only.",
+      "type": "slot.open",
+      "input": {
+        "slot": "a601010203035820b4c4c280fd4e74896f0f26830167b5c37248fbeb8641bb491c1b1c6fd748733804508fc0acf334c3a900e4aad5eb9c5fb68e05a1015904c05d38530f191b0c9a5c1b69994fb883ee2509585a626ed8065642315d5ba1accc0df38b3d62041fcee871e061951c9c2ff9630680f26794d063acf292fa810d978c4969907f06ec1a1a30b520b39d6bd3bcb347ac77b9b4dcca77fa0932c1e337f33c76c1e4c2013523a041401eb33a8bc05d19165f171c87dc790fe7659a0ab46d6c0884108c32dee984ba8488cd6603a100683b23918bf1b64dfb7ea35ab90f940c25cc309b98886401cd60c4647ec74fe337ab25e5a793129e028c726821c48424c435f0687bca7998b3091f22798031c840331c21c27d0e560a67342312738d1b51a33ef52c2bb49a4bf9c2f661b9d7abb554724f0ba6a89ea40ab5b12e9b62c68da54c119c3505194c6c3915ad62b5d1f1a3ec109a1e908ab1329a1cc7c4b8508c9a41cc77004c1300be52b9878bf24982f892f418816e3b2b293abdc8f14c474cbfec424309135dbfd1ad7a0023f022a8bd9aa641c696885a679bda5e52c5261370b99588686b3abe84e0b72ad262d151730799b6ec704e4556b1dd5496cdabb9888a1b4d3cbc91175768081bbe77a425aa998359cdf534bbdf978ce128952f97130f5b782c5824c6b189158325a943162b186e009262e2498b5f6607d6000af81651734832b3177efc21b2f75ba5511ca58e2864e5a75484b8723f87233fb75b95f1723435bb92d625776061b7b924e2c29b2b0a167cfc1d30e77c3cfb10cfebb055ab65621657a7f50d70fb0d87f780451945705a1c4ec063e22c1fc3c62b06e5216886c96d106e7e3235e0fa066d334a3948a14cc9300dc433b305069810a6cfe0557d4634c292cb92aaca1d0bbf803a7f10c0698fcb18d5cbcc88ea3c7c5b5fc64964c67c436fa26655d00c1a140696305432a2304f90a89792ab11bb99905a07a35bb26d5b399b91a3da744ffeb12955c552a7fbc49973314499b4a8bc1bf7c210c69c54301bc9d8e3c590a71a224c72671379f6862035f80d3a0347a813622e7064b772b099cacd95fc64a85838f46c0e9d559644fa00ee6588de933cb57616c81008ea64834de56b11e29bab6bb4650a1b95ab5101f74f9d9b60ca98044071c876c699d5643936f7c96c1ab5bdd05cfbf94eb4a8527e4a0a07a77736d46d65f151ae786515f7b9e318111a4304e1e76681ab912676983c9359f0725e999512607c8e0bcbabcc1b6d889763992a6d52e29e4bd57a0687828bbb2bc89737f9d99488540ad2fa79ed988a12656a85024829040c153b3ffab99ea8e8a00634565b08329d83b8c10a59a7ac642575cc98e3ac63d81039800bf6743e95cc3eb99bc3f6445fb91592cc3146029c2908093b4b5003dc49593225af719060657aaa2dd258bd6bbdb220a399d2c7896214daf9178b0b55871b0d3ab9bd645b5cc513b71e2ba26f23196f9b05b1717e92456481a45c5f26b00b48ad3373420bcc12e795cb1b29b9ad84c458a9b5105b2580737d457a187e010faaf03d95c5cb9b848d21421a0f543686ab08e2a58736048b94f40786d58c97eb0e6c02b4df46619fb4a054a69c1c8a1053a78711a5ba954965e350a984a77b665a3cc3612198815c70c34692a372ba2c1a8024a1bc612ced24b9d7121e36fa5b66666f1b6352df5435dd89d0e86b1325d4e9551570e5545882e2cf0b7eaeca824f848f0a0b1e888536c1ff2f62c86233f730c5fd0eb321397dff701256e01d68936b7468ea73065904906f4b0f8908fa9faf38bf5a9159af8d6c9a38af84cf04c340b5fa3b32e3b7ed7b015460f87bb188659638c5070ad1c860fc17459f05daf6bf6c8e8593f1ef0372c87994dc539206de665facec8d47c622373eca00b5d3da64cb9bbfef9bbe7174ce79e76b7af5eabcd7c026fb1ecb33135695b9840516bedbb8e64c464e52aa2635436a32b9a5f153ce9094032d6c4d443b3e0745ad97c6285c028cf55fe0261392de22476157c5a946d42de4ddeade984ddc75332613fedec161221b1c5b5d4a18cc3f81bf13c4cf738b423d69b84102d9d10bd9ff43417dce9698e82aa393ca76108be4fab033cb508c82b2216bdbd801fbdeedcecf915ae196e69ac79b0d44de061a9d6adcf7c28cf11d6c442da1313e685d3d433b94a4f7a671dbd43ecaef09b12d2f5f44609ec59d23bab4c2bc2883ec1b7fb870297cc71eda4c349822fe38f079007c42090263a08b563dfa2b64e69d04e47e77fd6e8110e01ffb04181f24f4db9f2f3d1fcd27f899154effb08e17ca532166d6fd5eb4379fa0abd366248d0ea9a11ae5ecbadac8c45306a2fc6b59732a7be58d07daa03fcc2aea87637812b674cc227c17d34ca85b1cfcbc064c29e4927c0dddc9b472509529afd1a9ab3f349232edc12f93de7ab1e95adbb7bb7d896166835c21157fa3464beb363da735422815a1cd764c8e1279e117064d3b31c62e533e34e244959ced8e3a25fc45d998832e9e6764d0e581da97ee087e1a21f4338d8439cd394d6cb0e6f4a794cbec55824413df36e528c1796b6d1ea077b9f883dd1ea1cb448e3fddfaff3bc73fdf00d0c92c326684eaa46556e3dd798b606d28eb7763ef384a3504dd165785d4cb90067465dd5a5b69577e6908820ea6fb2b37c5beda45717c93f989cb6f98ee181b1a2649dcb727d5177d712a127a08f904c5ba64388afa684373e3e84343019282d4a6fe7b05391a50d61e7a5a48f1286eb1da06f8ac49c1f6d9a5c53e8243eb51ac28cbf10352e16d590714f5209ee48a2e48964c6204caea13e4788c5963920d96724be137e885f134d20c4a270367ad92e8d425d6b074eb110fb1a92b489323fa0ffc2b8f256771a021bf03d6d79014c2b836f0dc5dbbeda8668562477adfaa580a204e7331f8e4eb35a25473c9488f773d92452e0bfa35cd8783336dc3d7e180892f0c960bc4c991c99264cc02c74aabf54a338b204ad2e81286462e832cc41d8151081cc951fd34db0c986ee2f9819ac93581a2ff6fade2988e1d83b89432dfe7949be3baab2263f993f9224246031125b0182c1688094735623671a1bb6b8a089eabc9f8d98ff725e9d1c2dc486c6f9b43c1ebec125a24e04663b0517d041d45fd471e61bf271ecde2543616014eed8e91524e01d27a014c90a553ba59e9f47dca4d320ab1645aca629de91659765bb57e2254befef50e9919ac85c7f6403ed43d0bfa377cd13f05d645791e3f94b8b8d6e3fc121eb279b5973ff9c9722b8446c817fcc76d8dc2efe14e3e41146175e40b63098e1cd5bba8a6e373d160b4bf1efb961cd45a9b9b85bfcdcc36fd6285beb8e5557c0bf7f91b0889f03c2b64efa43e0e5c63aec48fd0b80a74d587acdd32c3d8c9a9b016e56ddeef6e9163386ff72a7f22d454a694f7179fd3b4",
+        "unlock": {
+          "device_kem_seed": "e80e548a3efb067dc95e53229f72e92ad6fd09761c013497be6542b4ed77ef28"
+        }
+      },
+      "expected": {
+        "ps": "b8fe1e8175ed89329a923350cab1db9bcd4cd9fb8aa1bdcb0030feac30fa86dc"
       }
     }
   ]

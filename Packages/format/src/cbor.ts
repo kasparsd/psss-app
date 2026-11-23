@@ -3,6 +3,7 @@
 // Value mapping: unsigned integer <-> number (bigint above 2^53-1), byte string <-> Uint8Array, text string <-> string,
 // array <-> Array, map <-> Map (keys: all numbers or all strings), false/true <-> boolean, null <-> null.
 import { cmp, concat } from './bytes.ts';
+import { limits } from './limits.ts';
 
 export type CborValue = number | bigint | boolean | null | string | Uint8Array | CborValue[] | Map<number | string, CborValue>;
 
@@ -14,8 +15,6 @@ export class CborError extends Error {
   }
 }
 
-/** Section 2: nesting is not limited by the spec; this implementation refuses deeper than this (see findings). */
-export const MAX_DEPTH = 64;
 
 const textEnc = new TextEncoder();
 const strictText = new TextDecoder('utf-8', { fatal: true });
@@ -38,7 +37,7 @@ function head(major: number, n: number | bigint): Uint8Array {
   return out(27, 8);
 }
 
-export function encode(v: CborValue): Uint8Array {
+export function encode(v: CborValue, level = 0): Uint8Array {
   if (v === null) return Uint8Array.of(0xf6);
   if (v === false) return Uint8Array.of(0xf4);
   if (v === true) return Uint8Array.of(0xf5);
@@ -48,16 +47,16 @@ export function encode(v: CborValue): Uint8Array {
   }
   if (typeof v === 'bigint') return head(0, v);
   if (typeof v === 'string') {
-    if (v.normalize('NFC') !== v) throw new CborError('non_nfc');
-    const t = textEnc.encode(v);
+    const t = textEnc.encode(v); // section 2: a writer SHOULD normalize what a person typed; the encoder never changes text
     return concat(head(3, t.length), t);
   }
   if (v instanceof Uint8Array) return concat(head(2, v.length), v);
-  if (Array.isArray(v)) return concat(head(4, v.length), ...v.map(encode));
+  if (Array.isArray(v)) { if (level + 1 > limits.maxDepth) throw new CborError('too_deep'); return concat(head(4, v.length), ...v.map((x) => encode(x, level + 1))); }
   if (v instanceof Map) {
+    if (level + 1 > limits.maxDepth) throw new CborError('too_deep');
     const kinds = new Set([...v.keys()].map((k) => typeof k));
     if (kinds.size > 1) throw new CborError('mixed_key_kinds');
-    const entries = [...v.entries()].map(([k, val]) => [encode(k), encode(val)] as const);
+    const entries = [...v.entries()].map(([k, val]) => [encode(k), encode(val, level + 1)] as const);
     entries.sort((a, b2) => cmp(a[0], b2[0]));
     return concat(head(5, entries.length), ...entries.flatMap(([k, val]) => [k, val]));
   }
@@ -76,8 +75,8 @@ class Reader {
     return s;
   }
 
+  /** `depth` is the number of containers around this item: section 2 allows at most 16 levels of nesting. */
   read(depth: number): CborValue {
-    if (depth > MAX_DEPTH) throw new CborError('too_deep');
     const ib = this.take(1)[0]!;
     const major = ib >> 5;
     const ai = ib & 31;
@@ -112,10 +111,10 @@ class Reader {
         const raw = this.take(this.len(n));
         let s: string;
         try { s = strictText.decode(raw); } catch { throw new CborError('invalid_utf8'); }
-        if (s.normalize('NFC') !== s) throw new CborError('non_nfc');
-        return s;
+        return s; // section 2: text that is not normalized is neither rejected nor changed
       }
       case 4: {
+        if (depth + 1 > limits.maxDepth) throw new CborError('too_deep');
         const len = this.len(n);
         if (len > this.data.length - this.pos) throw new CborError('truncated');
         const out: CborValue[] = [];
@@ -123,6 +122,7 @@ class Reader {
         return out;
       }
       default: { // 5: map
+        if (depth + 1 > limits.maxDepth) throw new CborError('too_deep');
         const len = this.len(n);
         if (len * 2 > this.data.length - this.pos) throw new CborError('truncated');
         const out = new Map<number | string, CborValue>();

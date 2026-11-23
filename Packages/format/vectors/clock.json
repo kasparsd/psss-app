@@ -156,7 +156,7 @@
     },
     {
       "name": "clock/order/bytes-not-hex-text",
-      "description": "Author 0x0a.. against 0x9f..: bytewise numeric order, not text order of unrelated encodings.",
+      "description": "Author 0x0a.. against 0x9f..: bytewise numeric order.",
       "type": "clock.order",
       "input": {
         "clocks": [
@@ -214,7 +214,7 @@
     },
     {
       "name": "clock/next/own-time-ahead",
-      "description": "Own time later than anything seen: counter 0.",
+      "description": "Own time later than anything accepted: counter 0.",
       "type": "clock.next",
       "input": {
         "now_ms": 1000,
@@ -234,7 +234,7 @@
     },
     {
       "name": "clock/next/equal-wall",
-      "description": "Own time equals the largest seen wall_ms: counter one more.",
+      "description": "Own time equals the largest accepted wall_ms: counter one more.",
       "type": "clock.next",
       "input": {
         "now_ms": 900,
@@ -258,7 +258,7 @@
     },
     {
       "name": "clock/next/behind",
-      "description": "Own clock behind: take the largest wall_ms seen, counter one more than the largest there.",
+      "description": "Own clock behind: take the largest accepted wall_ms, counter one more than the largest there.",
       "type": "clock.next",
       "input": {
         "now_ms": 100,
@@ -286,7 +286,7 @@
     },
     {
       "name": "clock/next/nothing-seen",
-      "description": "Nothing seen.",
+      "description": "Nothing accepted.",
       "type": "clock.next",
       "input": {
         "now_ms": 7,
@@ -321,6 +321,18 @@
       },
       "expected": {
         "held_back": true
+      }
+    },
+    {
+      "name": "clock/held-back/one-ms-under",
+      "description": "24 hours less 1 ms ahead.",
+      "type": "clock.held_back",
+      "input": {
+        "wall_ms": 86400999,
+        "now_ms": 1000
+      },
+      "expected": {
+        "held_back": false
       }
     },
     {

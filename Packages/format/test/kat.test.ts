@@ -1,11 +1,14 @@
 // Known-answer tests for the primitives and the node:crypto wrappers, from RFC values (independent of the vectors).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fromHex, hex, utf8 } from '../src/bytes.ts';
+import { concat, fromHex, hex, utf8 } from '../src/bytes.ts';
 import { aesGcmOpen, aesGcmSeal, argon2id, chachaOpen, chachaSeal, ed25519PublicFromSeed, ed25519Sign, ed25519Verify, hkdf, sha3_256, shake256,
          x25519, x25519PublicFromSeed, mlkem768Encapsulate, mlkem768FromSeed } from '../src/prims.ts';
 import * as xw from '../src/xwing.ts';
 import * as hpke from '../src/hpke.ts';
+import { checkSignatureInputs, decodePoint, isSmallOrder, L } from '../src/edwards.ts';
+import { ed25519VerifyPlatformOnly } from '../src/prims.ts';
+import { SMALL_ORDER } from '../scripts/vec-core.ts';
 
 test('HKDF-SHA256, RFC 5869 test case 1', () => {
   const okm = hkdf(new Uint8Array(22).fill(0x0b), fromHex('000102030405060708090a0b0c'), fromHex('f0f1f2f3f4f5f6f7f8f9'), 42);
@@ -77,4 +80,49 @@ test('HPKE: random seal and open round trip, wrong key fails', () => {
   assert.equal(blob.length, 1120 + 11 + 16);
   assert.equal(hex(hpke.openBase(seed, utf8('i'), utf8('a'), blob)), hex(utf8('hello world')));
   assert.throws(() => hpke.openBase(new Uint8Array(32).fill(6), utf8('i'), utf8('a'), blob));
+});
+
+test('HPKE key schedule against RFC 9180 A.1.1 (DHKEM(X25519), HKDF-SHA256, AES-128-GCM): key and base nonce', () => {
+  // The suite differs from ours (KEM 0x0020, AES-128), the key schedule is the same code with a 16-byte key.
+  const r = hpke.keySchedule(hpke.suiteIdOf(0x0020, 1, 1), fromHex('fe0e18c9f024ce43799ae393c7e8fe8fce9d218875e8227b0187c04e7d2ea1fc'), fromHex('4f6465206f6e2061204772656369616e2055726e'), 16);
+  assert.equal(hex(r.key), '4531685d41d65f03dc48f6b8302c05b0');
+  assert.equal(hex(r.nonce), '56d890e5accaaf011cff4b7d');
+});
+
+test('HPKE with a non-empty aad: wrong aad fails, same aad opens, and aad changes the ciphertext', () => {
+  const seed = new Uint8Array(32).fill(9);
+  const pk = xw.publicKey(seed);
+  const kem = { ekX: new Uint8Array(32).fill(1), mlkem: undefined };
+  void kem;
+  const a = hpke.sealBase(pk, utf8('i'), utf8('aad one'), utf8('m'));
+  assert.equal(hex(hpke.openBase(seed, utf8('i'), utf8('aad one'), a)), hex(utf8('m')));
+  assert.throws(() => hpke.openBase(seed, utf8('i'), utf8('aad two'), a));
+  assert.throws(() => hpke.openBase(seed, utf8('i'), new Uint8Array(0), a));
+});
+
+test('Ed25519 section 1.2: the checks of src/edwards.ts, one rule at a time (and what node:crypto does by itself, as diagnostics)', (t) => {
+  const pk = fromHex('d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a');
+  const sig = fromHex('e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b');
+  assert.equal(checkSignatureInputs(pk, sig), null);
+  const sPlusL = sig.slice(); let carry = 0n;
+  { let v = 0n; for (let i = 63; i >= 32; i--) v = (v << 8n) | BigInt(sig[i]!); v += L; for (let i = 32; i < 64; i++) { sPlusL[i] = Number(v & 255n); v >>= 8n; } carry = v; }
+  assert.equal(carry, 0n);
+  assert.equal(checkSignatureInputs(pk, sPlusL), 'scalar_not_reduced');
+  const rows: string[] = [];
+  rows.push(`S+L, valid public key: node accepts=${ed25519VerifyPlatformOnly(pk, new Uint8Array(0), sPlusL)}`);
+  SMALL_ORDER.forEach((h, n) => {
+    const p = fromHex(h);
+    assert(decodePoint(p) !== null, `encoding ${n} decodes`);
+    assert(isSmallOrder(decodePoint(p)!), `encoding ${n} has small order`);
+    assert.equal(checkSignatureInputs(p, concat(fromHex(SMALL_ORDER[0]!), new Uint8Array(32))), 'small_order_public_key');
+    rows.push(`small-order pk ${n + 1}, R = identity, S = 0: node accepts=${ed25519VerifyPlatformOnly(p, utf8('forged'), concat(fromHex(SMALL_ORDER[0]!), new Uint8Array(32)))}`);
+  });
+  // a point of large order is not small
+  assert(!isSmallOrder(decodePoint(pk)!));
+  for (const [what, p] of [['y = p', 'edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f'], ['y = p + 1', 'eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f'],
+                           ['identity with sign bit', '0100000000000000000000000000000000000000000000000000000000000080'], ['not on the curve', '0200000000000000000000000000000000000000000000000000000000000000']] as const) {
+    assert.equal(checkSignatureInputs(fromHex(p), sig), 'bad_public_key', what);
+    rows.push(`public key ${what}: node accepts=${ed25519VerifyPlatformOnly(fromHex(p), new Uint8Array(0), sig)}`);
+  }
+  t.diagnostic(rows.join('\n'));
 });
