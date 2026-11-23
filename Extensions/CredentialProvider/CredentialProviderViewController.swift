@@ -253,9 +253,12 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             } catch BiometricKeyError.invalidated {
                 // Unlock with Face ID or Touch ID is off or was reset.
                 present(NotReady(reason: .biometryOff, close: { self.cancel(.userCanceled) }))
-            } catch {
-                // The key exists but cannot be used now (lockout, unavailable, a failed read).
+            } catch is BiometricKeyError {
+                // The key exists but biometry cannot be used now (lockout, unavailable, a failed read).
                 present(NotReady(reason: .unavailableNow, close: { self.cancel(.userCanceled) }))
+            } catch {
+                // A vault or store error: the file is damaged or cannot be read.
+                present(NotReady(reason: .vaultUnreadable, close: { self.cancel(.userCanceled) }))
             }
         }
     }

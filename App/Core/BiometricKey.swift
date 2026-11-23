@@ -37,6 +37,37 @@ enum BiometryKind: Sendable {
     }
 }
 
+extension BiometryKind {
+    private static let rememberedKey = "biometryKind"
+
+    /// The kind this device had when the saved key was made. Messages use it when `current` is nil (a lockout hides it). Stored
+    /// beside the vault reference, in the shared defaults where those are available; nothing secret.
+    static var remembered: BiometryKind? {
+        switch UserDefaults(suiteName: SharedVault.groupID)?.string(forKey: rememberedKey) {
+        case "faceID": .faceID
+        case "touchID": .touchID
+        case "opticID": .opticID
+        default: nil
+        }
+    }
+
+    static func remember(_ kind: BiometryKind?) {
+        guard let kind else { return }
+        let name: String
+        switch kind {
+        case .faceID: name = "faceID"
+        case .touchID: name = "touchID"
+        case .opticID: name = "opticID"
+        }
+        UserDefaults(suiteName: SharedVault.groupID)?.set(name, forKey: rememberedKey)
+    }
+
+    /// The name for a sentence: what the device has now, else what it had when the key was saved, else "Biometric unlock".
+    static var nameForMessages: String {
+        (current ?? remembered)?.label ?? String(localized: "Biometric unlock")
+    }
+}
+
 enum BiometricKeyError: Error {
     /// The person cancelled the system prompt: stay on the lock screen, say nothing.
     case cancelled
@@ -124,6 +155,7 @@ enum BiometricKey {
         guard provisioned, !isExtension else { return }
         let done = "loginKeychainItemsRemoved"
         guard !UserDefaults.standard.bool(forKey: done) else { return }
+        // By service only, on purpose: a local build run side by side on this Mac loses its saved key once and asks for the password.
         let status = SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service] as CFDictionary)
         if status == errSecSuccess || status == errSecItemNotFound { UserDefaults.standard.set(true, forKey: done) }
         #endif
@@ -150,6 +182,7 @@ enum BiometricKey {
             login[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
             let status = SecItemAdd(login as CFDictionary, nil)
             guard status == errSecSuccess else { throw BiometricKeyError.failed(status) }
+            BiometryKind.remember(BiometryKind.current)
             return
         }
         #endif
@@ -158,6 +191,7 @@ enum BiometricKey {
         query[kSecAttrAccessControl as String] = try protectedAccessControl()
         let status = SecItemAdd(query as CFDictionary, nil)
         guard status == errSecSuccess else { throw BiometricKeyError.failed(status) }
+        BiometryKind.remember(BiometryKind.current)
     }
 
     /// Shows the system Face ID or Touch ID prompt and returns the key. Runs off the main actor: reading blocks.

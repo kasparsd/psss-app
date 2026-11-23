@@ -24,30 +24,84 @@ enum HostDisplay {
         return labels.joined(separator: ".")
     }
 
-    /// What to put in a sentence: the Unicode form when it is safe to show, followed by the ASCII form in parentheses when
-    /// the Unicode form mixes scripts.
+    /// What to put in a sentence: the Unicode form when it is safe to show, followed by the ASCII form in parentheses when the
+    /// Unicode form mixes scripts or a Latin label holds a letter outside `isCommonLatinLetter`.
     static func shown(_ host: String) -> String {
         let readable = unicode(host)
-        guard readable != host, scripts(in: readable).count > 1 else { return readable }
+        // A host that was not ASCII to begin with is never repeated in the hint: it may hold what was just written out.
+        guard readable != host, host.allSatisfy(\.isASCII) else { return readable }
+        guard scripts(in: readable).count > 1 || hasUncommonLatinLetter(readable) else { return readable }
         return "\(readable) (\(host))"
     }
 
+    /// True when a label in `text` has Latin letters and one of its letters is outside the common set.
+    static func hasUncommonLatinLetter(_ text: String) -> Bool {
+        text.split(separator: ".").contains { label in
+            let letters = label.unicodeScalars.filter { $0.properties.isAlphabetic }
+            guard letters.contains(where: { script(of: $0.value) == "Latin" }) else { return false }
+            return letters.contains { script(of: $0.value) == "Latin" && !isCommonLatinLetter($0) }
+        }
+    }
+
+    /// The Latin letters shown without a hint: the letters of European languages with Latin alphabets and Vietnamese, and no
+    /// lookalike of another letter. Exactly: a-z; the Latin-1 Supplement letters U+00DF to U+00F6 and U+00F8 to U+00FF
+    /// (not the ordinals U+00AA and U+00BA); Latin Extended-A U+0100 to U+017F without dotless i U+0131 and kra U+0138;
+    /// Latin Extended-B s and t with comma below U+0218 to U+021B and Vietnamese o and u with horn U+01A1 and U+01B0; Latin
+    /// Extended Additional Vietnamese letters U+1EA0 to U+1EF9. Everything else Latin (dental click, turned l, sinological dot,
+    /// Extended-D, ...) is uncommon.
+    static func isCommonLatinLetter(_ scalar: Unicode.Scalar) -> Bool {
+        let v = scalar.value
+        switch v {
+        case 0x41...0x5A, 0x61...0x7A, 0xDF...0xF6, 0xF8...0xFF: return true
+        case 0x100...0x17F: return v != 0x131 && v != 0x138
+        case 0x218...0x21B, 0x1A1, 0x1B0, 0x1EA0...0x1EF9: return true
+        default: return false
+        }
+    }
+
     /// True when a decoded label may be shown. It must be:
-    /// - not empty, not plain ASCII letters, digits and hyphens (a punycode label that decodes to that is malformed), and in NFC;
+    /// - not empty, not plain ASCII letters, digits and hyphens (a punycode label that decodes to that is malformed), in NFC,
+    ///   and unchanged by NFKC and by lower casing (so no fullwidth or mathematical letters, ligatures, superscripts,
+    ///   ordinals, upper case or title case; full case folding is not used because it would refuse ß and final sigma);
     /// - made only of letters, marks, decimal digits and the ASCII hyphen, as IDNA allows (so no space, control, format,
-    ///   separator, private-use, unassigned, punctuation, symbol, upper-case or title-case character), not starting with a
-    ///   mark, and free of default-ignorable and bidirectional-control characters, whatever their category.
+    ///   separator, private-use, unassigned, punctuation or symbol character), not starting with a mark, and free of
+    ///   default-ignorable and bidirectional-control characters, whatever their category;
+    /// - free of a combining mark that follows an ASCII letter (in an NFC label that means no single code point exists for the
+    ///   pair, as for `a` and a low line; `é` is one code point and passes);
+    /// - ASCII in its decimal digits, unless every letter of the label is in one non-Latin script and all its digits come from
+    ///   one digit set of that same script.
     static func isSafeLabel(_ label: String) -> Bool {
-        guard !label.isEmpty, Array(label.unicodeScalars) == Array(label.precomposedStringWithCanonicalMapping.unicodeScalars) else { return false }
-        let isPlain = label.unicodeScalars.allSatisfy { $0.isASCII && ($0.properties.isAlphabetic || ($0.value >= 48 && $0.value <= 57) || $0 == "-") }
+        guard !label.isEmpty else { return false }
+        let scalars = Array(label.unicodeScalars)
+        func same(_ other: String) -> Bool { Array(other.unicodeScalars) == scalars }
+        guard same(label.precomposedStringWithCanonicalMapping), same(label.precomposedStringWithCompatibilityMapping),
+              same(label.lowercased()) else { return false }
+        let isPlain = scalars.allSatisfy { $0.isASCII && ($0.properties.isAlphabetic || ($0.value >= 48 && $0.value <= 57) || $0 == "-") }
         guard !isPlain else { return false }
-        for (index, scalar) in label.unicodeScalars.enumerated() {
+        var base: Unicode.Scalar?  // the last scalar that is not a mark
+        var foreignDigitSets = Set<Int>(), hasForeignDigit = false, hasASCIIDigit = false
+        for (index, scalar) in scalars.enumerated() {
             if isInvisibleOrConfusable(scalar) { return false }
             switch scalar.properties.generalCategory {
-            case .lowercaseLetter, .otherLetter, .modifierLetter, .decimalNumber: break
-            case .nonspacingMark, .spacingMark: if index == 0 { return false }
-            default: if scalar != "-" { return false }
+            case .lowercaseLetter, .otherLetter, .modifierLetter: base = scalar
+            case .decimalNumber:
+                base = scalar
+                if scalar.isASCII { hasASCIIDigit = true } else {
+                    hasForeignDigit = true
+                    foreignDigitSets.insert(Int(scalar.value) - Int(scalar.properties.numericValue ?? 0))
+                }
+            case .nonspacingMark, .spacingMark:
+                guard index > 0, let base, !(base.isASCII && base.properties.isAlphabetic) else { return false }
+            default:
+                guard scalar == "-" else { return false }
+                base = scalar
             }
+        }
+        if hasForeignDigit {
+            let letterScripts = scripts(in: label)
+            guard !hasASCIIDigit, foreignDigitSets.count == 1, letterScripts.count == 1, letterScripts.first != "Latin" else { return false }
+            let digit = scalars.first { $0.properties.generalCategory == .decimalNumber && !$0.isASCII }!
+            guard script(of: digit.value) == letterScripts.first else { return false }
         }
         return true
     }

@@ -103,19 +103,23 @@ enum NotReadyReason {
     case biometryOff
     /// The vault file cannot be found.
     case fileMissing
-    /// The key exists but cannot be used right now (a lockout, biometry unavailable, a busy Keychain).
+    /// The key exists but biometry cannot be used right now (a lockout, biometry unavailable, a busy Keychain).
     case unavailableNow
+    /// The vault could not be opened for a reason that has nothing to do with biometry (a damaged or unreadable file).
+    case vaultUnreadable
 
     var sentence: String {
         switch self {
         case .noVault:
             String(localized: "Open Psss and create a vault.")
         case .biometryOff:
-            String(localized: "Open Psss, unlock with your vault password and turn on \(BiometryKind.current?.label ?? String(localized: "biometric unlock")).")
+            String(localized: "Open Psss, unlock with your vault password and turn on \(BiometryKind.nameForMessages).")
         case .fileMissing:
             String(localized: "Psss cannot find the vault file. Open Psss to locate it.")
         case .unavailableNow:
-            String(localized: "\(BiometryKind.current?.label ?? String(localized: "Biometric unlock")) is not available right now. Open Psss and unlock with your vault password, then try again.")
+            String(localized: "\(BiometryKind.nameForMessages) is not available right now. Open Psss and unlock with your vault password, then try again.")
+        case .vaultUnreadable:
+            String(localized: "Psss could not open your vault. Open Psss to see what is wrong.")
         }
     }
 }
@@ -178,14 +182,15 @@ private struct LoginRow: View {
 
     private var detail: String {
         let site = HostDisplay.shown(SharedVault.host(item.website))
-        return showsSite && !site.isEmpty ? "\(item.account) · \(site)" : item.account
+        let account = DisplayText.safe(item.account, empty: "")
+        return showsSite && !site.isEmpty ? (account.isEmpty ? site : "\(account) · \(site)") : account
     }
 
     var body: some View {
         let button = Button(action: action) {
             HStack {
                 VStack(alignment: .leading) {
-                    Text(verbatim: item.displayTitle)
+                    Text(verbatim: DisplayText.title(of: item))
                     if !detail.isEmpty { Text(verbatim: detail).foregroundStyle(.secondary) }
                 }
                 Spacer()
@@ -258,7 +263,7 @@ struct FillList: View {
         #if os(macOS)
         // A system alert cannot make Cancel both the default (Return) and the cancel button (Escape), so the Mac shows its own sheet.
         screen.sheet(item: $pending) { pending in
-            ConfirmSheet(title: alertTitle(for: pending), message: message(for: pending), confirmTitle: "Fill Anyway",
+            ConfirmSheet(title: alertTitle(for: pending), lines: lines(for: pending), confirmTitle: "Fill Anyway",
                          confirm: { self.pending = nil; choose(pending.item) }, cancel: { self.pending = nil })
         }
         #else
@@ -268,7 +273,8 @@ struct FillList: View {
                 Button("Fill Anyway") { choose(pending.item) }
                 Button("Cancel", role: .cancel) {}
             } message: { pending in
-                Text(message(for: pending))
+                // One paragraph per line, so text from the vault cannot reorder the site names beside it.
+                Text(verbatim: lines(for: pending).joined(separator: "\n"))
             }
         #endif
     }
@@ -370,19 +376,22 @@ struct FillList: View {
         pending?.otherSite == false ? "Fill on a page that is not encrypted?" : "Fill a login from another site?"
     }
 
-    private func message(for pending: Pending) -> String {
+    /// The lines of the confirmation, one paragraph each. The login's name, which comes from the vault, is alone in its line
+    /// and every site name is in a line of its own, after a fixed label, so no text from the vault shares a run with a site.
+    private func lines(for pending: Pending) -> [String] {
         let httpWarning = String(localized: "This page is not encrypted (http), so anything filled here can be read on the network.")
-        guard pending.otherSite else { return httpWarning }
-        let name = pending.item.displayTitle
+        guard pending.otherSite else { return [httpWarning] }
         let saved = HostDisplay.shown(SharedVault.host(pending.item.website))
-        let savedFor = saved.isEmpty ? String(localized: "“\(name)” has no website saved") : String(localized: "“\(name)” was saved for \(saved)")
-        let base: String
+        var lines = [DisplayText.title(of: pending.item)]
+        lines.append(saved.isEmpty ? String(localized: "This login has no website saved.") : String(localized: "Saved for \(saved)"))
         if let host = site.host {
-            base = String(localized: "\(savedFor), and you are signing in to \(HostDisplay.shown(host)). Only continue if you trust this page.")
+            lines.append(String(localized: "You are signing in to \(HostDisplay.shown(host))"))
         } else {
-            base = String(localized: "\(savedFor), and Psss could not tell which site you are signing in to. Only continue if you trust this page.")
+            lines.append(String(localized: "Psss could not tell which site you are signing in to."))
         }
-        return pending.plainHTTP ? base + " " + httpWarning : base
+        lines.append(String(localized: "Only continue if you trust this page."))
+        if pending.plainHTTP { lines.append(httpWarning) }
+        return lines
     }
 }
 
@@ -391,7 +400,8 @@ struct FillList: View {
 /// left, Cancel at the trailing edge, as in a standard Mac alert.
 private struct ConfirmSheet: View {
     let title: LocalizedStringKey
-    let message: String
+    /// One `Text` per line: the login's own name is alone in its line, and each site name has a line of its own.
+    let lines: [String]
     let confirmTitle: LocalizedStringKey
     let confirm: () -> Void
     let cancel: () -> Void
@@ -399,7 +409,9 @@ private struct ConfirmSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(title).font(.title2.bold())
-            Text(verbatim: message)
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(lines.enumerated()), id: \.offset) { Text(verbatim: $0.element) }
+            }
             HStack {
                 Spacer()
                 Button(confirmTitle, action: confirm)
@@ -459,8 +471,8 @@ struct FillConfirm: View {
         ProviderScreen(cancel: ProviderAction(title: "Cancel", run: cancel), primary: ProviderAction(title: verb, run: fill)) {
             VStack(spacing: 16) {
                 Spacer()
-                Text(verbatim: item.displayTitle).font(.title2.bold()).multilineTextAlignment(.center)
-                Text(verbatim: item.account).foregroundStyle(.secondary)
+                Text(verbatim: DisplayText.title(of: item)).font(.title2.bold()).multilineTextAlignment(.center)
+                Text(verbatim: DisplayText.safe(item.account, empty: "")).foregroundStyle(.secondary)
                 if !site.isEmpty { Text("for \(site)").foregroundStyle(.secondary) }
                 InlinePrimary(title: verb, action: fill).padding(.horizontal)
                 Spacer()
@@ -496,9 +508,9 @@ struct SaveLogin: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Name", text: $title, prompt: Text(verbatim: host))
-                    LabeledContent("Website", value: host)
-                    LabeledContent("Username", value: account)
+                    TextField("Name", text: $title, prompt: Text(verbatim: HostDisplay.shown(host)))
+                    LabeledContent("Website", value: HostDisplay.shown(host))
+                    LabeledContent("Username", value: DisplayText.safe(account, empty: ""))
                     LabeledContent("Password", value: "••••••••••")
                 }
                 if isUpdate && !passwordChanged {
