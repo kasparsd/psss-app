@@ -26,8 +26,8 @@ export const defaults = { ...limits };
 export const rules = {
   /** 5.1 an edit counts against `deleted` only when strictly later (false: later or equal) */
   deletedStrict: true,
-  /** 6.5 step 2, the order of comparison of the tuple (author, device, seq, record_id); a minus sign reverses one element */
-  tieBreak: 'author,device,seq,record_id' as string,
+  /** 6.5 step 2, the order of comparison of the tuple (author, device, seq) (draft 4: no record_id); a minus sign reverses one element */
+  tieBreak: 'author,device,seq' as string,
   /** 6.5 step 1: when every candidate is dropped, keep them all (false: take the greatest) */
   keepAllWhenAllDropped: true,
   /** 6.3, 6.4: K_(e-1) is checked against commit(e-1) */
@@ -38,5 +38,17 @@ export const rules = {
   checkScalarLessThanL: true,
   /** 7.2: the two kit check bytes */
   checkKitCheckBytes: true,
+  /** 7.2 (draft 4): the last four bits of the kit text are zero */
+  checkKitTrailingBits: true,
+  /** 6.4 (draft 4): the header of a record of kind 3, 4 or 5 names the epoch it starts */
+  checkHeaderEpoch: true,
+  /** 4.1, 9 step 2 (draft 4): the salt is checked before the author and the signature (false: after them) */
+  saltBeforeSignature: true,
+  /** 6.4 (draft 4): the cut of a remove or replace record reaches only epochs before the one it starts (false: that epoch too) */
+  cutEndsBeforeNewEpoch: true,
+  /** 5.3 (draft 4): records of one set_id that differ in author, device or parts, or two different records with one part, belong to no set */
+  strictSets: true,
+  /** 5.4 (draft 4): a purge request covers the writes up to its own place in the order (false: every write of the item) */
+  purgeUpToOwnPlace: true,
 };
 export const defaultRules = { ...rules };

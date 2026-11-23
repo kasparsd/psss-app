@@ -132,7 +132,7 @@ export function compute(type: string, i: J): J {
     case 'card.verify':
       try { const c = verifyCardBytes(F(i.card)); return { ok: true, pid: H(c.pid) }; } catch (e) { return err(e); }
     case 'signature.verify': return { result: ed25519Check(F(i.pk), F(i.msg), F(i.sig)) ?? 'ok' };
-    case 'gid': return { gid: H(gidOf(F(i.creator_pid), F(i.genesis_nonce), F(i.k0))) };
+    case 'gid': return { gid: H(gidOf(F(i.creator_pid), F(i.genesis_nonce), F(i.k0), i.min_reader)) };
     case 'commit': return { commit: H(commitOf(F(i.gid), i.epoch, F(i.key))) };
     case 'xwing.keygen': return { pk: H(xw.publicKey(F(i.seed))) };
     case 'xwing.encapsulate': { const r = xw.encapsulate(F(i.pk), kemOf(i)); return { ct: H(r.ct), ss: H(r.ss) }; }

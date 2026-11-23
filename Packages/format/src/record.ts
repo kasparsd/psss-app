@@ -153,9 +153,11 @@ export function openRecord(sealed: Uint8Array, ring: KeyRing): Rec {
   const m = body as CMap;
   const without9 = new Map(m);
   without9.delete(9);
-  // 9 step 2: recompute the salt from the key that opened the record and the body; a mismatch is discarded.
-  if (rules.checkSalt && !eq(deriveSalt(key, without9 as CMap), salt)) throw new FormatError('bad_salt', 'discard');
+  // 9 step 2 (draft 4): tag, padding, body, payload shape, then the recomputed salt, then author and signature, in that order.
+  const saltBad = rules.checkSalt && !eq(deriveSalt(key, without9 as CMap), salt);
+  if (saltBad && rules.saltBeforeSignature) throw new FormatError('bad_salt', 'discard');
   const problem = ed25519Check(f.author, signedBytes(hdr, without9), m.get(9) as Uint8Array);
+  if (saltBad && !problem) throw new FormatError('bad_salt', 'discard');
   if (problem === 'bad_public_key' || problem === 'small_order_public_key') throw new FormatError('bad_author', 'discard', problem);
   if (problem) throw new FormatError('bad_signature', 'discard', problem);
   return {
@@ -255,7 +257,8 @@ export function checkPayload(kind: number, p: CMap): CMap {
     }
     case KIND.genesis:
       onlyKeys(p, [1, 2, 3, 4], [1, 2, 3, 4], 'genesis', true);
-      if (!isBytes(p.get(1), 32) || !isBytes(p.get(3), 32) || !isUint(p.get(4))) throw bad('genesis');
+      // 6.1 (draft 4): min_reader is at least 1 (and, because 3.3 binds it as u32, at most 2^32 - 1)
+      if (!isBytes(p.get(1), 32) || !isBytes(p.get(3), 32) || !isUint(p.get(4)) || (p.get(4) as number) < 1 || (p.get(4) as number) > 0xffffffff) throw bad('genesis');
       cardShape(p.get(2));
       return p;
     case KIND.member: {

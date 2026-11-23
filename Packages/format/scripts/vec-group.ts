@@ -2,13 +2,14 @@
 // Where a vector has an `expectGroup` call, the outcome of every record (and the final field values) is written out by hand in this
 // file and the library is asserted to agree; the other vectors take their expectation from the library and assert only the key points.
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { cmp } from '../src/bytes.ts';
 import { cmap, type CborValue } from '../src/cbor.ts';
 import { checkpointItems, fold } from '../src/fold.ts';
-import { commitOf, makeCard } from '../src/keys.ts';
+import { commitOf, gidOf, makeCard } from '../src/keys.ts';
 import { KIND, type Rec } from '../src/record.ts';
 import { BASE_MS, Scenario, bytesOf, itemId } from '../test/scenario.ts';
-import { CLEARED, E, H, Out, expectGroup, file, historyView, itemNames, stateView } from './vec-common.ts';
+import { CLEARED, E, H, Out, expectGroup, file, historyView, itemNames, outcome, stateView } from './vec-common.ts';
 import type { J } from './vec-common.ts';
 
 type Labels = Record<string, Rec>;
@@ -80,6 +81,11 @@ export function groupVectors(): J {
       'group.evaluate', { gid: H(s.gid), keys: s.keyList().filter((k) => k.epoch === 0), records: Object.values(labels).map((r) => H(r.sealed)), labels: {}, people: {} });
     assert.deepEqual(view.expected.rejected.map((r: J) => [r.code, r.disposition]), [['no_key', 'wait'], ['no_key', 'wait'], ['no_key', 'wait']]);
     assert.equal(view.expected.epoch, 0);
+    // By hand: the three records under K_1 are not seen at all; the chain ends at bob's addition, so all of bob's records are judged as of it (a writer, no cut yet).
+    const seen = Object.fromEntries(Object.entries(labels).filter(([k]) => !['remove', 'bLeak', 'a1'].includes(k)));
+    for (const [k, r] of Object.entries(labels)) if (['remove', 'bLeak', 'a1'].includes(k)) assert.equal(outcome(view, r), 'absent', k);
+    for (const [k, r] of Object.entries(seen)) assert.equal(outcome(view, r), k === 'g' || k === 'addBob' ? 'chain' : 'accepted', k);
+    assert.deepEqual(stateView(view.expected.state, NAMES), { i1: { deleted: false, fields: { n: 9 } } });
     o.add('membership/remove-sealed-under-new-key-unreadable-with-old-key', 'The removal record opened with K_0 only: it is sealed under K_1, so it waits for a key (6.4: the removed person cannot read it).', 'record.open',
       { keys: s.keyList().filter((k) => k.epoch === 0), sealed: H(remove.sealed) }, E('no_key', 'wait'));
     o.add('membership/remove-opens-with-new-key', 'The same record opened with K_1.', 'record.open', { keys: s.keyList().filter((k) => k.epoch === 1), sealed: H(remove.sealed) });
@@ -102,6 +108,22 @@ export function groupVectors(): J {
     expectGroup(v, labels, { g: 'chain', addBob: 'chain', b1: 'accepted', lower: 'chain', b2old: 'ignored:beyond_cut', b3: 'ignored:not_writer', raiseBad: 'ignored:raise_needs_new_epoch', ep: 'chain', raiseOk: 'chain', b4: 'accepted' },
       { i1: { deleted: false, fields: { n: 4 } } }, NAMES);
     assert.equal(v.expected.roles[H(s.person('bob').pid)], 2);
+  }
+  { // a removed person added again writes in the epoch of their return, with no extra epoch record (6.4, draft 4)
+    const s = new Scenario();
+    const g = s.genesis(); const addBob = s.setRole('alice', 'a1', 'bob', 2, { card: true });
+    const b1 = s.item('bob', 'b1', I, [['n', 1]]);
+    const bOld = s.item('bob', 'b1', I, [['n', 2]]);
+    const remove = s.remove('alice', 'a1', 'bob', 1, { cut: [[s.device('b1'), 1]] });
+    const readd = s.setRole('alice', 'a1', 'bob', 2, { card: true });
+    const bNew = s.item('bob', 'b1', I, [['n', 3]]);
+    const bNewDevice = s.item('bob', 'b9', itemId('i2'), [['t', 1]]);
+    const bStale = s.item('bob', 'b1', I, [['n', 4]], [], { mhead: addBob.id, epoch: 0 });
+    const labels = { g, addBob, b1, bOld, remove, readd, bNew, bNewDevice, bStale };
+    const v = groupVector(o, 'removed-person-added-again-writes-at-once', 'Bob is removed (kind 5, which starts epoch 1) with a cut that lists (b1, seq 1), and added again with a card at once (kind 2, in epoch 1). The cut reaches only epochs before 1, so no epoch record is needed and his records sealed in epoch 1 are accepted: one on device b1 beyond the cut\'s seq and one on a device the cut does not list. His b1 seq 2, sealed in epoch 0, is beyond the cut, and so is a record sealed in epoch 0 that names his old addition as mhead (its epoch is still the epoch as of that mhead): both are ignored.', s, labels);
+    expectGroup(v, labels, { g: 'chain', addBob: 'chain', b1: 'accepted', bOld: 'ignored:beyond_cut', remove: 'chain', readd: 'chain', bNew: 'accepted', bNewDevice: 'accepted', bStale: 'ignored:beyond_cut' },
+      { i1: { deleted: false, fields: { n: 3 } }, i2: { deleted: false, fields: { t: 1 } } }, NAMES);
+    assert.equal(v.expected.epoch, 1); assert.equal(v.expected.roles[H(s.person('bob').pid)], 2);
   }
   { // kind 2 no longer removes
     const s = new Scenario();
@@ -156,6 +178,38 @@ export function groupVectors(): J {
     expectGroup(v, labels, { g: 'chain', addBob: 'chain', bad: 'ignored:previous_key_mismatch', good: 'chain' });
   }
 
+  // The header of a record of kind 3, 4 or 5 names the epoch it starts (6.4, draft 4). Each record below is otherwise valid.
+  for (const kind of ['epoch', 'remove', 'replace'] as const) {
+    const label = kind === 'epoch' ? 'epoch (kind 3)' : kind === 'remove' ? 'remove (kind 5)' : 'replace (kind 4)';
+    const build = (o2: { epoch: number; key: Uint8Array; commitKey?: Uint8Array }, s: Scenario, head: Uint8Array) => keep(s, () => at(s, head, 0, () => {
+      const f = { mprev: head, prevKey: s.key(0), ...o2 };
+      return kind === 'epoch' ? s.newEpoch('alice', 'a1', 1, f) : kind === 'remove' ? s.remove('alice', 'a1', 'bob', 1, { ...f, cut: [] }) : s.replace('alice', 'a1', 'bob', 'bob2', 1, { ...f, cut: [] });
+    }));
+    { // (a) sealed under the old key, the old epoch in the header, committing to that old key as the new one
+      const s = new Scenario();
+      const g = s.genesis('a1'); const addBob = s.setRole('alice', 'a1', 'bob', 2, { card: true });
+      const head = s.mhead!;
+      const bad = build({ epoch: 0, key: s.key(0), commitKey: s.key(0) }, s, head);
+      const good = build({ epoch: 1, key: s.key(1) }, s, head);
+      const labels = { g, addBob, bad, good };
+      const v = groupVector(o, `${kind}-sealed-under-old-key-with-old-epoch-is-refused`, `A ${label} record sealed under K_0 with epoch 0 in the header: it says epoch 1 in its payload and commits to K_0 as the key of epoch 1, so every other check passes (the commitment matches the key it was sealed under, K_(e-1) is K_0). It is refused because the header must name the epoch the record starts (6.4): the epoch would have had the old key, so nothing would have changed for whoever holds it. A valid ${kind} at the same mprev, sealed under K_1 with epoch 1 in the header, continues the chain.`, s, labels);
+      expectGroup(v, labels, { g: 'chain', addBob: 'chain', bad: 'ignored:wrong_header_epoch', good: 'chain' });
+    }
+    { // (b) the header names the new epoch, but the record is sealed under the old key
+      const s = new Scenario();
+      const g = s.genesis('a1'); const addBob = s.setRole('alice', 'a1', 'bob', 2, { card: true });
+      const head = s.mhead!;
+      s.key(1);
+      const bad = build({ epoch: 1, key: s.key(0) }, s, head);
+      const labels = { g, addBob, bad };
+      const v = groupVector(o, `${kind}-header-names-new-epoch-but-sealed-under-old-key`, `A ${label} record whose header names epoch 1 but which is sealed under K_0 (the reader holds both keys for epoch 1, so it opens), carrying the commitment to the real K_1: the commitment does not match the key the record was sealed under, so it is ignored (commit_mismatch).`, s, labels);
+      expectGroup(v, labels, { g: 'chain', addBob: 'chain', bad: 'ignored:commit_mismatch' });
+      if (kind === 'remove') o.add('membership/remove-sealed-under-old-key-with-new-epoch-in-header-does-not-open-with-the-new-key', 'The same kind of record opened by a reader that holds K_0 for epoch 0 and K_1 for epoch 1 only: the header names epoch 1, K_1 does not open it, and it is discarded (bad_tag).', 'record.open',
+        { keys: s.keyList().filter((k) => !(k.epoch === 1 && k.key === H(s.key(0)))), sealed: H(s.raw('alice', 'a1', KIND.remove, cmap([[1, head], [2, s.person('bob').pid], [3, []], [4, 1], [5, commitOf(s.gid, 1, s.key(1))], [6, s.key(0)]]), { epoch: 1, key: s.key(0) })) },
+        E('bad_tag', 'discard'));
+    }
+  }
+
   // ------------------------------------------------------------------ the fork rule (6.5): two steps
   { // step 1 with a removal (kind 5)
     const { s, g, addBob, addCarol, head, lo, hi } = world();
@@ -204,7 +258,7 @@ export function groupVectors(): J {
     expectGroup(v, labels, { g: 'chain', addBob: 'chain', addCarol: 'chain', loAdds: 'chain', hiAdds: 'ignored:lost_fork', followLo: 'chain', followHi: 'ignored:off_chain' });
     assert.equal(fork(v).rule, 'least_author_device_seq'); assert.equal(fork(v).decided_by, 'author');
   }
-  { // the tie-break order: author first, then device, then seq, then record_id
+  { // the tie-break order: author first, then device, then seq (draft 4: no record_id)
     // (a) the author decides although the other candidate's device is smaller
     const { s, g, addBob, addCarol, head, lo, hi } = world();
     let dLo = 'x0', dHi = 'x1';
@@ -213,7 +267,7 @@ export function groupVectors(): J {
     const loAdds = at(s, head, 0, () => s.setRole(lo, dLo, 'erin', 2, { card: true, mprev: head }));
     const hiAdds = at(s, head, 0, () => s.setRole(hi, dHi, 'frank', 2, { card: true, mprev: head }));
     const labels = { g, addBob, addCarol, loAdds, hiAdds };
-    const v = groupVector(o, 'fork-2-author-before-device', `The candidate from the smaller author (${lo}) is on the greater device id; the other candidate (${hi}) is on the smaller one. The tuple is (author, device, seq, record_id) in that order, so the author decides: ${lo} wins. An implementation that compares the device first picks the other.`, s, labels);
+    const v = groupVector(o, 'fork-2-author-before-device', `The candidate from the smaller author (${lo}) is on the greater device id; the other candidate (${hi}) is on the smaller one. The tuple is (author, device, seq) in that order, so the author decides: ${lo} wins. An implementation that compares the device first picks the other.`, s, labels);
     expectGroup(v, labels, { g: 'chain', addBob: 'chain', addCarol: 'chain', loAdds: 'chain', hiAdds: 'ignored:lost_fork' });
     assert.equal(fork(v).decided_by, 'author');
   }
@@ -242,16 +296,9 @@ export function groupVectors(): J {
     const a = at(s, head, 0, () => s.setRole('alice', 'a1', 'erin', 2, { card: true, mprev: head, seq: 4, prev: addCarol.id }));
     const b = at(s, head, 0, () => s.setRole('alice', 'a1', 'frank', 2, { card: true, mprev: head, seq: 4, prev: addCarol.id }));
     const labels = { g, addBob, addCarol, a, b };
-    const v = groupVector(o, 'fork-2-same-author-device-seq-is-a-chain-fork', 'Two additions with the same author, device and seq and the same mprev. Records that differ only in their record_id are a fork of the device chain (4.4): neither is accepted, so neither reaches the membership fork rule and the chain stays at carol\'s addition. The last comparison of 6.5 step 2 (record_id) therefore cannot decide anything in a full reader; the unit-level vectors group/resolve-record-id-* give it a job.', s, labels);
+    const v = groupVector(o, 'fork-2-same-author-device-seq-is-a-chain-fork', 'Two additions with the same author, device and seq and the same mprev. They are a fork of the device chain (4.4): neither is accepted, so neither reaches the membership fork rule and the chain stays at carol\'s addition. This is why 6.5 step 2 ends at seq: two candidates cannot share all three of author, device and seq.', s, labels);
     expectGroup(v, labels, { g: 'chain', addBob: 'chain', addCarol: 'chain', a: 'fork_blocked', b: 'fork_blocked' });
     assert.equal(v.expected.membership_forks.length, 0);
-    // The 6.5 resolver on its own (the records handed to it without the chain rules): record_id is the last element of the tuple.
-    const [lowId, highId] = cmp(a.id, b.id) < 0 ? [a, b] : [b, a];
-    for (const [nm, list] of [['low-first', [lowId, highId]], ['high-first', [highId, lowId]]] as const) {
-      const r = o.add(`group/resolve-record-id-${nm}`, `The 6.5 resolver given two candidates that differ only in record_id (listed with the ${nm === 'low-first' ? 'smaller' : 'greater'} id first): the smaller record_id wins. This vector tests the resolver alone, because a full reader never reaches this case.`,
-        'group.resolve_membership', { gid: H(s.gid), keys: s.keyList(), records: [g, addBob, addCarol, ...list].map((x) => H(x.sealed)) });
-      assert.equal(r.expected.forks[0].winner, idOf(lowId)); assert.equal(r.expected.forks[0].decided_by, 'record_id'); assert.equal(r.expected.forks[0].rule, 'least_author_device_seq');
-    }
   }
   { // three candidates
     const { s, g, addBob, addCarol, head, lo, mid, hi } = world();
@@ -349,6 +396,34 @@ export function groupVectors(): J {
     expectGroup(v1, { g1, x1 }, { g1: 'chain', x1: 'accepted' }, { i1: { deleted: false, fields: { n: 1 } } }, NAMES);
   }
 
+  { // min_reader at the largest value, and 0
+    const s = new Scenario();
+    const g = s.genesis('a1', { minReader: 4294967295 });
+    const v = groupVector(o, 'genesis-min-reader-largest', 'min_reader 4294967295, the largest value that fits the u32 of the gid: valid, and far above what this implementation reads, so the group is unsupported.', s, { g });
+    assert.equal(v.expected.unsupported, true);
+    const z = new Scenario();
+    z.minReader = 0; z.gid = gidOf(z.person('alice').pid, z.nonce, z.key(0), 0);
+    const zero = z.raw('alice', 'a1', KIND.genesis, cmap([[1, z.nonce], [2, makeCard(z.person('alice'))], [3, commitOf(z.gid, 0, z.key(0))], [4, 0]]), { epoch: 0 });
+    o.add('membership/genesis-min-reader-0-is-malformed', 'A genesis with min_reader 0 (its gid computed with 0, everything else valid): min_reader is at least 1 (6.1, draft 4), so the payload is malformed and the record is discarded.', 'record.open', { keys: z.keyList(), sealed: H(zero) }, E('bad_payload', 'discard'));
+    const zv = groupVector(o, 'genesis-min-reader-0-is-refused', 'The same genesis given to the whole reader: it is discarded (bad_payload), so the group has no chain at all.', z, {}, {}, [zero]);
+    assert.deepEqual(zv.expected.rejected, [{ index: 0, code: 'bad_payload', disposition: 'discard' }]);
+    assert.deepEqual(zv.expected.chain, []);
+  }
+  { // the gid binds min_reader (3.3)
+    const s = new Scenario();
+    const legacy = (() => { const sha = (...xs: Uint8Array[]) => new Uint8Array(createHash('sha256').update(Buffer.concat(xs)).digest());
+      return sha(Buffer.from('psss/v1/gid'), s.person('alice').pid, s.nonce, sha(Buffer.from('psss/v1/gid-key'), s.key(0))); })();
+    assert.notEqual(H(legacy), H(s.gid));
+    s.gid = legacy; // the draft-3 formula: no min_reader in the gid
+    const g = s.genesis('a1');
+    const v = groupVector(o, 'genesis-gid-computed-without-min-reader', 'A genesis whose header gid is the draft-3 derivation (without min_reader) and whose min_reader is 1: the gid in the header is not the derivation of section 3.3 from author, genesis_nonce, K_0 and min_reader, so the genesis is ignored (gid_mismatch) and the group has no chain.', s, { g });
+    expectGroup(v, { g }, { g: 'ignored:gid_mismatch' });
+    const t = new Scenario();
+    const g2 = t.seal('alice', 'a1', KIND.genesis, cmap([[1, t.nonce], [2, makeCard(t.person('alice'))], [3, commitOf(t.gid, 0, t.key(0))], [4, 2]]), { epoch: 0 });
+    const v2 = groupVector(o, 'genesis-min-reader-is-not-the-one-in-the-gid', 'A genesis whose gid was derived with min_reader 1 but whose payload says min_reader 2: a group cannot be given a different lowest reader version than the one its gid commits to, so the genesis is ignored (gid_mismatch).', t, { g2 });
+    expectGroup(v2, { g2 }, { g2: 'ignored:gid_mismatch' });
+  }
+
   // ------------------------------------------------------------------ chains (4.4)
   { // fork, duplicate delivery
     const s = new Scenario();
@@ -364,6 +439,7 @@ export function groupVectors(): J {
     assert.equal(Object.keys(v.expected.chain_forks).length, 1);
     const dup = groupVector(o, 'chain-duplicate-delivery', 'The same sealed record delivered twice (identical bytes) is one record.', s, { g, addBob, b1, b1again: b1, b2, b2again: b2 });
     assert.deepEqual(dup.expected.chain_forks, {});
+    expectGroup(dup, { g, addBob, b1, b1again: b1, b2, b2again: b2 }, { g: 'chain', addBob: 'chain', b1: 'accepted', b1again: 'accepted', b2: 'accepted', b2again: 'accepted' }, { i1: { deleted: false, fields: { n: 2 } } }, NAMES);
   }
   { // the same body sealed twice is one record; a different salt is not a record at all
     const s = new Scenario();
@@ -379,6 +455,7 @@ export function groupVectors(): J {
     const odd = s.raw('bob', 'b1', KIND.item, cmap([[1, I], [2, new Map([['n', 2]]) as CborValue], [3, []]]), { seq: 2, prev: x1.id, clock: [BASE_MS + 50_000, 0], salt: bytesOf('not the derived salt') });
     const withOdd = groupVector(o, 'chain-same-body-different-salt-is-rejected', 'The same fields sealed with a salt that is not the derived one (a device that draws a random salt): the reader recomputes the salt, finds a mismatch and discards the record (bad_salt). There is no second record at seq 2 and no fork.', s, { g, addBob, x1, x2 }, {}, [odd]);
     assert.deepEqual(withOdd.expected.rejected, [{ index: 4, code: 'bad_salt', disposition: 'discard' }]);
+    expectGroup(withOdd, { g, addBob, x1, x2 }, { g: 'chain', addBob: 'chain', x1: 'accepted', x2: 'accepted' }, { i1: { deleted: false, fields: { n: 2 } } }, NAMES);
     assert.deepEqual(withOdd.expected.chain_forks, {});
   }
   { // gap and prev mismatch
@@ -506,6 +583,7 @@ export function groupVectors(): J {
     const cp = at(s, addBob.id, 0, () => s.checkpoint('bob', 'b1', items, [['alice', 'a1', h3]]));
     const h4 = s.item('alice', 'a1', I, [['url', 'u']], [], { mhead: addBob.id });
     const withRecords = groupVector(o, 'checkpoint-history-records-present', 'Three passwords written in turn, then a checkpoint that carries the winner and one earlier write (history 1), then another record. With the records present the field\'s history is all earlier writes.', s, { g, addBob, h1, h2, h3, cp, h4 });
+    expectGroup(withRecords, { g, addBob, h1, h2, h3, cp, h4 }, { g: 'chain', addBob: 'chain', h1: 'accepted', h2: 'accepted', h3: 'accepted', cp: 'checkpoint:accepted', h4: 'accepted' }, { i1: { deleted: false, fields: { password: 'three', url: 'u' } } }, NAMES);
     assert.deepEqual(historyView(withRecords.expected.state, H(I), 'password'), ['one', 'two']);
     const labels = { g, addBob, cp, h4 };
     const gone = groupVector(o, 'checkpoint-history-survives-deletion-of-covered-records', 'The same group after the three covered records were deleted. The checkpoint carried the winning write and one earlier one, so Previous Passwords still holds "two"; the write it left out ("one") is forgotten.', s, labels);
@@ -521,7 +599,7 @@ export function groupVectors(): J {
     const sec1 = s.item('bob', 'b1', itemId('secret'), [['password', 'first']], [], { mhead: addBob.id }); const sec2 = s.item('bob', 'b1', itemId('secret'), [['password', 'second']], [], { mhead: addBob.id });
     const w5 = s.item('alice', 'a1', A, [['note', 'after the covered range']], [], { mhead: addBob.id });
     const part = (n: number, include: Rec[], covered: [string, string, Rec][], purged: [Uint8Array, Rec['key5']][]) =>
-      at(s, addBob.id, 0, () => s.checkpoint('bob', `b${n + 2}`, checkpointItems(fold(include.map((r) => ({ key5: r.key5, payload: r.payload })))), covered, purged, { set: { id: bytesOf('set one', 16), part: n, parts: 3 } }));
+      at(s, addBob.id, 0, () => s.checkpoint('bob', 'b2', checkpointItems(fold(include.map((r) => ({ key5: r.key5, payload: r.payload })))), covered, purged, { set: { id: bytesOf('set one', 16), part: n, parts: 3 } }));
     const p0 = part(0, [w1], [['alice', 'a1', w4]], [[itemId('secret'), sec1.key5]]);
     const p1 = part(1, [w2], [], []);
     const p2 = part(2, [w3, w4], [], []);
@@ -534,20 +612,88 @@ export function groupVectors(): J {
     for (const [n, ord] of orders) {
       const v = groupVector(o, `checkpoint-three-parts-order-${n}`, 'One checkpoint in three records (parts 0, 1, 2 of one set), all present, records listed in another order each time. Alice\'s records at seq 3 to 6 (covered by part 0) were deleted from storage, so her seq 7 follows the covered range; `covered` and `purged` take effect because the set is complete: seq 7 is accepted and the first of bob\'s two writes of the secret is forgotten.', s, present, {}, [], ord);
       if (first) assert.deepEqual(v.expected, first.expected, 'every order gives one result'); else first = v;
-      if (n === '1') expectGroup(v, present, { g: 'chain', addBob: 'chain', sec1: 'accepted', sec2: 'accepted', w5: 'accepted', p0: 'checkpoint:accepted', p1: 'checkpoint:accepted', p2: 'checkpoint:accepted' }, completeFields, names);
+      expectGroup(v, present, { g: 'chain', addBob: 'chain', sec1: 'accepted', sec2: 'accepted', w5: 'accepted', p0: 'checkpoint:accepted', p1: 'checkpoint:accepted', p2: 'checkpoint:accepted' }, completeFields, names);
     }
     assert.deepEqual(first!.expected.complete_checkpoint_sets, [idOf(p0)]);
     assert.deepEqual(historyView(first!.expected.state, H(itemId('secret')), 'password'), []);
     for (const [missing, label] of [[p2, 'part-2-missing'], [p1, 'part-1-missing'], [p0, 'part-0-missing']] as const) {
       const labels = Object.fromEntries(Object.entries(present).filter(([, r]) => r !== missing)) as Labels;
-      const v = groupVector(o, `checkpoint-three-parts-${label}`, `The same records with ${label.replace('-missing', '')} of the set absent. The writes of the parts that are present fold at once; \`covered\` and \`purged\` take effect only when every part is accepted, so alice's seq 7 waits for the missing seq 3 to 6 and the first secret write is not forgotten.`, s, labels);
+      const v = groupVector(o, `checkpoint-three-parts-${label}`, `The same records with ${label.replace('-missing', '')} of the set absent. The three parts are consecutive records of bob's device b2, so a part that follows the missing one also waits (gap) and its writes are not folded. The writes of an accepted part fold at once; \`covered\` and \`purged\` take effect only when every part is accepted, so alice's seq 7 waits for the missing seq 3 to 6 and the first secret write is not forgotten.`, s, labels);
       assert.deepEqual(v.expected.complete_checkpoint_sets, []);
       assert.deepEqual(v.expected.covered, {});
-      if (label === 'part-2-missing') {
-        expectGroup(v, labels, { g: 'chain', addBob: 'chain', sec1: 'accepted', sec2: 'accepted', w5: 'waits:gap', p0: 'checkpoint:accepted', p1: 'checkpoint:accepted' },
-          { a: { deleted: false, fields: { title: 'A1' } }, b: { deleted: false, fields: { title: 'B1' } }, secret: { deleted: false, fields: { password: 'second' } } }, names);
-        assert.deepEqual(historyView(v.expected.state, H(itemId('secret')), 'password'), ['first']);
-      }
+      // By hand: part 0 carries a's title and the covered range and the purge; part 1 carries b; part 2 carries c's title and a's url. Writes of the parts present fold; nothing else takes effect.
+      const table = (ps: string[]) => ({ g: 'chain', addBob: 'chain', sec1: 'accepted', sec2: 'accepted', w5: 'waits:gap', ...Object.fromEntries(ps.map((x) => [x, 'checkpoint:accepted'])) });
+      const sec = { secret: { deleted: false, fields: { password: 'second' } } };
+      if (label === 'part-2-missing') expectGroup(v, labels, table(['p0', 'p1']), { a: { deleted: false, fields: { title: 'A1' } }, b: { deleted: false, fields: { title: 'B1' } }, ...sec }, names);
+      if (label === 'part-1-missing') expectGroup(v, labels, { ...table(['p0']), p2: 'waits:gap' }, { a: { deleted: false, fields: { title: 'A1' } }, ...sec }, names);
+      if (label === 'part-0-missing') expectGroup(v, labels, { ...table([]), p1: 'waits:gap', p2: 'waits:gap' }, { ...sec }, names);
+      assert.deepEqual(historyView(v.expected.state, H(itemId('secret')), 'password'), ['first']);
+    }
+  }
+  { // which records make a set (5.3, draft 4): the parts have one author, one device and one `parts`, and no part appears twice
+    const mk = () => {
+      const s = new Scenario();
+      const g = s.genesis('a1'); const addBob = s.setRole('alice', 'a1', 'bob', 3, { card: true });
+      const [A, B, C] = [itemId('a'), itemId('b'), itemId('c')];
+      const w1 = s.item('alice', 'a1', A, [['title', 'A1']]); const w2 = s.item('alice', 'a1', B, [['title', 'B1']]); const w3 = s.item('alice', 'a1', C, [['title', 'C1']]);
+      const w5 = s.item('alice', 'a1', A, [['note', 'after the covered range']]); // alice a1 seq 6: follows the range 3..5 that part 0 covers
+      const names = itemNames(['a', A], ['b', B], ['c', C]);
+      const setId = bytesOf('set two', 16);
+      const part = (by: string, dev: string, n: number, parts: number, items: Rec[], covered: [string, string, Rec][] = [], sid = setId) =>
+        s.checkpoint(by, dev, checkpointItems(fold(items.map((r) => ({ key5: r.key5, payload: r.payload })))), covered, [], { set: { id: sid, part: n, parts }, mhead: addBob.id });
+      return { s, g, addBob, w3, w5, names, part, w1, w2 };
+    };
+    const whole = { a: { deleted: false, fields: { title: 'A1', note: 'after the covered range' } }, b: { deleted: false, fields: { title: 'B1' } }, c: { deleted: false, fields: { title: 'C1' } } };
+    const folded = { a: { deleted: false, fields: { title: 'A1' } }, b: { deleted: false, fields: { title: 'B1' } }, c: { deleted: false, fields: { title: 'C1' } } };
+    const NOT = 'The writes of each accepted part fold at once, but `covered` takes effect only for a complete set, so alice\'s seq 6 (whose predecessors were deleted from storage and are covered only by part 0) waits for the gap.';
+    { // control: author, device and parts agree
+      const { s, g, addBob, w3, w5, names, part, w1, w2 } = mk();
+      const p0 = part('bob', 'b1', 0, 2, [w1], [['alice', 'a1', w3]]); const p1 = part('bob', 'b1', 1, 2, [w2, w3]);
+      const labels = { g, addBob, p0, p1, w5 };
+      const v = groupVector(o, 'checkpoint-set-two-parts-same-author-device-parts', 'A set of two parts by one author on one device with parts 2 on both: complete. Part 0 covers alice\'s chain up to seq 5, whose records are not held, so her seq 6 is accepted.', s, labels);
+      expectGroup(v, labels, { g: 'chain', addBob: 'chain', p0: 'checkpoint:accepted', p1: 'checkpoint:accepted', w5: 'accepted' }, whole, names);
+      assert.deepEqual(v.expected.complete_checkpoint_sets, [idOf(p0)]);
+    }
+    { // another author
+      const { s, g, addBob, w3, w5, names, part, w1, w2 } = mk();
+      const p0 = part('bob', 'b1', 0, 2, [w1], [['alice', 'a1', w3]]); const p1 = part('alice', 'a2', 1, 2, [w2, w3]);
+      const labels = { g, addBob, p0, p1, w5 };
+      const v = groupVector(o, 'checkpoint-set-parts-by-different-authors', `Part 0 is written by bob and part 1, with the same set_id and parts, by alice. Records that share a set_id and differ in author belong to no set. ${NOT}`, s, labels);
+      expectGroup(v, labels, { g: 'chain', addBob: 'chain', p0: 'checkpoint:accepted', p1: 'checkpoint:accepted', w5: 'waits:gap' }, folded, names);
+      assert.deepEqual(v.expected.complete_checkpoint_sets, []); assert.deepEqual(v.expected.covered, {});
+    }
+    { // another device
+      const { s, g, addBob, w3, w5, names, part, w1, w2 } = mk();
+      const p0 = part('bob', 'b1', 0, 2, [w1], [['alice', 'a1', w3]]); const p1 = part('bob', 'b2', 1, 2, [w2, w3]);
+      const labels = { g, addBob, p0, p1, w5 };
+      const v = groupVector(o, 'checkpoint-set-parts-on-different-devices', `Part 0 is written by bob's device b1 and part 1, with the same set_id, author and parts, by his device b2. Records that share a set_id and differ in device belong to no set. ${NOT}`, s, labels);
+      expectGroup(v, labels, { g: 'chain', addBob: 'chain', p0: 'checkpoint:accepted', p1: 'checkpoint:accepted', w5: 'waits:gap' }, folded, names);
+      assert.deepEqual(v.expected.complete_checkpoint_sets, []);
+    }
+    { // a stray record with another `parts`
+      const { s, g, addBob, w3, w5, names, part, w1, w2 } = mk();
+      const p0 = part('bob', 'b1', 0, 2, [w1], [['alice', 'a1', w3]]); const p1 = part('bob', 'b1', 1, 2, [w2, w3]); const stray = part('bob', 'b1', 2, 3, []);
+      const labels = { g, addBob, p0, p1, stray, w5 };
+      const v = groupVector(o, 'checkpoint-set-with-a-record-that-has-another-parts', 'Parts 0 and 1 of a set of two, and a third record with the same set_id, author and device that says parts 3. Parts 0 and 1 would make a complete set; the third differs in `parts`, so the records that share the set_id belong to no set. ' + NOT, s, labels);
+      expectGroup(v, labels, { g: 'chain', addBob: 'chain', p0: 'checkpoint:accepted', p1: 'checkpoint:accepted', stray: 'checkpoint:accepted', w5: 'waits:gap' }, folded, names);
+      assert.deepEqual(v.expected.complete_checkpoint_sets, []);
+    }
+    { // two different part-1 records
+      const { s, g, addBob, w3, w5, names, part, w1, w2 } = mk();
+      const p0 = part('bob', 'b1', 0, 2, [w1], [['alice', 'a1', w3]]); const p1 = part('bob', 'b1', 1, 2, [w2, w3]); const p1b = part('bob', 'b1', 1, 2, [w2]);
+      assert.notEqual(H(p1.id), H(p1b.id));
+      const labels = { g, addBob, p0, p1, p1b, w5 };
+      const v = groupVector(o, 'checkpoint-set-with-two-different-part-1-records', 'Part 0 and two different records that both say part 1 of the same set, by the same author on the same device. Two different records with the same part belong to no set. ' + NOT, s, labels);
+      expectGroup(v, labels, { g: 'chain', addBob: 'chain', p0: 'checkpoint:accepted', p1: 'checkpoint:accepted', p1b: 'checkpoint:accepted', w5: 'waits:gap' }, folded, names);
+      assert.deepEqual(v.expected.complete_checkpoint_sets, []);
+    }
+    { // the same part-1 record delivered twice is one record, and a different set is another set
+      const { s, g, addBob, w3, w5, names, part, w1, w2 } = mk();
+      const p0 = part('bob', 'b1', 0, 2, [w1], [['alice', 'a1', w3]]); const p1 = part('bob', 'b1', 1, 2, [w2, w3]);
+      const labels = { g, addBob, p0, p1, p1again: p1, w5 };
+      const v = groupVector(o, 'checkpoint-set-part-delivered-twice', 'The same part-1 record delivered twice is one record (the same bytes), so the set is still complete.', s, labels);
+      assert.deepEqual(v.expected.complete_checkpoint_sets, [idOf(p0)]);
+      expectGroup(v, labels, { g: 'chain', addBob: 'chain', p0: 'checkpoint:accepted', p1: 'checkpoint:accepted', p1again: 'checkpoint:accepted', w5: 'accepted' }, whole, names);
     }
   }
   { // purge request (5.4)
@@ -577,6 +723,26 @@ export function groupVectors(): J {
     expectGroup(v3, rl, { tg: 'chain', tBob: 'chain', tCarol: 'chain', t1: 'accepted', byReader: 'ignored:not_writer' }, { secret: { deleted: false, fields: { password: 'first' } } }, names);
     assert.deepEqual(v3.expected.hidden, []);
   }
+  { // a purge request covers the writes up to its own place; a later write stays visible (5.4, draft 4)
+    const s = new Scenario();
+    const g = s.genesis('a1'); const addBob = s.setRole('alice', 'a1', 'bob', 2, { card: true });
+    const sec = itemId('secret');
+    const s1 = s.item('bob', 'b1', sec, [['password', 'first']]); const s2 = s.item('bob', 'b1', sec, [['title', 'Bank']]);
+    const req = s.purge('bob', 'b1', [sec]);
+    const s3 = s.item('bob', 'b1', sec, [['password', 'third']]);
+    const other = s.item('alice', 'a1', I, [['title', 'kept']]);
+    const labels = { g, addBob, s1, s2, req, s3, other };
+    const v = groupVector(o, 'purge-request-then-a-later-write', 'Bob writes two fields of an item, asks for the item to be removed for good, and then writes the item again. The request covers the writes up to its own place in the order, which readers hide at once; the later write is after it, so it stays and the item reappears with only what was written since (5.4, draft 4). The request is not yet answered by a checkpoint, so it is still listed as hidden.', s, labels);
+    expectGroup(v, labels, { g: 'chain', addBob: 'chain', s1: 'accepted', s2: 'accepted', req: 'accepted', s3: 'accepted', other: 'accepted' },
+      { secret: { deleted: false, fields: { password: 'third' } }, i1: { deleted: false, fields: { title: 'kept' } } }, itemNames(['secret', sec], ['i1', I]));
+    assert.deepEqual(v.expected.hidden, [H(sec)]);
+    assert.deepEqual(historyView(v.expected.state, H(sec), 'password'), []);
+    // the request's place decides, not the order of arrival: a write the device made before the request but delivered after it is hidden too
+    const early = s.item('bob', 'b2', sec, [['note', 'written earlier']], [], { clock: [BASE_MS + 1, 0] });
+    const lv = groupVector(o, 'purge-request-covers-a-write-delivered-later-that-is-earlier-in-the-order', 'A write with a time before the request (from another device of bob\'s, delivered after the request) is earlier than the request in the order, so the request covers it and it stays hidden; the write after the request still shows.', s, { ...labels, early });
+    expectGroup(lv, { ...labels, early }, { g: 'chain', addBob: 'chain', s1: 'accepted', s2: 'accepted', req: 'accepted', s3: 'accepted', other: 'accepted', early: 'accepted' },
+      { secret: { deleted: false, fields: { password: 'third' } }, i1: { deleted: false, fields: { title: 'kept' } } }, itemNames(['secret', sec], ['i1', I]));
+  }
   { // purged and overlapping checkpoints
     const t = new Scenario();
     const tg = t.genesis('a1'); const tBob = t.setRole('alice', 'a1', 'bob', 3, { card: true }); const tCarol = t.setRole('alice', 'a1', 'carol', 3, { card: true });
@@ -599,6 +765,10 @@ export function groupVectors(): J {
     const base = { tg, tBob, tCarol, q1, q2, q3 };
     const ord1 = groupVector(o, 'checkpoint-overlapping-order-1', 'Two checkpoints by two managers overlap: the first covers alice\'s chain up to q2, the second up to q3 (q2 is in both). Records listed with the first checkpoint first.', t, { ...base, cpA, cpB });
     const ord2 = groupVector(o, 'checkpoint-overlapping-order-2', 'The same records listed with the second checkpoint first (and in reverse): the same result.', t, { ...base, cpA, cpB }, {}, [], (xs) => [...xs].reverse());
+    const olt = { tg, tBob, tCarol, q1, q2, q3, cpA, cpB };
+    const overlapTable = { tg: 'chain', tBob: 'chain', tCarol: 'chain', q1: 'accepted', q2: 'accepted', q3: 'accepted', cpA: 'checkpoint:accepted', cpB: 'checkpoint:accepted' };
+    const overlapState = { over: { deleted: false, fields: { a: 3, b: CLEARED } } };
+    expectGroup(ord1, olt, overlapTable, overlapState, itemNames(['over', itemId('over')])); expectGroup(ord2, olt, overlapTable, overlapState, itemNames(['over', itemId('over')]));
     assert.deepEqual(ord1.expected.state, ord2.expected.state);
     assert.deepEqual(ord1.expected.checkpoints, [idOf(cpA), idOf(cpB)].sort());
     assert.deepEqual(ord2.expected.checkpoints, ord1.expected.checkpoints);

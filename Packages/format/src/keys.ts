@@ -64,9 +64,9 @@ export function verifyCard(v: unknown): Card {
 export const cardBytes = (p: Person): Uint8Array => encode(makeCard(p));
 export const verifyCardBytes = (b: Uint8Array): Card => verifyCard(decode(b));
 
-/** 3.3 gid = SHA-256("psss/v1/gid" || creator_pid || genesis_nonce || SHA-256("psss/v1/gid-key" || K_0)) */
-export const gidOf = (creatorPid: Uint8Array, genesisNonce: Uint8Array, k0: Uint8Array): Uint8Array =>
-  sha256(label('psss/v1/gid'), creatorPid, genesisNonce, sha256(label('psss/v1/gid-key'), k0));
+/** 3.3 (draft 4) gid = SHA-256("psss/v1/gid" || creator_pid || genesis_nonce || SHA-256("psss/v1/gid-key" || K_0) || u32(min_reader)) */
+export const gidOf = (creatorPid: Uint8Array, genesisNonce: Uint8Array, k0: Uint8Array, minReader: number): Uint8Array =>
+  sha256(label('psss/v1/gid'), creatorPid, genesisNonce, sha256(label('psss/v1/gid-key'), k0), u32(minReader));
 
 /** 3.3 commit(e) = SHA-256("psss/v1/key-commit" || gid || u32(e) || K_e) */
 export const commitOf = (gid: Uint8Array, epoch: number, key: Uint8Array): Uint8Array =>

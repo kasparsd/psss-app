@@ -34,13 +34,17 @@ export function applyChange(state: State, c: Change): void {
 const clockKey = (ck: CborValue[]): OrderKey => [ck[0] as number, ck[1] as number, ck[2] as Uint8Array, ck[3] as Uint8Array, ck[4] as number];
 
 /** The parts of a checkpoint payload (5.3) that affect state. */
-export interface CheckpointWrites { items: CborValue[]; purged: CborValue[]; setId?: Uint8Array; part?: number; parts?: number }
-export const checkpointWritesOf = (payload: CMap): CheckpointWrites =>
-  ({ items: payload.get(5) as CborValue[], purged: payload.get(6) as CborValue[], setId: payload.get(1) as Uint8Array, part: payload.get(2) as number, parts: payload.get(3) as number });
+export interface CheckpointWrites { items: CborValue[]; purged: CborValue[]; setId?: Uint8Array; part?: number; parts?: number; author?: Uint8Array; device?: Uint8Array; id?: Uint8Array }
+/** `from` (the record's author, device and record_id) is needed to tell which parts belong together (5.3, draft 4). */
+export const checkpointWritesOf = (payload: CMap, from?: { author: Uint8Array; device: Uint8Array; id: Uint8Array }): CheckpointWrites =>
+  ({ items: payload.get(5) as CborValue[], purged: payload.get(6) as CborValue[], setId: payload.get(1) as Uint8Array, part: payload.get(2) as number, parts: payload.get(3) as number,
+     ...(from ? { author: from.author, device: from.device, id: from.id } : {}) });
 
-/** 5.3 Parts: of the checkpoint records given, the part 0 of every set in which every part 0 .. parts-1 is present.
- *  `covered` and `purged` take effect only for these. A record without a set id is a set of one. */
-export function completeSets<T extends { setId?: Uint8Array; part?: number; parts?: number }>(cps: T[]): T[] {
+/** 5.3 Parts (draft 4): of the checkpoint records given, the part 0 of every set in which every part 0 .. parts-1 is present.
+ *  The parts of a set have the same author, device and `parts`; records that share a set_id and differ in any of these belong to no set,
+ *  and neither do two different records with the same part. `covered` and `purged` take effect only for complete sets.
+ *  A record without a set id is a set of one. */
+export function completeSets<T extends { setId?: Uint8Array; part?: number; parts?: number; author?: Uint8Array; device?: Uint8Array; id?: Uint8Array }>(cps: T[]): T[] {
   const bySet = new Map<string, T[]>();
   for (const c of cps) {
     const k = c.setId ? hex(c.setId) : `single:${bySet.size}`;
@@ -48,7 +52,16 @@ export function completeSets<T extends { setId?: Uint8Array; part?: number; part
     bySet.get(k)!.push(c);
   }
   const out: T[] = [];
-  for (const list of bySet.values()) {
+  const bytesEq = (a?: Uint8Array, b?: Uint8Array) => (a && b ? cmpBytes(a, b) === 0 : a === b);
+  for (const raw of bySet.values()) {
+    let list = raw;
+    if (rules.strictSets) {
+      const seen = new Set<string>();
+      list = raw.filter((c) => !c.id || !seen.has(hex(c.id)) && !!seen.add(hex(c.id)));
+      const first = list[0]!;
+      if (list.some((c) => !bytesEq(c.author, first.author) || !bytesEq(c.device, first.device) || c.parts !== first.parts)) continue;
+      if (list.some((c, i) => list.some((d, j) => j > i && (c.part ?? 0) === (d.part ?? 0)))) continue;
+    }
     for (const first of list.filter((c) => (c.part ?? 0) === 0)) {
       const n = first.parts ?? 1;
       let ok = true;
@@ -79,6 +92,11 @@ function applyPurges(state: State, purged: CborValue[][]): void {
     const cur = upTo.get(id);
     if (!cur || compareKeys(k, cur) > 0) upTo.set(id, k);
   }
+  forgetUpTo(state, upTo);
+}
+
+/** 5.3, 5.4: forget the writes of each item up to (and including) the given place in the order; later writes stay. */
+export function forgetUpTo(state: State, upTo: Map<string, OrderKey>): void {
   for (const [id, k] of upTo) {
     const fields = state.get(id);
     if (!fields) continue;

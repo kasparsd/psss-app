@@ -35,9 +35,10 @@ export class Scenario {
   step = 0;
   last = new Map<string, { seq: number; id: Uint8Array }>();
 
+  minReader = 1;
   constructor(creator = 'alice') {
     this.creator = creator;
-    this.gid = gidOf(this.person(creator).pid, this.nonce, this.key(0));
+    this.gid = gidOf(this.person(creator).pid, this.nonce, this.key(0), this.minReader);
   }
   person(name: string): Person {
     let p = this.persons.get(name);
@@ -85,8 +86,9 @@ export class Scenario {
   member(r: Rec): Rec { this.mhead = r.id; return r; }
   genesis(dev = 'alice-1', o: SealOpts & { minReader?: number } = {}): Rec {
     const c = this.person(this.creator);
+    if (o.minReader !== undefined && o.minReader !== this.minReader) { this.minReader = o.minReader; this.gid = gidOf(c.pid, this.nonce, this.key(0), this.minReader); }
     return this.member(this.seal(this.creator, dev, KIND.genesis,
-      cmap([[1, this.nonce], [2, makeCard(c)], [3, commitOf(this.gid, 0, this.key(0))], [4, o.minReader ?? 1]]), { epoch: 0, ...o }));
+      cmap([[1, this.nonce], [2, makeCard(c)], [3, commitOf(this.gid, 0, this.key(0))], [4, this.minReader]]), { epoch: 0, ...o }));
   }
   /** kind 2: add (pass a card by naming the person and `card`), change a role, or remove (role 0). */
   setRole(by: string, dev: string, name: string, role: number, o: SealOpts & { card?: boolean; cut?: [Uint8Array, number][]; mprev?: Uint8Array } = {}): Rec {
@@ -105,19 +107,19 @@ export class Scenario {
     return r;
   }
   /** kind 5: remove a person, starting epoch `e` in the same record, sealed under K_e (6.4). */
-  remove(by: string, dev: string, name: string, e: number, o: SealOpts & { mprev?: Uint8Array; cut?: [Uint8Array, number][]; variant?: string; prevKey?: Uint8Array } = {}): Rec {
+  remove(by: string, dev: string, name: string, e: number, o: SealOpts & { mprev?: Uint8Array; cut?: [Uint8Array, number][]; variant?: string; prevKey?: Uint8Array; commitKey?: Uint8Array } = {}): Rec {
     const k = this.key(e, o.variant);
     const m = cmap([[1, o.mprev ?? this.mhead!], [2, this.person(name).pid], [3, sortedByEncoding((o.cut ?? []).map((c) => [c[0], c[1]] as CborValue))],
-                    [4, e], [5, commitOf(this.gid, e, k)], [6, o.prevKey ?? this.key(e - 1)]]);
+                    [4, e], [5, commitOf(this.gid, e, o.commitKey ?? k)], [6, o.prevKey ?? this.key(e - 1)]]);
     const r = this.member(this.seal(by, dev, KIND.remove, m, { epoch: e, key: k, ...o }));
     this.epoch = e;
     return r;
   }
   /** kind 4: replace a person's secret, starting epoch `e` in the same record (6.4). */
-  replace(by: string, dev: string, oldName: string, newName: string, e: number, o: SealOpts & { mprev?: Uint8Array; cut?: [Uint8Array, number][]; variant?: string; prevKey?: Uint8Array; signer?: Person } = {}): Rec {
+  replace(by: string, dev: string, oldName: string, newName: string, e: number, o: SealOpts & { mprev?: Uint8Array; cut?: [Uint8Array, number][]; variant?: string; prevKey?: Uint8Array; commitKey?: Uint8Array; signer?: Person } = {}): Rec {
     const k = this.key(e, o.variant);
     const m = cmap([[1, o.mprev ?? this.mhead!], [2, this.person(oldName).pid], [3, makeCard(this.person(newName))],
-                    [4, sortedByEncoding((o.cut ?? []).map((c) => [c[0], c[1]] as CborValue))], [5, e], [6, commitOf(this.gid, e, k)], [7, o.prevKey ?? this.key(e - 1)]]);
+                    [4, sortedByEncoding((o.cut ?? []).map((c) => [c[0], c[1]] as CborValue))], [5, e], [6, commitOf(this.gid, e, o.commitKey ?? k)], [7, o.prevKey ?? this.key(e - 1)]]);
     const r = this.member(this.seal(by, dev, KIND.replace, m, { epoch: e, key: k, ...o }));
     this.epoch = e;
     return r;

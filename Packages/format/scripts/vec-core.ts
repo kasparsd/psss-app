@@ -1,5 +1,6 @@
 // Vectors for sections 1 to 5: CBOR, people, signatures, X-Wing and HPKE, records, padding, clock, fold, checkpoints.
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { concat, fromHex, utf8 } from '../src/bytes.ts';
 import { cmap, decode, encode, type CborValue } from '../src/cbor.ts';
 import { makeCard } from '../src/keys.ts';
@@ -157,8 +158,18 @@ export function personVectors(s: Scenario, minted: Minted): J {
   SMALL_ORDER.forEach((h, n) => SV(`pk-small-order-${n + 1}`, `Public key ${h.slice(0, 8)}...: a point of order dividing 8, with R = identity and S = 0.`, h,
     concat(fromHex(SMALL_ORDER[0]!), new Uint8Array(32)), 'small_order_public_key', H(utf8('forged'))));
 
-  o.add('gid/alice', 'gid from a creator pid, a genesis nonce and K_0.', 'gid', { creator_pid: H(alice.pid), genesis_nonce: H(s.nonce), k0: H(s.key(0)) });
-  o.add('gid/other-k0', 'The same creator and nonce with another K_0 give another gid: the first key is bound in.', 'gid', { creator_pid: H(alice.pid), genesis_nonce: H(s.nonce), k0: H(bytesOf('another first key')) });
+  // The expected gid is written out here with node:crypto directly (draft 4: the lowest reader version is bound in as u32), not with the library.
+  const gidByHand = (pid: Uint8Array, nonce: Uint8Array, k0: Uint8Array, minReader?: number) => {
+    const sha = (...xs: Uint8Array[]) => createHash('sha256').update(Buffer.concat(xs)).digest();
+    const tail = minReader === undefined ? [] : [Buffer.from([minReader >>> 24, (minReader >>> 16) & 255, (minReader >>> 8) & 255, minReader & 255])];
+    return new Uint8Array(sha(utf8('psss/v1/gid'), pid, nonce, sha(utf8('psss/v1/gid-key'), k0), ...tail));
+  };
+  const gidIn = (k0: Uint8Array, min_reader: number) => ({ creator_pid: H(alice.pid), genesis_nonce: H(s.nonce), k0: H(k0), min_reader });
+  o.add('gid/alice', 'gid from a creator pid, a genesis nonce, K_0 and min_reader 1 (3.3, draft 4).', 'gid', gidIn(s.key(0), 1), { gid: H(gidByHand(alice.pid, s.nonce, s.key(0), 1)) });
+  o.add('gid/other-k0', 'The same creator and nonce with another K_0 give another gid: the first key is bound in.', 'gid', gidIn(bytesOf('another first key'), 1), { gid: H(gidByHand(alice.pid, s.nonce, bytesOf('another first key'), 1)) });
+  o.add('gid/min-reader-2', 'The same creator, nonce and K_0 with min_reader 2 give another gid: the lowest reader version is bound in (3.3, 6.1).', 'gid', gidIn(s.key(0), 2), { gid: H(gidByHand(alice.pid, s.nonce, s.key(0), 2)) });
+  o.add('gid/min-reader-largest', 'min_reader 4294967295, the largest value u32 holds.', 'gid', gidIn(s.key(0), 4294967295), { gid: H(gidByHand(alice.pid, s.nonce, s.key(0), 4294967295)) });
+  assert.notEqual(H(gidByHand(alice.pid, s.nonce, s.key(0))), H(gidByHand(alice.pid, s.nonce, s.key(0), 1)), 'the draft-3 formula (without min_reader) gives another gid');
   for (const e of [0, 1, 4294967295]) o.add(`commit/epoch-${e}`, `Key commitment for epoch ${e}.`, 'commit', { gid: H(s.gid), epoch: e, key: H(s.key(0)) });
 
   // X-Wing and HPKE with a fixed KEM output (README: Node cannot fix ML-KEM encapsulation randomness).
@@ -318,6 +329,14 @@ export function recordVectors(s: Scenario): J {
   assert.notEqual(otherBody.expected.record_id, sealed.expected.record_id); assert.notEqual(otherBody.expected.salt, sealed.expected.salt);
   const oddSalt = compute('record.seal', { ...base, salt: H(bytesOf('a random salt')) });
   open('salt-does-not-match-body', 'A record properly signed (the signature covers the header with the odd salt) but sealed with a salt that is not the derived one: the reader recomputes the salt and discards the record (bad_salt).', oddSalt.sealed, keys, E('bad_salt', 'discard'));
+  // The order of the checks of 9 step 2 (draft 4): tag, padding, body, payload shape, salt, author, signature. Each record below fails two checks.
+  const odd = H(bytesOf('a random salt'));
+  open('order-payload-shape-before-salt', 'A record that fails two checks: its payload is malformed (an item payload with only key 1) and its salt is not the derived one. The payload shape is checked first: bad_payload.',
+    compute('record.seal', { ...base, payload: H(encode(cmap([[1, itemId('1')]]))), salt: odd, tag: 'order' }).sealed, keys, E('bad_payload', 'discard'));
+  open('order-salt-before-signature', 'A record that fails two checks: its salt is not the derived one and its signature is all zeros. The salt is checked first: bad_salt.',
+    compute('record.seal', { ...base, salt: odd, sig_override: H(new Uint8Array(64)), tag: 'order2' }).sealed, keys, E('bad_salt', 'discard'));
+  open('order-salt-before-author', 'A record that fails two checks: its salt is not the derived one and its author is the identity point (with the forger\'s signature). The salt is checked first: bad_salt, not bad_author.',
+    compute('record.seal', { ...base, author: SMALL_ORDER[0], sig_override: H(concat(fromHex(SMALL_ORDER[0]!), new Uint8Array(32))), salt: odd, tag: 'order3' }).sealed, keys, E('bad_salt', 'discard'));
   // Same body, different key: the derived salt follows the key.
   assert.notEqual(derivedFor(s.key(0)).join(), derivedFor(s.key(1)).join());
 
@@ -484,6 +503,17 @@ export function foldVectors(s: Scenario): J {
   assert.deepEqual(state('structured-values'), one({ passkey: { '1': '0x03' } }));
   assert.deepEqual(state('two-items'), { i1: { deleted: false, fields: { t: 1 } }, i2: { deleted: false, fields: { t: 2 } } });
   assert.deepEqual(state('duplicate-record'), one({ title: 'U' })); assert.deepEqual(hist('duplicate-record', 'title'), ['T']);
+  // The four that had no hand-written state yet.
+  assert.deepEqual(state('same-field-reversed-input'), one({ title: 'new' })); assert.deepEqual(hist('same-field-reversed-input', 'title'), ['old']);
+  assert.deepEqual(state('set-and-clear-different-fields-one-record'), one({ a: 3, b: CLEARED }));
+  assert.deepEqual(hist('set-and-clear-different-fields-one-record', 'a'), [1]); assert.deepEqual(hist('set-and-clear-different-fields-one-record', 'b'), [2]);
+  assert.deepEqual(state('delete-twice'), one({ deleted: 20 }, true)); assert.deepEqual(hist('delete-twice', 'deleted'), [10]);
+  { // four records: title b (12) beats a (10); url u2 (16) beats u1 (10); note cleared at 12 and set again at 14
+    const v = o.list.find((x) => x.name === 'fold/three-orders-one-state')!;
+    const want = one({ title: 'b', url: 'u2', note: 'n' });
+    assert.deepEqual(state('three-orders-one-state'), want);
+    for (const st of v.expected.states_by_order) assert.deepEqual(stateView(st, names), want);
+  }
   return file('Folding item changes into state (section 5.1).', o);
 }
 
@@ -570,6 +600,15 @@ export function checkpointVectors(s: Scenario): J {
   assert.deepEqual(stateView(nc.expected.states[1], names), { i1: { deleted: false, fields: { f: CLEARED } } });
   assert.deepEqual(stateView(pv.expected.states[0], names), { i1: { deleted: false, fields: { password: 'secret three' } }, i2: { deleted: false, fields: { t: 1 } } });
   assert.deepEqual(stateView(pv.expected.states[1], names), stateView(pv.expected.states[0], names));
+  // The five that had no hand-written state yet.
+  const vstate = (v: J, n: number) => stateView(v.expected.states[n], names);
+  assert.deepEqual(vstate(o.list.find((x) => x.name === 'checkpoint/nothing-after')!, 0), { i1: { deleted: false, fields: { title: 'mid', url: CLEARED } }, i2: { deleted: true, fields: { t: 1, deleted: 15 } } });
+  const ntls = o.list.find((x) => x.name === 'checkpoint/null-then-later-set')!;
+  assert.deepEqual(vstate(ntls, 0), { i1: { deleted: false, fields: { f: 'later' } } }); assert.deepEqual(historyView(ntls.expected.states[0], H(I), 'f'), [CLEARED]);
+  assert.deepEqual(vstate(ntls, 1), { i1: { deleted: false, fields: { f: CLEARED } } }); assert.deepEqual(historyView(ntls.expected.states[1], H(I), 'f'), [null]);
+  for (let n = 0; n < 5; n++) assert.deepEqual(vstate(ovv, n), { i1: { deleted: false, fields: { title: 'b', note: 'n', url: CLEARED } }, i2: { deleted: false, fields: { t: 1 } } }, `overlapping run ${n}`);
+  assert.deepEqual(vstate(o.list.find((x) => x.name === 'checkpoint/purged-everything')!, 0), { i2: { deleted: false, fields: { t: 1 } } });
+  assert.deepEqual(vstate(o.list.find((x) => x.name === 'checkpoint/purged-two-places')!, 0), { i1: { deleted: false, fields: { password: 'secret three' } }, i2: { deleted: false, fields: { t: 1 } } });
   void seed32;
   return file('Checkpoints (section 5.3): restated writes, null and cleared, overlap, permanent delete.', o);
 }

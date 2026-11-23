@@ -3,9 +3,9 @@
 // Everything here is a pure function of the set of records a reader holds: order of arrival does not matter.
 import { cmp, eq, hex } from './bytes.ts';
 import { CborError, type CborValue, type CMap } from './cbor.ts';
-import { checkpointWritesOf, completeSets, fold, type State } from './fold.ts';
+import { checkpointWritesOf, completeSets, fold, forgetUpTo, type State } from './fold.ts';
 import { commitOf, FormatError, gidOf, verifyCard, type Card } from './keys.ts';
-import { heldBack, KIND, MEMBERSHIP_KINDS, sortRecords, type Rec } from './record.ts';
+import { compareKeys, heldBack, KIND, MEMBERSHIP_KINDS, sortRecords, type OrderKey, type Rec } from './record.ts';
 import { rules } from './limits.ts';
 
 const chainKey = (r: { author: Uint8Array; device: Uint8Array }) => `${hex(r.author)}/${hex(r.device)}`;
@@ -85,10 +85,11 @@ interface MState extends Snap {
   /** the epoch of the latest lowering record, per person (6.2: raising needs a new epoch first) */
   cutEpochs: Map<string, number>;
 }
+/** `epoch`: the last epoch the cut reaches (6.2: the epoch of the member record; 6.4 draft 4: the epoch before the one a remove or replace record starts) */
 export interface Cut { pid: string; record: string; epoch: number; cut: Map<string, number> }
 export type ForkRule = 'dropped_by_other_candidate' | 'all_dropped_least' | 'least_author_device_seq';
-/** `decidedBy`: which element of (author, device, seq, record_id) first told the winner from the runner-up (6.5 step 2). */
-export type TieElement = 'author' | 'device' | 'seq' | 'record_id';
+/** `decidedBy`: which element of (author, device, seq) first told the winner from the runner-up (6.5 step 2). */
+export type TieElement = 'author' | 'device' | 'seq';
 export interface ForkNote { mprev: string; candidates: string[]; winner: string; rule: ForkRule; decidedBy: TieElement }
 export interface Membership {
   chain: Rec[];
@@ -121,7 +122,7 @@ function genesisProblem(r: Rec): string | null {
   if (r.epoch !== 0) return 'genesis_epoch';
   if (r.seq !== 1) return 'genesis_seq';
   const nonce = r.payload.get(1) as Uint8Array;
-  if (!eq(r.gid, gidOf(r.author, nonce, r.key))) return 'gid_mismatch';
+  if (!eq(r.gid, gidOf(r.author, nonce, r.key, r.payload.get(4) as number))) return 'gid_mismatch';
   const card = asCard(r.payload.get(2));
   if (typeof card === 'string') return card;
   if (!eq(card.pid, r.author)) return 'card_is_not_the_creators';
@@ -131,7 +132,9 @@ function genesisProblem(r: Rec): string | null {
 
 /** 6.3 to 6.4: the epoch a record starts. `e`, its commitment and K_(e-1) as carried in the payload. */
 function epochProblem(r: Rec, s: MState, e: number, commit: Uint8Array, prevKey: Uint8Array): string | null {
-  if (e !== s.epoch + 1 || r.epoch !== e) return 'wrong_epoch'; // the record is sealed under the new key K_e
+  if (e !== s.epoch + 1) return 'wrong_epoch';
+  // 6.4 (draft 4): the header of a record of kind 3, 4 or 5 MUST name the epoch it starts; the record is sealed under the new key K_e.
+  if (rules.checkHeaderEpoch && r.epoch !== e) return 'wrong_header_epoch';
   if (!eq(commit, commitOf(r.gid, e, r.key))) return 'commit_mismatch';
   const prevCommit = s.commits.get(s.epoch);
   if (rules.checkPreviousKey && (!prevCommit || !eq(prevCommit, commitOf(r.gid, s.epoch, prevKey)))) return 'previous_key_mismatch';
@@ -187,9 +190,9 @@ function dropsAuthorOf(x: Rec, y: Rec, s: MState): boolean {
   return false;
 }
 
-/** 6.5 step 2: least by (author, device, seq, record_id). */
+/** 6.5 step 2 (draft 4): least by (author, device, seq). Two candidates cannot share all three: that would be a fork of one chain. */
 const TIE_ELEMENTS: Record<string, (a: Rec, b: Rec) => number> = {
-  author: (a, b) => cmp(a.author, b.author), device: (a, b) => cmp(a.device, b.device), seq: (a, b) => a.seq - b.seq, record_id: (a, b) => cmp(a.id, b.id),
+  author: (a, b) => cmp(a.author, b.author), device: (a, b) => cmp(a.device, b.device), seq: (a, b) => a.seq - b.seq,
 };
 const tieKey = (a: Rec, b: Rec): number => {
   for (const name of rules.tieBreak.split(',').filter(Boolean)) {
@@ -200,7 +203,7 @@ const tieKey = (a: Rec, b: Rec): number => {
   return 0;
 };
 function decidedBy(a: Rec, b: Rec): TieElement {
-  return cmp(a.author, b.author) ? 'author' : cmp(a.device, b.device) ? 'device' : a.seq !== b.seq ? 'seq' : 'record_id';
+  return cmp(a.author, b.author) ? 'author' : cmp(a.device, b.device) ? 'device' : 'seq';
 }
 
 /** 6.5: of valid candidates naming one mprev, exactly one continues the chain. */
@@ -208,7 +211,7 @@ export function pickWinner(cands: Rec[], s: MState): { winner: Rec; rule: ForkRu
   // 1. Drop every candidate whose author is removed, lowered or replaced by another candidate; if that drops them all, keep them all.
   const left = cands.filter((y) => !cands.some((x) => x !== y && dropsAuthorOf(x, y, s)));
   const pool = left.length ? left : cands;
-  // 2. Of those left, the least by (author, device, seq, record_id).
+  // 2. Of those left, the least by (author, device, seq).
   const sorted = [...pool].sort(tieKey);
   const rule: ForkRule = left.length === 0 ? 'all_dropped_least' : left.length < cands.length ? 'dropped_by_other_candidate' : 'least_author_device_seq';
   const winner = left.length === 0 && !rules.keepAllWhenAllDropped ? sorted[sorted.length - 1]! : sorted[0]!;
@@ -297,15 +300,18 @@ function apply(r: Rec, s: MState, m: Membership): void {
     startEpoch(r.payload.get(2) as number, r.payload.get(3) as Uint8Array);
   } else if (r.kind === KIND.remove) {
     const pid = r.payload.get(2) as Uint8Array;
-    m.cuts.push({ pid: hex(pid), record: hex(r.id), epoch: r.epoch, cut: cutOf(r.payload.get(3) as [Uint8Array, number][]) });
-    s.cutEpochs.set(hex(pid), r.epoch);
+    // 6.4 (draft 4): the cut reaches only the epochs before the one the record starts
+    const reach = rules.cutEndsBeforeNewEpoch ? r.epoch - 1 : r.epoch;
+    m.cuts.push({ pid: hex(pid), record: hex(r.id), epoch: reach, cut: cutOf(r.payload.get(3) as [Uint8Array, number][]) });
+    s.cutEpochs.set(hex(pid), reach);
     s.roles.set(hex(pid), 0);
     startEpoch(r.payload.get(4) as number, r.payload.get(5) as Uint8Array);
   } else if (r.kind === KIND.replace) {
     const old = r.payload.get(2) as Uint8Array;
     const nu = (r.payload.get(3) as CMap).get(1) as Uint8Array;
-    m.cuts.push({ pid: hex(old), record: hex(r.id), epoch: r.epoch, cut: cutOf(r.payload.get(4) as [Uint8Array, number][]) });
-    s.cutEpochs.set(hex(old), r.epoch);
+    const reach = rules.cutEndsBeforeNewEpoch ? r.epoch - 1 : r.epoch;
+    m.cuts.push({ pid: hex(old), record: hex(r.id), epoch: reach, cut: cutOf(r.payload.get(4) as [Uint8Array, number][]) });
+    s.cutEpochs.set(hex(old), reach);
     s.roles.set(hex(nu), roleOf(s.roles, old));
     s.roles.set(hex(old), 0);
     startEpoch(r.payload.get(5) as number, r.payload.get(6) as Uint8Array);
@@ -386,7 +392,7 @@ export function evaluateGroup(gid: Uint8Array, all: Rec[], nowMs?: number): Grou
       return { accepted: [], chains, membership, checkpoints: [], completeSets: [], covered: new Map(), content: [], held, purgeRequests: [], hidden: [], unsupported: true, state: new Map() };
     }
     cps = chains.accepted.filter((r) => r.kind === KIND.checkpoint && contentStatus(membership, r, true) === 'accepted');
-    sets = completeSets(cps.map((rec) => ({ rec, ...checkpointWritesOf(rec.payload) }))).map((x) => x.rec);
+    sets = completeSets(cps.map((rec) => ({ rec, ...checkpointWritesOf(rec.payload, rec) }))).map((x) => x.rec);
     const next = mergeCovered(sets);
     if (sameCovered(next, covered)) break;
     covered = next;
@@ -395,16 +401,25 @@ export function evaluateGroup(gid: Uint8Array, all: Rec[], nowMs?: number): Grou
   const content = chains.accepted.filter((r) => r.kind !== KIND.checkpoint && !MEMBERSHIP_KINDS.includes(r.kind))
     .map((rec) => ({ rec, status: contentStatus(membership, rec) }));
   const changes = content.filter((c) => c.rec.kind === KIND.item && c.status === 'accepted').map((c) => c.rec);
-  const state = fold(sortRecords(changes), cps.map((c) => checkpointWritesOf(c.payload)));
-  // 5.4: every reader hides requested items at once; a complete checkpoint that purges them answers the request.
+  const state = fold(sortRecords(changes), cps.map((c) => checkpointWritesOf(c.payload, c)));
+  // 5.4 (draft 4): a purge request covers the writes of its items up to its own place in the order; every reader hides those writes at
+  // once, and a write that is later in the order stays. A complete checkpoint whose `purged` names the item answers the request.
   const purgeRequests: PurgeRequest[] = [];
+  const upTo = new Map<string, OrderKey>();
+  const asked = new Map<string, OrderKey>();
   for (const c of content) if (c.rec.kind === KIND.purge && c.status === 'accepted') {
-    for (const id of c.rec.payload.get(1) as Uint8Array[]) purgeRequests.push({ item: hex(id), by: hex(c.rec.author), record: hex(c.rec.id) });
+    for (const id of c.rec.payload.get(1) as Uint8Array[]) {
+      purgeRequests.push({ item: hex(id), by: hex(c.rec.author), record: hex(c.rec.id) });
+      const cur = asked.get(hex(id));
+      if (!cur || compareKeys(c.rec.key5, cur) > 0) asked.set(hex(id), c.rec.key5);
+    }
   }
   const answered = new Set<string>();
-  for (const cp of sets) for (const pu of cp.payload.get(6) as [Uint8Array, CborValue][]) answered.add(hex(pu[0]));
-  const hidden = [...new Set(purgeRequests.map((p) => p.item))].filter((id) => !answered.has(id)).sort();
-  for (const id of hidden) state.delete(id);
+  for (const cp of sets) for (const pu of cp.payload.get(6) as [Uint8Array, CborValue[]][]) answered.add(hex(pu[0]));
+  if (rules.purgeUpToOwnPlace) for (const [id, k] of asked) upTo.set(id, k);
+  forgetUpTo(state, upTo);
+  if (!rules.purgeUpToOwnPlace) for (const id of asked.keys()) state.delete(id);
+  const hidden = [...asked.keys()].filter((id) => !answered.has(id)).sort();
   return { accepted: chains.accepted, chains, membership, checkpoints: cps, completeSets: sets, covered, content, held, purgeRequests, hidden, unsupported: false, state };
 }
 

@@ -111,17 +111,21 @@ test('the boundaries are listed in README.md with the vectors that cover them', 
 export interface RuleMutation { rule: keyof typeof rules; value: boolean | string; spec: string; what: string; flips: string[] }
 export const RULE_MUTATIONS: RuleMutation[] = [
   { rule: 'deletedStrict', value: false, spec: '5.1', what: '"strictly later" read as "later or equal" for the deleted rule', flips: ['fold/delete-in-same-record-as-edit'] },
-  { rule: 'tieBreak', value: 'device,author,seq,record_id', spec: '6.5', what: 'device compared before author', flips: ['group/fork-2-author-before-device'] },
-  { rule: 'tieBreak', value: 'author,-device,seq,record_id', spec: '6.5', what: 'device order reversed', flips: ['group/fork-2-same-author-device-decides'] },
-  { rule: 'tieBreak', value: '-author,device,seq,record_id', spec: '6.5', what: 'author order reversed', flips: ['group/fork-2-least-author'] },
-  { rule: 'tieBreak', value: 'author,device,-seq,record_id', spec: '6.5', what: 'seq order reversed', flips: ['group/fork-2-same-author-and-device-seq-decides'] },
-  { rule: 'tieBreak', value: 'author,device,seq', spec: '6.5', what: 'final record_id comparison dropped', flips: ['group/resolve-record-id-high-first'] },
-  { rule: 'tieBreak', value: 'author,device,seq,-record_id', spec: '6.5', what: 'record_id order reversed', flips: ['group/resolve-record-id-low-first', 'group/resolve-record-id-high-first'] },
+  { rule: 'tieBreak', value: 'device,author,seq', spec: '6.5', what: 'device compared before author', flips: ['group/fork-2-author-before-device'] },
+  { rule: 'tieBreak', value: 'author,-device,seq', spec: '6.5', what: 'device order reversed', flips: ['group/fork-2-same-author-device-decides'] },
+  { rule: 'tieBreak', value: '-author,device,seq', spec: '6.5', what: 'author order reversed', flips: ['group/fork-2-least-author'] },
+  { rule: 'tieBreak', value: 'author,device,-seq', spec: '6.5', what: 'seq order reversed', flips: ['group/fork-2-same-author-and-device-seq-decides'] },
   { rule: 'keepAllWhenAllDropped', value: false, spec: '6.5', what: 'step 1 that drops every candidate keeps none', flips: ['group/fork-1-mutual-removal-keeps-all', 'group/fork-three-candidates-cycle'] },
   { rule: 'checkPreviousKey', value: false, spec: '6.3, 6.4', what: 'K_(e-1) not checked against commit(e-1)', flips: ['group/previous-key-mismatch-epoch', 'group/previous-key-mismatch-remove', 'group/previous-key-mismatch-replace'] },
   { rule: 'checkSalt', value: false, spec: '4.1, 9', what: 'salt not recomputed by the reader', flips: ['record/open/salt-does-not-match-body', 'record/open/moved-header-new-salt', 'group/chain-same-body-different-salt-is-rejected'] },
   { rule: 'checkScalarLessThanL', value: false, spec: '1.2', what: 'S not required to be less than the group order', flips: ['signature/s-plus-l', 'signature/s-equals-l', 'signature/s-top-bit-set'] },
   { rule: 'checkKitCheckBytes', value: false, spec: '7.2', what: 'kit check bytes not tested', flips: ['kit/parse-check-bytes-wrong-one-data-character', 'kit/parse-check-bytes-wrong-one-check-character'] },
+  { rule: 'checkKitTrailingBits', value: false, spec: '7.2', what: 'the last four bits of the kit text not tested', flips: ['kit/parse-trailing-bit-1-set', 'kit/parse-trailing-bit-2-set', 'kit/parse-trailing-bit-4-set', 'kit/parse-trailing-bit-8-set', 'kit/parse-trailing-bits-all-set'] },
+  { rule: 'checkHeaderEpoch', value: false, spec: '6.4', what: 'the header of a record of kind 3, 4 or 5 not required to name the epoch it starts', flips: ['group/epoch-sealed-under-old-key-with-old-epoch-is-refused', 'group/remove-sealed-under-old-key-with-old-epoch-is-refused', 'group/replace-sealed-under-old-key-with-old-epoch-is-refused'] },
+  { rule: 'saltBeforeSignature', value: false, spec: '4.1, 9', what: 'the salt checked after the author and the signature', flips: ['record/open/order-salt-before-signature', 'record/open/order-salt-before-author', 'record/open/moved-header-new-salt'] },
+  { rule: 'cutEndsBeforeNewEpoch', value: false, spec: '6.4', what: 'the cut of a remove or replace record reaches the epoch it starts too', flips: ['group/removed-person-added-again-writes-at-once'] },
+  { rule: 'strictSets', value: false, spec: '5.3', what: 'parts of a set not required to share author, device and parts, or to be unique', flips: ['group/checkpoint-set-parts-by-different-authors', 'group/checkpoint-set-parts-on-different-devices', 'group/checkpoint-set-with-a-record-that-has-another-parts', 'group/checkpoint-set-with-two-different-part-1-records'] },
+  { rule: 'purgeUpToOwnPlace', value: false, spec: '5.4', what: 'a purge request hides every write of the item, not only those up to its own place', flips: ['group/purge-request-then-a-later-write'] },
 ];
 
 test('every rule switch has a mutation, and its covering vectors pass unmutated', () => {

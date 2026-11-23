@@ -112,8 +112,12 @@ export function slotVectors(s: Scenario, minted: Minted): J {
   P('check-bytes-wrong-one-data-character', 'One character of the kit part changed to another valid character: the check bytes do not match (bad_kit_check), before any slot is tried.', swapChar(text, 6), E('bad_kit_check', 'reject'));
   P('check-bytes-wrong-one-check-character', 'One character of the check bytes (character 33) changed: also bad_kit_check.', swapChar(text, 44), E('bad_kit_check', 'reject'));
   const lastV = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'.indexOf(text[text.length - 1]!);
-  P('nonzero-trailing-bits-are-not-checked', 'The last character encodes one data bit and four zero bits. A character with the same data bit and non-zero trailing bits reads as the same kit: this implementation does not test them (the specification does not say to; finding).',
-    text.slice(0, -1) + '0123456789ABCDEFGHJKMNPQRSTVWXYZ'[lastV | 1]);
+  assert.equal(lastV & 15, 0, 'the printed form ends in four zero bits');
+  for (const bit of [1, 2, 4, 8]) {
+    P(`trailing-bit-${bit}-set`, `The last character encodes one data bit and four zero bits. The same character with the trailing bit of value ${bit} set (the data bits and the check bytes are untouched): rejected (7.2, draft 4).`,
+      text.slice(0, -1) + '0123456789ABCDEFGHJKMNPQRSTVWXYZ'[lastV | bit], E('bad_kit_trailing_bits', 'reject'));
+  }
+  P('trailing-bits-all-set', 'All four trailing bits set.', text.slice(0, -1) + '0123456789ABCDEFGHJKMNPQRSTVWXYZ'[lastV | 15], E('bad_kit_trailing_bits', 'reject'));
   P('letter-u', 'The letter U is not a Crockford character (and not a confusable).', text.slice(0, -1) + 'U', E('bad_kit_character', 'reject'));
   P('other-symbol', 'A character outside the alphabet.', text.slice(0, -1) + '#', E('bad_kit_character', 'reject'));
   const kslot = o.add('slot/kit', 'Recovery kit slot.', 'slot.seal_kit', { ps: H(alice.ps), pid: H(alice.pid), slot_id: H(bytesOf('slot kit', 16)), kit: H(kit) });

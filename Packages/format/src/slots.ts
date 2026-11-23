@@ -133,7 +133,7 @@ export function kitToText(kit: Uint8Array): string {
 }
 
 /** 7.2: when reading, case, hyphens and spaces are ignored, I and L read as 1 and O reads as 0, in the prefix too. The check
- *  bytes are tested before the kit is used. The four trailing bits are not tested (the specification does not say to). */
+ *  bytes are tested before the kit is used. 7.2 (draft 4): a text whose last four bits are not zero is rejected. */
 export function kitFromText(text: string): Uint8Array {
   const t = text.toUpperCase().replace(/[-\s]/g, '').replace(/[IL]/g, '1').replace(/O/g, '0');
   if (!t.startsWith('RK1')) throw new FormatError('bad_kit_prefix');
@@ -145,6 +145,7 @@ export function kitFromText(text: string): Uint8Array {
     if (v < 0) throw new FormatError('bad_kit_character');
     bits = (bits << 5n) | BigInt(v);
   }
+  if (rules.checkKitTrailingBits && (bits & 15n) !== 0n) throw new FormatError('bad_kit_trailing_bits');
   bits >>= 4n;
   const out = new Uint8Array(22);
   for (let i = 21; i >= 0; i--) { out[i] = Number(bits & 255n); bits >>= 8n; }
