@@ -66,7 +66,7 @@ private struct CredentialFields: View {
                 keyFileName = url.lastPathComponent
                 keyFileProblem = nil
             } catch {
-                keyFileProblem = (error as? KDBXError)?.message ?? error.localizedDescription
+                keyFileProblem = ((error as? KDBXError).map { confirms ? $0.messageForNewKey : $0.message }) ?? error.localizedDescription
             }
         }
     }
@@ -141,7 +141,7 @@ struct NewVaultSheet: View {
                 dismiss()
                 onCreated()
             } catch {
-                problem = (error as? KDBXError)?.message ?? (error as? VaultStoreError)?.message ?? error.localizedDescription
+                problem = (error as? KDBXError)?.messageForNewKey ?? (error as? VaultStoreError)?.message ?? error.localizedDescription
                 working = false
             }
         }
@@ -270,6 +270,11 @@ struct VaultPasswordView: View {
                         Text(problem).foregroundStyle(.red)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .fixedSize(horizontal: false, vertical: true)
+                    } else if let notice = gate.lockNotice {
+                        // Information, not a mistake in what the person typed, so not red. A newer problem replaces it.
+                        Text(notice).foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     keyFileRow
                     if missing {
@@ -314,13 +319,12 @@ struct VaultPasswordView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background)
-        .onAppear {
-            focused = true
-            if let notice = gate.lockNotice { problem = notice; gate.lockNotice = nil }
-        }
+        .onAppear { focused = true }
         .task {
             // Like Apple Passwords, ask for Face ID or Touch ID straight away; the button retries.
-            guard !triedBiometric, biometry != nil, !missing else { return }
+            // Not when the vault was just locked because it changed elsewhere: the saved key is probably stale, so the
+            // prompt would only fail. The notice says to enter the vault password, and the button still tries.
+            guard !triedBiometric, biometry != nil, !missing, gate.lockNotice == nil else { return }
             triedBiometric = true
             await unlockWithBiometrics()
         }
@@ -421,6 +425,7 @@ struct VaultPasswordView: View {
         working = true
         unlockingWithBiometrics = true
         problem = nil
+        gate.lockNotice = nil
         defer { working = false; unlockingWithBiometrics = false }
         do {
             try await session.unlockWithBiometrics()
@@ -448,6 +453,7 @@ struct VaultPasswordView: View {
         guard !working, !(password.isEmpty && keyFile == nil) else { return }
         working = true
         problem = nil
+        gate.lockNotice = nil
         Task {
             do {
                 try await session.unlock(credentials: .init(password: password.isEmpty ? nil : password, keyFile: keyFile))
@@ -484,6 +490,8 @@ struct ChangePasswordSheet: View {
     @State private var reloadOnClose = false
     /// Called after the vault was reloaded on close, so the list can follow.
     var onReloaded: () -> Void = {}
+    /// Called when the reload on close shows that the vault password changed elsewhere, so the vault can lock.
+    var onChangedElsewhere: () -> Void = {}
 
     var body: some View {
         NavigationStack {
@@ -514,7 +522,13 @@ struct ChangePasswordSheet: View {
                 guard reloadOnClose else { return }
                 let store = store
                 let onReloaded = onReloaded
-                Task { if (try? await store.reload()) != nil { onReloaded() } }
+                Task {
+                    do { try await store.reload(); onReloaded() } catch KDBXError.wrongCredentials {
+                        onChangedElsewhere()
+                    } catch {
+                        // Unreadable for now. The vault stays as it is; the next save reports the problem.
+                    }
+                }
             }
         }
         .modifier(VaultSheetSize())
@@ -538,7 +552,7 @@ struct ChangePasswordSheet: View {
                 reloadOnClose = true
                 working = false
             } catch {
-                problem = (error as? KDBXError)?.message ?? (error as? VaultStoreError)?.message ?? error.localizedDescription
+                problem = (error as? KDBXError)?.messageForNewKey ?? (error as? VaultStoreError)?.message ?? error.localizedDescription
                 working = false
             }
         }

@@ -78,6 +78,7 @@ final class UnlockGate {
         state = .unlocking
         do {
             try await Unlock.authenticate(reason: String(localized: "Unlock your passwords."))
+            lockNotice = nil
             state = .unlocked
         } catch let failure as Unlock.Failure {
             state = .failed(failure == .cancelled ? "" : failure.message)
@@ -88,10 +89,12 @@ final class UnlockGate {
 
     /// For a vault the person just created or imported: they are already here, so no prompt.
     func markUnlocked() {
+        lockNotice = nil
         state = .unlocked
     }
 
-    /// Why the vault was locked without the person asking, shown once on the lock screen.
+    /// Why the vault was locked without the person asking. The password screen shows it for as long as it is set, also when it
+    /// arrives while the screen is already up. Unlocking and any lock without a notice clear it, so it never outlives its cause.
     var lockNotice: String?
 
     func lock(notice: String? = nil) {
@@ -108,6 +111,7 @@ final class UnlockGate {
     /// (unless `prompt` is false: a KeePass vault asks for its vault password instead).
     func didBecomeActive(after timing: LockTiming, prompt: Bool = true) async {
         if let leftAt, isUnlocked, Date.now.timeIntervalSince(leftAt) >= TimeInterval(timing.rawValue) {
+            lockNotice = nil
             state = .locked
         }
         leftAt = nil

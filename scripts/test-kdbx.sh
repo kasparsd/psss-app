@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 mkdir -p build/kdbx-test
 SOURCES="App/Core/KDBX/*.swift App/Core/VaultItem.swift App/Core/TOTP.swift App/Core/Passkey.swift \
   App/Core/SharedVault.swift App/Core/SiteMatch.swift App/Core/PublicSuffixList.swift App/Core/UsageLog.swift App/Core/SampleVault.swift App/Core/VaultStore.swift App/Core/KeePassVaultStore.swift App/Core/BiometricKey.swift App/Core/PasswordGenerator.swift App/Core/CardBrand.swift App/Core/CardNumber.swift App/Core/FillSite.swift App/Core/HostDisplay.swift App/Core/DisplayText.swift App/Core/BrowserProtocol.swift App/Core/BrowserPrototypeStore.swift App/Core/ReleaseCheck.swift App/Core/CSVImport.swift App/Core/Import/*.swift Tests/KDBX/TimeFuzz.swift"
-swiftc -O -swift-version 6 -D HOSTLESS_TESTS $SOURCES Tests/KDBX/main.swift -o build/kdbx-test/run
+swiftc -O -swift-version 6 -D HOSTLESS_TESTS -D HOSTLESS_UNLOCKGATE $SOURCES App/Core/UnlockGate.swift Tests/KDBX/main.swift -o build/kdbx-test/run
 # The time parser tests again, without optimization (-Onone), so a parser that only behaves under the optimizer's code generation
 # fails here.
 swiftc -Onone -swift-version 6 -D HOSTLESS_TESTS $SOURCES Tests/KDBX/TimeParser/main.swift -o build/kdbx-test/time-parser-onone

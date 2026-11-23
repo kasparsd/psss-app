@@ -149,6 +149,9 @@ struct VaultView: View {
     @FocusState private var searchFocused: Bool
     @State private var didFocusOnLaunch = false
     @State private var editor: VaultItem?
+    /// The open editor's item was removed elsewhere. The alert waits for the sheet to finish closing.
+    @State private var editorItemRemoved = false
+    @State private var showsEditorRemoved = false
     @State private var showsSetup = false
     @Environment(\.scenePhase) private var scenePhase
 
@@ -217,7 +220,8 @@ struct VaultView: View {
         }
         .task { if !store.isSample, session.shouldOfferBiometric { offersBiometric = true } }
         .sheet(isPresented: $changingPassword) {
-            if let store = store as? KeePassVaultStore { ChangePasswordSheet(store: store, onReloaded: { adoptReloadedVault() }) }
+            if let store = store as? KeePassVaultStore { ChangePasswordSheet(store: store, onReloaded: { adoptReloadedVault() },
+                                                          onChangedElsewhere: { gate.lock(notice: Self.changedElsewhereNotice) }) }
         }
         .alert("Could not import", isPresented: Binding(get: { importProblem != nil }, set: { if !$0 { importProblem = nil } })) {
             Button("OK") { importProblem = nil }
@@ -227,9 +231,16 @@ struct VaultView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { reloadIfChangedOnDisk() }
         }
-        .sheet(item: $editor) { item in
+        .sheet(item: $editor, onDismiss: {
+            if editorItemRemoved { editorItemRemoved = false; showsEditorRemoved = true }
+        }) { item in
             ItemEditor(item: item, onSave: save, onKeepDraft: keepDraft,
                        onDelete: items.contains { $0.id == item.id } ? { delete(item.id) } : nil)
+        }
+        .alert("This item was removed", isPresented: $showsEditorRemoved) {
+            Button("OK") {}
+        } message: {
+            Text("It was removed on another device or in another app, so the editor was closed. Your unsaved changes were not kept.")
         }
         .sheet(isPresented: $showsSetup) { setupSheet }
         .fileExporter(isPresented: Binding(get: { copyDocument != nil }, set: { if !$0 { copyDocument = nil } }),
@@ -710,7 +721,8 @@ struct VaultView: View {
         func gone(_ id: VaultItem.ID) -> Bool { before.contains(id) && !now.contains(id) }
         if let selected = selection, gone(selected) { selection = nil }
         if compactPath.contains(where: gone) { compactPath = [] }
-        if let open = editor, gone(open.id) { editor = nil }
+        // A removed item that is open in detail just leaves the list (above). An open editor holds a draft, so say it is lost.
+        if let open = editor, gone(open.id) { editorItemRemoved = true; editor = nil }
     }
 
     /// Repeats the refused change now, with the check for a changed file skipped, on the vault as the store holds it (the last

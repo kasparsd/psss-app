@@ -712,15 +712,23 @@ final class VaultSession {
 }
 
 extension KDBXError {
-    /// Plain-language text for the interface.
+    /// Plain-language text for the interface. It never shows the codec's internal detail, which names a feature, not a fix.
     var message: String {
         switch self {
         case .notAVault: String(localized: "This file is not a KeePass vault. Choose a KeePass file (.kdbx).")
-        case .unsupported(let what): String(localized: "Psss cannot open this vault yet: \(what) is not supported. Open it in the app that made it and save it with AES-256 or ChaCha20, then try again.")
+        case .unsupported: String(localized: "This vault uses settings Psss cannot open. Open it in the app that made it, save it again as KDBX 4 with AES-256 or ChaCha20 and Argon2, then try again.")
         case .wrongCredentials: String(localized: "The vault password or key file is not right.")
         case .corrupted: String(localized: "The vault file is damaged or was changed by something else. Nothing was modified.")
         case .invalidKeyFile: String(localized: "This key file cannot be used. Choose the key file that was used when the vault was made.")
-        case .invalidParameters: String(localized: "The vault asks for more memory or time than Psss allows. Open it in the app that made it and lower its memory or rounds setting, then try again.")
+        case .invalidParameters: String(localized: "Psss cannot open this vault's protection settings. Open it in the app that made it, save it again with the default settings, then try again.")
+        }
+    }
+
+    /// For choosing a key file while creating a vault or changing its key: there is no earlier key file to find.
+    var messageForNewKey: String {
+        switch self {
+        case .invalidKeyFile: String(localized: "This key file cannot be used. Choose a different file.")
+        default: message
         }
     }
 }

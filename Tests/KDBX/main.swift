@@ -2893,5 +2893,46 @@ do {  // Provider follow-ups: several identifiers, loopback as written, readable
     expect("keychain: not provisioned for a group with no team", !BiometricKey.isProvisioned(keychainGroups: ["local.kdbox.prototype"], group: "local.kdbox.prototype"))
 }
 
+// Messages shown for codec errors: no internal detail, and advice that fits the cause and the context.
+do {
+    let unsupportedText = "This vault uses settings Psss cannot open. Open it in the app that made it, save it again as KDBX 4 with AES-256 or ChaCha20 and Argon2, then try again."
+    for what in ["Argon2 version", "key derivation function", "variant dictionary version", "KDBX 3.1", "cipher (Twofish is not supported)",
+                 "protected-value cipher (only ChaCha20)", "protected-value cipher", "cipher (only AES-256)"] {
+        check("message: unsupported '\(what)'", KDBXError.unsupported(what).message, unsupportedText)
+        expect("message: unsupported '\(what)' hides the internal name", !KDBXError.unsupported(what).message.contains(what))
+    }
+    check("message: invalid parameters", KDBXError.invalidParameters.message,
+          "Psss cannot open this vault's protection settings. Open it in the app that made it, save it again with the default settings, then try again.")
+    check("message: invalid key file when opening", KDBXError.invalidKeyFile.message,
+          "This key file cannot be used. Choose the key file that was used when the vault was made.")
+    check("message: invalid key file when creating or changing", KDBXError.invalidKeyFile.messageForNewKey,
+          "This key file cannot be used. Choose a different file.")
+    for error in [KDBXError.notAVault, .wrongCredentials, .corrupted("x"), .invalidParameters, .unsupported("x")] {
+        check("message: new-key context keeps the text of \(error)", error.messageForNewKey, error.message)
+    }
+}
+
+#if HOSTLESS_UNLOCKGATE
+// The lock notice lives only as long as its cause. Needs UnlockGate.swift in the sources (see docs/development.md).
+@MainActor func unlockGateNoticeChecks() {
+    let gate = UnlockGate()
+    gate.lock(notice: "first")
+    check("notice: set by a lock with a notice", gate.lockNotice ?? "nil", "first")
+    gate.lock(notice: "second")
+    check("notice: replaced by a newer notice", gate.lockNotice ?? "nil", "second")
+    gate.markUnlocked()
+    check("notice: cleared by markUnlocked", gate.lockNotice ?? "nil", "nil")
+    expect("notice: markUnlocked unlocks", gate.isUnlocked)
+    gate.lock(notice: "third")
+    gate.lock()
+    check("notice: cleared by a plain lock", gate.lockNotice ?? "nil", "nil")
+    gate.lock(notice: "fourth")
+    gate.markUnlocked()
+    gate.lock()
+    check("notice: a later unrelated lock shows none", gate.lockNotice ?? "nil", "nil")
+}
+unlockGateNoticeChecks()
+#endif
+
 print(failures == 0 ? "all passed" : "\(failures) failed")
 exit(failures == 0 ? 0 : 1)
