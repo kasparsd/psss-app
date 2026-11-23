@@ -193,7 +193,7 @@ Still open, listed as questions on the mock pages: whether a vault needs a name 
 - [x] Owner decision to adopt (2026-11-23).
 - [ ] Owner decision on the four open rows above.
 - [x] Verified X-Wing HPKE in CryptoKit, Go and Python, and age's post-quantum recipients (2026-11-23).
-- [~] Byte-level [specification](format-spec.md): draft 1 written 2026-11-23, covering records, keys, membership, slots, the folder layout and the server operations. Test vectors and a reference implementation in `Packages/format/` are in progress. Not yet specified: the item schema, the invitation and approval exchanges, the backup file and the CloudKit record types.
+- [~] Byte-level [specification](format-spec.md): draft 2 (2026-11-23), which answers the 36 findings of the first independent implementation. The reference implementation for Node 24 and 240 test vectors are in `Packages/format/` and pass (`scripts/test-format.sh`), checked by a second independent run; they follow draft 1 until brought up to draft 2. Not yet specified: the item schema, the invitation and approval exchanges, the backup file and the CloudKit record types. Not yet shown: that CryptoKit and Go agree with the X-Wing and HPKE vectors.
 - [ ] Spike: CloudKit zone per vault with `CKShare`, including whether a child's Apple Account can accept the share, and convergence times on real devices.
 - [ ] Spike: the folder transport in iCloud Drive and one non-Apple sync tool, with three devices and scripted concurrent edits.
 - [ ] Reference command-line tool that reads and writes a folder vault on macOS, Windows and Linux.
