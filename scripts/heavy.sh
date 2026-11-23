@@ -1,12 +1,12 @@
 #!/bin/sh
-# Runs heavy commands (a compile, a build, a test run) at most PSSS_HEAVY_SLOTS at a time on this Mac (default 2), at low
+# Runs heavy commands (a compile, a build, a test run) at most PSSS_HEAVY_SLOTS at a time on this Mac (default 4), at low
 # priority. Unlimited Swift compiles and xcodebuild runs from several agents exhausted memory and crashed the machine, so
 # every build and test run goes through here: scripts/heavy.sh xcodebuild …, and the test scripts call it themselves.
 # The slots are lock files shared by every checkout and snapshot of the project. A command that already holds a slot runs
 # straight through. A command waits when every slot is taken.
 if [ -n "$PSSS_HEAVY_LOCKED" ]; then exec "$@"; fi
 export PSSS_HEAVY_LOCKED=1
-slots="${PSSS_HEAVY_SLOTS:-2}"
+slots="${PSSS_HEAVY_SLOTS:-4}"
 started="$(mktemp -t psss-heavy)" && rm -f "$started"
 while :; do
   n=1

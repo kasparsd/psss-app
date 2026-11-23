@@ -12,12 +12,12 @@
 
 ## Builds and tests on this Mac
 
-Unlimited Swift compiles and `xcodebuild` runs at once have exhausted memory and crashed the machine (10 cores, 16 GB). At most two heavy jobs run at a time:
+Unlimited Swift compiles and `xcodebuild` runs at once have exhausted memory and crashed the machine (10 cores, 16 GB). At most four heavy jobs run at a time (owner, 2026-11-23; it was two):
 
-- Build only with `scripts/xcb.sh …` (it takes `xcodebuild` arguments), never `xcodebuild` directly. Run tests only through `scripts/test-*.sh`. Compile anything else, such as a probe, with `scripts/heavy.sh swiftc …`. All of these share two slots (`PSSS_HEAVY_SLOTS`, default 2), wait when both are taken and run at low priority.
+- Build only with `scripts/xcb.sh …` (it takes `xcodebuild` arguments), never `xcodebuild` directly. Run tests only through `scripts/test-*.sh`. Compile anything else, such as a probe, with `scripts/heavy.sh swiftc …`. All of these share four slots (`PSSS_HEAVY_SLOTS`, default 4), wait when all are taken and run at low priority.
 - Within one agent, run builds and test runs one after another in the foreground, not in the background, and do not run several copies of a test binary at once.
-- When delegating, give at most two agents at a time work that builds or runs tests, and only when they own different files. Agents that only read or write documents can run alongside.
-- If the machine becomes sluggish again, go back to one: `PSSS_HEAVY_SLOTS=1`.
+- When delegating, give at most four agents at a time work that builds or runs tests, and only when they own different files. Agents that only read or write documents can run alongside.
+- If the machine becomes sluggish again, lower it: `PSSS_HEAVY_SLOTS=2` (or 1).
 
 ## Native app interface conventions
 
