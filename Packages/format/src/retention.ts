@@ -12,16 +12,22 @@ const isClock = (v: unknown): v is OrderKey =>
   v[3] instanceof Uint8Array && v[3].length === 16 && typeof v[4] === 'number';
 export const isPlace = isClock;
 
-/** Schema 4: the place Clear Previous Passwords set, when `history_hidden` holds a valid one. */
+/** Schema 4 (draft 3): where Clear Previous Passwords hides from: the place of the winning write of `history_hidden` itself, when its value is a
+ *  valid `1`. The value says nothing else, so a clearing that is later in the order always hides at least what an earlier one hid. */
 export function hiddenPlace(fields: Map<string, Entry[]>): OrderKey | null {
   const list = fields.get('history_hidden');
   const cur = list?.[list.length - 1];
-  return cur && !cur.cleared && isClock(cur.value) ? (cur.value as OrderKey) : null;
+  return cur && !cur.cleared && cur.value === 1 ? cur.key : null;
 }
 
-/** Schema 4: the writes of `password` that are in force: those not strictly before `history_hidden`. */
-export const passwordInForce = (pw: Entry[], hidden: OrderKey | null): Entry[] =>
-  hidden && rules.historyHiddenApplies ? pw.filter((e) => compareKeys(e.key, hidden) >= 0) : pw;
+/** Schema 4 (draft 3): the writes of `password` that are in force. Of the writes before the winning write of `history_hidden` (`hidden`) in the
+ *  order, all but the last are left out: the last is the password that was current when the person cleared. `pw` is oldest first. */
+export function passwordInForce(pw: Entry[], hidden: OrderKey | null): Entry[] {
+  if (!hidden || !rules.historyHiddenApplies) return pw;
+  let last = -1;
+  for (let i = 0; i < pw.length && compareKeys(pw[i]!.key, hidden) < 0; i++) last = i;
+  return last <= 0 ? pw : pw.slice(last);
+}
 
 const textOf = (e: Entry): string | null => (e.cleared || typeof e.value !== 'string' ? null : e.value);
 
@@ -46,7 +52,8 @@ export function previousFromWrites(inForce: Entry[]): { write: Entry; next: Entr
 }
 
 /** Schema 4, the table: `password` keeps the writes its first 10 entries need (each entry's write and the write after it, which dates it), the
- *  write just before the winner (the one `password_over` is compared with), and the winner; every other field keeps its winner only. */
+ *  write just before the winner (the one `password_over` is compared with), the winner, and (not in the table of draft 3) the last write before
+ *  `history_hidden`; every other field keeps its winner only. */
 export const schemaRetention: Retention = (_item, field, writes, fields) => {
   const win = writes[writes.length - 1]!;
   if (field !== 'password') return [win];
@@ -56,5 +63,9 @@ export const schemaRetention: Retention = (_item, field, writes, fields) => {
   const keep = new Set<Entry>([win]);
   for (const e of entries) { keep.add(e.write); if (rules.retentionKeepsNeighbours) keep.add(e.next); }
   if (rules.retentionKeepsNeighbours && inForce.length >= 2) keep.add(inForce[inForce.length - 2]!);
+  // The write that divides what is hidden from what is shown: the last write before `history_hidden`. A write that arrives after the checkpoint and
+  // sorts before it must not become the divider in its place, which would show the passwords between them.
+  const hid = hiddenPlace(fields);
+  if (rules.retentionKeepsDivider && hid && inForce.length && compareKeys(inForce[0]!.key, hid) < 0) keep.add(inForce[0]!);
   return writes.filter((w) => keep.has(w));
 };

@@ -1,10 +1,14 @@
-// Vectors for the item schema (docs/format-schema.md, draft 1): vectors/schema.json. Every expectation below is written by hand from the
+// Vectors for the item schema (docs/format-schema.md, draft 3): vectors/schema.json. Every expectation below is written by hand from the
 // schema's own sentences; `Out.add` asserts that the library agrees (a disagreement means a mistake here or a bug there).
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { fromHex } from '../src/bytes.ts';
 import { cmap, type CborValue } from '../src/cbor.ts';
-import { ItemChange } from '../src/schema.ts';
+import { ItemChange, moveRecords, viewItem } from '../src/schema.ts';
+import { checkpointItems, fold } from '../src/fold.ts';
+import { gidOf } from '../src/keys.ts';
+import { KIND } from '../src/record.ts';
+import { BASE_MS, Scenario, bytesOf, itemId } from '../test/scenario.ts';
 import type { OrderKey } from '../src/record.ts';
 import { toNotation } from '../test/notation.ts';
 import { H, Out, file } from './vec-common.ts';
@@ -42,6 +46,33 @@ const bigText = (who: Who, dev: Dev, wall: number, name: string, n: number, seq 
 const cborText = (t: string) => { const u = Buffer.from(t, 'utf8'); assert(u.length < 24); return Buffer.concat([Buffer.from([0x60 | u.length]), u]); };
 const sha = (a: string, b: string) => createHash('sha256').update(Buffer.concat([Buffer.from([0x82]), cborText(a), cborText(b)])).digest('hex').slice(0, 16);
 const goneField = sha;
+/** A deterministic CBOR encoder for the notation of the vectors ({text}, {uint}, {bytes}, {array}, {map}, {bool}, {null}), written here without the
+ *  library, so that the payload hashes and lengths of the builder vectors are worked out independently of the code under test. */
+const cborHead = (major: number, n: bigint): Buffer => {
+  if (n < 24n) return Buffer.from([(major << 5) | Number(n)]);
+  if (n < 256n) return Buffer.from([(major << 5) | 24, Number(n)]);
+  if (n < 65536n) { const b = Buffer.alloc(3); b[0] = (major << 5) | 25; b.writeUInt16BE(Number(n), 1); return b; }
+  if (n < 4294967296n) { const b = Buffer.alloc(5); b[0] = (major << 5) | 26; b.writeUInt32BE(Number(n), 1); return b; }
+  const b = Buffer.alloc(9); b[0] = (major << 5) | 27; b.writeBigUInt64BE(n, 1); return b;
+};
+const enc = (n: any): Buffer => {
+  if ('text' in n) { const t = Buffer.from(n.text, 'utf8'); return Buffer.concat([cborHead(3, BigInt(t.length)), t]); }
+  if ('uint' in n) return cborHead(0, BigInt(n.uint));
+  if ('bytes' in n) { const b = Buffer.from(n.bytes, 'hex'); return Buffer.concat([cborHead(2, BigInt(b.length)), b]); }
+  if ('array' in n) return Buffer.concat([cborHead(4, BigInt(n.array.length)), ...n.array.map(enc)]);
+  if ('map' in n) {
+    const es = (n.map as [any, any][]).map(([k, v]) => [enc(k), enc(v)] as [Buffer, Buffer]).sort((a, b) => Buffer.compare(a[0], b[0]));
+    return Buffer.concat([cborHead(5, BigInt(es.length)), ...es.flatMap(([k, v]) => [k, v])]);
+  }
+  if ('bool' in n) return Buffer.from([n.bool ? 0xf5 : 0xf4]);
+  if ('null' in n) return Buffer.from([0xf6]);
+  throw new Error('unknown notation');
+};
+/** The kind 16 payload of a change, worked out by hand: {1: item, 2: set, 3: clear (sorted by encoding)}. */
+const payloadBytes = (item: string, set: J, clear: string[]): Buffer => enc({ map: [
+  [{ uint: '1' }, { bytes: item }],
+  [{ uint: '2' }, { map: Object.entries(set).map(([k, v]) => [{ text: k }, v]) }],
+  [{ uint: '3' }, { array: [...clear].sort((a, b) => Buffer.compare(enc({ text: a }), enc({ text: b }))).map((t) => ({ text: t })) }]] });
 const id = (n: number) => n.toString(16).padStart(16, '0');
 const bytes = (h: string) => fromHex(h);
 const B32 = bytes('0a'.repeat(32)), CH = bytes('0c'.repeat(32));
@@ -84,7 +115,7 @@ export function schemaVectors(): J {
     { f: 'edited', ok: 7000, bad: 'x', main: ['edited'], wantOk: { edited: 7000 }, wantBad: {}, why: 'text instead of a time (and no content field was written, so no date is shown)' },
     { f: 'source', ok: cmap([[1, 'kdbx'], [2, 'abc'], [3, bytes('0b')]]), bad: cmap([[1, 'kdbx'], [2, 'abc']]), main: [], wantOk: {}, wantBad: {}, why: 'no baseline' },
     { f: 'password_history', ok: [['old', 1]], bad: [['old']], main: ['previous'], wantOk: { previous: [{ value: 'old', replaced: 1, from: 'import' }] }, wantBad: { previous: [] }, why: 'an entry without a time' },
-    { f: 'history_hidden', ok: place(5000, 0, 'A', 1, 1), bad: [5000, 0], main: [], wantOk: {}, wantBad: {}, why: 'two numbers instead of an order key of five' },
+    { f: 'history_hidden', ok: 1, bad: 2, main: [], wantOk: {}, wantBad: {}, why: 'a number other than 1' },
     { f: 'moved', ok: cmap([[1, bytes(GID2)], [2, 1000]]), bad: cmap([[1, bytes(GID2)]]), main: ['shown', 'moved'], wantOk: { shown: false, moved: { gid: GID2, when: 1000 } }, wantBad: { shown: true }, why: 'no time' },
     { f: 'moved_from', ok: cmap([[1, bytes(GID2)], [2, 1000]]), bad: cmap([[1, bytes(GID2)]]), main: ['moved_from'], wantOk: { moved_from: { gid: GID2, when: 1000 } }, wantBad: {}, why: 'no time' },
     { f: 'deleted', ok: 9000, bad: 'x', main: ['deleted', 'deleted_at'], wantOk: { deleted: true, deleted_at: 9000 }, wantBad: { deleted: false }, why: 'text instead of a time' },
@@ -143,7 +174,9 @@ export function schemaVectors(): J {
   shape('password-history-10-entries', 'password_history: ten entries is the most.', 'password_history', Array.from({ length: 10 }, (_, n) => [`p${n}`, n]), true);
   shape('password-history-11-entries', 'password_history: eleven entries is a wrong shape (the schema says at most 10).', 'password_history', Array.from({ length: 11 }, (_, n) => [`p${n}`, n]), false);
   shape('password-history-empty', 'password_history: an empty list.', 'password_history', [], true);
-  shape('history-hidden-author-of-31-bytes', 'history_hidden: an order key whose author is not 32 bytes.', 'history_hidden', [5000, 0, bytes('aa'.repeat(31)), bytes(DEV[1]), 1], false);
+  shape('history-hidden-one', 'history_hidden: its value is 1 (draft 3); what it hides follows from the place of its own write.', 'history_hidden', 1, true);
+  shape('history-hidden-zero', 'history_hidden: 0 is not 1.', 'history_hidden', 0, false);
+  shape('history-hidden-a-place', 'history_hidden: a place in the order, as draft 2 had it, is now the wrong shape.', 'history_hidden', place(5000, 0, 'A', 1, 1), false);
   shape('web-position-empty', 'web/id: a position is never empty.', `web/${id(1)}`, cmap([[1, 'https://a'], [2, '']]), false);
   shape('web-position-uppercase', 'web/id: a position is of 0-9 and a-z.', `web/${id(1)}`, cmap([[1, 'https://a'], [2, 'A']]), false);
   shape('web-position-digits-only', 'web/id: a position of digits is fine.', `web/${id(1)}`, cmap([[1, 'https://a'], [2, '15']]), true);
@@ -193,25 +226,25 @@ export function schemaVectors(): J {
     L(['A', 1, 1000, (c) => c.rawAnyName(`web/${'a'.repeat(15)}`, cmap([[1, 'https://a'], [2, 'a']])).rawAnyName('Title', 'x').rawAnyName('k'.repeat(65), 'x')]), ['websites', 'title', 'invalid', 'carried'],
     { websites: [], invalid: ['Title', 'k'.repeat(65), `web/${'a'.repeat(15)}`].sort(), carried: ['Title', 'k'.repeat(65), `web/${'a'.repeat(15)}`].sort() });
 
+  const T = (s: string) => ({ text: s }), U = (n: number) => ({ uint: String(n) }), Bz = (h: string) => ({ bytes: h });
+  /** A builder vector whose whole expectation is written here: the set (in notation), the clear list and the hash of the payload that follows from them. */
+  const setOf = (name: string, description: string, ops: J[], set: J, extra: J = {}, clear: string[] = []) =>
+    add(`build/${name}`, description, 'schema.build', { ops, ...extra }, { set, clear, payload_sha256: createHash('sha256').update(payloadBytes(extra.item ?? '01'.repeat(16), set, clear)).digest('hex') });
+  /** The same for a vector that lists only the names and the length of the payload (a big value). */
+  const briefOf = (name: string, description: string, ops: J[], set: J, extra: J = {}, clear: string[] = []) =>
+    add(`build/${name}`, description, 'schema.build', { ops, ...extra, brief: true }, { set_names: Object.keys(set).sort(), clear, payload_length: payloadBytes(extra.item ?? '01'.repeat(16), set, clear).length });
   // writer side: names
   const build = (name: string, description: string, ops: J[], extra: J = {}) => add(`build/${name}`, description, 'schema.build', { ops, ...extra });
   const buildPart = (name: string, description: string, ops: J[], part: J, extra: J = {}) => addPart(`build/${name}`, description, 'schema.build', { ops, ...extra }, part);
   const err = (code: string) => ({ error: { code } });
   const refuse = (name: string, description: string, ops: J[], code: string, extra: J = {}) => add(`build/${name}`, description, 'schema.build', { ops, ...extra }, err(code));
-  buildPart('field-name-64-bytes-accepted', 'A writer may write a name of exactly 64 bytes.', [{ m: 'raw', a: ['k'.repeat(64), 'x'] }], { set_names: ['k'.repeat(64)] }, { brief: true });
+  briefOf('field-name-64-bytes-accepted', 'A writer may write a name of exactly 64 bytes.', [{ m: 'raw', a: ['k'.repeat(64), 'x'] }], { ['k'.repeat(64)]: T('x') });
   refuse('field-name-65-bytes-refused', 'A writer does not write a name of 65 bytes.', [{ m: 'raw', a: ['k'.repeat(65), 'x'] }], 'bad_field_name');
   refuse('field-name-uppercase-refused', 'A writer does not write an uppercase name.', [{ m: 'raw', a: ['Title', 'x'] }], 'bad_field_name');
   refuse('repeated-field-with-bad-id-refused', 'A writer does not write web/ with an id that is not 16 hexadecimal digits.', [{ m: 'website', a: ['xyz', 'a.example', 'a'] }], 'bad_field_name');
   refuse('repeated-field-id-uppercase-refused', 'A writer does not write an id with an uppercase digit.', [{ m: 'raw', a: ['t/ABCDEF0123456789', 'work'] }], 'bad_field_name');
 
   // ------------------------------------------------------------------ builders: what each produces
-  const setOf = (name: string, description: string, ops: J[], set: J, extra: J = {}, clear: string[] = []) =>
-    add(`build/${name}`, description, 'schema.build', { ops, ...extra }, undefined) && (() => {
-      const v = o.list[o.list.length - 1]!;
-      assert.deepEqual(v.expected.set, set, `${name}: set`);
-      assert.deepEqual(v.expected.clear, clear, `${name}: clear`);
-    })();
-  const T = (s: string) => ({ text: s }), U = (n: number) => ({ uint: String(n) }), Bz = (h: string) => ({ bytes: h });
   setOf('title-is-normalised', 'A title is normalised to NFC before it is written ("e" and a combining acute become one letter).', [{ m: 'title', a: ['é'] }], { title: T('é') });
   setOf('password-is-not-normalised-or-trimmed', 'A secret is written exactly as typed: not normalised, not trimmed.', [{ m: 'password', a: [' é '] }], { password_over: { null: true }, password: T(' é ') });
   const PLACE = { array: [U(1000), U(0), Bz('aa'.repeat(32)), Bz('11'.repeat(16)), U(1)] };
@@ -236,38 +269,51 @@ export function schemaVectors(): J {
     { password_history: { array: [{ array: [T('old'), U(5)] }, { array: [T('older'), U(3)] }] } });
   setOf('moved', 'moved: the group it went to and the time.', [{ m: 'moved', a: [Bz(GID2), 1000] }], { moved: { map: [[U(1), Bz(GID2)], [U(2), U(1000)]] } });
   setOf('deleted', 'deleted is a time.', [{ m: 'deleted', a: [1000] }], { deleted: U(1000) });
+  setOf('clear-previous-passwords', 'Clear Previous Passwords (draft 3): history_hidden is 1 and password_history is cleared. The value carries no place: what is hidden follows from where this write stands in the order.', [{ m: 'clearPreviousPasswords' }],
+    { history_hidden: U(1) }, { changes: L(['A', 1, 1000, (c) => c.password('p1')]) }, ['password_history']);
+  add('build/clear-previous-passwords-without-a-password-refused', 'There is nothing to clear on an item with no current write of password.', 'schema.build', { ops: [{ m: 'clearPreviousPasswords' }], changes: L(['A', 1, 1000, (c) => c.title('x')]) }, { error: { code: 'no_password' } });
+  setOf('history-hidden', 'history_hidden is written as 1.', [{ m: 'historyHidden' }], { history_hidden: U(1) });
   setOf('website-gets-a-scheme', 'A website typed without a scheme is written with https://.', [{ m: 'website', a: [id(1), 'example.com', 'a'] }], { [`web/${id(1)}`]: { map: [[U(1), T('https://example.com')], [U(2), T('a')]] } });
   setOf('website-keeps-its-scheme', 'A website with a scheme is written as typed.', [{ m: 'website', a: [id(1), 'ftp://example.com', 'a'] }], { [`web/${id(1)}`]: { map: [[U(1), T('ftp://example.com')], [U(2), T('a')]] } });
+  setOf('website-with-a-port-gets-a-scheme', 'A website typed as localhost:3000 contains no "://", so https:// is put in front (draft 3; draft 2 would have read "localhost:" as a scheme).', [{ m: 'website', a: [id(1), 'localhost:3000', 'a'] }], { [`web/${id(1)}`]: { map: [[U(1), T('https://localhost:3000')], [U(2), T('a')]] } });
+  setOf('website-with-a-scheme-later-in-the-text-is-kept', 'An address that contains "://" anywhere is written as typed, even when it does not start with a scheme (the schema says "does not contain").', [{ m: 'website', a: [id(1), 'example.com/go?to=http://other.example', 'a'] }], { [`web/${id(1)}`]: { map: [[U(1), T('example.com/go?to=http://other.example')], [U(2), T('a')]] } });
   setOf('custom-field', 'A custom field is one value: label, value, concealed and position together. The label is normalised, the value is not.', [{ m: 'customField', a: [id(2), 'é', ' v ', true, 'b'] }],
     { [`f/${id(2)}`]: { map: [[U(1), T('é')], [U(2), T(' v ')], [U(3), { bool: true }], [U(4), T('b')]] } });
   setOf('attachment', 'An attachment: file name, the attachment map of specification 5.2, position, time added.', [{ m: 'attachment', a: [id(3), 'f.txt', { map: [[U(1), Bz('0a'.repeat(32))], [U(2), U(5)], [U(3), { array: [Bz('0c'.repeat(32))] }]] }, 'c', 99] }],
     { [`a/${id(3)}`]: { map: [[U(1), T('f.txt')], [U(2), { map: [[U(1), Bz('0a'.repeat(32))], [U(2), U(5)], [U(3), { array: [Bz('0c'.repeat(32))] }]] }], [U(3), T('c')], [U(4), U(99)]] } });
+  setOf('attachment-file-name-is-normalised', 'A file name is normalised to NFC before it is written (e and a combining acute become one letter); the attachment map is not touched.', [{ m: 'attachment', a: [id(3), 'e\u0301.txt', { map: [[U(1), Bz('0a'.repeat(32))], [U(2), U(5)], [U(3), { array: [Bz('0c'.repeat(32))] }]] }, 'c', 99] }],
+    { [`a/${id(3)}`]: { map: [[U(1), T('\u00e9.txt')], [U(2), { map: [[U(1), Bz('0a'.repeat(32))], [U(2), U(5)], [U(3), { array: [Bz('0c'.repeat(32))] }]] }], [U(3), T('c')], [U(4), U(99)]] } });
   setOf('tag-is-normalised', 'A tag is text, normalised to NFC.', [{ m: 'tag', a: [id(4), 'é'] }], { [`t/${id(4)}`]: T('é') });
+  const tagsHeld = L(['A', 1, 1000, (c) => c.tag(id(1), 'work').tag(id(2), 'work').tag(id(3), 'home')]);
+  setOf('remove-tag-clears-every-field-that-holds-its-text', 'Removing a tag by its text clears every field the device holds with that text (here two) and no other.', [{ m: 'removeTag', a: ['work'] }], {}, { changes: tagsHeld }, [`t/${id(1)}`, `t/${id(2)}`]);
+  setOf('remove-tag-compares-as-nfc', 'The text to remove is normalised to NFC first: the tag was written as \u00e9 and is removed by e and a combining acute.', [{ m: 'removeTag', a: ['e\u0301'] }], {}, { changes: L(['A', 1, 1000, (c) => c.tag(id(1), '\u00e9')]) }, [`t/${id(1)}`]);
+  setOf('remove-tag-that-is-not-there-changes-nothing', 'Removing a tag the item does not hold writes nothing.', [{ m: 'removeTag', a: ['absent'] }], {}, { changes: tagsHeld }, []);
   setOf('removing-a-field-is-clearing-it', 'Removing a field is a clear, not a set, and a field is never in both.', [{ m: 'title', a: ['x'] }, { m: 'remove', a: ['title'] }, { m: 'remove', a: ['notes'] }, { m: 'notes', a: ['n'] }],
     { notes: T('n') }, {}, ['title']);
   setOf('clear-list-is-sorted', 'The clear list is in order, so that the payload is one byte string for one change.', [{ m: 'remove', a: ['title'] }, { m: 'remove', a: ['notes'] }, { m: 'remove', a: ['a_field'] }], {}, {}, ['a_field', 'notes', 'title']);
   setOf('group-name', 'Settings item: name is text, normalised to NFC.', [{ m: 'groupName', a: ['Famıly'] }], { name: T('Famıly') }, { item: '00'.repeat(16) });
   setOf('gone', 'Settings item: gone/id with the hash as its id.', [{ m: 'gone', a: ['kdbx', 'abc', 1000] }], { [`gone/${sha('kdbx', 'abc')}`]: { map: [[U(1), T('kdbx')], [U(2), T('abc')], [U(3), U(1000)]] } }, { item: '00'.repeat(16) });
-  build('payload-is-sorted-and-deterministic', 'The payload of one change: the same writes in another order give the same bytes (hash listed).', [{ m: 'notes', a: ['n'] }, { m: 'title', a: ['t'] }]);
+  setOf('payload-is-sorted-and-deterministic', 'The payload of one change: the same writes in another order give the same bytes (hash listed).', [{ m: 'notes', a: ['n'] }, { m: 'title', a: ['t'] }], { notes: T('n'), title: T('t') });
 
   // size limits, writer side (schema 1)
-  buildPart('title-65536-bytes-accepted', 'A text of exactly 65,536 bytes is accepted by a writer.', [{ m: 'title', a: [{ text_repeat: ['a', 65_536] }] }], { set_names: ['title'] }, { brief: true });
+  briefOf('title-65536-bytes-accepted', 'A text of exactly 65,536 bytes is accepted by a writer.', [{ m: 'title', a: [{ text_repeat: ['a', 65_536] }] }], { title: T('a'.repeat(65_536)) });
   refuse('title-65537-bytes-refused', 'A text of 65,537 bytes is not written.', [{ m: 'title', a: [{ text_repeat: ['a', 65_537] }] }], 'text_too_long');
-  buildPart('notes-262144-bytes-accepted', 'Notes of exactly 262,144 bytes are accepted by a writer.', [{ m: 'notes', a: [{ text_repeat: ['a', 262_144] }] }], { set_names: ['notes'] }, { brief: true });
+  briefOf('notes-262144-bytes-accepted', 'Notes of exactly 262,144 bytes are accepted by a writer.', [{ m: 'notes', a: [{ text_repeat: ['a', 262_144] }] }], { notes: T('a'.repeat(262_144)) });
   refuse('notes-262145-bytes-refused', 'Notes of 262,145 bytes are not written.', [{ m: 'notes', a: [{ text_repeat: ['a', 262_145] }] }], 'notes_too_long');
-  buildPart('notes-longer-than-text-limit-accepted', 'Notes may be longer than the limit for other texts.', [{ m: 'notes', a: [{ text_repeat: ['a', 65_537] }] }], { set_names: ['notes'] }, { brief: true });
+  briefOf('notes-longer-than-text-limit-accepted', 'Notes may be longer than the limit for other texts.', [{ m: 'notes', a: [{ text_repeat: ['a', 65_537] }] }], { notes: T('a'.repeat(65_537)) });
   refuse('title-multibyte-counts-bytes-not-characters', 'The limit counts bytes: 32,769 two-byte characters are 65,538 bytes.', [{ m: 'title', a: [{ text_repeat: ['é', 32_769] }] }], 'text_too_long');
-  const counts = (kind: string, op: (n: number) => J, limit: number, plural: string, code: string) => {
-    buildPart(`${plural}-last-allowed-accepted`, `With ${limit - 1} ${plural} the ${limit}th is accepted.`, [op(1)], { clear: [] }, { existing: { [kind]: limit - 1 }, brief: true });
-    refuse(`${plural}-one-over-refused`, `With ${limit} ${plural} one more is refused (${code}).`, [op(2)], code, { existing: { [kind]: limit } });
+  const counts = (kind: string, op: (n: number) => J, want: (n: number) => J, limit: number, plural: string, code: string) => {
+    briefOf(`${plural}-last-allowed-accepted`, `With ${limit - 1} ${plural} the ${limit}th is accepted.`, [op(1)], want(1), { existing: { [kind]: limit - 1 } });
+  refuse(`${plural}-one-over-refused`, `With ${limit} ${plural} one more is refused (${code}).`, [op(2)], code, { existing: { [kind]: limit } });
   };
-  counts('websites', (n) => ({ m: 'website', a: [id(n + 100), 'a.example', 'a'] }), limit('websites'), 'websites', 'too_many_websites');
-  counts('customFields', (n) => ({ m: 'customField', a: [id(n + 100), 'L', 'V', false, 'a'] }), limit('customFields'), 'custom-fields', 'too_many_custom_fields');
-  counts('attachments', (n) => ({ m: 'attachment', a: [id(n + 100), 'f', { map: [[U(1), Bz('0a'.repeat(32))], [U(2), U(1)], [U(3), { array: [] }]] }, 'a', 1] }), limit('attachments'), 'attachments', 'too_many_attachments');
-  counts('tags', (n) => ({ m: 'tag', a: [id(n + 100), 'work'] }), limit('tags'), 'tags', 'too_many_tags');
+  counts('websites', (n) => ({ m: 'website', a: [id(n + 100), 'a.example', 'a'] }), (n) => ({ [`web/${id(n + 100)}`]: { map: [[U(1), T('https://a.example')], [U(2), T('a')]] } }), limit('websites'), 'websites', 'too_many_websites');
+  counts('customFields', (n) => ({ m: 'customField', a: [id(n + 100), 'L', 'V', false, 'a'] }), (n) => ({ [`f/${id(n + 100)}`]: { map: [[U(1), T('L')], [U(2), T('V')], [U(3), { bool: false }], [U(4), T('a')]] } }), limit('customFields'), 'custom-fields', 'too_many_custom_fields');
+  const attMap = { map: [[U(1), Bz('0a'.repeat(32))], [U(2), U(1)], [U(3), { array: [] }]] };
+  counts('attachments', (n) => ({ m: 'attachment', a: [id(n + 100), 'f', attMap, 'a', 1] }), (n) => ({ [`a/${id(n + 100)}`]: { map: [[U(1), T('f')], [U(2), attMap], [U(3), T('a')], [U(4), U(1)]] } }), limit('attachments'), 'attachments', 'too_many_attachments');
+  counts('tags', (n) => ({ m: 'tag', a: [id(n + 100), 'work'] }), (n) => ({ [`t/${id(n + 100)}`]: T('work') }), limit('tags'), 'tags', 'too_many_tags');
   function limit(k: string) { return ({ websites: 64, customFields: 128, attachments: 64, tags: 64 } as Record<string, number>)[k]!; }
-  buildPart('website-edit-at-the-limit-accepted', 'Changing a website that already exists is not adding one: allowed at 64.', [{ m: 'website', a: [id(1), 'b.example', 'a'] }], { set_names: [`web/${id(1)}`] },
-    { brief: true, changes: L(...Array.from({ length: 64 }, (_, n) => ['A', 1, 1000 + n, (c: ItemChange) => c.website(id(n + 1), 'a.example', 'a')] as Spec)) });
+  briefOf('website-edit-at-the-limit-accepted', 'Changing a website that already exists is not adding one: allowed at 64.', [{ m: 'website', a: [id(1), 'b.example', 'a'] }], { [`web/${id(1)}`]: { map: [[U(1), T('https://b.example')], [U(2), T('a')]] } },
+    { changes: L(...Array.from({ length: 64 }, (_, n) => ['A', 1, 1000 + n, (c: ItemChange) => c.website(id(n + 1), 'a.example', 'a')] as Spec)) });
 
   // ------------------------------------------------------------------ positions
   const pos = (name: string, description: string, input: J, expected: J) => add(`position/${name}`, description, 'schema.position', input, expected);
@@ -314,6 +360,10 @@ export function schemaVectors(): J {
     L(['A', 1, 1000, (c) => c.tag(id(1), 'work')], ['A', 1, 2000, (c) => c.remove(`t/${id(1)}`)], ['B', 2, 1500, (c) => c.tag(id(2), 'work')]), ['tags'], { tags: ['work'] });
   view('tag/order-is-bytewise-by-text', 'Tags have no position: they are shown in order of their text, bytewise (the schema says nothing).',
     L(['A', 1, 1000, (c) => c.tag(id(1), 'b').tag(id(2), 'a').tag(id(3), 'B')]), ['tags'], { tags: ['B', 'a', 'b'] });
+  view('tag/order-is-utf8-a-character-above-ffff-after-one-in-e000-to-ffff', 'Tags are ordered bytewise as UTF-8 (draft 3). U+E000 is EE 80 80 and U+10000 is F0 90 80 80, so the one above U+FFFF comes last; in JavaScript string order (UTF-16) U+10000 is the surrogate pair D800 DC00 and would come first.',
+    L(['A', 1, 1000, (c) => c.tag(id(1), 'a\u{10000}').tag(id(2), 'a\uE000')]), ['tags'], { tags: ['a\uE000', 'a\u{10000}'] });
+  view('tag/order-is-utf8-three-characters', 'The same with U+FFFF (EF BF BF) between them, and plain ASCII before all: ASCII, U+E000, U+FFFF, U+10000.',
+    L(['A', 1, 1000, (c) => c.tag(id(1), '\u{10000}').tag(id(2), '\uFFFF').tag(id(3), '\uE000').tag(id(4), 'z')]), ['tags'], { tags: ['z', '\uE000', '\uFFFF', '\u{10000}'] });
   view('field/f/label-and-value-change-on-two-devices-one-unit', 'A custom field is one value. One device changes its label and another, later, changes its value: the later write is the whole field and the label change is lost.',
     L(['A', 1, 1000, (c) => c.customField(id(1), 'PIN', '1111', true, 'a')], ['A', 1, 2000, (c) => c.customField(id(1), 'Door PIN', '1111', true, 'a')], ['B', 2, 3000, (c) => c.customField(id(1), 'PIN', '2222', true, 'a')]), ['custom_fields'],
     { custom_fields: [{ field: `f/${id(1)}`, label: 'PIN', value: '2222', concealed: true }] });
@@ -327,11 +377,9 @@ export function schemaVectors(): J {
   const cardOld = (c: ItemChange) => c.type(2).title('Visa').cardholder('A Person').card({ number: '4111111111111111', year: 2025, month: 1 }).cardCode('123').cardPin('4321');
   const cardNew = (c: ItemChange) => c.card({ number: '5500000000000004', year: 2029, month: 6 }).cardCode('987');
   const reissued = L(['A', 1, 1000, cardOld], ['A', 1, 2000, cardNew]);
-  const v = add('card/reissued-new-number-and-code', 'A reissued card: the number, expiry and code are written again. The old number is not shown anywhere, and a checkpoint carries one write of card and none of the old (only password keeps history).', 'schema.view',
-    { changes: reissued, show: ['card', 'card_code', 'card_pin', 'cardholder', 'previous'], checkpoints: [{ include: [0, 1] }], runs: [{ changes: [0, 1], checkpoints: [] }, { changes: [], checkpoints: [0] }] });
-  assert.deepEqual(v.expected.views[0], { card: { number: '5500000000000004', year: 2029, month: 6 }, card_code: '987', card_pin: '4321', cardholder: 'A Person', previous: [] });
-  assert.deepEqual(v.expected.views[1], v.expected.views[0]);
-  assert.equal(v.expected.carries[0].card, 1); assert.equal(v.expected.carries[0].card_code, 1);
+  add('card/reissued-new-number-and-code', 'A reissued card: the number, expiry and code are written again. The old number is not shown anywhere, and a checkpoint carries one write of card and none of the old (only password keeps history).', 'schema.view',
+    { changes: reissued, show: ['card', 'card_code', 'card_pin', 'cardholder', 'previous'], checkpoints: [{ include: [0, 1] }], runs: [{ changes: [0, 1], checkpoints: [] }, { changes: [], checkpoints: [0] }] },
+    (() => { const w = { card: { number: '5500000000000004', year: 2029, month: 6 }, card_code: '987', card_pin: '4321', cardholder: 'A Person', previous: [] }; return { views: [w, w], carries: [{ card: 1, card_code: 1, card_pin: 1, cardholder: 1, title: 1, type: 1 }] }; })());
   view('card/reissued-code-cleared', 'A reissued card with no printed code: the code is cleared.', L(['A', 1, 1000, cardOld], ['A', 1, 2000, (c) => c.card({ number: '5500000000000004' }).remove('card_code')]), ['card', 'card_code'],
     { card: { number: '5500000000000004' } });
 
@@ -346,13 +394,12 @@ export function schemaVectors(): J {
   const expectTen = prevList(11, 2);
   view('password/twelve-changes-show-ten', 'Thirteen writes of password (twelve changes): the current one is p12, and the ten newest earlier ones are shown newest first, each dated by the write that replaced it. p1 and p0 are not shown. Each change names the write it replaced, so there is no note.',
     twelve, ['password', 'previous', 'password_note'], { password: 'p12', previous: expectTen });
-  const w = add('password/checkpoint-keeps-ten-earlier-writes', 'A checkpoint of those thirteen writes carries the winner and the writes the first ten entries need: here the ten entries themselves (11 writes with the winner). A reader of the checkpoint alone shows the same ten previous passwords as a reader of every record.', 'schema.view',
-    { changes: twelve, show: ['password', 'previous', 'password_note'], checkpoints: [{ include: all(13) }], runs: [{ changes: all(13), checkpoints: [] }, { changes: [], checkpoints: [0] }] });
-  assert.deepEqual(w.expected.carries, [{ password: 11, password_over: 1 }]);
-  assert.deepEqual(w.expected.views, [{ password: 'p12', previous: expectTen }, { password: 'p12', previous: expectTen }]);
-  const w2 = add('password/checkpoint-then-two-more-changes', 'A checkpoint of the first thirteen writes and then two more records: the view is the one of all fifteen records (ten newest previous: p13 down to p4).', 'schema.view',
-    { changes: L(...chain(15)), show: ['password', 'previous', 'password_note'], checkpoints: [{ include: all(13) }], runs: [{ changes: all(15), checkpoints: [] }, { changes: [13, 14], checkpoints: [0] }] });
-  assert.deepEqual(w2.expected.views, [{ password: 'p14', previous: prevList(13, 4) }, { password: 'p14', previous: prevList(13, 4) }]);
+  add('password/checkpoint-keeps-ten-earlier-writes', 'A checkpoint of those thirteen writes carries the winner and the writes the first ten entries need: here the ten entries themselves (11 writes with the winner). A reader of the checkpoint alone shows the same ten previous passwords as a reader of every record.', 'schema.view',
+    { changes: twelve, show: ['password', 'previous', 'password_note'], checkpoints: [{ include: all(13) }], runs: [{ changes: all(13), checkpoints: [] }, { changes: [], checkpoints: [0] }] },
+    { views: [{ password: 'p12', previous: expectTen }, { password: 'p12', previous: expectTen }], carries: [{ password: 11, password_over: 1 }] });
+  add('password/checkpoint-then-two-more-changes', 'A checkpoint of the first thirteen writes and then two more records: the view is the one of all fifteen records (ten newest previous: p13 down to p4).', 'schema.view',
+    { changes: L(...chain(15)), show: ['password', 'previous', 'password_note'], checkpoints: [{ include: all(13) }], runs: [{ changes: all(15), checkpoints: [] }, { changes: [13, 14], checkpoints: [0] }] },
+    { views: [{ password: 'p14', previous: prevList(13, 4) }, { password: 'p14', previous: prevList(13, 4) }], carries: [{ password: 11, password_over: 1 }] });
   view('password/previous-must-differ', 'The same password written again is not a previous password: p1, p1, p2 shows p1 once: the first write is followed by the same value and is not an entry; the second is, and is dated by the write that replaced it (3000).',
     L(['A', 1, 1000, pwc('p1', null)], ['A', 1, 2000, pwc('p1')], ['A', 1, 3000, pwc('p2')]), ['password', 'previous'], { password: 'p2', previous: [{ value: 'p1', replaced: 3000, from: 'writes' }] });
   view('password/entry-equal-to-a-newer-entry-is-left-out', 'p1, p2, p1, p3: the oldest p1 equals a newer entry and is left out; newest first the list is p1 (replaced at 4000) and p2 (replaced at 3000).',
@@ -363,11 +410,10 @@ export function schemaVectors(): J {
     { password: 'p1', previous: [{ value: 'p2', replaced: 3000, from: 'writes' }] });
   view('password/cleared-write-is-not-an-entry', 'A cleared password in between is not an entry; the write before it is dated by the clear that replaced it (2000), and there is no note: the second change names the clear as the write it replaced.',
     L(['A', 1, 1000, pwc('p1', null)], ['A', 1, 2000, (c) => c.remove('password')], ['A', 1, 3000, pwc('p2')]), ['password', 'previous', 'password_note'], { password: 'p2', previous: [{ value: 'p1', replaced: 2000, from: 'writes' }] });
-  const cl = add('password/checkpoint-keeps-the-write-that-dates-an-entry', 'The same, through a checkpoint: it carries the cleared write too (it dates p1 and is the write the winner replaced), so the list and the absence of a note do not change.', 'schema.view',
+  add('password/checkpoint-keeps-the-write-that-dates-an-entry', 'The same, through a checkpoint: it carries the cleared write too (it dates p1 and is the write the winner replaced), so the list and the absence of a note do not change.', 'schema.view',
     { changes: L(['A', 1, 1000, pwc('p1', null)], ['A', 1, 2000, (c) => c.remove('password')], ['A', 1, 3000, pwc('p2')]), show: ['password', 'previous', 'password_note'], checkpoints: [{ include: [0, 1, 2] }],
-      runs: [{ changes: [], checkpoints: [0] }, { changes: [0, 1, 2], checkpoints: [] }] });
-  assert.deepEqual(cl.expected.views[0], { password: 'p2', previous: [{ value: 'p1', replaced: 2000, from: 'writes' }] }); assert.deepEqual(cl.expected.views[1], cl.expected.views[0]);
-  assert.deepEqual(cl.expected.carries, [{ password: 3, password_over: 1 }]);
+      runs: [{ changes: [], checkpoints: [0] }, { changes: [0, 1, 2], checkpoints: [] }] },
+    (() => { const w = { password: 'p2', previous: [{ value: 'p1', replaced: 2000, from: 'writes' }] }; return { views: [w, w], carries: [{ password: 3, password_over: 1 }] }; })());
   view('password/history-from-an-import-follows-the-writes', 'password_history (from an import) follows the entries from writes.',
     L(['A', 1, 1000, (c) => c.passwordHistory([['imp2', 700], ['imp1', 500]]).password('p1')], ['A', 1, 2000, pwc('p2')]), ['password', 'previous'],
     { password: 'p2', previous: [{ value: 'p1', replaced: 2000, from: 'writes' }, { value: 'imp2', replaced: 700, from: 'import' }, { value: 'imp1', replaced: 500, from: 'import' }] });
@@ -377,13 +423,13 @@ export function schemaVectors(): J {
   view('password/import-history-and-writes-limited-to-ten', 'Eight entries from writes and four entries of password_history: ten are shown, the writes first, then two from the import.',
     L(['A', 1, 500, (c) => c.passwordHistory([['i4', 4], ['i3', 3], ['i2', 2], ['i1', 1]])], ...Array.from({ length: 9 }, (_, k) => ['A', 1, 1000 * (k + 1), pwc(`p${k}`, k === 0 ? null : 1)] as Spec)), ['previous'],
     { previous: [...Array.from({ length: 8 }, (_, n) => ({ value: `p${7 - n}`, replaced: 1000 * (7 - n + 2), from: 'writes' })), { value: 'i4', replaced: 4, from: 'import' }, { value: 'i3', replaced: 3, from: 'import' }] });
-  // Clear Previous Passwords: history_hidden = place of the current winning write of password (spec 2), password_history cleared (spec 4).
+  // Clear Previous Passwords (draft 3): history_hidden = 1, whose own place says what is hidden; password_history cleared.
   const base3: Spec[] = [['A', 1, 1000, pwc('p1', null)], ['A', 1, 2000, pwc('p2')], ['A', 1, 3000, pwc('p3')], ['A', 1, 4000, (c) => c.passwordHistory([['imp', 5]])]];
   view('password/shown-before-clearing', 'Three writes and an imported entry: the control for the next vector.', L(...base3), ['previous'],
     { previous: [{ value: 'p2', replaced: 3000, from: 'writes' }, { value: 'p1', replaced: 2000, from: 'writes' }, { value: 'imp', replaced: 5, from: 'import' }] });
-  const clearSpec: Spec = ['A', 1, 5000, (c, at) => c.historyHidden(at(2)).remove('password_history')];
+  const clearSpec: Spec = ['A', 1, 5000, (c) => c.historyHidden().remove('password_history')];
   const cleared = L(...base3, clearSpec);
-  view('password/after-clear-previous-passwords', 'Clear Previous Passwords sets history_hidden to the place of the current winning write of password (p3) and clears password_history: writes before that place are left out, and the current password is not, so nothing is listed. The earlier writes are still in the records.',
+  view('password/after-clear-previous-passwords', 'Clear Previous Passwords sets history_hidden (1) and clears password_history. Of the writes of password before the clearing record, all but the last (p3) are left out, and p3 is the current password, so nothing is listed. The earlier writes are still in the records.',
     cleared, ['password', 'previous'], { password: 'p3', previous: [] });
   const afterChange: Spec[] = [...base3, clearSpec, ['A', 1, 6000, (c, at) => c.password('p4', at(2))]];
   view('password/change-after-clear-shows-the-current-one-of-the-time', 'A change after clearing: the password that was current when the history was cleared is now replaced and is listed (draft 2); the ones before it stay hidden.',
@@ -391,12 +437,32 @@ export function schemaVectors(): J {
   const afterTwo: Spec[] = [...afterChange, ['A', 1, 7000, (c, at) => c.password('p5', at(5))]];
   view('password/second-change-after-clear', 'A second change after clearing: p4 and p3 are listed, p2 and p1 are not.', L(...afterTwo), ['password', 'previous'],
     { password: 'p5', previous: [{ value: 'p4', replaced: 7000, from: 'writes' }, { value: 'p3', replaced: 6000, from: 'writes' }] });
-  const w3 = add('password/checkpoint-after-clear-no-longer-carries-hidden-writes', 'A checkpoint written after Clear Previous Passwords carries only the writes in force: p5, p4 and p3. The earlier writes leave storage with the records the checkpoint covers; the view does not change.', 'schema.view',
-    { changes: L(...afterTwo), show: ['password', 'previous', 'password_note'], checkpoints: [{ include: all(afterTwo.length) }], runs: [{ changes: [], checkpoints: [0] }, { changes: all(afterTwo.length), checkpoints: [] }] });
-  assert.deepEqual(w3.expected.carries, [{ password: 3, password_over: 1, password_history: 1, history_hidden: 1 }]);
-  assert.deepEqual(w3.expected.views[0], w3.expected.views[1]);
+  add('password/checkpoint-after-clear-no-longer-carries-hidden-writes', 'A checkpoint written after Clear Previous Passwords carries only the writes in force: p5, p4 and p3. The earlier writes leave storage with the records the checkpoint covers; the view does not change.', 'schema.view',
+    { changes: L(...afterTwo), show: ['password', 'previous', 'password_note'], checkpoints: [{ include: all(afterTwo.length) }], runs: [{ changes: [], checkpoints: [0] }, { changes: all(afterTwo.length), checkpoints: [] }] },
+    (() => { const w = { password: 'p5', previous: [{ value: 'p4', replaced: 7000, from: 'writes' }, { value: 'p3', replaced: 6000, from: 'writes' }] }; return { views: [w, w], carries: [{ password: 3, password_over: 1, password_history: 1, history_hidden: 1 }] }; })());
   view('password/restore-after-clear', 'Restoring a hidden password writes it again after the place: it is current, and the one it replaces (p3) is listed.',
     L(...base3, clearSpec, ['A', 1, 6000, (c, at) => c.restorePassword('p1', at(2))]), ['password', 'previous', 'password_note'], { password: 'p1', previous: [{ value: 'p3', replaced: 6000, from: 'writes' }] });
+  // draft 3: what a clearing hides follows from its own place in the order, so a clearing that is later never hides less than an earlier one
+  const three: Spec[] = [['A', 1, 1000, pwc('p1', null)], ['A', 1, 2000, pwc('p2')], ['A', 1, 3000, pwc('p3')]];
+  const clearA: Spec = ['A', 1, 5000, (c) => c.historyHidden().remove('password_history')];
+  view('password/stale-device-clears-later-and-hides-the-same', 'Device A clears after seeing p3. Device B had not yet seen p3 and clears later by the clock. Draft 2 kept a place in the value and the older place brought p2 back; now the later clearing hides all but the last write before it, which is p3, and nothing comes back.',
+    L(...three, clearA, ['B', 2, 6000, (c) => c.historyHidden()]), ['password', 'previous'], { password: 'p3', previous: [] });
+  view('password/earlier-clearing-arriving-late-changes-nothing', 'A clearing that is earlier in the order than the winning one (here by a device that arrives last) is not the winner: the same view as with the later one alone.',
+    L(...three, clearA, ['B', 2, 2500, (c) => c.historyHidden()]), ['password', 'previous'], { password: 'p3', previous: [] });
+  view('password/later-clearing-also-hides-what-came-after-the-first', 'A cleared, then changed the password to p4, then B (later by the clock) cleared: B\'s clearing is the winner, so only p4, the last write before it, remains and p3 is hidden too.',
+    L(...three, clearA, ['A', 1, 5500, (c, at) => c.password('p4', at(2))], ['B', 2, 6000, (c) => c.historyHidden()]), ['password', 'previous'], { password: 'p4', previous: [] });
+  view('password/clearing-in-the-middle-of-the-writes', 'A clearing whose place is between p3 and a later p4: p3 is the last write before it and is kept, so p3 is listed once p4 replaced it; p1 and p2 are hidden.',
+    L(...three, ['A', 1, 5000, (c, at) => c.password('p4', at(2))], ['B', 2, 4000, (c) => c.historyHidden()]), ['password', 'previous'], { password: 'p4', previous: [{ value: 'p3', replaced: 5000, from: 'writes' }] });
+  const late = add('password/clearing-arriving-after-a-checkpoint-hides-the-same', 'A checkpoint of p1 to p4, then a clearing that sits between p3 and p4 arrives from a device that was offline: the view is the same as folding every record, and the checkpoint alone (without the clearing) still lists p3, p2 and p1.', 'schema.view',
+    { changes: L(...three, ['A', 1, 5000, (c, at) => c.password('p4', at(2))], ['B', 2, 4000, (c) => c.historyHidden()]), show: ['password', 'previous'], checkpoints: [{ include: [0, 1, 2, 3] }],
+      runs: [{ changes: [0, 1, 2, 3, 4], checkpoints: [] }, { changes: [4], checkpoints: [0] }, { changes: [], checkpoints: [0] }] },
+    { views: [
+      { password: 'p4', previous: [{ value: 'p3', replaced: 5000, from: 'writes' }] },
+      { password: 'p4', previous: [{ value: 'p3', replaced: 5000, from: 'writes' }] },
+      { password: 'p4', previous: [{ value: 'p3', replaced: 5000, from: 'writes' }, { value: 'p2', replaced: 3000, from: 'writes' }, { value: 'p1', replaced: 2000, from: 'writes' }] }],
+      carries: [{ password: 4, password_over: 1 }] });
+  view('password/history-hidden-of-the-wrong-shape-counts-as-cleared', 'A later write of history_hidden whose value is not 1 is the winner and is treated as cleared (schema 1): nothing is hidden and p2 and p1 are listed again. No writer produces this; it is the one way a clearing is undone.',
+    L(...three, clearA, ['B', 2, 6000, (c) => c.raw('history_hidden', 2)]), ['password', 'previous', 'invalid'], { password: 'p3', previous: [{ value: 'p2', replaced: 3000, from: 'writes' }, { value: 'p1', replaced: 2000, from: 'writes' }], invalid: ['history_hidden'] });
   // the note
   const two = (more: Spec[] = []) => L(['A', 1, 1000, pwc('base', null)], ['A', 1, 2000, pwc('from-a', 1)], ['B', 2, 2500, (c, at) => c.password('from-b', at(0))], ...more);
   view('password/two-devices-from-the-same-base-note', 'Two devices change the password from the same base: the later write wins and the other is the newest previous password. The winner names the base as the write it replaced, but the write just before it in the order is the other change: the note.',
@@ -416,16 +482,21 @@ export function schemaVectors(): J {
     L(['A', 1, 1000, pwc('base', null)], ['B', 2, 2000, (c) => c.raw('password', 'x').raw('password_over', 5)]), ['password', 'password_note', 'invalid'], { password: 'x', invalid: ['password_over'] });
   view('password/two-devices-note-after-a-cleared-write-needs-the-clear', 'base, a clear, then a change that names the clear: no note (the write just before the winner is the clear).',
     L(['A', 1, 1000, pwc('base', null)], ['A', 1, 2000, (c) => c.remove('password')], ['A', 1, 3000, pwc('p2')]), ['password_note'], {});
-  const wn = add('password/two-devices-note-through-a-checkpoint', 'The two-devices case, and the sequential case, through a checkpoint alone and through a checkpoint and the records after it: the same note or none. A checkpoint keeps password_over (the winner of every field) and the write just before the winner.', 'schema.view',
-    { changes: two([['A', 1, 3000, (c, at) => c.password('merged', at(2))]]), show: ['password', 'previous', 'password_note'], checkpoints: [{ include: [0, 1, 2] }],
-      runs: [{ changes: [0, 1, 2], checkpoints: [] }, { changes: [], checkpoints: [0] }, { changes: [3], checkpoints: [0] }, { changes: [0, 1, 2, 3], checkpoints: [] }] });
   const noteView = { password: 'from-b', previous: [{ value: 'from-a', replaced: 2500, from: 'writes' }, { value: 'base', replaced: 2000, from: 'writes' }], password_note: 'changed_on_two_devices' };
   const mergedView = { password: 'merged', previous: [{ value: 'from-b', replaced: 3000, from: 'writes' }, { value: 'from-a', replaced: 2500, from: 'writes' }, { value: 'base', replaced: 2000, from: 'writes' }] };
-  assert.deepEqual(wn.expected.views, [noteView, noteView, mergedView, mergedView]);
-  const wq = add('password/sequential-note-through-a-checkpoint-with-a-write-before-the-winner-that-is-no-entry', 'p1, then p2 three times in a row, each naming the one before: the write just before the winner is not an entry (it repeats the winner) and dates no entry, yet a checkpoint keeps it, so there is still no note.', 'schema.view',
+  add('password/two-devices-note-through-a-checkpoint', 'The two-devices case, and the sequential case, through a checkpoint alone and through a checkpoint and the records after it: the same note or none. A checkpoint keeps password_over (the winner of every field) and the write just before the winner.', 'schema.view',
+    { changes: two([['A', 1, 3000, (c, at) => c.password('merged', at(2))]]), show: ['password', 'previous', 'password_note'], checkpoints: [{ include: [0, 1, 2] }],
+      runs: [{ changes: [0, 1, 2], checkpoints: [] }, { changes: [], checkpoints: [0] }, { changes: [3], checkpoints: [0] }, { changes: [0, 1, 2, 3], checkpoints: [] }] },
+    { views: [noteView, noteView, mergedView, mergedView], carries: [{ password: 3, password_over: 1 }] });
+  add('password/sequential-note-through-a-checkpoint-with-a-write-before-the-winner-that-is-no-entry', 'p1, then p2 three times in a row, each naming the one before: the write just before the winner is not an entry (it repeats the winner) and dates no entry, yet a checkpoint keeps it, so there is still no note.', 'schema.view',
     { changes: L(['A', 1, 1000, pwc('p1', null)], ['A', 1, 2000, pwc('p2')], ['A', 1, 3000, pwc('p2')], ['A', 1, 4000, pwc('p2')]), show: ['password', 'previous', 'password_note'], checkpoints: [{ include: [0, 1, 2, 3] }],
-      runs: [{ changes: [0, 1, 2, 3], checkpoints: [] }, { changes: [], checkpoints: [0] }] });
-  assert.deepEqual(wq.expected.views[0], { password: 'p2', previous: [{ value: 'p1', replaced: 2000, from: 'writes' }] }); assert.deepEqual(wq.expected.views[1], wq.expected.views[0]);
+      runs: [{ changes: [0, 1, 2, 3], checkpoints: [] }, { changes: [], checkpoints: [0] }] },
+    (() => { const w = { password: 'p2', previous: [{ value: 'p1', replaced: 2000, from: 'writes' }] }; return { views: [w, w], carries: [{ password: 4, password_over: 1 }] }; })());
+
+  add('password/checkpoint-keeps-the-write-that-divides-hidden-from-shown', 'p1 at 2000 is the last write of password before the clearing at 2500, so it divides what is hidden from what is shown; it repeats the next write (p1 at 3000) and so is no entry and dates none. The checkpoint (of everything but the late write) must still keep it: when p3 from a device that was offline arrives, sorted at 1500 before the divider, it stays hidden. Without the divider p3 would take its place and be listed.', 'schema.view',
+    { changes: L(['B', 2, 1500, pwc('p3', null)], ['A', 1, 2000, pwc('p1', null)], ['A', 1, 2500, (c) => c.historyHidden()], ['A', 1, 3000, pwc('p1', 2)], ['A', 1, 4000, pwc('p2', 1)]),
+      show: ['password', 'previous', 'password_note'], checkpoints: [{ include: [1, 2, 3, 4] }], runs: [{ changes: [0, 1, 2, 3, 4], checkpoints: [] }, { changes: [0], checkpoints: [0] }, { changes: [], checkpoints: [0] }] },
+    (() => { const w = { password: 'p2', previous: [{ value: 'p1', replaced: 4000, from: 'writes' }] }; return { views: [w, w, w], carries: [{ password: 3, password_over: 1, history_hidden: 1 }] }; })());
 
   // ------------------------------------------------------------------ section 5: dates (draft 2)
   const made = L(['A', 1, 1000, (c) => c.created(1000).title('Mine').password('p')], ['A', 1, 3000, (c) => c.title('Mine 2')]);
@@ -447,7 +518,7 @@ export function schemaVectors(): J {
   view('dates/unknown-fixed-field-is-not-content', 'An unknown fixed field written later is not a content field: it does not change Edited.', L(...dated((c) => c.raw('colour', 'red'))), ['edited', 'unknown'], { edited: 1000, unknown: ['colour'] });
   view('dates/unknown-repeated-field-is-not-content', 'Nor is an unknown repeated field (draft 2: the content fields are listed): Edited does not change.', L(...dated((c) => c.raw(`z/${id(1)}`, 'v'))), ['edited', 'unknown'], { edited: 1000, unknown: [`z/${id(1)}`] });
   view('dates/bookkeeping-fields-are-not-content', 'password_over, moved_from, history_hidden, source, edited and created written later do not change Edited.',
-    L(...dated((c) => c.passwordOver(null).movedFrom(bytes(GID1), 5000).historyHidden([1, 0, bytes(AUTH.A), bytes(DEV[1]), 1]).source({ kind: 'k', id: 'i', baseline: bytes('0b') }))), ['edited'], { edited: 1000 });
+    L(...dated((c) => c.passwordOver(null).movedFrom(bytes(GID1), 5000).historyHidden().source({ kind: 'k', id: 'i', baseline: bytes('0b') }))), ['edited'], { edited: 1000 });
   view('dates/a-clear-is-a-write-to-a-content-field', 'A clear of a content field is a write to it.', L(['A', 1, 1000, (c) => c.created(500).title('x').notes('n')], ['A', 1, 4000, (c) => c.remove('notes')]), ['edited'], { edited: 4000 });
   view('dates/wrong-shape-edited-falls-back', 'edited of the wrong shape counts as cleared: Edited is the latest content write.', L(['A', 1, 1000, (c) => c.created(500).title('x').raw('edited', 'soon')]), ['edited', 'invalid'], { edited: 1000, invalid: ['edited'] });
 
@@ -458,7 +529,7 @@ export function schemaVectors(): J {
     L(...del, ['B', 2, 3000, (c) => c.source({ kind: 'kdbx', id: 'abc', baseline: bytes('0c') })]), ['deleted', 'deleted_at'], { deleted: true, deleted_at: 2000 });
   view('deleted/second-import-sets-edited-and-created-stays-deleted', 'A later write of edited and created does not bring the item back.', L(...del, ['B', 2, 3000, (c) => c.edited(5).created(4)]), ['deleted'], { deleted: true });
   view('deleted/history-hidden-later-stays-deleted', 'Clear Previous Passwords (history_hidden) after the delete does not bring the item back.',
-    L(...del, ['B', 2, 3000, (c) => c.historyHidden([1000, 0, bytes(AUTH.A), bytes(DEV[1]), 1])]), ['deleted'], { deleted: true });
+    L(...del, ['B', 2, 3000, (c) => c.historyHidden()]), ['deleted'], { deleted: true });
   view('deleted/password-over-and-moved-from-later-stay-deleted', 'password_over and moved_from are not content fields.', L(...del, ['B', 2, 3000, (c) => c.passwordOver(null).movedFrom(bytes(GID1), 3000)]), ['deleted'], { deleted: true });
   view('deleted/content-edit-brings-it-back', 'A later write to a content field brings the item back.', L(...del, ['B', 2, 3000, (c) => c.title('x2')]), ['deleted', 'title'], { deleted: false, title: 'x2' });
   view('deleted/clear-of-content-field-brings-it-back', 'A later clear of a content field is an edit too.', L(...del, ['B', 2, 3000, (c) => c.remove('password')]), ['deleted'], { deleted: false });
@@ -471,48 +542,67 @@ export function schemaVectors(): J {
 
   // ------------------------------------------------------------------ unknown fields
   const withUnknown = L(['A', 1, 1000, (c) => c.title('x').raw('colour', 'red').raw(`z/${id(5)}`, cmap([[1, 'v']])).password('p')]);
-  const u = add('unknown/kept-through-a-checkpoint', 'A field of a later version (a fixed name and a repeated one) is never shown, never cleared by this version, and kept: a checkpoint carries one write of each, and the view of the checkpoint alone lists them.', 'schema.view',
-    { changes: withUnknown, show: ['title', 'unknown', 'carried'], checkpoints: [{ include: [0] }], runs: [{ changes: [0], checkpoints: [] }, { changes: [], checkpoints: [0] }] });
-  const wantU = { title: 'x', unknown: ['colour', `z/${id(5)}`], carried: ['colour', 'password', 'password_over', 'title', `z/${id(5)}`] };
-  assert.deepEqual(u.expected.views, [wantU, wantU]);
-  assert.deepEqual(u.expected.carries, [{ colour: 1, password: 1, password_over: 1, title: 1, [`z/${id(5)}`]: 1 }]);
+  add('unknown/kept-through-a-checkpoint', 'A field of a later version (a fixed name and a repeated one) is never shown, never cleared by this version, and kept: a checkpoint carries one write of each, and the view of the checkpoint alone lists them.', 'schema.view',
+    { changes: withUnknown, show: ['title', 'unknown', 'carried'], checkpoints: [{ include: [0] }], runs: [{ changes: [0], checkpoints: [] }, { changes: [], checkpoints: [0] }] },
+    (() => { const w = { title: 'x', unknown: ['colour', `z/${id(5)}`], carried: ['colour', 'password', 'password_over', 'title', `z/${id(5)}`] }; return { views: [w, w], carries: [{ colour: 1, password: 1, password_over: 1, title: 1, [`z/${id(5)}`]: 1 }] }; })());
   view('unknown/other-keys-in-a-known-map-are-kept-and-ignored', 'A known field whose map has keys the schema does not define keeps working: the extra key is kept and ignored.',
     L(['A', 1, 1000, (c) => c.raw(`web/${id(1)}`, cmap([[1, 'https://a'], [2, 'a'], [9, 'later version']]))]), ['websites', 'invalid'], { websites: [{ field: `web/${id(1)}`, address: 'https://a' }], invalid: [] });
 
   // ------------------------------------------------------------------ moving (schema 7, draft 2)
   const login = L(['A', 1, 1000, (c) => c.created(1000).type(1).title('Bank').username('ann').password('p1').website(id(1), 'https://bank.example', 'a').customField(id(2), 'PIN', '1234', true, 'a').tag(id(3), 'money')
-    .raw('colour', 'red').raw(`z/${id(5)}`, cmap([[1, 'v']])).raw('notes', 5).passwordHistory([['imp', 9]]).historyHidden([1, 0, bytes(AUTH.A), bytes(DEV[1]), 1])],
+    .raw('colour', 'red').raw(`z/${id(5)}`, cmap([[1, 'v']])).raw('notes', 5).passwordHistory([['imp', 9]]).historyHidden()],
     ['A', 1, 2000, (c, at) => c.password('p2', at(0)).remove('username')]);
-  const moveIn = (name: string, description: string, changes: J[], show: string[], extra: J = {}) =>
-    add(`move/${name}`, description, 'schema.move', { changes, from_gid: GID1, to_gid: GID2, now: 50_000, by: { author: AUTH.A, device: DEV[1] }, show, ...extra });
-  const movedFromValue = { map: [[{ uint: '1' }, { bytes: GID1 }], [{ uint: '2' }, { uint: '50000' }]] };
-  const m1 = moveIn('carries-the-list-of-schema-7', 'The first record sets every content field (here with a field of the wrong shape, notes) and every unknown field; created and edited from Added and Edited; moved_from; password_over null; clears moved and deleted (the item is not deleted); a cleared field (username), password_history and history_hidden are not carried. The second record, in the old group, sets moved. Earlier writes of password are not copied, so nothing is previous.',
-    login, ['title', 'password', 'previous', 'password_note', 'added', 'edited', 'websites', 'custom_fields', 'tags', 'unknown', 'invalid', 'username', 'moved_from', 'deleted'], { values: ['created', 'edited', 'moved_from', 'password_over'] });
-  assert.deepEqual(m1.expected.target_set, ['colour', 'created', 'edited', `f/${id(2)}`, 'moved_from', 'notes', 'password', 'password_over', `t/${id(3)}`, 'title', 'type', `web/${id(1)}`, `z/${id(5)}`].sort());
-  assert.deepEqual(m1.expected.target_clear, ['deleted', 'moved']);
-  assert.deepEqual(m1.expected.target_values, { created: { uint: '1000' }, edited: { uint: '2000' }, moved_from: movedFromValue, password_over: { null: true } });
-  assert.deepEqual(m1.expected.source_set, { moved: { map: [[{ uint: '1' }, { bytes: GID2 }], [{ uint: '2' }, { uint: '50000' }]] } });
-  assert.deepEqual(m1.expected.target_view, { title: 'Bank', password: 'p2', previous: [], added: 1000, edited: 2000, websites: [{ field: `web/${id(1)}`, address: 'https://bank.example' }],
-    custom_fields: [{ field: `f/${id(2)}`, label: 'PIN', value: '1234', concealed: true }], tags: ['money'], unknown: ['colour', `z/${id(5)}`], invalid: ['notes'], moved_from: { gid: GID1, when: 50_000 }, deleted: false });
-  assert.deepEqual(m1.expected.source_view, { shown: false, moved: { gid: GID2, when: 50_000 } });
-  const imp = moveIn('imported-item-keeps-dates-and-source', 'An imported item moved: created and edited are the source\'s dates (shown as before), and source is carried so that a second import still finds the item.',
-    imported(), ['added', 'edited', 'title'], { values: ['created', 'edited', 'source'] });
-  assert.deepEqual(imp.expected.target_set, ['created', 'edited', 'moved_from', 'password', 'password_over', 'source', 'title']);
-  assert.deepEqual(imp.expected.target_values.source, { map: [[{ uint: '1' }, { text: 'kdbx' }], [{ uint: '2' }, { text: 'abc' }], [{ uint: '3' }, { bytes: '0b' }]] });
-  assert.deepEqual(imp.expected.target_view, { added: 100, edited: 200, title: 'Imported' });
-  const dm = moveIn('deleted-item-stays-deleted', 'An item that is in Recently Deleted when moved: deleted is set in the first record, and the item arrives deleted (nothing in that record is later than it). It is not cleared.',
-    L(['A', 1, 1000, (c) => c.title('x')], ['A', 1, 2000, (c) => c.deleted(2000)]), ['title', 'deleted', 'deleted_at'], { values: ['deleted'] });
-  assert.deepEqual(dm.expected.target_clear, ['moved']); assert.deepEqual(dm.expected.target_values, { deleted: { uint: '2000' } });
-  assert.deepEqual(dm.expected.target_view, { title: 'x', deleted: true, deleted_at: 2000 });
-  const em = moveIn('deleted-then-edited-arrives-not-deleted', 'An item deleted, then edited (so it is back), then moved: deleted is still a field of the item, but the item is not in Recently Deleted, so it is cleared in the first record and the item arrives not deleted.',
-    L(['A', 1, 1000, (c) => c.title('x')], ['A', 1, 2000, (c) => c.deleted(2000)], ['A', 1, 3000, (c) => c.title('x2')]), ['title', 'deleted'], {});
-  assert.deepEqual(em.expected.target_clear, ['deleted', 'moved']); assert(!em.expected.target_set.includes('deleted'));
-  assert.deepEqual(em.expected.target_view, { title: 'x2', deleted: false });
-  const back = moveIn('back-clears-moved-and-the-fields-the-copy-lacks', 'Moving it back to the group it left (which still holds the old copy, marked moved): the first record also clears moved (draft 2). The old copy has a field (notes) the item no longer has: the schema does not say, and a stale field would reappear, so it is cleared too (given the old copy).',
-    L(['A', 1, 1500, (c) => c.created(1000).title('Bank 2')]), ['title', 'notes', 'shown', 'moved_from'],
+  /** A move vector: `changes` are the writes of the item in the group it leaves; `target_changes` (optional) the writes the other group already holds.
+   *  `want` is the whole expected outcome, written by hand. */
+  const mvSet = (...names: string[]) => names.sort();
+  const moveIn = (name: string, description: string, changes: J[], show: string[], values: string[], want: J, extra: J = {}) => {
+    const dir = { from_gid: GID1, to_gid: GID2, now: 50_000, ...extra };
+    const to = dir.to_gid as string, now = dir.now as number;
+    return add(`move/${name}`, description, 'schema.move', { changes, ...dir, by: { author: AUTH.A, device: DEV[1] }, show, values },
+      { source_set: { moved: { map: [[U(1), Bz(to)], [U(2), U(now)]] } }, source_clear: [], source_view: { shown: false, moved: { gid: to, when: now } }, ...want });
+  };
+  const movedFromValue = (gid: string, when: number) => ({ map: [[U(1), Bz(gid)], [U(2), U(when)]] });
+  const PO = (wall: number, counter: number, who: Who, dev: Dev, seq: number) => ({ array: [U(wall), U(counter), Bz(AUTH[who]), Bz(DEV[dev]), U(seq)] });
+  moveIn('carries-the-list-of-schema-7', 'The first record sets every content field (here with a field of the wrong shape, notes, which travels) and every unknown field; created and edited from Added and Edited; moved_from; password_over null (the other group holds no copy); clears moved and deleted (the item is not deleted); a cleared field (username), password_history and history_hidden are not carried. The second record, in the old group, sets moved naming the group it went to.',
+    login, ['title', 'password', 'previous', 'password_note', 'added', 'edited', 'websites', 'custom_fields', 'tags', 'unknown', 'invalid', 'username', 'moved_from', 'deleted'], ['created', 'edited', 'moved_from', 'password_over'],
+    { target_set: mvSet('colour', 'created', 'edited', `f/${id(2)}`, 'moved_from', 'notes', 'password', 'password_over', `t/${id(3)}`, 'title', 'type', `web/${id(1)}`, `z/${id(5)}`), target_clear: ['deleted', 'moved'],
+      target_values: { created: U(1000), edited: U(2000), moved_from: movedFromValue(GID1, 50_000), password_over: { null: true } },
+      target_view: { title: 'Bank', password: 'p2', previous: [], added: 1000, edited: 2000, websites: [{ field: `web/${id(1)}`, address: 'https://bank.example' }],
+        custom_fields: [{ field: `f/${id(2)}`, label: 'PIN', value: '1234', concealed: true }], tags: ['money'], unknown: ['colour', `z/${id(5)}`], invalid: ['notes'], moved_from: { gid: GID1, when: 50_000 }, deleted: false } });
+  moveIn('imported-item-keeps-dates-and-source', 'An imported item moved: created and edited are the source\'s dates (shown as before), and source is carried so that a second import still finds the item.',
+    imported(), ['added', 'edited', 'title'], ['created', 'edited', 'source'],
+    { target_set: ['created', 'edited', 'moved_from', 'password', 'password_over', 'source', 'title'], target_clear: ['deleted', 'moved'],
+      target_values: { created: U(100), edited: U(200), source: { map: [[U(1), T('kdbx')], [U(2), T('abc')], [U(3), Bz('0b')]] } },
+      target_view: { added: 100, edited: 200, title: 'Imported' } });
+  moveIn('deleted-item-stays-deleted', 'An item that is in Recently Deleted when moved: deleted is set in the first record, and the item arrives deleted (nothing in that record is later than it). It is not cleared.',
+    L(['A', 1, 1000, (c) => c.title('x')], ['A', 1, 2000, (c) => c.deleted(2000)]), ['title', 'deleted', 'deleted_at'], ['deleted'],
+    { target_set: ['created', 'deleted', 'edited', 'moved_from', 'password_over', 'title'], target_clear: ['moved'], target_values: { deleted: U(2000) }, target_view: { title: 'x', deleted: true, deleted_at: 2000 } });
+  moveIn('deleted-then-edited-arrives-not-deleted', 'An item deleted, then edited (so it is back), then moved: deleted is still a field of the item, but the item is not in Recently Deleted, so it is cleared in the first record and the item arrives not deleted.',
+    L(['A', 1, 1000, (c) => c.title('x')], ['A', 1, 2000, (c) => c.deleted(2000)], ['A', 1, 3000, (c) => c.title('x2')]), ['title', 'deleted'], [],
+    { target_set: ['created', 'edited', 'moved_from', 'password_over', 'title'], target_clear: ['deleted', 'moved'], target_values: {}, target_view: { title: 'x2', deleted: false } });
+  moveIn('back-clears-moved-and-the-content-fields-the-copy-has', 'Moving it back to the group it left, which still holds the old copy marked moved: the first record clears moved, and also every content field the old copy has and the item no longer has (notes), so that nothing stale comes back (draft 3). The copy has no password, so password_over is null.',
+    L(['A', 1, 1500, (c) => c.created(1000).title('Bank 2')]), ['title', 'notes', 'shown', 'moved_from'], ['password_over'],
+    { target_set: ['created', 'edited', 'moved_from', 'password_over', 'title'], target_clear: ['deleted', 'moved', 'notes'], target_values: { password_over: { null: true } }, target_view: { title: 'Bank 2', shown: true, moved_from: { gid: GID2, when: 60_000 } } },
     { from_gid: GID2, to_gid: GID1, now: 60_000, target_changes: L(['A', 1, 1000, (c) => c.created(1000).title('Bank').notes('old')], ['A', 1, 2000, (c) => c.moved(bytes(GID2), 1500)]) });
-  assert.deepEqual(back.expected.target_clear, ['deleted', 'moved', 'notes']);
-  assert.deepEqual(back.expected.target_view, { title: 'Bank 2', shown: true, moved_from: { gid: GID2, when: 60_000 } });
+  moveIn('arrival-names-the-password-the-group-already-holds', 'The group the item goes to already holds a copy with a password (written at 1000 by device 1 of author A, seq 1). password_over is the place of that winning write, so the arrival is not taken for a change on two devices. The copy also has a website the item does not: cleared; and a field a later version wrote (not content): left alone.',
+    L(['A', 1, 1500, (c) => c.created(1000).title('Bank').password('p9')]), ['password', 'previous', 'password_note', 'websites', 'unknown'], ['password_over'],
+    { target_set: ['created', 'edited', 'moved_from', 'password', 'password_over', 'title'], target_clear: ['deleted', 'moved', `web/${id(1)}`], target_values: { password_over: PO(1000, 0, 'A', 1, 1) },
+      target_view: { password: 'p9', previous: [{ value: 'p1', replaced: 50_000, from: 'writes' }], websites: [], unknown: ['colour'] } },
+    { target_changes: L(['A', 1, 1000, (c) => c.created(1000).title('Bank').password('p1', null).website(id(1), 'bank.example', 'a').raw('colour', 'red')]) });
+  // there and back: the validator found that moving an item back raised changed_on_two_devices (draft 2 wrote password_over null)
+  const g1Held = L(['A', 1, 1000, (c) => c.created(1000).title('Bank').password('p1', null)], ['A', 1, 2000, (c) => c.moved(bytes(GID2), 1500)]);
+  const arrivedInG2: Spec = ['A', 1, 1500, (c) => c.created(1000).title('Bank').password('p1', null).movedFrom(bytes(GID1), 1500)];
+  const backShow = ['password', 'previous', 'password_note', 'shown', 'moved_from', 'title'];
+  moveIn('there-and-back-with-the-password-unchanged', 'The item was made in group 1 (password p1 written at 1000), moved to group 2 and is now moved back, the password unchanged. Group 1 still holds the old copy marked moved. The arrival names the winning password write of that copy, so there is no note, and p1 written again is not a previous password.',
+    L(arrivedInG2), backShow, ['password_over'],
+    { target_set: ['created', 'edited', 'moved_from', 'password', 'password_over', 'title'], target_clear: ['deleted', 'moved'], target_values: { password_over: PO(1000, 0, 'A', 1, 1) },
+      target_view: { password: 'p1', previous: [], shown: true, moved_from: { gid: GID2, when: 60_000 }, title: 'Bank' } },
+    { from_gid: GID2, to_gid: GID1, now: 60_000, target_changes: g1Held });
+  moveIn('there-and-back-with-the-password-changed', 'The same, with the password changed to p2 while the item was in group 2 (the change names the arrival write as the one it replaced). Moving back writes p2 in group 1 over the old p1 write there: no note, and p1 is the newest previous password, dated by the arrival (60000).',
+    L(arrivedInG2, ['A', 1, 3000, (c, at) => c.password('p2', at(0))]), backShow, ['password_over'],
+    { target_set: ['created', 'edited', 'moved_from', 'password', 'password_over', 'title'], target_clear: ['deleted', 'moved'], target_values: { password_over: PO(1000, 0, 'A', 1, 1) },
+      target_view: { password: 'p2', previous: [{ value: 'p1', replaced: 60_000, from: 'writes' }], shown: true, moved_from: { gid: GID2, when: 60_000 }, title: 'Bank' } },
+    { from_gid: GID2, to_gid: GID1, now: 60_000, target_changes: g1Held });
 
   // classifying the same item_id in two groups
   const orig = (wall = 1000): Spec => ['A', 1, wall, (c) => c.created(1000).title('Bank').password('p')];
@@ -565,11 +655,69 @@ export function schemaVectors(): J {
   const big = (name: string, description: string, change: J, show: string[], want: J) => view(name, description, [change], show, want);
   big('size/reader-shows-a-title-over-the-limit', 'A reader shows a text of 65,537 bytes it finds: the limit binds the writer only.', bigText('A', 1, 1000, 'title', 65_537), ['title_bytes', 'invalid'], { title_bytes: 65_537, invalid: [] });
   big('size/reader-shows-notes-over-the-limit', 'A reader shows notes of 262,145 bytes.', bigText('A', 1, 1000, 'notes', 262_145), ['notes_bytes', 'invalid'], { notes_bytes: 262_145, invalid: [] });
-  const many = add('size/reader-shows-65-websites-count', 'A reader shows all 65 websites it finds: sixty-five entries in the view.', 'schema.view',
-    { changes: L(...Array.from({ length: 65 }, (_, n) => ['A', 1, 1000 + n, web(n + 1, 'https://a', 'a')] as Spec)), show: ['websites'] });
-  assert.equal(many.expected.view.websites.length, 65);
-  const manyTags = add('size/reader-shows-65-tags', 'And 65 tags.', 'schema.view', { changes: L(...Array.from({ length: 65 }, (_, n) => ['A', 1, 1000 + n, (c: ItemChange) => c.tag(id(n + 1), `tag${String(n).padStart(2, '0')}`)] as Spec)), show: ['tags'] });
-  assert.equal(manyTags.expected.view.tags.length, 65);
+  add('size/reader-shows-65-websites-count', 'A reader shows all 65 websites it finds: sixty-five entries in the view, all at one position and so in order of field name.', 'schema.view',
+    { changes: L(...Array.from({ length: 65 }, (_, n) => ['A', 1, 1000 + n, web(n + 1, 'https://a', 'a')] as Spec)), show: ['websites'] },
+    { view: { websites: Array.from({ length: 65 }, (_, n) => ({ field: `web/${id(n + 1)}`, address: 'https://a' })) } });
+  add('size/reader-shows-65-tags', 'And 65 tags, in order of their text.', 'schema.view', { changes: L(...Array.from({ length: 65 }, (_, n) => ['A', 1, 1000 + n, (c: ItemChange) => c.tag(id(n + 1), `tag${String(n).padStart(2, '0')}`)] as Spec)), show: ['tags'] },
+    { view: { tags: Array.from({ length: 65 }, (_, n) => `tag${String(n).padStart(2, '0')}`) } });
 
-  return file('The item schema (docs/format-schema.md, draft 1): field names and shapes, positions, builders, the view (previous passwords, dates, deleting), unknown fields, moving an item, and the settings item. Expectations are written by hand from the schema\'s sentences; where a sentence leaves a choice, the description of the vector says which reading was taken.', o);
+  // ------------------------------------------------------------------ end to end: sealed records and a sealed checkpoint, through the group reader, to the view
+  // The input of these vectors is sealed bytes only; the expected views are written here by hand (the records' clocks are fixed below).
+  const T0 = BASE_MS;
+  const ITEM = itemId('i1');
+  const sealedVector = (name: string, description: string, show: string[], groups: { name: string; s: Scenario; recs: { sealed: Uint8Array }[] }[], want: J) =>
+    add(`sealed/${name}`, description, 'schema.sealed', { item: H(ITEM), show, groups: groups.map((g) => ({ name: g.name, gid: H(g.s.gid), keys: g.s.keyList(), records: g.recs.map((r) => H(r.sealed)), now_ms: T0 + 1_000_000 })) },
+      { views: want, rejected: Object.fromEntries(groups.map((g) => [g.name, []])) });
+  const write = (s: Scenario, who: string, dev: string, wall: number, c: ItemChange) => s.seal(who, dev, KIND.item, c.payload(ITEM), { clock: [wall, 0] });
+  { // two devices each add a website while offline
+    const s = new Scenario();
+    const g = s.genesis('a1'); const addBob = s.setRole('alice', 'a1', 'bob', 2, { card: true });
+    const first = write(s, 'alice', 'a1', T0 + 1000, ItemChange.newItem(T0 + 1000).type(1).title('Shop').website(id(1), 'one.example', 'i'));
+    const aWeb = write(s, 'alice', 'a1', T0 + 2000, new ItemChange().website(id(2), 'two.example', 'j'));
+    const bWeb = write(s, 'bob', 'b1', T0 + 2000, new ItemChange().website(id(3), 'three.example', 'ia'));
+    sealedVector('two-devices-each-add-a-website', 'Sealed records of a group with two writers. Alice makes the login with one website; then alice on one device and bob on another each add a website at the same wall time without having seen the other\'s. After the group reader accepted every record, the item shows all three websites in order of position (i, ia, j), Added is the created of the first record and Edited the time of the latest write to a content field.',
+      ['title', 'websites', 'added', 'edited'], [{ name: 'group', s, recs: [g, addBob, first, aWeb, bWeb] }],
+      { group: { title: 'Shop', websites: [{ field: `web/${id(1)}`, address: 'https://one.example' }, { field: `web/${id(3)}`, address: 'https://three.example' }, { field: `web/${id(2)}`, address: 'https://two.example' }], added: T0 + 1000, edited: T0 + 2000 } });
+  }
+  { // Previous Passwords across a sealed checkpoint whose covered records were deleted
+    const s = new Scenario();
+    const g = s.genesis('a1'); const addBob = s.setRole('alice', 'a1', 'bob', 3, { card: true });
+    const p1 = write(s, 'alice', 'a1', T0 + 1000, ItemChange.newItem(T0 + 1000).title('Bank').password('p1'));
+    const p2 = write(s, 'alice', 'a1', T0 + 2000, new ItemChange().password('p2', p1.key5));
+    const p3 = write(s, 'alice', 'a1', T0 + 3000, new ItemChange().password('p3', p2.key5));
+    const items = checkpointItems(fold([p1, p2, p3].map((r) => ({ key5: r.key5, payload: r.payload }))));
+    s.mhead = addBob.id;
+    const cp = s.checkpoint('bob', 'b1', items, [['alice', 'a1', p3]], [], { clock: [T0 + 3500, 0] });
+    const p4 = write(s, 'alice', 'a1', T0 + 4000, new ItemChange().password('p4', p3.key5));
+    const view = (note?: string) => ({ title: 'Bank', password: 'p4', previous: [{ value: 'p3', replaced: T0 + 4000, from: 'writes' }, { value: 'p2', replaced: T0 + 3000, from: 'writes' }, { value: 'p1', replaced: T0 + 2000, from: 'writes' }], added: T0 + 1000, edited: T0 + 4000, ...(note ? { password_note: note } : {}) });
+    sealedVector('previous-passwords-across-a-checkpoint', 'Alice changes the password three times, a manager (bob) seals a checkpoint that restates the winning writes and the history the schema keeps for Previous Passwords and covers alice\'s chain, and alice changes it once more. Read twice: with every record, and after the three covered records were deleted from storage (the checkpoint alone carries them). The item shows p4 and the three earlier passwords newest first, each dated by the write that replaced it, and no note, in both.',
+      ['title', 'password', 'previous', 'password_note', 'added', 'edited'],
+      [{ name: 'all-records', s, recs: [g, addBob, p1, p2, p3, cp, p4] }, { name: 'covered-records-deleted', s, recs: [g, addBob, cp, p4] }], { 'all-records': view(), 'covered-records-deleted': view() });
+  }
+  { // a move to another group and back, sealed in both groups
+    const s1 = new Scenario();
+    const s2 = new Scenario();
+    s2.nonce = bytesOf('second group nonce'); s2.gid = gidOf(s2.person('alice').pid, s2.nonce, s2.key(0), 1);
+    const g1 = s1.genesis('a1'), g2 = s2.genesis('a1');
+    const made = write(s1, 'alice', 'a1', T0 + 1000, ItemChange.newItem(T0 + 1000).type(1).title('Bank').password('p1').website(id(1), 'bank.example', 'a'));
+    const fieldsOf = (recs: { key5: OrderKey; payload: any }[]) => fold(recs.map((r) => ({ key5: r.key5, payload: r.payload }))).get(H(ITEM))!;
+    // there: record 1 in group 2, record 2 in group 1
+    const there = moveRecords(viewItem(fieldsOf([made])), s1.gid, s2.gid, T0 + 5000, null);
+    const arrived = s2.seal('alice', 'a1', KIND.item, (() => { const c = new ItemChange(); for (const [k, v] of there.target.set) c.raw(k, v); for (const k of there.target.clear) c.remove(k); return c.payload(ITEM); })(), { clock: [T0 + 5000, 0] });
+    const marked = s1.seal('alice', 'a1', KIND.item, (() => { const c = new ItemChange(); for (const [k, v] of there.source.set) c.raw(k, v); return c.payload(ITEM); })(), { clock: [T0 + 5001, 0] });
+    // the password is changed in group 2, naming the arrival write
+    const changed = write(s2, 'alice', 'a1', T0 + 6000, new ItemChange().password('p2', arrived.key5));
+    // and back: record 1 in group 1 (which still holds the old copy, marked moved), record 2 in group 2
+    const back = moveRecords(viewItem(fieldsOf([arrived, changed])), s2.gid, s1.gid, T0 + 9000, fieldsOf([made, marked]));
+    const returned = s1.seal('alice', 'a1', KIND.item, (() => { const c = new ItemChange(); for (const [k, v] of back.target.set) c.raw(k, v); for (const k of back.target.clear) c.remove(k); return c.payload(ITEM); })(), { clock: [T0 + 9000, 0] });
+    const markedBack = s2.seal('alice', 'a1', KIND.item, (() => { const c = new ItemChange(); for (const [k, v] of back.source.set) c.raw(k, v); return c.payload(ITEM); })(), { clock: [T0 + 9001, 0] });
+    sealedVector('move-there-and-back', 'An item made in group 1, moved to group 2, its password changed there, and moved back: sealed records of both groups. In group 1 the item is shown again with the new password, the old one as the newest previous password (dated by the arrival), no note (the arrival names the password write the old copy there still holds), Added from created and Edited from the change made in group 2. In group 2 the item is hidden, marked moved to group 1.',
+      ['shown', 'title', 'password', 'previous', 'password_note', 'websites', 'added', 'edited', 'moved', 'moved_from'],
+      [{ name: 'group-1', s: s1, recs: [g1, made, marked, returned] }, { name: 'group-2', s: s2, recs: [g2, arrived, changed, markedBack] }],
+      { 'group-1': { shown: true, title: 'Bank', password: 'p2', previous: [{ value: 'p1', replaced: T0 + 9000, from: 'writes' }], websites: [{ field: `web/${id(1)}`, address: 'https://bank.example' }], added: T0 + 1000, edited: T0 + 6000, moved_from: { gid: H(s2.gid), when: T0 + 9000 } },
+        'group-2': { shown: false, title: 'Bank', password: 'p2', previous: [{ value: 'p1', replaced: T0 + 6000, from: 'writes' }], websites: [{ field: `web/${id(1)}`, address: 'https://bank.example' }], added: T0 + 1000, edited: T0 + 6000, moved: { gid: H(s1.gid), when: T0 + 9000 }, moved_from: { gid: H(s1.gid), when: T0 + 5000 } } });
+  }
+
+  assert.deepEqual(o.fromLibrary, [], 'every schema vector states its expectation by hand');
+  return file('The item schema (docs/format-schema.md, draft 3): field names and shapes, positions, builders, the view (previous passwords, dates, deleting), unknown fields, moving an item, and the settings item. Expectations are written by hand from the schema\'s sentences; where a sentence leaves a choice, the description of the vector says which reading was taken.', o);
 }

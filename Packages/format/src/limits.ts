@@ -85,6 +85,10 @@ export const rules = {
   previousUnique: true,
   /** schema 4 (draft 2): a checkpoint keeps, besides the entries' writes, the write after each (which dates it) and the one just before the winner (false: only the entries' writes) */
   retentionKeepsNeighbours: true,
+  /** schema 4 (not in the table of draft 3): a checkpoint also keeps the last write of password before the winning history_hidden, which divides hidden from shown (false: it may be dropped) */
+  retentionKeepsDivider: true,
+  /** schema 3 (draft 3): tags are shown in the bytewise order of their UTF-8 (false: JavaScript string order, which is UTF-16 and puts U+10000 before U+E000) */
+  tagsUtf8Order: true,
   /** schema 5: an imported item keeps the source's `edited` date until a content field is written later (false: always the latest content write) */
   importedEditedKept: true,
   /** schema 1: shown in order of (pos, field name) (false: by pos only, ties in arrival order) */

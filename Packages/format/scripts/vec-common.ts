@@ -24,12 +24,15 @@ export interface Minted {
 export class Out {
   list: J[] = [];
   names = new Set<string>();
+  /** names of the vectors whose expectation came from the library (none was written by hand) */
+  fromLibrary: string[] = [];
   /** Add a vector. `expected` given by hand is checked against the library; otherwise it is computed. A `heavy` vector needs more
    *  memory than a routine run should use: it is only computed when PSSS_HEAVY is set, and then needs `expected` by hand. */
   add(name: string, description: string, type: string, input: J, expected?: J, opts: { heavy?: string } = {}): J {
     assert(!this.names.has(name), `duplicate vector name ${name}`);
     this.names.add(name);
     let exp = expected;
+    if (!expected) this.fromLibrary.push(name);
     if (opts.heavy && !process.env.PSSS_HEAVY) {
       assert(expected, `heavy vector ${name} needs a hand-written expectation`);
     } else {

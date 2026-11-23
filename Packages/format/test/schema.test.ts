@@ -24,7 +24,7 @@ const DEVICES = ['11', '22', '33'].map((h) => fromHex(h.repeat(16)));
 const id = (n: number) => n.toString(16).padStart(16, '0');
 const bytes = (h: string) => fromHex(h);
 
-interface Options { distinctPasswords?: boolean; noClears?: boolean; created?: boolean; hiddenAtOwnPlace?: boolean }
+interface Options { distinctPasswords?: boolean; noClears?: boolean; created?: boolean; noBadHidden?: boolean }
 
 /** A random list of schema-level changes of one item: every field of the schema, some of the wrong shape, some unknown. A few distinct wall times
  *  and counters, so that ties and the order key's tie-breakers are exercised. */
@@ -64,7 +64,7 @@ function randomChanges(r: R, n: number, o: Options = {}): Change[] {
         case 14: if (!o.noClears) c.remove('deleted'); break;
         case 15: c.moved(bytes('52'.repeat(32)), r.int(5000)); break;
         case 16: if (!o.noClears) c.remove('moved'); break;
-        case 17: if (o.hiddenAtOwnPlace) c.historyHidden(key); else c.historyHidden([1000 + 100 * r.int(8), r.int(3), AUTHORS[r.int(AUTHORS.length)]!, DEVICES[r.int(DEVICES.length)]!, 1 + r.int(4)]); break;
+        case 17: c.historyHidden(); break;
         case 18: c.passwordHistory(r.pick([[['h1', 5]], [['h2', 6], ['h1', 5]], []])); break;
         case 19: c.edited(r.int(5000)); break;
         case 20: c.source({ kind: 'k', id: 'i', baseline: bytes('0b') }); break;
@@ -121,14 +121,30 @@ test('the same for the settings item (name and gone entries)', () => {
 /** A view without the given keys. */
 const without = (v: Record<string, any>, ...keys: string[]) => Object.fromEntries(Object.entries(v).filter(([k]) => !keys.includes(k)));
 
-/** Two views are the same, except that a previous password the checkpoint view dates may be dated later: a write that arrives after the
- *  checkpoint and lands inside a run of equal passwords replaces an entry, and the writes of that run the checkpoint left out are gone. */
-function sameView(via: Record<string, any>, full: Record<string, any>, msg: string, ...except: string[]) {
-  const strip = (v: Record<string, any>) => without({ ...v, previous: (v.previous ?? []).map((p: any) => ({ value: p.value, from: p.from })) }, ...except);
+/** Two views are the same, except for what a checkpoint cannot keep (the README lists the differences; each has a test below):
+ *  - the Previous Passwords from writes: the checkpoint's list is the first part of the full list, with each entry dated the same or later
+ *    (a write that arrives after the checkpoint, inside a run of equal passwords, replaces an entry; and a later write that repeats an old entry
+ *    takes it out of the list, which the checkpoint cannot fill from writes it no longer holds);
+ *  - when the checkpoint's list is shorter, the imported entries after it may differ, since the list shows 10 in all;
+ *  - `lateClearing`: a clearing that arrived after the checkpoint and sorts before writes the checkpoint dropped may leave older passwords
+ *    shown that the full records hide: then the full list is the first part of the checkpoint's. Nothing is ever hidden that the records show. */
+function sameView(via: Record<string, any>, full: Record<string, any>, msg: string, o: { lateClearing?: boolean; except?: string[] } = {}) {
+  const writes = (v: Record<string, any>) => (v.previous ?? []).filter((p: any) => p.from === 'writes');
+  const strip = (v: Record<string, any>) => without(v, 'previous', ...(o.except ?? []));
   assert.deepEqual(strip(via), strip(full), msg);
-  const fp = full.previous ?? [], vp = via.previous ?? [];
-  for (let i = 0; i < fp.length; i++) assert(vp[i].replaced >= fp[i].replaced, `${msg}: an entry is dated later, never earlier`);
+  const fw = writes(full), vw = writes(via);
+  if (o.lateClearing && vw.length > fw.length) {
+    for (let i = 0; i < fw.length; i++) { assert.equal(vw[i].value, fw[i].value, `${msg}: entry ${i}`); assert(vw[i].replaced >= fw[i].replaced, `${msg}: dated later`); }
+    return;
+  }
+  assert(vw.length <= fw.length, `${msg}: the checkpoint shows more passwords from writes than the records`);
+  for (let i = 0; i < vw.length; i++) {
+    assert.equal(vw[i].value, fw[i].value, `${msg}: entry ${i}`);
+    assert(vw[i].replaced >= fw[i].replaced, `${msg}: an entry is dated later, never earlier`);
+  }
+  if (vw.length === fw.length) assert.deepEqual((via.previous ?? []).filter((p: any) => p.from === 'import'), (full.previous ?? []).filter((p: any) => p.from === 'import'), `${msg}: imported entries`);
 }
+const hasClearing = (cs: Change[]) => cs.some((c) => (c.payload.get(2) as CMap).has('history_hidden'));
 
 /** A checkpoint of the prefix, through its encoding, folded with the rest. */
 function viaCheckpoint(prefix: Change[], rest: Change[]): State {
@@ -141,7 +157,7 @@ test('a checkpoint at any point plus the remaining records gives the same view, 
   let withNote = 0;
   for (let seed = 300; seed < 360; seed++) {
     const r = rng(seed);
-    const changes = randomChanges(r, 8 + r.int(30), { created: seed % 2 === 0, hiddenAtOwnPlace: true });
+    const changes = randomChanges(r, 8 + r.int(30), { created: seed % 2 === 0 });
     const shuffled = r.shuffle(changes);
     const cut = r.int(shuffled.length + 1);
     const full = S.viewItem(fieldsOf(fold(changes)));
@@ -149,11 +165,12 @@ test('a checkpoint at any point plus the remaining records gives the same view, 
     const a = viewJson(full), b = viewJson(via);
     if (a.password_note) withNote++;
     const hasCreated = full.carry.has('created') && S.shapeOk('created', full.carry.get('created')!);
-    if (hasCreated) sameView(b, a, `seed ${seed}`);
+    const late = hasClearing(shuffled.slice(cut));
+    if (hasCreated) sameView(b, a, `seed ${seed}`, { lateClearing: late });
     else {
       // only the winner of every field but password is kept: without created the earliest write may be gone, so Added can only get later
       assert((b.added ?? Infinity) >= (a.added ?? -Infinity), `seed ${seed}: Added from a checkpoint is never earlier`);
-      sameView(b, a, `seed ${seed}`, 'added', 'added_estimated', 'edited', 'edited_raw');
+      sameView(b, a, `seed ${seed}`, { lateClearing: late, except: ['added', 'added_estimated', 'edited', 'edited_raw'] });
     }
   }
   assert(withNote > 0, 'the generator must produce the note sometimes');
@@ -169,16 +186,28 @@ test('when the records after the checkpoint come later in the order, the view is
   }
 });
 
-test('history_hidden can move back: a later write of it with an earlier place shows writes the checkpoint left out (the one case no retention can cover)', () => {
+test('a later clearing never shows what an earlier one hid, whatever its device had seen (draft 3); a wrong-shaped later write of history_hidden is the one way back (60 seeds)', () => {
+  for (let seed = 1100; seed < 1160; seed++) {
+    const r = rng(seed);
+    const changes = randomChanges(r, 8 + r.int(25), { created: true });
+    const hide = (wall: number, counter: number): Change => ({ key5: [wall, counter, AUTHORS[0]!, DEVICES[2]!, 900 + counter], payload: S.changePayload(ITEM, new S.ItemChange().historyHidden().set, []) });
+    const first = hide(1000 + 100 * r.int(8), 0), later = hide(first.key5[0] + 50 * (1 + r.int(8)), 1);
+    const shown = (cs: Change[]) => (viewOf(fold(cs)).previous as { value: string; replaced: number }[]).filter((p: any) => p.from === 'writes').map((p) => `${p.value}@${p.replaced}`);
+    const a = shown([...changes, first]), b = shown([...changes, first, later]);
+    // every entry b shows, a shows (b hides at least what a hid)
+    for (const e of b) assert(a.includes(e), `seed ${seed}: ${e} is shown after the later clearing but was hidden by the earlier one`);
+  }
+});
+
+test('a wrong-shaped history_hidden that wins counts as cleared: the passwords it hid are shown again, in the records and not through a checkpoint', () => {
   const key = (i: number): Change['key5'] => [1000 * i, 0, AUTHORS[0]!, DEVICES[0]!, i];
   const pw = (i: number, v: string, over: number | null): Change => ({ key5: key(i), payload: S.changePayload(ITEM, new S.ItemChange().password(v, over === null ? null : key(over)).set, []) });
-  const hide = (i: number, at: number): Change => ({ key5: key(i), payload: S.changePayload(ITEM, new S.ItemChange().historyHidden(key(at)).set, []) });
-  const writes = [pw(1, 'p1', null), pw(2, 'p2', 1), pw(3, 'p3', 2), hide(4, 3)]; // cleared at the write of p3
-  const moveBack = hide(5, 2); // a device that had seen only p2 cleared later by the clock
-  const full = viewOf(fold([...writes, moveBack]));
-  const via = viewOf(viaCheckpoint(writes, [moveBack]));
-  assert.deepEqual(full.previous.map((p: any) => p.value), ['p2']);
-  assert.deepEqual(via.previous, [], 'the checkpoint no longer holds p2 and p1');
+  const hide = (i: number): Change => ({ key5: key(i), payload: S.changePayload(ITEM, new S.ItemChange().historyHidden().set, []) });
+  const bad: Change = { key5: key(5), payload: S.changePayload(ITEM, new S.ItemChange().raw('history_hidden', 2).set, []) };
+  const writes = [pw(1, 'p1', null), pw(2, 'p2', 1), pw(3, 'p3', 2), hide(4)];
+  assert.deepEqual(viewOf(fold(writes)).previous, []);
+  assert.equal(viewOf(fold([...writes, bad])).previous.length, 2, 'in the records the hidden passwords are back');
+  assert.equal(viewOf(viaCheckpoint(writes, [bad])).previous.length, 0, 'the checkpoint no longer holds them');
 });
 
 test('a late write inside a run of equal passwords dates its entry by the next write the checkpoint kept, which can be later than in the full fold', () => {
@@ -197,10 +226,34 @@ test('a late write inside a run of equal passwords dates its entry by the next w
   assert(v2.previous[0].replaced >= f2.previous[0].replaced);
 });
 
+test('a clearing that arrives after the checkpoint and sorts before a dropped write can show older passwords the records hide', () => {
+  const key = (i: number): Change['key5'] => [1000 * i, 0, AUTHORS[0]!, DEVICES[0]!, i];
+  const pw = (i: number, v: string, over: number | null): Change => ({ key5: key(i), payload: S.changePayload(ITEM, new S.ItemChange().password(v, over === null ? null : key(over)).set, []) });
+  const hide = (wall: number): Change => ({ key5: [wall, 0, AUTHORS[0]!, DEVICES[1]!, 1], payload: S.changePayload(ITEM, new S.ItemChange().historyHidden().set, []) });
+  // p2 three times; the checkpoint keeps the last two and drops the first (it is not an entry, and is neither the winner nor just before it)
+  const run = [pw(2, 'p2', null), pw(3, 'p2', 2), pw(4, 'p2', 3)];
+  const late = [pw(1, 'p1', null), hide(2500)]; // arrive after the checkpoint: p1 at 1000, a clearing between the first and second p2
+  const full = viewOf(fold([...run, ...late]));
+  const via = viewOf(viaCheckpoint(run, late));
+  assert.deepEqual(full.previous, [], 'in the records the clearing hides p1');
+  assert.deepEqual(via.previous.map((p: any) => p.value), ['p1'], 'the checkpoint no longer holds the write that divides hidden from shown');
+});
+
+test('a later write that repeats an old entry takes it out, and the checkpoint cannot fill the list from the write it dropped', () => {
+  const key = (i: number): Change['key5'] => [1000 * i, 0, AUTHORS[0]!, DEVICES[0]!, i];
+  const set = (i: number, v: string | null): Change => ({ key5: key(i), payload: S.changePayload(ITEM, v === null ? new Map() : new S.ItemChange().password(v, i === 1 ? null : key(i - 1)).set, v === null ? ['password'] : []) });
+  const first = [...Array.from({ length: 12 }, (_, n) => set(n + 1, `p${n + 1}`)), set(13, null)]; // p1 to p12, then the password is removed
+  const again = [set(14, 'p3')]; // typed again after the removal
+  const full = viewOf(fold([...first, ...again])), via = viewOf(viaCheckpoint(first, again));
+  assert.equal(full.previous.length, 10);
+  assert.equal(via.previous.length, 9);
+  assert.deepEqual(via.previous, full.previous.slice(0, 9));
+});
+
 test('the same with a checkpoint taken on top of another checkpoint (40 seeds)', () => {
   for (let seed = 700; seed < 740; seed++) {
     const r = rng(seed);
-    const changes = randomChanges(r, 10 + r.int(30), { created: true, hiddenAtOwnPlace: true });
+    const changes = randomChanges(r, 10 + r.int(30), { created: true });
     const full = viewOf(fold(changes));
     const sh = r.shuffle(changes);
     const c1 = r.int(sh.length + 1), c2 = c1 + r.int(sh.length - c1 + 1);
@@ -208,7 +261,7 @@ test('the same with a checkpoint taken on top of another checkpoint (40 seeds)',
     const w1 = parse(checkpointItems(fold(sh.slice(0, c1))));
     const mid = fold(sh.slice(c1, c2), [w1]);
     const w2 = parse(checkpointItems(mid));
-    sameView(viewOf(fold(sh.slice(c2), [w2])), full, `seed ${seed}`);
+    sameView(viewOf(fold(sh.slice(c2), [w2])), full, `seed ${seed}`, { lateClearing: hasClearing(sh.slice(c1)) });
   }
 });
 
@@ -279,7 +332,7 @@ test('every builder produces a value the reader accepts, and the payload decodes
     .otp({ secret: bytes('01'), digits: 6, period: 30, algorithm: 2, issuer: 'i', account: 'a' })
     .passkey({ credentialId: bytes('01'), privateKey: bytes('02'), relyingParty: 'rp', userName: 'n', userHandle: bytes('03'), created: 5 })
     .cardholder('h').card({ number: '4111', year: 2030, month: 1 }).cardCode('1').cardPin('2').notes('n').created(1).edited(2)
-    .source({ kind: 'k', id: 'i', baseline: bytes('0b') }).passwordHistory([['a', 1]]).historyHidden([1, 0, AUTHORS[0]!, DEVICES[0]!, 1]).moved(bytes('52'.repeat(32)), 3).movedFrom(bytes('51'.repeat(32)), 2).deleted(4)
+    .source({ kind: 'k', id: 'i', baseline: bytes('0b') }).passwordHistory([['a', 1]]).historyHidden().moved(bytes('52'.repeat(32)), 3).movedFrom(bytes('51'.repeat(32)), 2).deleted(4)
     .website(id(1), 'example.com', 'a').customField(id(2), 'l', 'v', false, 'a')
     .attachment(id(3), 'f', cmap([[1, bytes('0a'.repeat(32))], [2, 1], [3, []]]), 'a', 1).tag(id(4), 'x');
   for (const [name, value] of c.set) {
@@ -303,7 +356,7 @@ test('a move keeps the item as it is shown, dates and source included; previous 
     const changes = randomChanges(r, 6 + r.int(20), { created: seed % 2 === 0 });
     const view = S.viewItem(fieldsOf(fold(changes)));
     if (view.moved) continue;
-    const m = S.moveRecords(view, G1, G2, 50_000);
+    const m = S.moveRecords(view, G1, G2, 50_000, null);
     assert(!m.target.clear.some((n) => m.target.set.has(n)), 'a field is never both set and cleared');
     assert(!m.target.set.has('password_history') && !m.target.set.has('history_hidden'));
     const t: Change = { key5: [50_000, 0, AUTHORS[0]!, DEVICES[0]!, 99], payload: S.changePayload(ITEM, m.target.set, m.target.clear) };
@@ -324,14 +377,14 @@ test('a move carries Added, Edited and source, and moving back clears what the o
   const ch = (wall: number, f: (c: S.ItemChange) => void): Change => { const c = new S.ItemChange(); f(c); return { key5: key(wall), payload: S.changePayload(ITEM, c.set, [...c.clear]) }; };
   const view = S.viewItem(fieldsOf(fold([ch(1000, (c) => c.title('x').source({ kind: 'k', id: 'i', baseline: bytes('0b') })), ch(2000, (c) => c.notes('n'))])));
   assert.equal(view.added, 1000); assert.equal(view.edited, 2000);
-  const m = S.moveRecords(view, bytes('51'.repeat(32)), bytes('52'.repeat(32)), 50_000);
+  const m = S.moveRecords(view, bytes('51'.repeat(32)), bytes('52'.repeat(32)), 50_000, null);
   assert.equal(m.target.set.get('created'), 1000); assert.equal(m.target.set.get('edited'), 2000);
   assert(m.target.set.has('source'));
   const arrived = S.viewItem(fieldsOf(fold([{ key5: key(50_000), payload: S.changePayload(ITEM, m.target.set, m.target.clear) }])));
   assert.equal(arrived.added, 1000); assert.equal(arrived.edited, 2000);
   // the item comes back to a group that still holds an older copy with a field the item has lost
   const older = fieldsOf(fold([ch(100, (c) => c.title('old').username('gone'))]));
-  const back = S.moveRecords(view, bytes('52'.repeat(32)), bytes('51'.repeat(32)), 60_000, { target: older });
+  const back = S.moveRecords(view, bytes('52'.repeat(32)), bytes('51'.repeat(32)), 60_000, older);
   assert(back.target.clear.includes('username'));
   assert(!back.target.set.has('username'));
 });

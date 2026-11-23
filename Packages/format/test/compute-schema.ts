@@ -3,7 +3,8 @@ import { fromHex, hex } from '../src/bytes.ts';
 import { cmap, decode, encode, type CborValue, type CMap } from '../src/cbor.ts';
 import { checkpointItems, checkpointWritesOf, fold, type Change, type Entry, type State } from '../src/fold.ts';
 import { sha256 } from '../src/prims.ts';
-import { compareKeys, type OrderKey } from '../src/record.ts';
+import { compareKeys, keyRing, openRecord, type OrderKey, type Rec } from '../src/record.ts';
+import { evaluateGroup } from '../src/group.ts';
 import * as S from '../src/schema.ts';
 import { fromNotation, toNotation, type N } from './notation.ts';
 
@@ -92,6 +93,7 @@ export function computeSchema(type: string, i: J): J {
         for (const op of i.ops as J[]) {
           if (op.m === 'newItem') { for (const [k, v] of S.ItemChange.newItem(argOf(op.a[0])).set) c.set.set(k, v); }
           else if (op.m === 'clearPreviousPasswords') c.clearPreviousPasswords(view!);
+          else if (op.m === 'removeTag') c.removeTag(view!, op.a[0]);
           else (c as any)[op.m](...((op.a ?? []) as any[]).map(argOf));
         }
         const bytes = encode(c.payload(item));
@@ -123,7 +125,7 @@ export function computeSchema(type: string, i: J): J {
       const src = (i.changes as J[]).map((c) => changeFrom(c, item));
       const view = S.viewItem(fieldsOf(fold(src), item));
       const tgt = ((i.target_changes ?? []) as J[]).map((c) => changeFrom(c, item));
-      const r = S.moveRecords(view, F(i.from_gid), F(i.to_gid), i.now, i.target_changes ? { target: fieldsOf(fold(tgt), item) } : {});
+      const r = S.moveRecords(view, F(i.from_gid), F(i.to_gid), i.now, i.target_changes ? fieldsOf(fold(tgt), item) : null);
       const plain = (m: Map<string, CborValue>) => Object.fromEntries([...m].map(([k, v]) => [k, toNotation(v)]));
       // The target group folds the first record and shows the item; the source folds the second and hides it.
       const by = { author: i.by.author, device: i.by.device };
@@ -147,6 +149,23 @@ export function computeSchema(type: string, i: J): J {
       if (r.kind !== 'separate') { o.from = H(r.from); o.to = H(r.to); }
       if (r.kind === 'move_in_progress') o.mark_on = H(r.markOn);
       return o;
+    }
+    case 'schema.sealed': {
+      // End to end: sealed records (and sealed checkpoints) of one or more groups go through the group reader (specification sections 4 to 6),
+      // and the folded state of the item through the schema reader to the view.
+      const item = itemOf(i);
+      const views: J = {}, rejected: J = {};
+      for (const g of i.groups as J[]) {
+        const entries = (g.keys as J[]).map((k) => [F(k.gid), k.epoch, F(k.key)] as [Uint8Array, number, Uint8Array]);
+        const ring = keyRing(entries);
+        const recs: Rec[] = [];
+        const bad: J[] = [];
+        (g.records as string[]).forEach((hx, index) => { try { recs.push(openRecord(F(hx), ring)); } catch (e: any) { bad.push({ index, code: e.code }); } });
+        const gv = evaluateGroup(F(g.gid), recs, g.now_ms);
+        views[g.name] = viewJson(S.viewItem(fieldsOf(gv.state, item)), i.show);
+        rejected[g.name] = bad;
+      }
+      return { views, rejected };
     }
     default: throw new Error(`unknown schema vector type ${type}`);
   }

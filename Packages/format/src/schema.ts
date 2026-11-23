@@ -1,4 +1,4 @@
-// The item schema (docs/format-schema.md, draft 2): what the fields of an item are on top of specification 5.1. Pure: no file system.
+// The item schema (docs/format-schema.md, draft 3): what the fields of an item are on top of specification 5.1. Pure: no file system.
 //  - names and shapes of fields (sections 1 to 3, 8) and the rule that a value of the wrong shape counts as cleared and is kept;
 //  - builders that produce the `set` and `clear` of a kind 16 payload, with the writer's limits;
 //  - positions between two others and at the end;
@@ -105,7 +105,7 @@ export function shapeOk(name: string, value: CborValue, settings = false): boole
     case 'source': return !!m && isText(m.get(1)) && isText(m.get(2)) && isBytes(m.get(3));
     case 'password_history':
       return Array.isArray(value) && value.length <= 10 && value.every((e) => Array.isArray(e) && e.length === 2 && isText(e[0]) && isUint(e[1]));
-    case 'history_hidden': return clockShape(value);
+    case 'history_hidden': return value === 1;
     case 'moved': case 'moved_from': return !!m && isBytes(m.get(1), 32) && isUint(m.get(2));
     case 'password_over': return value === null || clockShape(value);
   }
@@ -122,7 +122,8 @@ export const goneId = (kind: string, id: string): string => hex(sha256(encode([k
 
 const nfc = (s: string) => s.normalize('NFC');
 const byteLen = (s: string) => utf8(s).length;
-const hasScheme = (a: string) => /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(a);
+/** Schema 3 (draft 3): an address that does not contain `://` gets `https://` in front (so `localhost:3000` becomes `https://localhost:3000`). */
+const hasScheme = (a: string) => a.includes('://');
 
 export interface Counts { websites: { field: string }[]; customFields: { field: string }[]; attachments: { field: string }[]; tags: { field: string }[] }
 export interface Otp { secret: Uint8Array; digits: number; period: number; algorithm: 1 | 2 | 3; issuer?: string; account?: string }
@@ -202,7 +203,8 @@ export class ItemChange {
   edited(ms: number): this { return this.checked('edited', ms); }
   source(s: Source): this { return this.checked('source', cmap([[1, this.text(s.kind)], [2, this.text(s.id)], [3, s.baseline]])); }
   passwordHistory(list: [string, number][]): this { return this.checked('password_history', list.map(([p, t]) => [this.text(p), t] as CborValue)); }
-  historyHidden(place: OrderKey): this { return this.checked('history_hidden', placeValue(place)); }
+  /** Schema 2 and 4 (draft 3): the value is `1`; what is hidden follows from the place of this write itself. */
+  historyHidden(): this { return this.checked('history_hidden', 1); }
   moved(gid: Uint8Array, when: number): this { return this.checked('moved', cmap([[1, gid], [2, when]])); }
   movedFrom(gid: Uint8Array, when: number): this { return this.checked('moved_from', cmap([[1, gid], [2, when]])); }
   passwordOver(over: OrderKey | null): this { return this.checked('password_over', over === null ? null : placeValue(over)); }
@@ -232,6 +234,13 @@ export class ItemChange {
     this.room('tags', name, limits.tags, 'too_many_tags');
     return this.checked(name, this.text(nfc(text)));
   }
+  /** Schema 3 (draft 3): removing a tag by its text clears every field that holds the text, as many as the view lists. The text is compared as NFC.
+   *  A tag the item does not hold changes nothing. */
+  removeTag(v: Pick<ItemView, 'tags'>, text: string): this {
+    const t = nfc(text);
+    for (const tag of v.tags) if (tag.text === t) for (const f of tag.fields) this.remove(f);
+    return this;
+  }
   /** Schema 8, the settings item. */
   groupName(s: string): this { return this.put('name', this.text(nfc(s)), true); }
   gone(kind: string, id: string, when: number): this { return this.checked(`gone/${goneId(kind, id)}`, cmap([[1, kind], [2, id], [3, when]]), true); }
@@ -243,11 +252,11 @@ export class ItemChange {
 
   /** Schema 4: Restoring a previous password sets `password` to that value (a new write). */
   restorePassword(value: string, over: OrderKey | null = null): this { return this.password(value, over); }
-  /** Schema 4: Clear Previous Passwords sets `history_hidden` to the place of the current winning write of `password` and clears
-   *  `password_history`. Needs the view (for the place); with no password there is nothing to clear. */
+  /** Schema 4 (draft 3): Clear Previous Passwords sets `history_hidden` (value `1`) and clears `password_history`. Needs the view, only to see that
+   *  there is a current write of `password`; with none there is nothing to clear. */
   clearPreviousPasswords(v: Pick<ItemView, 'passwordPlace'>): this {
     if (!v.passwordPlace) throw new SchemaError('no_password', 'there is no current password write to clear the history of');
-    return this.historyHidden(v.passwordPlace).remove('password_history');
+    return this.historyHidden().remove('password_history');
   }
 
   /** The kind 16 payload for `itemId` (specification 5.1). */
@@ -341,7 +350,7 @@ export function viewItem(fields: Fields): ItemView {
   const attachments = rep<Attached>('a', (field, m) => ({ field, fileName: m.get(1) as string, attachment: m.get(2)!, pos: m.get(3) as string, added: m.get(4) as number }));
   const tagMap = new Map<string, string[]>();
   for (const [name, e] of eff) if (name.startsWith('t/')) { const t = e.value as string; tagMap.set(t, [...(tagMap.get(t) ?? []), name]); }
-  const tags = [...tagMap].sort(([a], [b]) => cmp(utf8(a), utf8(b))).map(([t, fs]) => ({ text: t, fields: fs.sort() }));
+  const tags = [...tagMap].sort(([a], [b]) => (rules.tagsUtf8Order ? cmp(utf8(a), utf8(b)) : a < b ? -1 : a > b ? 1 : 0)).map(([t, fs]) => ({ text: t, fields: fs.sort() }));
 
   const typeRaw = num('type') ?? null;
   const type = typeRaw !== null && typeRaw >= 1 && typeRaw <= 3 ? typeRaw : 4;
@@ -440,38 +449,40 @@ export function viewSettings(fields: Fields): SettingsView {
   return out;
 }
 
-// ---------------------------------------------------------------- moving an item (schema 7, draft 2)
+// ---------------------------------------------------------------- moving an item (schema 7, draft 3)
 
-export interface MoveOptions {
-  /** Schema 7: attachments are sealed again as new attachments, since chunks live with a group. Needs the chunks, which this module does not have. */
-  reseal?: (attachment: CborValue) => CborValue;
-  /** The copy the target group already holds (the item is coming back): fields it has that the item does not are cleared, which the schema does not say. */
-  target?: Fields;
-}
 export interface MoveRecords {
   /** record 1, in the group the item goes to */
   target: { set: Map<string, CborValue>; clear: string[] };
-  /** record 2, in the group it leaves: sets `moved` */
+  /** record 2, in the group it leaves: sets `moved`, naming the group the item went to */
   source: { set: Map<string, CborValue>; clear: string[] };
 }
 
 const NOT_CARRIED = new Set(['created', 'edited', 'moved', 'moved_from', 'password_over', 'deleted', 'password_history', 'history_hidden']);
 
-/** Schema 7: the two payloads, in the order they must be written. Earlier writes are not copied. */
-export function moveRecords(view: ItemView, fromGid: Uint8Array, toGid: Uint8Array, nowMs: number, opts: MoveOptions = {}): MoveRecords {
+/** Schema 7 (draft 3): the two payloads, in the order they must be written. Earlier writes are not copied.
+ *  `target` is the folded state of the item in the group it goes to (the copy that group already holds, for example one marked `moved`
+ *  when the item is coming back), or null when that group holds none. It decides `password_over` (the place of the winning write of `password`
+ *  in that copy, or null) and which content fields the record clears (those the copy has and the arriving item does not).
+ *  `reseal` seals an attachment again as a new attachment, since chunks live with a group (it needs the chunks, which this module does not have). */
+export function moveRecords(view: ItemView, fromGid: Uint8Array, toGid: Uint8Array, nowMs: number, target: Fields | null,
+                            reseal?: (attachment: CborValue) => CborValue): MoveRecords {
   const set = new Map<string, CborValue>();
+  // every content field, every unknown field and every field of the wrong shape: the view's `carry` holds the current value of each
   for (const [name, value] of view.carry) {
     const c = classifyName(name);
     if (c.kind === 'invalid' || NOT_CARRIED.has(name)) continue; // not a field name: a writer must not write it
-    set.set(name, c.kind === 'repeated' && c.family === 'a' && opts.reseal && shapeOk(name, value) ? cmap([...(value as CMap)].map(([k, v]) => [k, k === 2 ? opts.reseal!(v) : v] as [number, CborValue])) : value);
+    set.set(name, c.kind === 'repeated' && c.family === 'a' && reseal && shapeOk(name, value) ? cmap([...(value as CMap)].map(([k, v]) => [k, k === 2 ? reseal(v) : v] as [number, CborValue])) : value);
   }
   if (view.added !== undefined) set.set('created', view.added);
   if (view.editedRaw !== undefined) set.set('edited', view.editedRaw);
   set.set('moved_from', cmap([[1, fromGid], [2, nowMs]]));
-  set.set('password_over', null);
+  const held = target?.get('password');
+  const heldWin = held && held.length ? held[held.length - 1]! : undefined;
+  set.set('password_over', heldWin ? placeValue(heldWin.key) : null);
   const clear = new Set<string>(['moved']);
   if (view.deleted && view.deletedAt !== undefined) set.set('deleted', view.deletedAt); else clear.add('deleted');
-  if (opts.target) for (const [name, list] of opts.target) { const w = win(list); if (w && !w.cleared && !set.has(name)) clear.add(name); }
+  if (target) for (const [name, list] of target) { const w = win(list); if (w && !w.cleared && isContentField(name) && !set.has(name)) clear.add(name); }
   return {
     target: { set, clear: [...clear].sort() },
     source: { set: new Map<string, CborValue>([['moved', cmap([[1, toGid], [2, nowMs]])]]), clear: [] },

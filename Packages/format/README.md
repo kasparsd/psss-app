@@ -1,6 +1,6 @@
 # @psss/format
 
-A reference implementation and test vectors for the Psss vault format, version 1, written against draft 5 of the spec (`docs/format-spec.md`, section 12 lists what each draft changed; the spec points here for which draft this package follows) and draft 2 of the item schema (`docs/format-schema.md`).
+A reference implementation and test vectors for the Psss vault format, version 1, written against draft 5 of the spec (`docs/format-spec.md`, section 12 lists what each draft changed; the spec points here for which draft this package follows) and draft 3 of the item schema (`docs/format-schema.md`).
 It is written from those two documents alone; where that document is silent, ambiguous or wrong, the code takes the most literal reading and says so in a comment that starts with a section number.
 The list of such places is in the findings report that came with this package, and each one that changes behaviour is marked "finding" in the code, the vector descriptions or both.
 
@@ -17,7 +17,7 @@ No dependencies, no `node_modules`, no build step.
   - `record.ts` sealed records, padding, body and payload shapes, clock (sections 4 and 5), the salt derivation, and the reader checks of section 9 steps 1 to 3.
   - `fold.ts` folding item changes, `deleted`, history, checkpoints in parts, purge (sections 5.1, 5.3 and 5.4). `checkpointItems` takes a retention policy: a number (that many earlier writes of every field) or a function; the default is the schema's.
   - `fields.ts` the field names of the schema (fixed, repeated families, settings item) and the content-field predicate `isContentField` that `fold.ts` uses for the delete rule (schema 5).
-  - `retention.ts` the schema's retention policy (schema section 4) and the Previous Passwords rules it shares with the reader: a checkpoint carries, for `password`, the winner, the write just before it and, for each of the first 10 entries, the entry's write and the write after it (which dates it), leaving out writes `history_hidden` hides; and only the winner of every other field.
+  - `retention.ts` the schema's retention policy (schema section 4) and the Previous Passwords rules it shares with the reader. Clear Previous Passwords hides, of the writes of `password` before the winning write of `history_hidden`, all but the last. A checkpoint carries, for `password`, the winner, the write just before it, for each of the first 10 entries its own write and the write after it (which dates it), and the last write before `history_hidden` (the divider, which the table of draft 3 does not list: see the findings); every other field keeps its winner only.
   - `schema.ts` the item schema (`docs/format-schema.md`), pure (see "The item schema" below).
   - `remember.ts` what a device remembers of each chain and location, and the rollback check (section 4.4).
   - `group.ts` chains, membership, cuts, epochs started by remove and replace, the two-step fork rule, and the whole reader (`evaluateGroup`) with section 9 steps 4 and 5.
@@ -34,7 +34,7 @@ It finds Node 24 (the `node` on `PATH` if it is 24, otherwise the newest `~/.nvm
 The vector regeneration test takes about half a minute; the permutation property test about twenty seconds.
 One vector derives Argon2id at 1 GiB and runs only with `PSSS_HEAVY=1`; the mutation tests run it with the Argon2id work skipped.
 
-Current counts: 157 tests and 801 vectors (cbor 77, person 51, record 94, clock 19, fold 22, checkpoint 10, group 100, slots 88, wraps 18, chunks 21, folder 23, schema 278).
+Current counts: 162 tests and 827 vectors (cbor 77, person 51, record 94, clock 19, fold 22, checkpoint 10, group 100, slots 88, wraps 18, chunks 21, folder 23, schema 304).
 
 ## Vectors
 
@@ -183,6 +183,8 @@ A boundary no vector notices is one an implementation can get wrong unnoticed.
 | `historyHiddenApplies` | schema 4 | `false`: history_hidden not applied | `schema/password/after-clear-previous-passwords`, `schema/password/checkpoint-after-clear-no-longer-carries-hidden-writes` |
 | `previousUnique` | schema 4 | `false`: an earlier write equal to the current password or to a newer entry shown as a previous password | `schema/password/previous-must-differ`, `schema/password/entry-equal-to-a-newer-entry-is-left-out`, `schema/password/import-entry-equal-to-a-write-is-left-out` |
 | `retentionKeepsNeighbours` | schema 4 | `false`: a checkpoint keeps only the writes of the entries, not the write that dates each nor the one just before the winner | `schema/password/checkpoint-keeps-the-write-that-dates-an-entry`, `schema/password/sequential-note-through-a-checkpoint-with-a-write-before-the-winner-that-is-no-entry` |
+| `retentionKeepsDivider` | schema 4 | `false`: a checkpoint may drop the last write of password before the winning history_hidden, which divides hidden from shown | `schema/password/checkpoint-keeps-the-write-that-divides-hidden-from-shown` |
+| `tagsUtf8Order` | schema 3 | `false`: tags ordered as JavaScript strings (UTF-16), not as UTF-8 bytes | `schema/tag/order-is-utf8-a-character-above-ffff-after-one-in-e000-to-ffff`, `schema/tag/order-is-utf8-three-characters` |
 | `importedEditedKept` | schema 5 | `false`: Edited always the latest content write, never the imported edited date | `schema/dates/imported-untouched`, `schema/dates/imported-then-source-set-again` |
 | `positionTiesByName` | schema 1 | `false`: equal positions shown in arrival order, not in order of field name | `schema/web/two-devices-add-offline-same-position`, `schema/web/same-position-three-entries-by-field-name` |
 
@@ -191,46 +193,52 @@ Draft 4 removed the `record_id` comparison from the fork rule: two candidates wi
 
 ## The item schema
 
-`src/schema.ts` implements `docs/format-schema.md` (draft 2) on top of the folded state of `fold.ts`.
+`src/schema.ts` implements `docs/format-schema.md` (draft 3) on top of the folded state of `fold.ts`.
 It touches no file and holds no state.
 
 - Names and shapes (sections 1 to 3, 8): `classifyName`, `shapeOk`, `validPosition`, `FIXED_FIELDS`, `REPEATED_FAMILIES`, `SETTINGS_FIELDS`, `goneId` (the first 8 bytes of SHA-256 of the deterministic CBOR array `[kind, id]`), `newId`, `SETTINGS_ITEM_ID`, `isContentField` (the explicit list of schema 5: `type`, `title`, `username`, `password`, `password_rules`, `otp`, `passkey`, `cardholder`, `card`, `card_code`, `card_pin`, `notes` and the families `web/`, `f/`, `a/`, `t/`).
-  An `otp` has 4 to 10 digits and a period of 1 to 86,400 seconds.
+  An `otp` has 4 to 10 digits and a period of 1 to 86,400 seconds; `history_hidden` is the number 1.
   Extra keys inside a value are kept and ignored; no `type` shows as a custom item; a `password_history` of more than 10 entries has the wrong shape.
 - Positions: `positionBetween`, `positionAtEnd`.
-- Writer: `ItemChange`, one method per field, producing the `set` and `clear` of a kind 16 payload (`changePayload`, `payload`); it refuses what a writer must not write (`SchemaError`), normalises names, labels, titles, notes, cardholder, file names and tags to NFC and never touches a secret.
-  `password(value, over)` writes `password_over` in the same record: the place of the write the device saw as current, or `null` (the default).
-  `restorePassword(value, over)` and `clearPreviousPasswords` are Restore and Clear Previous Passwords (section 4).
+- Writer: `ItemChange`, one method per field, producing the `set` and `clear` of a kind 16 payload (`changePayload`, `payload`); it refuses what a writer must not write (`SchemaError`), normalises names, labels, titles, notes, cardholder, file names and tags to NFC (not usernames) and never touches a secret.
+  `password(value, over)` writes `password_over` in the same record: the place of the write the device saw as the current password, or `null` (the default).
+  `restorePassword(value, over)`, `clearPreviousPasswords(view)` (sets `history_hidden` to 1 and clears `password_history`; refuses with `no_password` when there is no current write) and `historyHidden()` are the Previous Passwords writes.
+  `website` puts `https://` in front of an address that does not contain `://`.
+  `removeTag(view, text)` clears every field that holds the tag's text (compared as NFC) and nothing if there is none.
   `ItemChange.newItem(nowMs)` starts a record with `created` set.
 - Reader: `viewItem(fields)` turns one item's folded state into what the app shows (type and fields, websites, custom fields, attachments and tags in order, previous passwords, the two-devices note, Added and Edited, deleted, moved) and `viewSettings` the settings item.
   A value of the wrong shape counts as cleared and is kept, as are unknown fields and names that are not field names; the view lists them (`invalid`, `unknown`, `carry`).
-  Tags have no position and show in bytewise text order.
-  The two-devices note (`passwordNote`) is shown when the winning write's `password_over` is not the place of the write just before it in the order; no note when `password_over` is absent, of the wrong shape, or from another record.
-  Previous Passwords, newest first: cleared writes and repeated values are not entries; an entry equal to the current password or to a newer entry is left out; `history_hidden` hides writes strictly before its place; each entry is dated by the write that replaced it; then `password_history` entries; at most 10 are shown.
+  Tags have no position and show in the bytewise order of their UTF-8.
+  The two-devices note (`passwordNote`) is shown when the winning write's `password_over` is not the place of the write just before it among the writes in force; no note when `password_over` is absent, of the wrong shape, or from another record.
+  Previous Passwords, newest first: of the writes of `password` before the winning `history_hidden` all but the last are left out; cleared writes and repeated values are not entries; an entry equal to the current password or to a newer entry is left out; each entry is dated by the write that replaced it; then `password_history` entries; at most 10 are shown.
   Added is `created`, or (no valid `created`) the wall time of the earliest write held, and `addedEstimated` says so: a reader treats an item without `created` as having an estimated Added that can only get later after a checkpoint.
-  Edited is the latest content write, or `edited` when no content write is later; it is shown only when later than Added (`editedRaw` is the unhidden value).
-- Moving (section 7, draft 2): `moveRecords(view, fromGid, toGid, nowMs, { reseal?, target? })` gives the two payloads.
-  The target record sets the content and unknown fields, `created` (Added), `edited`, `source`, `moved_from` and `password_over: null`; it clears `moved`, sets `deleted` only if the item is in Recently Deleted (and clears it otherwise) and does not carry `password_history` or `history_hidden`.
-  `target` is the copy the target group already holds (an item coming back): fields it has that the item no longer has are cleared too, which the schema does not say (see the findings).
+  Edited is the latest content write, or `edited` when no content write is later; it is shown only when later than Added (`editedRaw` is the unhidden value, which a move writes).
+- Moving (section 7): `moveRecords(view, fromGid, toGid, nowMs, target, reseal?)` gives the two payloads; `target` is the folded state of the item in the group it goes to (or null when that group holds none).
+  The target record sets the content, unknown and wrong-shaped fields, `created` (Added), `edited`, `source`, `moved_from`, and `password_over`: the place of the winning `password` write in `target`, or `null`; it clears `moved`, every content field `target` has and the item does not, and `deleted` unless the item is in Recently Deleted (then it sets it); it does not carry `password_history` or `history_hidden`.
+  The record in the group it leaves sets `moved`, naming the group it went to.
   `classifyInTwoGroups` recognises moved, move in progress and separate items by `moved_from`: complete when the other copy's `moved` names this group and is later than the `moved_from`, otherwise in progress, no link means separate, and for there-and-back the later `moved_from` decides.
 - Retention (section 4): `schemaRetention`, the default policy of `checkpointItems`.
 - Delete rule (section 6): `isDeleted(fields, isContent = isContentField)` in `fold.ts`.
 
 What it does not do: sealing an attachment again on a move (it needs the chunks: `moveRecords` takes a `reseal` callback and does nothing else), the 30-day purge of a moved item (the count is the same as for a deleted one: from `moved`'s time), any file or record I/O, any user-interface wording.
 
-Vectors (`vectors/schema.json`, 278): field shapes (each fixed and repeated field, accepted and one wrong shape, treated as cleared and kept; `otp` digits and period at both ends of the range), name rules on both sides, positions, every builder, writer limits, websites added on two devices, ordering, tags, custom fields as one unit, a card reissued, previous passwords (twelve changes, through a checkpoint, after Clear Previous Passwords, from an import, after a restore), the two-devices note (sequential changes, two devices from one base, a third change after both were seen, a restore, a write without `password_over`, and the same through a checkpoint), Added and Edited, deleting (an unknown fixed or repeated field after a delete leaves it deleted), unknown fields, moving (the list of schema 7, a deleted item, an item deleted then edited then moved, an imported item), the same `item_id` in two groups (complete, interrupted, there and back, separate), the settings item, and the reader showing what is over a limit.
-Every expectation is written by hand in `scripts/vec-schema.ts` and the generator stops if the library disagrees.
+Vectors (`vectors/schema.json`, 304), every expectation written by hand in `scripts/vec-schema.ts` (the generator stops if the library disagrees, and stops if any schema vector took its expectation from the library):
+field shapes (each fixed and repeated field, accepted and one wrong shape, treated as cleared and kept; `otp` digits and period at both ends of the range), name rules on both sides, positions, every builder (with a hash or length of the payload worked out by an independent encoder in the generator), writer limits, websites added on two devices, ordering (tags as UTF-8, with a character in U+E000 to U+FFFF and one above U+FFFF), custom fields as one unit, a card reissued, previous passwords (twelve changes, through a checkpoint, after Clear Previous Passwords, from an import, after a restore, a stale device clearing later, a clearing that arrives after a checkpoint), the two-devices note (sequential changes, two devices from one base, a third change after both were seen, a restore, a write without `password_over`, and the same through a checkpoint), Added and Edited, deleting (an unknown fixed or repeated field after a delete leaves it deleted), unknown fields, moving (the list of schema 7, a deleted item, an item deleted then edited then moved, an imported item, an arrival that names the password the group holds, there and back with the password unchanged and changed, both with no note), the same `item_id` in two groups (complete, interrupted, there and back, separate), the settings item, and the reader showing what is over a limit.
+Three vectors (`schema/sealed/*`, type `schema.sealed`) go from sealed records and a sealed checkpoint through the group reader (`evaluateGroup`) and the schema reader to the view, with the sealed bytes in the vector: two devices each adding a website, Previous Passwords across a checkpoint (read with every record and after the covered records were deleted), and a move to another group and back (sealed in both groups).
 Where the schema leaves a choice, the description of the vector says which reading was taken.
 
 `test/schema.test.ts` has the seeded property tests:
 any permutation of schema-level changes (duplicates too) gives the same view, for items and for the settings item;
-a checkpoint made at any point plus the remaining records (and a checkpoint on top of another) gives the same view as folding everything, previous passwords and the note included, with these exceptions, each shown by a test:
+a checkpoint made at any point plus the remaining records (and a checkpoint on top of another) gives the same view as folding everything, previous passwords and the note included, except for these differences, each shown by its own test:
 (1) Added, and so Edited as shown, when the item has no `created` (only winners of fields other than `password` are kept; Added can only get later);
 (2) the date of a previous password can be later: a write that arrives after the checkpoint and lands inside a run of equal passwords replaces an entry, and the writes of that run the checkpoint left out are gone;
-(3) `history_hidden` moving back: when the winning write of `history_hidden` names an earlier place than the one the checkpoint applied, writes the checkpoint left out should show again.
-The property tests that use `history_hidden` write it at the place of the writing record, which never moves back; (3) is a separate example.
-When the records after the checkpoint all come later in the order, the view is exactly the full one.
-A full list of at most 10 entries is, after a checkpoint, the same list, except for (2) and (3).
+(3) the list from writes can be shorter: a later write that repeats an old entry (for example the old password typed again after the password was removed) takes it out of the list, and the entry beyond the first 10 that should take its place was not kept;
+(4) a clearing that arrives after the checkpoint and sorts before a write the checkpoint dropped can leave older passwords shown that the records hide (the checkpoint can only keep the divider it knew of);
+(5) a later write of `history_hidden` of the wrong shape, which counts as cleared, shows the hidden passwords again in the records and not through a checkpoint.
+Nothing else differs: the entries a checkpoint shows are always the first entries of the full list (shorter by (3), longer by (4)), never other passwords, the note is always the same, and a clearing that is later in the order never shows a password an earlier one hid.
+A full list of at most 10 entries from writes is the same after a checkpoint, except for (2), (4) and (5).
+The property tests of (1) to (4) were also run over 3,000 seeds when this was written.
+When the records after the checkpoint all come later in the order and nothing repeats an old entry, the view is exactly the full one.
 Moves: the target record of `moveRecords` shows the item as it was, dates and source included, with no previous passwords and no note.
 
 ## Regenerate the vectors
