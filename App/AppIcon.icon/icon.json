@@ -28,48 +28,31 @@
     {
       "layers": [
         {
-          "glass": false,
-          "name": "Dots",
+          "glass": true,
+          "name": "Mark",
           "image-name-specializations": [
             {
-              "value": "Dots.svg"
+              "value": "Mark.svg"
             },
             {
               "appearance": "dark",
-              "value": "Dots-Dark.svg"
+              "value": "Mark-Dark.svg"
             },
             {
               "appearance": "tinted",
-              "value": "Dots-Tint.svg"
-            }
-          ]
-        },
-        {
-          "glass": false,
-          "name": "Field",
-          "image-name-specializations": [
-            {
-              "value": "Field.svg"
-            },
-            {
-              "appearance": "dark",
-              "value": "Field-Dark.svg"
-            },
-            {
-              "appearance": "tinted",
-              "value": "Field-Tint.svg"
+              "value": "Mark-Tint.svg"
             }
           ]
         }
       ],
       "name": "Mark",
       "shadow": {
-        "kind": "none",
-        "opacity": 0
+        "kind": "neutral",
+        "opacity": 0.4
       },
       "translucency": {
-        "enabled": false,
-        "value": 0
+        "enabled": true,
+        "value": 0.25
       }
     }
   ],
