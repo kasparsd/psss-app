@@ -1,0 +1,38 @@
+[
+  {
+    "id": "item-api",
+    "title": "Example API",
+    "username": "robin@example.com",
+    "sites": ["api.example.com", "localhost"],
+    "fields": { "token": "psss-fictional-token-7f3a9c2e51b84d06" }
+  },
+  {
+    "id": "item-shop",
+    "title": "Example Shop",
+    "username": "robin@example.com",
+    "sites": ["shop.example.com"],
+    "fields": { "password": "Fictional-Shop-Pass-4410" },
+    "totp": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+  },
+  {
+    "id": "item-bank",
+    "title": "Example Bank",
+    "username": "robin",
+    "sites": ["bank.example.com"],
+    "fields": { "password": "Fictional-Bank-Pass-9941" }
+  },
+  {
+    "id": "item-git-work",
+    "title": "Code Host",
+    "username": "robin-work",
+    "sites": ["git.example.com"],
+    "fields": { "token": "psss-fictional-work-token-11aa22bb" }
+  },
+  {
+    "id": "item-git-home",
+    "title": "Code Host",
+    "username": "robin-home",
+    "sites": ["git.example.com"],
+    "fields": { "token": "psss-fictional-home-token-33cc44dd" }
+  }
+]

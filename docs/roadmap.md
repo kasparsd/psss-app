@@ -156,7 +156,8 @@ Goal: five people outside the project fill, save and find a login without guidan
 3. Breach and weak-password checks computed on device.
 4. Entry history interface, Apple Watch, 1Password 8 (1PUX) and OPVault import.
 5. Family sharing (shared groups in one vault) and remote storage over WebDAV or S3-compatible endpoints, designed in [vaults](vaults.md#family-sharing-and-remote-storage-design-2026-11-23). Needs S4, S6 and S7 first. On the [record log](format.md) sharing is membership records and a `CKShare` on the vault's zone, and remote storage is a second transport.
-6. Teams, SSH keys, Windows, Android, web, hosted sync. Not planned. Revisit only with evidence of demand.
+6. Proposed 2026-11-23, not approved: a `psss` command for the terminal and AI agents, through the same relay to the app as item 1. A program uses a secret by name and the person approves in the app with Touch ID. Proposal, prototype and owner decisions in [command line and agents](cli.md); three signed-build questions join S5.
+7. Teams, SSH keys, Windows, Android, web, hosted sync. Not planned. Revisit only with evidence of demand.
 
 ## Open decisions
 

@@ -11,6 +11,7 @@ See the [product contract](product.md) for positioning, principles and business 
 | Research | [Existing product flows](research.md) |
 | Experience | [User flows and prototype](experience.md) |
 | Platform | [AutoFill and browser coverage](autofill.md), [browser extension](browser-extension.md) |
+| Command line | [Command line and AI agents](cli.md) (proposal, not approved) |
 | Items | [Cards, notes and KeePass entries](items.md) |
 | Verification codes | [Adding a TOTP code by paste, image or camera](verification-codes.md) |
 | Storage | [KeePass and vault lifecycle](vaults.md), [vault format](format.md), [byte-level specification](format-spec.md) |

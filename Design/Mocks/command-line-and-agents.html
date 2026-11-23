@@ -1,0 +1,475 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>Psss command line and AI agents mock</title><style>
+:root{color-scheme:light dark;
+--page:#f5f5f7;--ink:#1d1d1f;--ink2:#5c5c61;--rule:#d2d2d7;--pcard:#fff;
+--screen:#f2f2f7;--card:#fff;--sep:rgba(60,60,67,.18);--lab:#000;--lab2:rgba(60,60,67,.62);
+--accent:#007aff;--accent-bg:rgba(0,122,255,.12);--accent-sel:rgba(0,122,255,.2);--red:#ff3b30;--red-bg:rgba(255,59,48,.12);--orange:#ff9500;--orange-bg:rgba(255,149,0,.14);
+--win:#fff;--side:#e8e8ed;--bar:#f4f4f6;--bezel:#1c1c1e;--field:rgba(120,120,128,.14);--dim:rgba(0,0,0,.32);--shadow:0 6px 24px rgba(0,0,0,.18);
+--t:17px;--b:13px}
+@media (prefers-color-scheme:dark){:root{
+--page:#161618;--ink:#f5f5f7;--ink2:#a1a1a6;--rule:#38383a;--pcard:#1f1f21;
+--screen:#000;--card:#1c1c1e;--sep:rgba(84,84,88,.65);--lab:#fff;--lab2:rgba(235,235,245,.6);
+--accent:#0a84ff;--accent-bg:rgba(10,132,255,.2);--accent-sel:rgba(10,132,255,.32);--red:#ff453a;--red-bg:rgba(255,69,58,.18);--orange:#ff9f0a;--orange-bg:rgba(255,159,10,.2);
+--win:#1e1e1e;--side:#2a2a2d;--bar:#2c2c2e;--bezel:#3a3a3c;--field:rgba(120,120,128,.28);--dim:rgba(0,0,0,.5);--shadow:0 6px 24px rgba(0,0,0,.6)}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font:16px/1.5 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif}
+main{padding:28px 24px 80px;max-width:1700px;margin:0 auto}
+.prose{max-width:860px}
+h1{font-size:30px;line-height:1.2;margin:8px 0 8px}
+h2{font-size:22px;margin:44px 0 6px;padding-top:18px;border-top:1px solid var(--rule)}
+h3{font-size:17px;margin:26px 0 4px}
+p,li{color:var(--ink)}
+.muted{color:var(--ink2)}
+a{color:var(--accent)}
+.crumb{margin:0 0 6px}
+.frames{display:flex;flex-wrap:wrap;gap:30px 28px;align-items:flex-start;margin:18px 0}
+.fig{margin:0;display:flex;flex-direction:column;gap:10px}
+.fig.kphone{width:300px}
+.fig.kmac{width:800px}
+.fig.kmsh{width:560px}
+.fig .lbl{font-weight:600}
+.fig figcaption{color:var(--ink2);font-size:15px;line-height:1.45}
+.note{background:var(--pcard);border:1px solid var(--rule);border-radius:10px;padding:12px 16px;max-width:860px}
+.dec li{margin:0 0 14px}
+.dec .rej,.dec .why{color:var(--ink2)}
+table.cmp{border-collapse:collapse;max-width:860px}
+table.cmp td,table.cmp th{border-top:1px solid var(--rule);padding:6px 12px 6px 0;vertical-align:top;text-align:left}
+
+/* ---- everything inside a device uses exactly two sizes: --t (title) and --b (body) ---- */
+.phone,.win,.winback,.msheet,.malert,.menu{font-size:var(--b);line-height:1.35;font-weight:400;color:var(--lab)}
+.t{font-size:var(--t);font-weight:600;line-height:1.25}
+.s{color:var(--lab2)}
+.b{font-weight:600}
+.c{text-align:center}
+
+/* iPhone */
+.phone{width:300px;min-height:640px;border-radius:46px;background:var(--bezel);padding:8px;box-shadow:var(--shadow)}
+.phone .scr{position:relative;min-height:624px;border-radius:38px;background:var(--screen);overflow:hidden;display:flex;flex-direction:column}
+.sb{display:flex;justify-content:space-between;padding:12px 26px 4px;font-weight:600}
+.nav{display:flex;align-items:center;justify-content:space-between;padding:6px 14px;min-height:38px;gap:8px}
+.nav .mid{font-weight:600;text-align:center;flex:1}
+.nav .r{display:flex;gap:8px;align-items:center}
+.lt{padding:2px 14px 8px}
+.body{flex:1;padding:0 14px 14px}
+.pin{padding:10px 14px 18px;background:var(--screen);display:flex;flex-direction:column;gap:8px}
+.grp{background:var(--card);border-radius:12px;margin:0 0 6px;overflow:hidden}
+.row{padding:10px 14px;border-top:1px solid var(--sep);display:flex;align-items:center;gap:10px}
+.row:first-child{border-top:0}
+.row.col{flex-direction:column;align-items:stretch;gap:6px}
+.grow{flex:1;min-width:0}
+.spl{display:flex;justify-content:space-between;gap:8px}
+.sec{color:var(--lab2);padding:14px 14px 6px}
+.foot{color:var(--lab2);padding:6px 14px 10px}
+.pills{display:flex;gap:6px;overflow:hidden;padding:0 14px 10px;white-space:nowrap}
+.pill{padding:5px 11px;border-radius:999px;background:var(--field)}
+.pill.on{background:var(--accent);color:#fff}
+.search{margin:6px 14px 18px;padding:10px 16px;border-radius:999px;background:var(--card);color:var(--lab2);box-shadow:0 1px 6px rgba(0,0,0,.12)}
+.gear{display:inline-block;width:22px;height:22px;border-radius:50%;border:3px double var(--accent)}
+.ic{width:28px;height:28px;border-radius:7px;color:#fff;display:grid;place-items:center;font-weight:600;flex:none}
+.ic.c1{background:#5e8c6a}.ic.c2{background:#6f7bb5}.ic.c3{background:#b5846f}.ic.c4{background:#8e8e93}.ic.c5{background:#a56fb5}
+.ic.big{width:60px;height:60px;border-radius:14px}
+.hd{display:flex;flex-direction:column;align-items:center;gap:8px;padding:6px 0 14px}
+
+/* buttons: always a text label */
+.btn{display:inline-block;padding:6px 12px;border-radius:999px;background:var(--accent-bg);color:var(--accent);font-weight:600;white-space:nowrap}
+.btn.pri{background:var(--accent);color:#fff}
+.btn.red{background:var(--red-bg);color:var(--red)}
+.btn.plain{background:none;padding:6px 6px;font-weight:400}
+.btn.plainred{background:none;color:var(--red);padding:6px 6px;font-weight:400}
+.btn.full{display:block;text-align:center;padding:11px 12px;border-radius:14px}
+.btn.off{opacity:.4}
+.acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.card-note{background:var(--card);border-radius:12px;padding:12px 14px;margin:0 0 10px}
+.card-note.warn{border:2px solid var(--orange);background:var(--card)}
+.warnhd{display:flex;gap:8px;align-items:center;font-weight:600;margin-bottom:6px}
+.tri{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:5px;background:var(--orange);color:#fff;font-weight:700;flex:none}
+.pwd{letter-spacing:.12em}
+
+/* overlays */
+.dim{position:absolute;inset:0;background:var(--dim);display:flex;align-items:center;justify-content:center;padding:18px}
+.dim.bottom{align-items:flex-end}
+.dim.top{align-items:flex-start;padding-top:0}
+.alert{width:100%;max-width:262px;background:var(--card);border-radius:16px;overflow:hidden;text-align:center;box-shadow:var(--shadow)}
+.alert .m{padding:18px 16px 14px;display:flex;flex-direction:column;gap:6px}
+.alert .ab{border-top:1px solid var(--sep);padding:11px 8px;color:var(--accent)}
+.alert .ab.red{color:var(--red)}
+.alert .ab.bold{font-weight:600}
+.sheetb{width:100%;display:flex;flex-direction:column;gap:8px}
+.sheetb .g{background:var(--card);border-radius:14px;overflow:hidden;text-align:center}
+.sheetb .g .m{padding:12px 14px;color:var(--lab2)}
+.sheetb .g .ab{border-top:1px solid var(--sep);padding:12px;color:var(--accent)}
+.sheetb .g .ab.red{color:var(--red)}
+.sheetb .g .ab.bold{font-weight:600}
+.toast{position:absolute;left:14px;right:14px;bottom:76px;border-radius:999px;background:var(--card);box-shadow:var(--shadow);padding:8px 8px 8px 16px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.toast.mac{left:auto;right:auto;bottom:18px;left:50%;transform:translateX(-50%);width:max-content;max-width:90%}
+.sheetp{position:absolute;left:0;right:0;bottom:0;top:46px;background:var(--screen);border-radius:20px 20px 0 0;box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden}
+.card-white{background:var(--card)}
+
+/* Mac window */
+.win{width:800px;border-radius:12px;background:var(--win);box-shadow:var(--shadow);border:1px solid var(--sep);overflow:hidden;position:relative}
+.tb{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bar);border-bottom:1px solid var(--sep)}
+.lights{display:flex;gap:7px;margin-right:10px}
+.lights i{display:block;width:12px;height:12px;border-radius:50%}
+.lights i:nth-child(1){background:#ff5f57}.lights i:nth-child(2){background:#febc2e}.lights i:nth-child(3){background:#28c840}
+.tb .sp{flex:1}
+.fld{padding:4px 12px;border-radius:7px;background:var(--field);color:var(--lab2);min-width:130px}
+.cols{display:flex;min-height:430px}
+.side{width:190px;background:var(--side);padding:10px 8px;flex:none}
+.side .sh{color:var(--lab2);font-weight:600;padding:8px 8px 4px}
+.sr{display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:6px}
+.sr.sel{background:var(--accent-sel)}
+.sr .n{margin-left:auto;color:var(--lab2)}
+.si{width:14px;height:14px;border-radius:4px;border:2px solid var(--accent);flex:none}
+.lst{width:290px;border-right:1px solid var(--sep);flex:none;display:flex;flex-direction:column}
+.lh{padding:12px 14px 8px}
+.mrow{padding:7px 10px;border-radius:7px;margin:1px 8px;display:flex;gap:10px;align-items:center}
+.mrow.sel{background:var(--accent);color:#fff}
+.mrow.sel .s{color:rgba(255,255,255,.82)}
+.det{flex:1;padding:16px 18px;position:relative;min-width:0}
+.det .grp{background:var(--field);border-radius:10px}
+.det .row{padding:8px 12px}
+.det .sec{padding:12px 4px 6px}
+.det .foot{padding:6px 4px 8px}
+.lfoot{padding:10px 14px;color:var(--lab2)}
+.empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:12px;padding:20px 28px;color:var(--lab2)}
+.empty .btn{margin-top:4px}
+.winback{position:relative;background:var(--side);border-radius:12px;box-shadow:var(--shadow);border:1px solid var(--sep);padding:0 0 28px;width:560px}
+.winback .tb{border-radius:12px 12px 0 0}
+.winback .dimb{position:absolute;inset:0;background:var(--dim);border-radius:12px}
+.msheet{position:relative;width:480px;margin:36px auto 0;background:var(--win);border-radius:12px;box-shadow:var(--shadow);border:1px solid var(--sep);padding:18px 20px 18px;display:flex;flex-direction:column;gap:12px}
+.msheet .grp{background:var(--field);border-radius:10px}
+.msheet .row{padding:8px 12px}
+.msheet .sec{padding:8px 2px 4px}
+.msheet .foot{padding:6px 2px}
+.mbtns{display:flex;gap:8px;justify-content:flex-end;align-items:center}
+.mbtns .btn{border-radius:6px;font-weight:400;padding:4px 14px;background:var(--field);color:var(--lab)}
+.mbtns .btn.pri{background:var(--accent);color:#fff}
+.mbtns .btn.red{background:var(--field);color:var(--red)}
+.win .btn,.msheet .btn,.malert .btn{border-radius:6px}
+.win .btn.plain,.win .btn.plainred,.msheet .btn.plain,.msheet .btn.plainred{border-radius:6px}
+.malert{position:absolute;left:50%;top:70px;transform:translateX(-50%);width:300px;background:var(--win);border-radius:14px;box-shadow:var(--shadow);border:1px solid var(--sep);padding:18px 20px;display:flex;flex-direction:column;gap:10px;text-align:center;align-items:center}
+.malert .bt{display:flex;flex-direction:column;gap:8px;width:100%;margin-top:6px}
+.malert .bt .btn{display:block;text-align:center;padding:5px 10px;background:var(--field);color:var(--lab);font-weight:400}
+.malert .bt .btn.pri{background:var(--accent);color:#fff}
+.malert .bt .btn.red{color:var(--red)}
+.mattach{position:absolute;left:50%;top:40px;transform:translateX(-50%);width:380px}
+.mattach.malert{top:41px;border-radius:0 0 14px 14px;transform:translateX(-50%)}
+.dimw{position:absolute;inset:0;background:var(--dim);z-index:1}
+.malert{z-index:2}.menu{z-index:3}
+.menu{position:absolute;background:var(--win);border:1px solid var(--sep);border-radius:8px;box-shadow:var(--shadow);padding:4px;min-width:190px}
+.menu .mi{padding:3px 10px;border-radius:5px;display:flex;justify-content:space-between;gap:20px}
+.menu .mi.hot{background:var(--accent);color:#fff}
+.menu .mi.dis{color:var(--lab2)}
+.menu hr{border:0;border-top:1px solid var(--sep);margin:4px 0}
+.mbar{display:flex;gap:16px;padding:4px 12px;background:var(--bar);border-bottom:1px solid var(--sep)}
+.mbar .on{background:var(--accent);color:#fff;padding:0 8px;border-radius:5px}
+.lockc{display:flex;flex-direction:column;gap:14px;padding:20px 22px;flex:1;justify-content:center}
+.inp{padding:11px 12px;border-radius:9px;background:var(--field);border:1px solid var(--sep)}
+.inp.err{border-color:var(--sep)}
+.errt{color:var(--red)}
+.lockbox{width:330px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+.spin{display:flex;gap:8px;align-items:center;justify-content:center;color:var(--lab2)}
+.bar{height:6px;border-radius:3px;background:var(--field);overflow:hidden}
+.bar i{display:block;height:100%;width:55%;background:var(--accent)}
+
+/* tab bar and Codes additions: still two sizes only inside a device */
+.phone .scr{padding-bottom:0}
+.tabbar{position:absolute;left:12px;right:12px;bottom:16px;display:flex;gap:8px;align-items:center;z-index:2}
+.tabs{flex:1;display:flex;gap:2px;padding:4px;border-radius:999px;background:var(--card);box-shadow:0 2px 12px rgba(0,0,0,.16)}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 0;border-radius:999px;color:var(--lab)}
+.tab.on{background:var(--field);color:var(--accent);font-weight:600}
+.tg{width:18px;height:18px;border-radius:5px;border:2px solid currentColor}
+.tg.k{border-radius:50% 50% 50% 4px}
+.tg.n{border-radius:50%;border-style:dotted}
+.stab{width:54px;height:54px;border-radius:50%;background:var(--card);box-shadow:0 2px 12px rgba(0,0,0,.16);display:grid;place-items:center;flex:none}
+.mag{width:16px;height:16px;border-radius:50%;border:2px solid var(--lab);position:relative}
+.mag:after{content:"";position:absolute;width:7px;height:2px;background:var(--lab);right:-6px;bottom:-3px;transform:rotate(45deg)}
+.sfield{flex:1;display:flex;align-items:center;gap:8px;padding:12px 16px;border-radius:999px;background:var(--card);box-shadow:0 2px 12px rgba(0,0,0,.16)}
+.xbtn{width:44px;height:44px;border-radius:50%;background:var(--card);box-shadow:0 2px 12px rgba(0,0,0,.16);display:grid;place-items:center;flex:none}
+.kbd{position:absolute;left:0;right:0;bottom:0;height:190px;background:var(--field);display:grid;place-items:center;color:var(--lab2)}
+.tabbar.up{bottom:198px}
+.room{padding-bottom:90px}
+.code{display:inline-block;padding:6px 10px;border-radius:999px;background:var(--accent-bg);color:var(--accent);font-size:var(--t);font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap;line-height:1.2}
+.code.done{background:var(--accent);color:#fff;font-size:var(--b);padding:9px 14px}
+.code.none{background:none;color:var(--lab2);font-size:var(--b);font-weight:400;padding:6px 0}
+.trunc{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chev{color:var(--lab2);flex:none}
+.clock{display:flex;align-items:center;gap:8px;padding:0 14px 10px;color:var(--lab2)}
+.ring{width:16px;height:16px;border-radius:50%;background:conic-gradient(var(--accent) var(--p),var(--field) 0);flex:none}
+.det .code{font-size:var(--b)}
+.mrow .code{font-size:var(--b);padding:3px 10px}
+.mrow.sel .code{background:rgba(255,255,255,.22);color:#fff}
+table.cmp td:first-child{white-space:nowrap;font-weight:600}
+.v-yes{color:var(--accent);font-weight:600}
+
+/* command line additions: monospace at the body size, a terminal, a narrower Setup window */
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-word}
+.term{width:560px;background:#1c1c1e;color:#f5f5f7;border-radius:10px;padding:14px 16px;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;box-shadow:var(--shadow)}
+.term .d{color:#a1a1a6}
+.fig.kmac{width:620px}.fig.kmac .win{width:620px}
+.mbtns .sp{flex:1}
+.winback .lockc{min-height:300px}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em}
+</style></head><body><main>
+<p class="crumb"><a href="index.html">All mocks</a></p>
+<div class="prose">
+<h1>Command line and AI agents</h1>
+<p><strong>Proposed 2026-11-23. Not approved, not built.</strong> The reasoning, the prototype and what it measured are in <code>docs/cli.md</code>. Mac only: iPhone and iPad have no command line, so nothing here appears there.</p>
+<ul>
+<li><strong>Which thing?</strong> A program on this Mac (a terminal, a script, an AI assistant such as Claude) asks Psss to use one named item from the vault. The sheet names the app that asked, the item, and what will be done with it.</li>
+<li><strong>What must they give?</strong> One choice (not at all, this once, or until Psss locks) and Touch ID. Nothing is typed.</li>
+<li><strong>What can go wrong?</strong> The asker wants an item that does not exist, there are two with that name, or it wants to send a password to a website it was not saved for. Each has its own sheet below.</li>
+<li><strong>How do they leave?</strong> Don’t Allow. Later: Setup lists what is allowed and has Stop Allowing; locking Psss forgets all of it. Nothing in the vault is changed by allowing or refusing.</li>
+</ul>
+<p class="muted">Blue stands in for the system accent. Monospaced text is at the body size; a device frame still has two sizes only. All data is fictional.</p>
+</div>
+
+<h2>1 · The sheet, by what is being asked</h2>
+<p class="prose muted">The kinds of use differ in where the secret ends up, and the sheet says which in one sentence. The order below is from least to most exposed.</p>
+<div class="frames">
+
+<figure class="fig kmsh"><div class="lbl">1a · Send to its own website</div>
+<div class="winback"><div class="tb"><span class="lights"><i></i><i></i><i></i></span><span class="b">Psss</span></div><div class="dimb"></div>
+<div class="msheet">
+<div class="t">“Claude” wants to send your Example API token to api.example.com</div>
+<div class="grp">
+<div class="row"><span class="ic c1">E</span><span class="grow"><span class="b">Example API</span><br><span class="s">robin@example.com · saved for api.example.com</span></span></div>
+<div class="row col"><span class="s">Request</span><span class="mono">GET https://api.example.com/v1/orders</span><span class="s">The token is sent as a bearer token.</span></div>
+</div>
+<div class="s">Only api.example.com receives the token. Claude gets the website’s answer, not the token.</div>
+<div class="mbtns"><span class="btn">Don’t Allow</span><span class="sp"></span><span class="btn">Allow Once</span><span class="btn">Allow Until Psss Locks</span></div>
+<div class="s c">Touch ID confirms either Allow.</div>
+</div></div>
+<figcaption>The safest use: the token never reaches the program that asked. “Until Psss Locks” covers Claude, this token and this request: the method, the address with its port and path, how the token is sent, and whether anything is sent with it. The query may differ.</figcaption></figure>
+
+<figure class="fig kmsh"><div class="lbl">1b · Run a program with it</div>
+<div class="winback"><div class="tb"><span class="lights"><i></i><i></i><i></i></span><span class="b">Psss</span></div><div class="dimb"></div>
+<div class="msheet">
+<div class="t">“Claude” wants to run a program with your Example API token</div>
+<div class="grp">
+<div class="row"><span class="ic c1">E</span><span class="grow"><span class="b">Example API</span><br><span class="s">robin@example.com</span></span></div>
+<div class="row col"><span class="s">Program</span><span class="mono">gh pr list --repo example/site</span><span class="s mono">/opt/homebrew/bin/gh</span></div>
+</div>
+<div class="s">The program receives the token. Psss hides it in what the program prints, but the program can read it and could pass it on. Psss asks every time.</div>
+<div class="mbtns"><span class="btn">Don’t Allow</span><span class="sp"></span><span class="btn">Allow Once</span></div>
+<div class="s c">Touch ID confirms Allow Once.</div>
+</div></div>
+<figcaption>The whole command is shown, and the real file behind the name. There is no “Until Psss Locks” for running a program. The prototype tried keeping it per program and then per exact command, and a test run got the token out both times with no sheet.</figcaption></figure>
+
+<figure class="fig kmsh"><div class="lbl">1c · Run a longer command</div>
+<div class="winback"><div class="tb"><span class="lights"><i></i><i></i><i></i></span><span class="b">Psss</span></div><div class="dimb"></div>
+<div class="msheet">
+<div class="t">“Claude” wants to run a program with your Example API token</div>
+<div class="grp">
+<div class="row"><span class="ic c1">E</span><span class="grow"><span class="b">Example API</span><br><span class="s">robin@example.com</span></span></div>
+<div class="row col"><span class="s">Program</span><span class="mono">sh -c 'curl -H "Authorization: $TOKEN" https://api.example.com/v1/orders | jq .total'</span><span class="s mono">/bin/sh</span></div>
+</div>
+<div class="s">The program receives the token. Psss hides it in what the program prints, but the program can read it and could pass it on. Psss asks every time.</div>
+<div class="mbtns"><span class="btn">Don’t Allow</span><span class="sp"></span><span class="btn">Allow Once</span></div>
+<div class="s c">Touch ID confirms Allow Once.</div>
+</div></div>
+<figcaption>The same sheet for any program. A long command wraps and is never cut short; hidden characters are written out.</figcaption></figure>
+
+<figure class="fig kmsh"><div class="lbl">1d · A verification code</div>
+<div class="winback"><div class="tb"><span class="lights"><i></i><i></i><i></i></span><span class="b">Psss</span></div><div class="dimb"></div>
+<div class="msheet">
+<div class="t">“Claude” wants a verification code for Example Shop</div>
+<div class="grp">
+<div class="row"><span class="ic c2">E</span><span class="grow"><span class="b">Example Shop</span><br><span class="s">robin@example.com</span></span></div>
+</div>
+<div class="s">Claude receives one six-digit code. It stops working within 30 seconds. The password is not given.</div>
+<div class="mbtns"><span class="btn">Don’t Allow</span><span class="sp"></span><span class="btn">Allow Once</span><span class="btn">Allow Until Psss Locks</span></div>
+<div class="s c">Touch ID confirms either Allow.</div>
+</div></div>
+<figcaption>A code is a secret that expires, so it may leave. Whoever holds the password and a code can sign in; the sheet does not hide that the code is handed over.</figcaption></figure>
+
+<figure class="fig kmsh"><div class="lbl">1e · See the value itself</div>
+<div class="winback"><div class="tb"><span class="lights"><i></i><i></i><i></i></span><span class="b">Psss</span></div><div class="dimb"></div>
+<div class="msheet">
+<div class="t">“Terminal” wants to see your Example Bank password</div>
+<div class="grp">
+<div class="row"><span class="ic c3">E</span><span class="grow"><span class="b">Example Bank</span><br><span class="s">robin · bank.example.com</span></span></div>
+</div>
+<div class="s">The password itself is handed over. Whoever receives it can keep it and send it anywhere.</div>
+<div class="mbtns"><span class="btn">Don’t Allow</span><span class="sp"></span><span class="btn">Show Once</span></div>
+<div class="s c">Touch ID confirms Show Once.</div>
+</div></div>
+<figcaption>For a person at a terminal. Asked every time, never kept. The command refuses to ask at all when nobody is looking at a terminal, unless it is told to (4d).</figcaption></figure>
+
+<figure class="fig kmsh"><div class="lbl">1f · Save something new</div>
+<div class="winback"><div class="tb"><span class="lights"><i></i><i></i><i></i></span><span class="b">Psss</span></div><div class="dimb"></div>
+<div class="msheet">
+<div class="t">“Claude” wants to add a login to your vault</div>
+<div class="grp">
+<div class="row col"><span class="s">Name</span><span>New Service</span></div>
+<div class="row col"><span class="s">Account and website</span><span>robin · new.example.com</span></div>
+<div class="row col"><span class="s">Password</span><span>Made by Psss. Claude does not see it.</span></div>
+</div>
+<div class="s">Nothing in your vault is read or changed. The new login goes to Only Me.</div>
+<div class="mbtns"><span class="btn">Don’t Add</span><span class="sp"></span><span class="btn">Add Once</span><span class="btn">Allow Adding Until Psss Locks</span></div>
+<div class="s c">Touch ID confirms either choice that adds.</div>
+</div></div>
+<figcaption>An assistant setting up an account can store its password without ever holding it. To type it into the new site it then asks to use it, as in 1a or 1b.</figcaption></figure>
+</div>
+
+<h2>2 · When it cannot go ahead</h2>
+<div class="frames">
+
+<figure class="fig kmsh"><div class="lbl">2a · Two items with that name</div>
+<div class="winback"><div class="tb"><span class="lights"><i></i><i></i><i></i></span><span class="b">Psss</span></div><div class="dimb"></div>
+<div class="msheet">
+<div class="t">“Claude” asked for “Code Host”. Which one?</div>
+<div class="grp">
+<div class="row"><span class="ic c4">C</span><span class="grow"><span class="b">Code Host</span><br><span class="s">robin-work · git.example.com</span></span><span class="btn">Choose</span></div>
+<div class="row"><span class="ic c4">C</span><span class="grow"><span class="b">Code Host</span><br><span class="s">robin-home · git.example.com</span></span><span class="btn">Choose</span></div>
+</div>
+<div class="s">Claude is not told there are two, or which you chose.</div>
+<div class="mbtns"><span class="btn">Don’t Allow</span><span class="sp"></span></div>
+</div></div>
+<figcaption>Choosing leads to the sheet for that use (section 1). The choice is made in Psss, so the asker never sees a list of the vault.</figcaption></figure>
+
+<figure class="fig kmsh"><div class="lbl">2b · Nothing with that name</div>
+<div class="winback"><div class="tb"><span class="lights"><i></i><i></i><i></i></span><span class="b">Psss</span></div><div class="dimb"></div>
+<div class="msheet">
+<div class="t">“Claude” asked for “Deploy key”</div>
+<div class="s">Nothing in your vault has this name. Claude is told only that Psss did not allow it.</div>
+<div class="mbtns"><span class="btn">Choose an Item…</span><span class="sp"></span><span class="btn">Close</span></div>
+</div></div>
+<figcaption>The asker cannot learn what is in the vault by guessing names: a wrong guess and a refusal look the same to it. Choose an Item… opens search and leads to section 1.</figcaption></figure>
+
+<figure class="fig kmsh"><div class="lbl">2c · The wrong website</div>
+<div class="winback"><div class="tb"><span class="lights"><i></i><i></i><i></i></span><span class="b">Psss</span></div><div class="dimb"></div>
+<div class="msheet">
+<div class="t">Psss did not send your Example Bank password</div>
+<div class="grp">
+<div class="row col"><span class="s">“Claude” asked to send it to</span><span class="mono">https://login.example.net/session</span></div>
+<div class="row col"><span class="s">It is saved for</span><span>bank.example.com</span></div>
+</div>
+<div class="s">Psss sends a password only to the website it is saved for. If this is the right place, add the website to the item first.</div>
+<div class="mbtns"><span class="sp"></span><span class="btn">Open Item</span><span class="btn">Close</span></div>
+</div></div>
+<figcaption>The same rule as AutoFill. There is no “send anyway”: the way through is to edit the item, which is the person’s deliberate act.</figcaption></figure>
+
+<figure class="fig kmsh"><div class="lbl">2d · Psss is locked</div>
+<div class="winback"><div class="tb"><span class="lights"><i></i><i></i><i></i></span><span class="b">Psss</span></div>
+<div class="lockc"><div class="lockbox">
+<div class="t c">Personal</div>
+<div class="s c">“Claude” is waiting to use something from this vault.</div>
+<span class="btn pri full">Unlock with Touch ID</span>
+<span class="btn plain c">Not Now</span>
+</div></div></div>
+<figcaption>The normal lock screen with one added line. After unlocking, the sheet for the request appears. Not Now tells the asker that Psss is locked.</figcaption></figure>
+</div>
+
+<h2>3 · Setup: turning it on, what is allowed, what happened</h2>
+<div class="frames">
+
+<figure class="fig kmac"><div class="lbl">3a · Off, the default</div>
+<div class="win"><div class="tb"><span class="lights"><i></i><i></i><i></i></span><span class="b">Setup</span></div>
+<div class="det">
+<div class="sec b">Command Line</div>
+<div class="grp">
+<div class="row"><span class="grow">Let programs on this Mac ask to use items<br><span class="s">Off. No program can ask Psss for anything.</span></span><span class="btn">Turn On…</span></div>
+</div>
+<div class="foot">For people who work in Terminal or with an AI assistant. A program can ask to use one item by name; Psss shows you who is asking and what for, and nothing is used until you allow it with Touch ID. Programs never get a list of your vault.</div>
+</div></div>
+<figcaption>Off until asked for, and not on the main path. Most people never open this.</figcaption></figure>
+
+<figure class="fig kmac"><div class="lbl">3b · On, with two things allowed</div><!-- running a program is never listed here: it is asked for every time -->
+<div class="win"><div class="tb"><span class="lights"><i></i><i></i><i></i></span><span class="b">Setup</span></div>
+<div class="det">
+<div class="sec b">Command Line</div>
+<div class="grp">
+<div class="row"><span class="grow">Let programs on this Mac ask to use items<br><span class="s">On. In Terminal, type <span class="mono">psss help</span></span></span><span class="btn">Turn Off</span></div>
+</div>
+<div class="sec">Allowed until Psss locks</div>
+<div class="grp">
+<div class="row"><span class="ic c1">E</span><span class="grow"><span class="b">Example API</span><br><span class="s">Claude may send it with <span class="mono">GET https://api.example.com/v1/orders</span></span></span><span class="btn">Stop Allowing</span></div>
+<div class="row"><span class="ic c2">E</span><span class="grow"><span class="b">Example Shop</span><br><span class="s">Claude may get verification codes</span></span><span class="btn">Stop Allowing</span></div>
+</div>
+<div class="sec">Today</div>
+<div class="grp">
+<div class="row"><span class="grow">Claude ran <span class="mono">gh</span> with Example API</span><span class="s">14:02</span></div>
+<div class="row"><span class="grow">Claude sent Example API to api.example.com, 6 times</span><span class="s">13:40 – 13:58</span></div>
+<div class="row"><span class="grow">Claude asked for “Deploy key”. Not allowed</span><span class="s">13:31</span></div>
+<div class="row"><span class="grow">Terminal was shown the Example Bank password</span><span class="s">09:12</span></div>
+</div>
+<div class="foot">Kept on this Mac for 30 days. Names, programs, addresses and times. Never a password from the vault. Locking Psss ends everything under “Allowed”.</div>
+</div></div>
+<figcaption>What is allowed right now, each with its own way to stop it, and a plain record of what was used. Turn Off stops everything and closes the door.</figcaption></figure>
+</div>
+
+<h2>4 · What the person or the assistant sees in the terminal</h2>
+<div class="frames">
+<figure class="fig kmsh"><div class="lbl">4a · Allowed</div>
+<div class="term"><span class="d">$</span> psss fetch psss://Example API/token https://api.example.com/v1/orders
+<span class="d">HTTP 200</span>
+{"orders": 3, "total": "41.20"}
+
+<span class="d">$</span> psss run --env TOKEN=psss://Example API/token -- printenv TOKEN
+[hidden by Psss]</div>
+<figcaption>The command waits while the sheet is open. A program that prints its secret by accident prints a placeholder.</figcaption></figure>
+
+<figure class="fig kmsh"><div class="lbl">4b · Not allowed, or no such item</div>
+<div class="term"><span class="d">$</span> psss code "Example Shop"
+Psss did not allow this.
+<span class="d">$</span> echo $?
+3</div>
+<figcaption>One sentence and one exit code for every refusal, whatever the reason.</figcaption></figure>
+
+<figure class="fig kmsh"><div class="lbl">4c · Psss is not open, or stayed locked</div>
+<div class="term"><span class="d">$</span> psss list
+Psss is not open. Open the Psss app and try again.
+<span class="d">$</span> psss list
+Psss is locked. Unlock it in the app and try again.</div>
+<figcaption>Exit code 4 for both, so a script can tell “try later” from “no”.</figcaption></figure>
+
+<figure class="fig kmsh"><div class="lbl">4d · Asked to print a secret where nobody is looking</div>
+<div class="term"><span class="d">$</span> psss show psss://Example Bank/password | cat
+psss show prints the secret itself. Nobody is looking at a
+terminal here, so it would end up in a file, a log or an AI
+conversation.
+To use a secret without printing it: psss run, or psss fetch.
+To print it anyway: psss show --print.</div>
+<figcaption>No sheet appears. An assistant that reaches for the obvious command is told the better one before the person is bothered.</figcaption></figure>
+
+<figure class="fig kmsh"><div class="lbl">4e · What is allowed</div>
+<div class="term"><span class="d">$</span> psss list
+Example API  robin@example.com  api.example.com
+  fields: token   allowed until Psss locks: fetch</div>
+<figcaption>Only what this asker was allowed. Before anything is allowed the list is empty and says how to ask.</figcaption></figure>
+</div>
+
+<h2>Decisions to approve</h2>
+<div class="prose"><ol class="dec">
+<li><strong>The app asks, the command holds nothing.</strong> The <span class="mono">psss</span> command has no key and cannot open a vault; it passes the question to the running app. <span class="rej">Rejected: a command that unlocks the vault itself with the vault password or a saved key.</span> <span class="why">Why: a key the command can reach is a key any script can reach, and there would be two things that open a vault.</span></li>
+<li><strong>Touch ID confirms, not a click.</strong> <span class="rej">Rejected: a plain Allow button.</span> <span class="why">Why: an assistant that can control the screen can click a button. It cannot give a fingerprint.</span></li>
+<li><strong>Neither Allow is the default button.</strong> Return does nothing. <span class="rej">Rejected: Allow Once as the default.</span> <span class="why">Why: these sheets appear while the person is typing elsewhere, and a stray Return must not answer one. Departure from Apple’s guidance, listed below.</span></li>
+<li><strong>Three lengths only: not at all, once, until Psss locks.</strong> <span class="rej">Rejected: “Always”, timers (10 minutes, 1 hour), a per-item switch.</span> <span class="why">Why: “until it locks” needs no explaining and ends by itself; an “Always” for an assistant is an open door that outlives the reason for it. Can be revisited with evidence of real fatigue.</span></li>
+<li><strong>“Until Psss locks” is offered for sending to a website and for verification codes, and covers what the sheet showed:</strong> the app that asked, one field of one item, and one request (its method, address and how the secret is sent; the query, the contents sent with it and other headers may differ). <span class="rej">Rejected: allowing an app to use an item for anything.</span> <span class="why">Why: each sheet should mean one thing the person can picture.</span></li>
+<li><strong>Running a program is asked for every time.</strong> <span class="rej">Rejected: keeping it per program; keeping it per exact command line; a list of “shells” that are treated differently.</span> <span class="why">Why: all three were built and tested. With “this program” kept, <span class="mono">git</span> and <span class="mono">find</span> were given new arguments. With “this exact command” kept, the same command was made to do something else through settings around it that no sheet can show. The cost is more sheets for people who use run often.</span></li>
+<li><strong>A program asks for one item by name and never gets a list.</strong> <span class="mono">psss list</span> shows only what was allowed. <span class="rej">Rejected: search over titles; a group of items marked “for the command line”.</span> <span class="why">Why: titles alone say where someone banks, and an assistant’s whole conversation leaves the Mac. The person tells the assistant the name.</span></li>
+<li><strong>A wrong name, a refusal and a missing field look the same to the asker,</strong> and a wrong name still shows a sheet. <span class="rej">Rejected: “no such item”.</span> <span class="why">Why: otherwise names can be guessed one by one.</span></li>
+<li><strong>A password is sent only to the website it is saved for, with no override on the sheet.</strong> <span class="rej">Rejected: a “Send Anyway” button, as the browser popup has.</span> <span class="why">Why: here the address comes from a program, not from a page the person is looking at.</span></li>
+<li><strong>Seeing a value is a separate, louder use,</strong> asked every time, and the command refuses it outside a terminal unless told. <span class="rej">Rejected: no way to print at all.</span> <span class="why">Why: a person at a terminal legitimately wants it, and without it people would paste from the app, which is worse.</span></li>
+<li><strong>Off by default, in Setup, Mac only.</strong> One switch; it counts against the ten-settings budget. <span class="why">Why: most people never need it, and a closed door needs no trust.</span></li>
+<li><strong>What is allowed and what happened are kept on this Mac only,</strong> never in the vault and never synced. <span class="why">Why: they describe this Mac’s programs, and a synced record of where each token was used is itself sensitive.</span></li>
+</ol>
+
+<h3>Departures from Apple’s guidance</h3>
+<ul>
+<li><strong>No default button on the sheets in section 1.</strong> The guidelines prefer a default button for the likely choice. Trade-off: one more deliberate click, in exchange for a sheet that a stray Return cannot answer. Same choice as the invitation sheet in family sharing.</li>
+<li><strong>Three buttons with long labels.</strong> Within the guideline’s limit of three, but “Allow Until Psss Locks” is long. Alternative if it reads badly in the app: two buttons and a “Keep allowing until Psss locks” checkbox.</li>
+</ul>
+
+<h3>Open questions</h3>
+<ul>
+<li>What name is shown when no app is found in the chain (a remote login, a background job)? Proposed: “A program on this Mac”, with the program’s file path, and no “until Psss locks”.</li>
+<li>Should several items wanted by one command share one sheet? The prototype asks once per item.</li>
+<li>Does a new login from an assistant always go to Only Me, as logins from Safari do?</li>
+<li>Does the activity list belong in Setup, or on each item (“Used by Claude today”)?</li>
+<li>How the <span class="mono">psss</span> command reaches Terminal from a Mac App Store app is not known yet (spike S5). 3b assumes it is simply there.</li>
+</ul>
+</div>
+</main>
+</body>
+</html>
