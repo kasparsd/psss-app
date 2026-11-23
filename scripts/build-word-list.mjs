@@ -1,0 +1,90 @@
+#!/usr/bin/env node
+// Builds App/Core/EFFLongWordList.txt, the Words type's word list, from the EFF long list for passphrases.
+//
+//   node scripts/build-word-list.mjs --source FILE [--out FILE] [--sha256 HEX] [--licence TEXT]
+//
+// Needs Node 24 (see .nvmrc). Never downloads anything and sends nothing: it reads the local file given with --source.
+//
+// The person fetching the list does this once, by hand, and checks the result into the repository:
+//   Source:      https://www.eff.org/files/2016/07/18/eff_large_wordlist.txt  (the long list, 7,776 lines, "11111<TAB>abacus")
+//   Credit:      "EFF Long Wordlist", Electronic Frontier Foundation, https://www.eff.org/dice, Creative Commons Attribution
+//                (CC BY). EFF's copyright page names version 4.0 in its text and links 3.0 from its badge: read the page the
+//                list is published from, put the version it states in --licence, and record it in README.md.
+//   Shown:       the credit goes in the About screen (roadmap M2), README.md and the header of the generated file. This script
+//                writes the header; the other two are written by hand.
+//   Pin:         pass --sha256 with the SHA-256 of the downloaded file (compute it with `shasum -a 256`). The script then refuses
+//                any other file, so a changed upstream list is noticed. Without it the script prints the hash it saw.
+//
+// Changes made to the list, stated in the output header as the licence requires: the four entries that contain a hyphen
+// (drop-down, felt-tip, t-shirt, yo-yo) are removed, the dice numbers are dropped, and the file keeps one word per line. That leaves
+// 7,772 words. The script checks every one of these facts and stops when one is false.
+//
+// App/Core/WordList.swift reads the file at run time (one word a line, "#" starts a comment) and refuses it when it is damaged.
+
+import { createHash } from 'node:crypto'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const SOURCE_URL = 'https://www.eff.org/files/2016/07/18/eff_large_wordlist.txt'
+const EXPECTED_LINES = 7776
+const EXPECTED_HYPHENATED = ['drop-down', 'felt-tip', 't-shirt', 'yo-yo']
+
+function fail(message) {
+  console.error(`build-word-list: ${message}`)
+  process.exit(1)
+}
+
+if (Number(process.versions.node.split('.')[0]) < 24) fail(`Node 24 is required, this is ${process.versions.node}`)
+
+function option(name) {
+  const at = process.argv.indexOf(name)
+  return at >= 0 ? process.argv[at + 1] : undefined
+}
+
+const here = dirname(fileURLToPath(import.meta.url))
+const source = option('--source')
+if (!source) fail('pass --source FILE (the downloaded list). Nothing is fetched by this script.')
+const out = option('--out') ?? join(here, '..', 'App', 'Core', 'EFFLongWordList.txt')
+const expectedHash = option('--sha256')?.toLowerCase()
+const licence = option('--licence') ?? 'Creative Commons Attribution (CC BY); the version is to be confirmed on the page the list is published from'
+
+const raw = readFileSync(source)
+const hash = createHash('sha256').update(raw).digest('hex')
+if (expectedHash && expectedHash !== hash) fail(`the file's SHA-256 is ${hash}, not the ${expectedHash} that was pinned`)
+
+const lines = raw.toString('utf8').split(/\r?\n/).filter((line) => line.length > 0)
+if (lines.length !== EXPECTED_LINES) fail(`expected ${EXPECTED_LINES} lines, found ${lines.length}`)
+
+const dice = new Set()
+const kept = []
+const removed = []
+for (const line of lines) {
+  const match = /^([1-6]{5})\t([a-z-]+)$/.exec(line)
+  if (!match) fail(`a line is not "<five dice digits><TAB><word>": ${JSON.stringify(line.slice(0, 40))}`)
+  const [, code, word] = match
+  if (dice.has(code)) fail(`the dice number ${code} appears twice`)
+  dice.add(code)
+  if (word.includes('-')) removed.push(word)
+  else if (word.length >= 2 && word.length <= 12) kept.push(word)
+  else fail(`a word has an unexpected length: ${word}`)
+}
+if (JSON.stringify(removed) !== JSON.stringify(EXPECTED_HYPHENATED)) {
+  fail(`the hyphenated entries are ${JSON.stringify(removed)}, not ${JSON.stringify(EXPECTED_HYPHENATED)}`)
+}
+if (new Set(kept).size !== kept.length) fail('the list holds a repeated word')
+if (kept.length !== EXPECTED_LINES - EXPECTED_HYPHENATED.length) fail(`expected ${EXPECTED_LINES - EXPECTED_HYPHENATED.length} words, kept ${kept.length}`)
+
+const header = [
+  '# EFF Long Wordlist for passphrases, used by the Words type of the Psss password generator.',
+  '# Source: ' + SOURCE_URL,
+  '# Source SHA-256: ' + hash,
+  '# Credit: Electronic Frontier Foundation, https://www.eff.org/dice',
+  '# Licence: ' + licence,
+  '# Changes (the licence requires saying so): the dice numbers are removed, the four entries that contain a hyphen',
+  '# (' + EXPECTED_HYPHENATED.join(', ') + ') are removed, and one word is written on each line. ' + kept.length + ' words remain.',
+  '# Generated by scripts/build-word-list.mjs. Do not edit by hand.',
+]
+writeFileSync(out, header.join('\n') + '\n' + kept.join('\n') + '\n')
+console.log(`wrote ${kept.length} words to ${out}`)
+console.log(`source SHA-256 ${hash}${expectedHash ? ' (matches the pinned value)' : ' (not pinned: pass --sha256 next time)'}`)

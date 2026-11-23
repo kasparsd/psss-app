@@ -62,6 +62,22 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             return
         }
         let credential = savePasswordRequest.credential
+        if savePasswordRequest.event == .generatedPasswordFilled {
+            // The system filled a generated password into a form that is not submitted yet. It cannot take any answer back to the
+            // page, so there is no question: save a new login now (the username arrives with the later submit event) and never
+            // touch a login that already exists. Package 3 of docs/plans/password-generator.md replaces this with the full event table.
+            if items.contains(where: { SharedVault.matches($0, host: host) && $0.account.isEmpty && $0.secret == credential.password }) {
+                extensionContext.completeSavePasswordRequest { _ in }
+                return
+            }
+            var item = VaultItem(kind: .login, website: host)
+            item.title = (savePasswordRequest.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            item.account = credential.user
+            item.secret = credential.password
+            item.lastUsed = .now
+            persist(item)
+            return
+        }
         let existing = items.first { SharedVault.matches($0, host: host) && $0.account == credential.user }
         present(SaveLogin(host: host, account: credential.user, password: credential.password,
                           title: "",
@@ -73,33 +89,50 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             item.secret = credential.password
             if item.website.isEmpty { item.website = host }
             item.lastUsed = .now
-            let saved = item
-            guard let self else { return }
-            let closeFailed = { [weak self] in self?.cancel(.failed) }
-            Task { @MainActor in
-                // Only a vault file that was really written counts as saved.
-                do {
-                    guard let vault = self.vault else { throw VaultStoreError.fileMissing }
-                    try vault.save([saved])
-                    await SharedVault.registerSavedAndWait([saved], all: vault.items())
-                } catch {
-                    self.present(SaveFailed(subject: .login, reason: Self.reason(for: error),
-                                            close: { closeFailed() }))
-                    return
-                }
-                self.extensionContext.completeSavePasswordRequest { _ in }
-            }
+            self?.persist(item)
         }, cancel: { [weak self] in self?.cancel(.userCanceled) }))
+        }
+    }
+
+    /// Writes one login and completes the save request. Only a vault file that was really written counts as saved.
+    private func persist(_ saved: VaultItem) {
+        let closeFailed = { [weak self] in self?.cancel(.failed) }
+        Task { @MainActor in
+            do {
+                guard let vault = self.vault else { throw VaultStoreError.fileMissing }
+                try vault.save([saved])
+                await SharedVault.registerSavedAndWait([saved], all: vault.items())
+            } catch {
+                self.present(SaveFailed(subject: .login, reason: Self.reason(for: error),
+                                        close: { closeFailed() }))
+                return
+            }
+            self.extensionContext.completeSavePasswordRequest { _ in }
         }
     }
 
     // MARK: Generate (iOS 26.2 and later)
 
     override func performWithoutUserInteraction(generatePasswordsRequest: ASGeneratePasswordsRequest) {
-        extensionContext.completeGeneratePasswordRequest(results: [
-            ASGeneratedPassword(kind: .strong, value: PasswordGenerator.strong()),
-            ASGeneratedPassword(kind: .alphanumeric, value: PasswordGenerator.alphanumeric())
-        ]) { _ in }
+        // The page's own rules, its confirm field's and the system's list for known sites, merged: every password returned
+        // satisfies all of them. The person's type comes first, then the other kinds.
+        let rules = PasswordRules.merged(parsing: [generatePasswordsRequest.passwordFieldPasswordRules,
+                                                   generatePasswordsRequest.confirmPasswordFieldPasswordRules,
+                                                   generatePasswordsRequest.passwordRulesFromQuirks])
+        var generator = SystemRandomNumberGenerator()
+        let offers = PasswordGenerator.offers(GeneratorSettings.load(), rules: rules, using: &generator)
+        guard !offers.isEmpty else { return cancel(.failed) }
+        extensionContext.completeGeneratePasswordRequest(results: offers.map {
+            ASGeneratedPassword(kind: Self.systemKind($0.kind), value: $0.value)
+        }) { _ in }
+    }
+
+    private static func systemKind(_ kind: GeneratedPassword.Kind) -> ASGeneratedPassword.Kind {
+        switch kind {
+        case .strong: .strong
+        case .alphanumeric: .alphanumeric
+        case .passphrase: .passphrase
+        }
     }
 
     #endif
