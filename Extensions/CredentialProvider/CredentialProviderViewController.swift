@@ -1,12 +1,16 @@
 import AuthenticationServices
 
-#if os(iOS)
 import SwiftUI
+#if os(iOS)
 import UIKit
+#else
+import AppKit
+#endif
 
-/// AutoFill provider. Fill, save, generate and passkey requests run against the person's encrypted vault, opened with the key
-/// Face ID or Touch ID releases (no password typing, no KDF). Without a vault set up for Face ID, or with no vault at all, it
-/// says so and offers nothing. It never reads or writes a credential anywhere but the encrypted vault file.
+/// AutoFill provider for iPhone, iPad and Mac. Fill, passkey and verification code requests run against the person's encrypted
+/// vault, opened with the key Face ID or Touch ID releases (no password typing, no KDF); iOS also saves and generates passwords
+/// (macOS has no such requests). Without a vault set up for Face ID or Touch ID, or with no vault at all, it says so and offers
+/// nothing. It never reads or writes a credential anywhere but the encrypted vault file. Only hosting differs by platform.
 final class CredentialProviderViewController: ASCredentialProviderViewController {
     /// The vault opened for the current request.
     private var vault: (any VaultStore)?
@@ -16,8 +20,8 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 
     override func prepareCredentialList(for serviceIdentifiers: [ASCredentialServiceIdentifier]) {
         unlocked { [self] in
-        let host = serviceIdentifiers.first.map { SharedVault.host($0.identifier) } ?? ""
-        present(FillList(host: host, items: items.filter { $0.kind == .login && !$0.secret.isEmpty },
+        present(FillList(site: FillSite(serviceIdentifier: serviceIdentifiers.first?.identifier),
+                         items: items.filter { $0.kind == .login && !$0.secret.isEmpty },
                          choose: { [weak self] in self?.complete(with: $0) },
                          cancel: { [weak self] in self?.cancel(.userCanceled) }))
         }
@@ -41,7 +45,8 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         }
     }
 
-    // MARK: Save (iOS 26.2 and later)
+    #if os(iOS)
+    // MARK: Save (iOS 26.2 and later; macOS has no save or generate requests)
 
     override func performWithoutUserInteractionIfPossible(savePasswordRequest: ASSavePasswordRequest) {
         cancel(.userInteractionRequired)
@@ -96,6 +101,8 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             ASGeneratedPassword(kind: .alphanumeric, value: PasswordGenerator.alphanumeric())
         ]) { _ in }
     }
+
+    #endif
 
     // MARK: Passkeys
 
@@ -155,7 +162,32 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         }
     }
 
+    // MARK: Verification codes (iOS 18, macOS 15)
+
+    override func prepareOneTimeCodeCredentialList(for serviceIdentifiers: [ASCredentialServiceIdentifier]) {
+        unlocked { [self] in
+            // Only logins with a code that belong to the site. There is no list of other logins for codes.
+            let identifier = serviceIdentifiers.first?.identifier
+            let host = identifier.map { SharedVault.host($0) }.flatMap { $0.isEmpty ? nil : $0 }
+            let matching = identifier.map { identifier in
+                items.filter { ReleaseCheck.oneTimeCode(item: $0, serviceIdentifier: identifier) }
+            } ?? []
+            present(CodeList(host: host, items: matching,
+                             choose: { [weak self] in self?.complete(code: $0) },
+                             cancel: { [weak self] in self?.cancel(.userCanceled) }))
+        }
+    }
+
+    private func complete(code item: VaultItem) {
+        guard let code = ReleaseCheck.currentCode(for: item) else { return cancel(.failed) }
+        vault?.markUsed(item.id)
+        extensionContext.completeOneTimeCodeRequest(using: ASOneTimeCodeCredential(code: code)) { _ in }
+    }
+
+    // MARK: Requests that arrive as ASCredentialRequest (passkeys and codes)
+
     override func provideCredentialWithoutUserInteraction(for credentialRequest: any ASCredentialRequest) {
+        // Passkeys and codes need the unlock, which needs the interface.
         cancel(.userInteractionRequired)
     }
 
@@ -169,6 +201,15 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
                   ReleaseCheck.passkey(record: passkey, relyingParty: identity.relyingPartyIdentifier,
                                        credentialID: identity.credentialID) else { return cancel(.credentialIdentityNotFound) }
             assert(item, relyingParty: identity.relyingPartyIdentifier, clientDataHash: request.clientDataHash)
+        } else if let identity = credentialRequest.credentialIdentity as? ASOneTimeCodeCredentialIdentity {
+            // Release only what the request names: a login with a readable code whose website matches the identity's site.
+            guard let item = items.first(where: { $0.id.uuidString == identity.recordIdentifier }),
+                  ReleaseCheck.oneTimeCode(item: item, serviceIdentifier: identity.serviceIdentifier.identifier) else {
+                return cancel(.credentialIdentityNotFound)
+            }
+            present(FillConfirm(item: item, verb: "Use Code",
+                                fill: { [weak self] in self?.complete(code: item) },
+                                cancel: { [weak self] in self?.cancel(.userCanceled) }))
         } else if let identity = credentialRequest.credentialIdentity as? ASPasswordCredentialIdentity {
             prepareInterfaceToProvideCredential(for: identity)
         } else {
@@ -226,6 +267,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     }
 
     private func present<Content: View>(_ content: Content) {
+        #if os(iOS)
         children.forEach { $0.willMove(toParent: nil); $0.view.removeFromSuperview(); $0.removeFromParent() }
         let host = UIHostingController(rootView: content)
         addChild(host)
@@ -233,19 +275,21 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         host.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         self.view.addSubview(host.view)
         host.didMove(toParent: self)
+        #else
+        children.forEach { $0.view.removeFromSuperview(); $0.removeFromParent() }
+        // The system shows the extension's view in a sheet that takes its size from the preferred content size.
+        let host = NSHostingController(rootView: content)
+        host.sizingOptions = []
+        addChild(host)
+        host.view.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(host.view)
+        NSLayoutConstraint.activate([
+            host.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            host.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            host.view.topAnchor.constraint(equalTo: view.topAnchor),
+            host.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+        preferredContentSize = NSSize(width: 480, height: 420)
+        #endif
     }
 }
-#else
-final class CredentialProviderViewController: ASCredentialProviderViewController {
-    override func prepareCredentialList(for serviceIdentifiers: [ASCredentialServiceIdentifier]) { unavailable() }
-    override func provideCredentialWithoutUserInteraction(for credentialIdentity: ASPasswordCredentialIdentity) { unavailable() }
-    override func prepareInterfaceToProvideCredential(for credentialIdentity: ASPasswordCredentialIdentity) { unavailable() }
-
-    private func unavailable() {
-        extensionContext.cancelRequest(withError: NSError(
-            domain: ASExtensionErrorDomain,
-            code: ASExtensionError.failed.rawValue
-        ))
-    }
-}
-#endif

@@ -3,3 +3,11 @@ SDKROOT = macosx
 SUPPORTED_PLATFORMS = macosx
 MACOSX_DEPLOYMENT_TARGET = 27.0
 ENABLE_APP_SANDBOX = YES
+
+// Mac entitlements for builds without a development team: app sandbox only (no AutoFill capability, no keychain group, no
+// App Group), which an ad-hoc "sign to run locally" build accepts. The vault then stays in the app's own container.
+// Set the suffix to empty once a development team and provisioning profiles exist, to use the full App-macOS.entitlements,
+// CredentialProvider-macOS.entitlements and SafariExtension-macOS.entitlements. Override it in the untracked Local.xcconfig.
+PSSS_MAC_ENTITLEMENTS_SUFFIX = -local
+// Loaded again here, after the default above, so Local.xcconfig can override the suffix.
+#include? "Local.xcconfig"

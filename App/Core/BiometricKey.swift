@@ -51,26 +51,44 @@ enum BiometricKeyError: Error {
 /// The vault's key (after the KDF), kept in the Keychain behind biometrics so the person does not retype the vault password.
 /// The item is readable only on this device, only with the same enrolled fingers or face, and is removed when they change.
 /// The vault password always still works.
+///
+/// On iOS and iPadOS the item is in the data protection keychain with a biometric access control and the shared access group,
+/// so the AutoFill extension reads the same item. macOS works the same way in a provisioned build. A build without the
+/// entitlements (unsigned, or ad-hoc signed) cannot add that item; the app then keeps the key in the login keychain and asks for
+/// Touch ID itself before it reads it. Which of the two holds the key is recorded by the Keychain: saving removes both and adds
+/// one, and reading tries the protected item first, so reading always uses the mode the key was saved in. The AutoFill
+/// extension on the Mac only ever reads the protected item and never the login keychain.
 enum BiometricKey {
     private static let service = "local.kdbox.vault-key"
 
-    private static func baseQuery(for id: UUID) -> [String: Any] {
+    private static func baseQuery(for id: UUID, protected: Bool) -> [String: Any] {
         var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
                                     kSecAttrService as String: service,
                                     kSecAttrAccount as String: id.uuidString]
-        for (key, value) in dataProtection { query[key] = value }
+        if protected {
+            // The App Group (team-prefixed on macOS) doubles as the keychain access group, so the AutoFill extension can read the same item.
+            query[kSecUseDataProtectionKeychain as String] = true
+            query[kSecAttrAccessGroup as String] = SharedVault.groupID
+        }
         return query
     }
 
-    #if os(macOS)
-    // The data protection keychain with a biometric access control needs a provisioned build. The login keychain item is
-    // protected by this device and the signed app, and the app asks for Touch ID itself before it reads it.
-    private static var dataProtection: [String: Any] { [:] }
-    #else
-    // The App Group doubles as the keychain access group, so the AutoFill extension can read the same item.
-    private static var dataProtection: [String: Any] {
-        [kSecUseDataProtectionKeychain as String: true, kSecAttrAccessGroup as String: SharedVault.groupID]
+    private static func protectedAccessControl() throws -> SecAccessControl {
+        var error: Unmanaged<CFError>?
+        guard let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly,
+                                                           .biometryCurrentSet, &error) else {
+            throw BiometricKeyError.failed(errSecParam)
+        }
+        return access
     }
+
+    #if os(macOS)
+    /// What adding or reading a protected item returns in a build that is not provisioned for it: the entitlement is missing
+    /// (-34018, what unsigned and ad-hoc builds get), or the parameters do not fit this Mac (-50, -4, -25291).
+    private static let unprovisioned: Set<OSStatus> = [-34018, errSecParam, errSecUnimplemented, errSecNotAvailable]
+
+    /// True in an app extension, such as the AutoFill provider. It must never read a key from the login keychain.
+    private static var isExtension: Bool { Bundle.main.infoDictionary?["NSExtension"] != nil }
     #endif
 
     #if HOSTLESS_TESTS
@@ -91,20 +109,23 @@ enum BiometricKey {
 
     private static func saveToKeychain(_ key: Data, for id: UUID) throws {
         delete(for: id)
-        var query = baseQuery(for: id)
+        var query = baseQuery(for: id, protected: true)
         query[kSecValueData as String] = key
-        #if os(macOS)
-        query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        #else
-        var error: Unmanaged<CFError>?
-        guard let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly,
-                                                           .biometryCurrentSet, &error) else {
-            throw BiometricKeyError.failed(errSecParam)
-        }
-        query[kSecAttrAccessControl as String] = access
-        #endif
+        query[kSecAttrAccessControl as String] = try protectedAccessControl()
         let status = SecItemAdd(query as CFDictionary, nil)
-        guard status == errSecSuccess else { throw BiometricKeyError.failed(status) }
+        if status == errSecSuccess { return }
+        #if os(macOS)
+        // Not provisioned for the protected item: the app keeps the key in the login keychain. An extension never does.
+        if unprovisioned.contains(status), !isExtension {
+            var login = baseQuery(for: id, protected: false)
+            login[kSecValueData as String] = key
+            login[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            let loginStatus = SecItemAdd(login as CFDictionary, nil)
+            guard loginStatus == errSecSuccess else { throw BiometricKeyError.failed(loginStatus) }
+            return
+        }
+        #endif
+        throw BiometricKeyError.failed(status)
     }
 
     /// Shows the system Face ID or Touch ID prompt and returns the key. Runs off the main actor: reading blocks.
@@ -117,18 +138,7 @@ enum BiometricKey {
         return try await Task.detached {
             let context = LAContext()
             context.localizedReason = reason
-            #if os(macOS)
-            do { _ = try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) }
-            catch let error as LAError where error.code == .userCancel || error.code == .appCancel || error.code == .systemCancel {
-                throw BiometricKeyError.cancelled
-            } catch let error as LAError where error.code == .biometryNotEnrolled {
-                throw BiometricKeyError.invalidated
-            } catch {
-                // Lockout, biometry not available, a failed match: not a reason to delete the saved key.
-                throw BiometricKeyError.unavailable
-            }
-            #endif
-            var query = baseQuery(for: id)
+            var query = baseQuery(for: id, protected: true)
             query[kSecReturnData as String] = true
             query[kSecMatchLimit as String] = kSecMatchLimitOne
             query[kSecUseAuthenticationContext as String] = context
@@ -140,20 +150,63 @@ enum BiometricKey {
                 return data
             case errSecUserCanceled, errSecAuthFailed:
                 throw BiometricKeyError.cancelled
-            case errSecItemNotFound:
-                throw BiometricKeyError.invalidated
             default:
+                #if os(macOS)
+                if status == errSecItemNotFound || unprovisioned.contains(status) {
+                    // The AutoFill extension reads only the protected item. Say "unavailable", never "invalidated", so the
+                    // app's Touch ID setting is not switched off just because the extension cannot see the key.
+                    if isExtension { throw BiometricKeyError.unavailable }
+                    return try await loadFromLoginKeychain(for: id, reason: reason)
+                }
+                #else
+                if status == errSecItemNotFound { throw BiometricKeyError.invalidated }
+                #endif
                 throw BiometricKeyError.failed(status)
             }
         }.value
         #endif
     }
 
+    #if os(macOS) && !HOSTLESS_TESTS
+    /// The login keychain item of an unprovisioned build. The item has no access control, so the app asks for Touch ID itself.
+    private static func loadFromLoginKeychain(for id: UUID, reason: String) async throws -> Data {
+        // Look for the item first without a prompt, so an invalidated key does not ask for Touch ID for nothing.
+        var probe = baseQuery(for: id, protected: false)
+        probe[kSecReturnAttributes as String] = true
+        guard SecItemCopyMatching(probe as CFDictionary, nil) == errSecSuccess else { throw BiometricKeyError.invalidated }
+        let context = LAContext()
+        do { _ = try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) }
+        catch let error as LAError where error.code == .userCancel || error.code == .appCancel || error.code == .systemCancel {
+            throw BiometricKeyError.cancelled
+        } catch let error as LAError where error.code == .biometryNotEnrolled {
+            throw BiometricKeyError.invalidated
+        } catch {
+            // Lockout, biometry not available, a failed match: not a reason to delete the saved key.
+            throw BiometricKeyError.unavailable
+        }
+        var query = baseQuery(for: id, protected: false)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        switch status {
+        case errSecSuccess:
+            guard let data = result as? Data else { throw BiometricKeyError.failed(errSecDecode) }
+            return data
+        case errSecItemNotFound: throw BiometricKeyError.invalidated
+        default: throw BiometricKeyError.failed(status)
+        }
+    }
+    #endif
+
     static func delete(for id: UUID) {
         #if HOSTLESS_TESTS
         memory[id] = nil
         #else
-        SecItemDelete(baseQuery(for: id) as CFDictionary)
+        SecItemDelete(baseQuery(for: id, protected: true) as CFDictionary)
+        #if os(macOS)
+        SecItemDelete(baseQuery(for: id, protected: false) as CFDictionary)
+        #endif
         #endif
     }
 }

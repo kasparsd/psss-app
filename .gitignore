@@ -8,3 +8,4 @@ xcuserdata/
 /Extensions/Browser/tests/node_modules/
 /Extensions/Browser/tests/test-results/
 /Extensions/Browser/tests/playwright-report/
+Configuration/Local.xcconfig

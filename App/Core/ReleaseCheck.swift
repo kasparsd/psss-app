@@ -9,6 +9,19 @@ enum ReleaseCheck {
         return item.kind == .login && !item.secret.isEmpty && !site.isEmpty && SharedVault.matches(item, host: site)
     }
 
+    /// A one-time code goes out only for a login with a readable code setup whose website matches the request's site. There is no
+    /// release for a site that cannot be read, and no way to choose a login for another site.
+    static func oneTimeCode(item: VaultItem, serviceIdentifier: String) -> Bool {
+        let site = SharedVault.host(serviceIdentifier)
+        return SharedVault.hasReadableCode(item) && !site.isEmpty && SharedVault.matches(item, host: site)
+    }
+
+    /// The code for `item` right now, computed with the item's own digits, period and algorithm.
+    static func currentCode(for item: VaultItem, at date: Date = .now) -> String? {
+        guard SharedVault.hasReadableCode(item) else { return nil }
+        return TOTP.code(secret: item.otpSecret, settings: item.otpSettings, at: date)
+    }
+
     /// A passkey signs only for the relying party and credential the identity names. The relying party is compared exactly:
     /// a different case or a trailing dot is a different party.
     static func passkey(record: PasskeyRecord, relyingParty: String, credentialID: Data) -> Bool {

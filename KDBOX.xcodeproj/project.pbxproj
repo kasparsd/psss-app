@@ -44,6 +44,24 @@
 			"path" = "CredentialProvider-Info.plist";
 			"sourceTree" = "<group>";
 		};
+		000000000000000000000070 = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "text.plist.entitlements";
+			"path" = "App-macOS.entitlements";
+			"sourceTree" = "<group>";
+		};
+		000000000000000000000071 = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "text.plist.entitlements";
+			"path" = "CredentialProvider-macOS.entitlements";
+			"sourceTree" = "<group>";
+		};
+		000000000000000000000072 = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "text.plist.entitlements";
+			"path" = "SafariExtension-macOS.entitlements";
+			"sourceTree" = "<group>";
+		};
 		000000000000000000000007 = {
 			"isa" = "PBXGroup";
 			"path" = "Configuration";
@@ -54,6 +72,9 @@
 				000000000000000000000005,
 				000000000000000000000006,
 				000000000000000000000054,
+				000000000000000000000070,
+				000000000000000000000071,
+				000000000000000000000072,
 			);
 		};
 		000000000000000000000008 = {
@@ -165,6 +186,7 @@
 			"isa" = "XCBuildConfiguration";
 			"name" = "Debug";
 			"buildSettings" = {
+				"CODE_SIGN_ENTITLEMENTS" = "Configuration/CredentialProvider-macOS$(PSSS_MAC_ENTITLEMENTS_SUFFIX).entitlements";
 				"PRODUCT_BUNDLE_IDENTIFIER" = "local.kdbox.prototype.credential-provider";
 				"PRODUCT_NAME" = "CredentialProvider-macOS";
 				"GENERATE_INFOPLIST_FILE" = "YES";
@@ -181,6 +203,7 @@
 			"isa" = "XCBuildConfiguration";
 			"name" = "Release";
 			"buildSettings" = {
+				"CODE_SIGN_ENTITLEMENTS" = "Configuration/CredentialProvider-macOS$(PSSS_MAC_ENTITLEMENTS_SUFFIX).entitlements";
 				"PRODUCT_BUNDLE_IDENTIFIER" = "local.kdbox.prototype.credential-provider";
 				"PRODUCT_NAME" = "CredentialProvider-macOS";
 				"GENERATE_INFOPLIST_FILE" = "YES";
@@ -285,6 +308,7 @@
 			"isa" = "XCBuildConfiguration";
 			"name" = "Debug";
 			"buildSettings" = {
+				"CODE_SIGN_ENTITLEMENTS" = "Configuration/App-macOS$(PSSS_MAC_ENTITLEMENTS_SUFFIX).entitlements";
 				"PRODUCT_BUNDLE_IDENTIFIER" = "local.kdbox.prototype";
 				"PRODUCT_NAME" = "KDBOX";
 				"GENERATE_INFOPLIST_FILE" = "YES";
@@ -300,6 +324,7 @@
 			"isa" = "XCBuildConfiguration";
 			"name" = "Release";
 			"buildSettings" = {
+				"CODE_SIGN_ENTITLEMENTS" = "Configuration/App-macOS$(PSSS_MAC_ENTITLEMENTS_SUFFIX).entitlements";
 				"PRODUCT_BUNDLE_IDENTIFIER" = "local.kdbox.prototype";
 				"PRODUCT_NAME" = "KDBOX";
 				"GENERATE_INFOPLIST_FILE" = "YES";
@@ -629,6 +654,7 @@
 			"isa" = "XCBuildConfiguration";
 			"name" = "Debug";
 			"buildSettings" = {
+				"CODE_SIGN_ENTITLEMENTS" = "Configuration/SafariExtension-macOS$(PSSS_MAC_ENTITLEMENTS_SUFFIX).entitlements";
 				"PRODUCT_BUNDLE_IDENTIFIER" = "local.kdbox.prototype.safari";
 				"PRODUCT_NAME" = "SafariExtension-macOS";
 				"GENERATE_INFOPLIST_FILE" = "YES";
@@ -645,6 +671,7 @@
 			"isa" = "XCBuildConfiguration";
 			"name" = "Release";
 			"buildSettings" = {
+				"CODE_SIGN_ENTITLEMENTS" = "Configuration/SafariExtension-macOS$(PSSS_MAC_ENTITLEMENTS_SUFFIX).entitlements";
 				"PRODUCT_BUNDLE_IDENTIFIER" = "local.kdbox.prototype.safari";
 				"PRODUCT_NAME" = "SafariExtension-macOS";
 				"GENERATE_INFOPLIST_FILE" = "YES";
