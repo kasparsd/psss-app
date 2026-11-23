@@ -109,7 +109,7 @@ The specification defines records. A transport needs only three operations: list
 
 ## What a person sees: locations, backup and self-hosting
 
-Proposed on 2026-11-23 and being mocked in `Design/Mocks/`. None of it is approved or built. The words “record”, “log”, “CloudKit” and “transport” never appear in the app; a person sees a vault and the places it is kept.
+Proposed on 2026-11-23 and drawn in `Design/Mocks/` (see the roadmap below). None of it is approved or built. The words “record”, “log”, “CloudKit” and “transport” never appear in the app; a person sees a vault and the places it is kept.
 
 **A vault has one or more locations.** Each location holds the same vault, and Psss keeps them in step.
 
@@ -172,4 +172,4 @@ To verify before building: whether a `.psss` folder can show as a single item in
 - [ ] A record-log store behind `VaultStore`, with the local index the AutoFill extension reads.
 - [ ] Native item schema for records, starting from the field model in [items](items.md); the KeePass mapping there becomes the import and export mapping.
 - [ ] KDBX export of a whole vault, verified in KeePassXC, as the way out.
-- [ ] Mocks for the screens listed under “Not yet reworked”, approved before building.
+- [~] Mocks drawn on 2026-11-23 and awaiting approval: `Design/Mocks/vault-create-and-devices.html`, `vault-locations-and-backup.html` and `family-sharing.html`. Not yet drawn: the lock screen and the vault password screen for the new format.

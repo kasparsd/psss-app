@@ -61,6 +61,7 @@ Work that cannot move without the owner, most blocking first.
 5. **Decisions** listed under Open decisions: the five field-model choices still open in [items](items.md#open-decisions) (three were closed by the approved mocks), what a CSV re-import does when a title or site changed, whether a merge may append imported notes, and attachments on iPhone given their memory cost.
 6. **Which browsers and devices the first family users have,** which decides whether the browser extension comes back into scope.
 7. **Answers to the open questions** the mocks did not settle, listed at the end of [approved screens](plans/approved-screens.md#open-questions-the-mocks-did-not-settle). The first one (what the Welcome button does before any vault exists) blocks the import screens.
+8. **Approval of the three vault format mocks** in `Design/Mocks/` (drawn 2026-11-23, not approved): creating a vault and adding a second device, locations with backup and self-hosting, and family sharing. Each page ends with its decisions and open questions, 37 in all. They decide the words “location”, “backup copy” and “recovery kit”, whether iCloud is on by default, whether a vault password is required, and the member roles. Nothing in [vault format](format.md#what-a-person-sees-locations-backup-and-self-hosting) is built until then.
 
 ## M0 · Risk burn-down
 
