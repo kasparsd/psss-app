@@ -1,79 +1,101 @@
 {
-  "fill-specializations": [
+  "fill-specializations" : [
     {
-      "value": {
-        "linear-gradient": [
-          "display-p3:1.00000,0.87000,0.35000,1.00000",
-          "display-p3:1.00000,0.82000,0.25000,1.00000"
-        ]
+      "value" : {
+        "solid" : "extended-srgb:1.00000,0.80000,0.00000,1.00000"
       }
     },
     {
-      "appearance": "dark",
-      "value": {
-        "linear-gradient": [
-          "display-p3:0.15000,0.15000,0.16000,1.00000",
-          "display-p3:0.09000,0.09000,0.10000,1.00000"
-        ]
-      }
+      "appearance" : "dark",
+      "value" : "system-dark"
     },
     {
-      "appearance": "tinted",
-      "value": {
-        "solid": "display-p3:0.05000,0.05000,0.06000,1.00000"
+      "appearance" : "tinted",
+      "value" : {
+        "solid" : "display-p3:0.05000,0.05000,0.06000,1.00000"
       }
     }
   ],
-  "groups": [
+  "groups" : [
     {
-      "layers": [
+      "layers" : [
         {
-          "glass": true,
-          "name": "Dots",
-          "image-name-specializations": [
+          "fill-specializations" : [
             {
-              "value": "Dots.svg"
+              "value" : "system-dark"
             },
             {
-              "appearance": "dark",
-              "value": "Dots-Dark.svg"
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:1.00000,0.80000,0.00000,1.00000"
+              }
             },
             {
-              "appearance": "tinted",
-              "value": "Dots-Tint.svg"
+              "appearance" : "tinted",
+              "value" : "system-light"
             }
-          ]
+          ],
+          "glass" : true,
+          "image-name-specializations" : [
+            {
+              "value" : "Dots.svg"
+            },
+            {
+              "appearance" : "dark",
+              "value" : "Dots-Dark.svg"
+            },
+            {
+              "appearance" : "tinted",
+              "value" : "Dots-Tint.svg"
+            }
+          ],
+          "name" : "Dots"
         },
         {
-          "glass": true,
-          "name": "Frame",
-          "image-name-specializations": [
+          "fill-specializations" : [
             {
-              "value": "Frame.svg"
+              "value" : "system-dark"
             },
             {
-              "appearance": "dark",
-              "value": "Frame-Dark.svg"
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-srgb:1.00000,0.80000,0.00000,1.00000"
+              }
             },
             {
-              "appearance": "tinted",
-              "value": "Frame-Tint.svg"
+              "appearance" : "tinted",
+              "value" : "system-light"
             }
-          ]
+          ],
+          "glass" : true,
+          "image-name-specializations" : [
+            {
+              "value" : "Frame.svg"
+            },
+            {
+              "appearance" : "dark",
+              "value" : "Frame-Dark.svg"
+            },
+            {
+              "appearance" : "tinted",
+              "value" : "Frame-Tint.svg"
+            }
+          ],
+          "name" : "Frame"
         }
       ],
-      "name": "Mark",
-      "shadow": {
-        "kind": "neutral",
-        "opacity": 0.4
+      "name" : "Mark",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.4
       },
-      "translucency": {
-        "enabled": true,
-        "value": 0.25
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.25
       }
     }
   ],
-  "supported-platforms": {
-    "squares": "shared"
+  "supported-platforms" : {
+    "squares" : "shared"
   }
 }
