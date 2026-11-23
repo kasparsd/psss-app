@@ -60,6 +60,40 @@
               "value": "Field-Tint.svg"
             }
           ]
+        },
+        {
+          "glass": true,
+          "name": "Counter",
+          "image-name-specializations": [
+            {
+              "value": "Counter.svg"
+            },
+            {
+              "appearance": "dark",
+              "value": "Counter-Dark.svg"
+            },
+            {
+              "appearance": "tinted",
+              "value": "Counter-Tint.svg"
+            }
+          ]
+        },
+        {
+          "glass": true,
+          "name": "Inset",
+          "image-name-specializations": [
+            {
+              "value": "Inset.svg"
+            },
+            {
+              "appearance": "dark",
+              "value": "Inset-Dark.svg"
+            },
+            {
+              "appearance": "tinted",
+              "value": "Inset-Tint.svg"
+            }
+          ]
         }
       ],
       "name": "Mark",
