@@ -119,6 +119,30 @@ Decision: each row is one line, [icon] name … login, with the icon at 30 pt.
 - [ ] Observe five people on TestFlight (two Apple Passwords, two 1Password, one Strongbox). Aim for four of five to fill, save and locate a login without guidance. Record time, first wrong turn and wording users look for.
 - [x] Rename the “KeePass entry” type to “Custom item” in the native app. The frozen HTML prototype keeps the old name.
 
+## Mocks before building
+
+A new or unclear screen is drawn and approved before any code is written. The mocks live in `Design/Mocks/`, one HTML page per feature, with `index.html` listing them. The owner approved this format on 2026-11-23; keep to it for the next ones.
+
+How a mock page is made:
+
+- **Start from the person, not the layout.** Before drawing, answer the `ui-clarity` questions: what is being created or changed, where it lives, who holds the key, how to get out and what happens next. The answers become the captions.
+- **Every state, side by side.** Normal, empty, in progress, done and each error are separate frames on one page, so a missing state is visible as a gap. A flow reads left to right.
+- **iPhone and Mac together.** Each state is drawn for both, so a difference between platforms is a choice someone can see. iPad is described in words under each section, since it follows the Mac layout when wide and the iPhone layout when narrow.
+- **A caption under every frame** saying what the person sees and what they can do next. If the caption is hard to write, the screen is unclear.
+- **Decisions at the end of the page.** Each one states the choice, what was rejected and why. This is where the reasoning is kept, so a later change argues with the reason and not with the picture.
+- **Departures from Apple's guidance are listed separately,** each with the trade-off, as [AGENTS.md](../AGENTS.md) asks.
+- **Existing screens are drawn as the code has them.** When a mock covers something already built, the strings come from the source, and wording that should change is listed in a table beside it. This is how the conflict alert and the lock notice were first seen as a whole.
+
+Why plain HTML:
+
+- One self-contained file per page, with no build step, scripts or images. It opens from the repository, shows in a diff and can be sent as it is.
+- System fonts and `color-scheme: light dark`, so light and dark are both checked by switching the system setting.
+- The project rules are built into the stylesheet: a device frame has two text sizes only (a title and a body variable), blue stands in for the system accent, red appears only for deletion and every action has a text label. A mock cannot quietly break a rule the app must keep.
+- Controls are approximations of the native ones. A mock settles structure, wording, states and order. Spacing and exact control appearance are settled in the app, on a device.
+- All data is fictional.
+
+What approval means: the decisions list is what gets approved, not the pixels. Nothing in a mock is built, and no doc is changed to match it, until then. After approval the decisions move into the document for that concern ([items](items.md), [vaults](vaults.md), [migration](migration.md), this file), the screens are built, and an independent run checks them on a simulator against the mock's states. A mock page whose feature is built and documented is deleted.
+
 ## Native interface conventions
 
 - Use `NavigationSplitView`, native lists and system search to browse and select vault items. On iPhone use the system’s compact navigation. Confirm the collapsed stack can return from details directly to results. Adapt regular-width iPad and Mac layouts to make effective use of the available space.
