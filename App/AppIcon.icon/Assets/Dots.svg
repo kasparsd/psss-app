@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-<g transform="translate(106.67 106.67) scale(6.756)" fill="none" stroke="#1F1F23" stroke-width="5" stroke-linecap="round">
-<g fill="#1F1F23" stroke="none"><circle cx="58" cy="60" r="6"/><circle cx="77" cy="60" r="6"/><circle cx="96" cy="60" r="6"/></g>
+<g transform="translate(106.67 106.67) scale(6.756)">
+<g fill="#1F1F23"><circle cx="58" cy="60" r="6"/><circle cx="77" cy="60" r="6"/><circle cx="96" cy="60" r="6"/></g>
 </g>
 </svg>

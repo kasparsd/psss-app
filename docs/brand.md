@@ -16,7 +16,7 @@ An outline pill (the field), a monoline p whose tail meets the bottom line, and 
 
 ## App icon
 
-Full-bleed 1024 square with no baked-in rounding, so the system applies its own mask. The mark is 74 percent of the icon width. `AppIcon-light.svg` is charcoal on butter and `AppIcon-dark.svg` is butter on charcoal, each with a 1024 px PNG export. The shipped icon is the Icon Composer bundle `App/AppIcon.icon` (iOS 26 and macOS 26 glass). It has two glass layers on one group, from back to front the field and the dots, drawn on the same 1024 canvas as the master mark. The p's stem is merged into the pill outline as one solid shape, so the glass has no doubled edge where they meet. The ground is a butter gradient, and the dark appearance swaps to a charcoal ground with butter layers (`*-Dark.svg`). Clear and tinted modes are derived by the system from the layers, so the mark stays a single flat colour per layer with no gradients of its own. The old PNG asset catalog set is gone, so Xcode finds `AppIcon` as the `.icon`.
+Full-bleed 1024 square with no baked-in rounding, so the system applies its own mask. The mark is 74 percent of the icon width. `AppIcon-light.svg` is charcoal on butter and `AppIcon-dark.svg` is butter on charcoal, each with a 1024 px PNG export. The shipped icon is the Icon Composer bundle `App/AppIcon.icon` (iOS 26 and macOS 26 glass). It has two glass layers on one group, from back to front the field and the dots, drawn on the same 1024 canvas as the master mark. The p's stem is merged into the pill outline as one solid shape, so the glass has no doubled edge where they meet. The ground is a butter gradient, and the dark appearance swaps to a charcoal ground with butter layers (`*-Dark.svg`). The tinted appearance has its own near-black ground and butter layers (`*-Tint.svg`), so the system tint lands on a light mark over a dark field and stays legible. Clear modes cannot be specialised in the file: the system derives them from the Default and Dark layers. The old PNG asset catalog set is gone, so Xcode finds `AppIcon` as the `.icon`.
 
 ## Colour
 
@@ -52,6 +52,7 @@ Mark on the left, wordmark on the right, centred on the pill's centre line with 
 
 ## Open points
 
-- Check the app icon in clear and tinted modes and the small cut at 16 and 32 px on a device. Icon Composer has no per-size cut, so `Psss-mark-small.svg` is not used in the icon.
+- Variants of the icon are in `Design/AppIcon/variants/` (merged, punched, under glass, heavy small cut, inverted, cream, dark-always). Pick one if the base is not final.
+- Check the app icon in clear mode and the small cut at 16 and 32 px on a device. Icon Composer has no per-size cut, so `Psss-mark-small.svg` is not used in the icon.
 - Capture real screenshots for iPhone, iPad and Mac. This needs an iOS 27 simulator runtime, since the iOS app does not build for the installed 26.5 runtime.
 - Check “Psss” for trademark and App Store availability (see [product](product.md)).
