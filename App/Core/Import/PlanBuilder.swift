@@ -76,7 +76,7 @@ enum PlanBuilder {
     }
 
     static func build(_ r: OnePasswordRecord, now: Date) -> Built {
-        let title = ImportText.clean(r.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? r.fallbackTitle : r.title)
+        let title = r.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? r.fallbackTitle : r.title
         var issues: [ImportIssue] = []
         func issue(_ kind: ImportIssue.Kind, _ detail: String) {
             issues.append(ImportIssue(kind: kind, item: title.isEmpty ? nil : title, detail: detail))
@@ -109,16 +109,16 @@ enum PlanBuilder {
             var haveUser = false, havePassword = false
             for case let field as [String: Any] in (secure["fields"] as? [Any]) ?? [] {
                 let designation = (field["designation"] as? String)?.lowercased()
-                let value = ImportText.clean(Value.scalarText(field["value"]) ?? "")
+                let value = Value.scalarText(field["value"]) ?? ""
                 if designation == "username", !haveUser { username = value; haveUser = true }
                 else if designation == "password", !havePassword { password = value; havePassword = true }
                 else { webFormFields += 1 }
             }
-            if !havePassword { password = ImportText.clean((secure["password"] as? String) ?? "") }
+            if !havePassword { password = (secure["password"] as? String) ?? "" }
         } else if r.typeName == passwordType {
-            password = ImportText.clean(Value.scalarText(secure["password"]) ?? "")
+            password = Value.scalarText(secure["password"]) ?? ""
         }
-        let notes = ImportText.clean((secure["notesPlain"] as? String) ?? "")
+        let notes = (secure["notesPlain"] as? String) ?? ""
 
         // Sections, then flat keys for what the sections lack.
         let sections = sectionFields(secure)
@@ -131,7 +131,7 @@ enum PlanBuilder {
 
         func ingest(_ field: SectionField) {
             if field.name.hasPrefix("TOTP_") {
-                if let text = Value.scalarText(field.value).map(ImportText.clean), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if let text = Value.scalarText(field.value), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     codes.append((text, ImportText.clean(field.section)))
                     seen.insert(field.name)
                 }
@@ -182,12 +182,14 @@ enum PlanBuilder {
         }
 
         // Labels: the fixed ones first, then custom fields in order, so a custom field never takes a fixed name.
+        var emptied = false
         var labels = ImportLabels()
         for i in cardFields.indices where !cardFields[i].label.isEmpty { cardFields[i].label = labels.claim(cardFields[i].label) }
         if var from = validFrom { from.label = labels.claim(from.label); validFrom = from }
         var customFields: [ImportField] = []
         func addCustom(_ c: Custom, claimed: Bool = false) {
             let named = c.section.isEmpty ? c.label : "\(c.section): \(c.label)"
+            if !named.isEmpty, ImportText.clean(named).isEmpty { emptied = true }
             customFields.append(ImportField(.custom, label: claimed ? c.label : labels.claim(named), value: c.value, concealed: c.concealed))
         }
         if let validFrom { addCustom(validFrom, claimed: true) }
@@ -247,15 +249,14 @@ enum PlanBuilder {
         }
 
         // Everything is cleaned the way the writer stores it before it is compared.
-        fields = fields.map { var f = $0; f.value = ImportText.clean(f.value); f.label = ImportText.clean(f.label); return f }
 
         // Password history, oldest first, without the password that is current.
         let current = fields.first { $0.role == .password }?.value
-            ?? customs.first { $0.name == "password" }.map { ImportText.clean($0.value) } ?? ImportText.clean((secure["password"] as? String) ?? "")
+            ?? customs.first { $0.name == "password" }.map { $0.value } ?? ((secure["password"] as? String) ?? "")
         var revisions: [(date: Date, index: Int, password: String)] = []
         var badTimes = 0
         for (index, entry) in ((secure["passwordHistory"] as? [Any]) ?? []).enumerated() {
-            guard let entry = entry as? [String: Any], let value = Value.scalarText(entry["value"]).map(ImportText.clean),
+            guard let entry = entry as? [String: Any], let value = Value.scalarText(entry["value"]),
                   !value.isEmpty, value != current else { continue }
             let when = Value.stamp(entry["time"]).date
             if when == nil { badTimes += 1 }
@@ -277,9 +278,10 @@ enum PlanBuilder {
             if !clean.isEmpty, !tags.contains(clean) { tags.append(clean) }
         }
 
-        let item = ImportItem(sourceID: r.uuid.isEmpty ? nil : "1password:" + r.uuid, kind: kind, title: title, fields: fields,
+        var item = ImportItem(sourceID: r.uuid.isEmpty ? nil : "1password:" + r.uuid, kind: kind, title: title, fields: fields,
                               tags: tags, created: created, modified: modified,
                               history: revisions.map { ImportRevision(password: $0.password, date: $0.date) }, issues: issues)
+        item.sanitize(emptied: emptied)
         return Built(item: item, webFormFields: webFormFields, missingDate: missingDate, tagsAltered: tagsAltered)
     }
 
@@ -289,10 +291,10 @@ enum PlanBuilder {
         let raw = (secure["sections"] as? [Any]) ?? ((secure["unknown_details"] as? [String: Any])?["sections"] as? [Any]) ?? []
         var found: [SectionField] = []
         for case let section as [String: Any] in raw {
-            let title = ImportText.clean((section["title"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let title = ((section["title"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             for case let field as [String: Any] in (section["fields"] as? [Any]) ?? [] {
                 guard let name = field["n"] as? String, let value = field["v"], !(value is NSNull) else { continue }
-                found.append(SectionField(section: title, name: name, title: ImportText.clean((field["t"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+                found.append(SectionField(section: title, name: name, title: ((field["t"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
                                           kind: (field["k"] as? String) ?? "", value: value))
             }
         }
@@ -329,7 +331,9 @@ enum PlanBuilder {
                 text = raw
             }
         }
-        text = ImportText.clean(text)
+        // A secret is never trimmed: a value of only spaces is kept as it is (and reported), and only an empty one is skipped.
+        let secret = concealed || (typeName.hasPrefix("wallet.financial.CreditCard") && ["ccnum", "cvv", "pin"].contains(field.name))
+        if secret { return text.isEmpty ? nil : (text, concealed, unreadable) }
         return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : (text, concealed, unreadable)
     }
 

@@ -11,4 +11,6 @@ swiftc -O -swift-version 6 -D HOSTLESS_TESTS \
   App/Core/SharedVault.swift App/Core/SiteMatch.swift App/Core/PublicSuffixList.swift App/Core/UsageLog.swift App/Core/SampleVault.swift App/Core/VaultStore.swift App/Core/KeePassVaultStore.swift App/Core/BiometricKey.swift \
   App/Core/CSVImport.swift App/Core/Import/*.swift Tests/Import/main.swift \
   -o build/import-test/run
-build/import-test/run build/import-test/work
+# The tests keep every file they write (vaults, backups, usage, the vault reference) under build/, never in real app data.
+rm -rf build/import-test/root
+PSSS_TEST_ROOT="$PWD/build/import-test/root" build/import-test/run build/import-test/work

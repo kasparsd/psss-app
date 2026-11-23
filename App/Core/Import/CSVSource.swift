@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// The login-only CSV that 1Password 7, Apple Passwords and browsers export, read into an import plan. `CSVImport` stays for
@@ -49,7 +50,9 @@ enum CSVSource {
                 guard let index, index < row.count else { return "" }
                 return row[index].trimmingCharacters(in: .whitespacesAndNewlines)
             }
-            let rowTitle = value(title), account = value(user), secret = value(pass), site = value(url)
+            // A password is never trimmed, so a row whose password is only spaces keeps it.
+            let secret = pass.flatMap { $0 < row.count ? row[$0] : nil } ?? ""
+            let rowTitle = value(title), account = value(user), site = value(url)
             guard !secret.isEmpty || !account.isEmpty || !site.isEmpty else {
                 plan.skipped.rows += 1
                 let reason = value(notes).isEmpty
@@ -73,10 +76,20 @@ enum CSVSource {
                 }
             }
             if !value(notes).isEmpty { fields.append(ImportField(.notes, value: value(notes))) }
-            plan.items.append(ImportItem(sourceID: nil, kind: .login, title: rowTitle, fields: fields, created: now, modified: now, issues: issues))
+            // The marker is made of what rarely changes (site, user name and title), never of the password, so a changed
+            // password is an update of the same entry and an unchanged row is exactly a duplicate.
+            var marker = SHA256()
+            for part in [ImportText.clean(site), ImportText.clean(account), ImportText.clean(rowTitle)] {
+                marker.update(data: Data(part.utf8))
+                marker.update(data: Data([0]))
+            }
+            var item = ImportItem(sourceID: "csv:" + Hex.string(marker.finalize().prefix(8)), kind: .login, title: rowTitle, fields: fields, created: now, modified: now, issues: issues)
+            item.sanitize()
+            plan.items.append(item)
             plan.missingDates += 1
         }
         guard plan.recordCount > 0 else { throw ImportError.empty }
+        plan.separateSharedIdentifiers()
         return plan
     }
 }

@@ -475,6 +475,10 @@ struct ChangePasswordSheet: View {
     @State private var keyFile: Data?
     @State private var working = false
     @State private var problem: String?
+    /// The password was changed, but older backup copies could not be removed, so the sheet stays to say so.
+    @State private var changed = false
+    /// The change was refused because the file changed elsewhere. The vault is reloaded when the sheet closes.
+    @State private var reloadOnClose = false
 
     var body: some View {
         NavigationStack {
@@ -482,20 +486,29 @@ struct ChangePasswordSheet: View {
                 Section {
                     CredentialFields(password: $password, confirmation: $confirmation, keyFile: $keyFile, confirms: true)
                 } footer: {
-                    Text("The vault is encrypted again with the new password. Earlier backup copies kept on this device are removed. Copies elsewhere, such as on other devices, in iCloud versions or in exports, keep the old password.")
+                    if changed {
+                        Text("The vault is encrypted again with the new password. Copies elsewhere, such as on other devices, in iCloud versions or in exports, keep the old password.")
+                    } else {
+                        Text("The vault is encrypted again with the new password. Earlier backup copies kept on this device are removed. Copies elsewhere, such as on other devices, in iCloud versions or in exports, keep the old password.")
+                    }
                 }
                 if working { WorkingNotice(text: "Encrypting the vault with the new password…") }
-                if let problem { Text(problem).foregroundStyle(.red) }
+                if let problem { Text(problem).foregroundStyle(changed ? AnyShapeStyle(.secondary) : AnyShapeStyle(.red)) }
             }
             .formStyle(.grouped)
             .disabled(working)
             .interactiveDismissDisabled(working)
             .navigationTitle("Change vault password")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(working) }
+                ToolbarItem(placement: .cancellationAction) { Button(changed ? "Done" : "Cancel") { dismiss() }.disabled(working) }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(working ? "Saving…" : "Change") { change() }.disabled(working || password.isEmpty || password != confirmation)
+                    Button(working ? "Saving…" : "Change") { change() }.disabled(working || changed || password.isEmpty || password != confirmation)
                 }
+            }
+            .onDisappear {
+                guard reloadOnClose else { return }
+                let store = store
+                Task { try? await store.reload() }
             }
         }
         .modifier(VaultSheetSize())
@@ -505,11 +518,18 @@ struct ChangePasswordSheet: View {
         working = true
         Task {
             do {
-                try await store.changeCredentials(to: .init(password: password, keyFile: keyFile))
+                let result = try await store.changeCredentials(to: .init(password: password, keyFile: keyFile))
                 session.refreshBiometricKey()
-                dismiss()
+                if result == .changedBackupsRemain {
+                    problem = String(localized: "The password was changed, but older backup copies on this device could not be removed.")
+                    changed = true
+                    working = false
+                } else {
+                    dismiss()
+                }
             } catch VaultStoreError.changedOnDisk {
-                problem = String(localized: "The vault was changed elsewhere, so the password was not changed. Close this sheet, reload the vault and try again.")
+                problem = String(localized: "The vault was changed elsewhere, so the password was not changed. Psss will reload the vault when you close this sheet. Then try again.")
+                reloadOnClose = true
                 working = false
             } catch {
                 problem = (error as? KDBXError)?.message ?? (error as? VaultStoreError)?.message ?? error.localizedDescription

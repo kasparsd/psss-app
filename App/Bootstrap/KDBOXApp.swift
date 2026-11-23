@@ -8,6 +8,8 @@ struct KDBOXApp: App {
     init() {
         // Earlier builds may have left real logins in a plain-text file in the App Group. Delete it.
         SharedVault.removeLegacyPlainTextFile()
+        // Only the app purges Recently Deleted (items older than 30 days) when it unlocks a vault. The AutoFill extension does not.
+        VaultSession.purgesRecentlyDeletedOnUnlock = true
     }
 
     var body: some Scene {

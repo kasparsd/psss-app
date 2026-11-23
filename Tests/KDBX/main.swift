@@ -334,7 +334,7 @@ do {
 
     // The parameters survive a round trip through an entry.
     var eight = VaultItem(kind: .login, title: "Acme", otpSecret: "JBSWY3DPEHPK3PXP", otpSettings: TOTPSettings(digits: 8, period: 60, algorithm: .sha256))
-    var otpDocument = try KDBX.create(name: "Otp", credentials: .init(password: "pw"), kdf: light)
+    let otpDocument = try KDBX.create(name: "Otp", credentials: .init(password: "pw"), kdf: light)
     otpDocument.upsert(eight)
     var otpBack = try KDBX.open(try KDBX.save(otpDocument), credentials: .init(password: "pw")).items().first { $0.id == eight.id }!
     check("otp parameters survive a save", "\(otpBack.otpSettings.digits) \(otpBack.otpSettings.period) \(otpBack.otpSettings.algorithm.rawValue)", "8 60 SHA256")
@@ -725,6 +725,1578 @@ do {
     expect("passkey: trailing dot refused", !ReleaseCheck.passkey(record: record, relyingParty: "example.com.", credentialID: record.credentialID))
     expect("passkey: subdomain refused", !ReleaseCheck.passkey(record: record, relyingParty: "login.example.com", credentialID: record.credentialID))
     expect("passkey: wrong credential ID refused", !ReleaseCheck.passkey(record: record, relyingParty: "example.com", credentialID: Data(repeating: 1, count: 16)))
+}
+
+// MARK: Codec groundwork 2026-11-23: dates, history, Recycle Bin, cards, store follow-ups
+
+func at(_ seconds: TimeInterval) -> Date { Date(timeIntervalSince1970: seconds) }
+/// Makes the codec's clock say `seconds` since 1970 until it is set again.
+func setClock(_ seconds: TimeInterval) { KeePassTime.clock = { Date(timeIntervalSince1970: seconds) } }
+func resetClock() { KeePassTime.clock = { Date() } }
+func entryNode(_ document: KDBXDocument, _ id: UUID) -> XNode? { document.locations().first { EntryMapping.uuid(of: $0.entry) == id }?.entry }
+func historyCount(_ document: KDBXDocument, _ id: UUID) -> Int { entryNode(document, id).map { $0.child("History")?.children.count ?? 0 } ?? -1 }
+func timeText(_ document: KDBXDocument, _ id: UUID, _ name: String) -> String { entryNode(document, id)?.child("Times")?.child(name)?.text ?? "-" }
+func freshDocument(_ name: String = "T") throws -> KDBXDocument { try KDBX.create(name: name, credentials: .init(password: "pw"), kdf: light) }
+func current(_ document: KDBXDocument, _ id: UUID) -> VaultItem { document.items().first { $0.id == id }! }
+/// Reads the item, applies the change at the given clock time and saves it.
+@discardableResult
+func edit(_ document: KDBXDocument, _ id: UUID, at seconds: TimeInterval, _ change: (inout VaultItem) -> Void) -> Bool {
+    setClock(seconds)
+    var item = current(document, id)
+    change(&item)
+    return document.upsert(item)
+}
+func stringFlag(_ entry: XNode, _ key: String) -> String? {
+    entry.children(named: "String").first { $0.child("Key")?.text == key }?.child("Value")?.attribute("Protected")
+}
+func hasString(_ entry: XNode, _ key: String) -> Bool { EntryMapping.string(entry, key) != nil }
+
+// Parsing times is fast: no formatter per call.
+do {
+    let texts = ["2021-03-04T05:06:07Z", "v2HS1w4AAAA=", "2021-03-04T05:06:07.250Z", "2021-03-04T07:06:07+02:00"]
+    let start = Date()
+    var sum = 0.0
+    for i in 0..<100_000 { sum += KeePassTime.date(texts[i % 3])?.timeIntervalSince1970 ?? 0 }
+    let took = Date().timeIntervalSince(start)
+    print("     100000 time parses took \(Int(took * 1000)) ms")
+    expect("100,000 time parses take well under a second", took < 0.5 && sum > 0)
+    expect("an ISO time with an offset still reads", KeePassTime.date(texts[3]) == at(1_614_834_367))
+    expect("year 1 is the KDBX epoch, as the base64 form has it (the system parser is two days off there)", KeePassTime.date("0001-01-01T00:00:00Z") == KeePassTime.date("AAAAAAAAAAA="))
+    expect("leap days and old dates parse like the system parser", ["2024-02-29T23:59:59Z", "1999-12-31T00:00:00Z", "2100-03-01T12:00:00Z"].allSatisfy {
+        KeePassTime.date($0) == ISO8601DateFormatter().date(from: $0) })
+}
+
+// Times: exact values in both encodings.
+do {
+    let known = at(1_614_834_367)   // 2021-03-04T05:06:07Z
+    let later = at(1_669_206_896)   // 2022-11-23T12:34:56Z
+    check("stored time 2021-03-04T05:06:07Z", KeePassTime.stored(known), "v2HS1w4AAAA=")
+    check("stored time 2022-11-23T12:34:56Z", KeePassTime.stored(later), "cAoQ2w4AAAA=")
+    check("stored time of the Unix epoch", KeePassTime.stored(at(0)), "APeRdw4AAAA=")
+    check("stored time of year 1 is zero", KeePassTime.stored(at(-62_135_596_800)), "AAAAAAAAAAA=")
+    check("stored time rounds down to the second", KeePassTime.stored(at(1_614_834_367.9)), "v2HS1w4AAAA=")
+    check("stored time clamps what is not a number", KeePassTime.stored(at(.nan)), "APeRdw4AAAA=")
+    check("stored time clamps the far future to year 9999", KeePassTime.stored(at(1e30)), "fziGd0kAAAA=")
+    check("stored time clamps the far past to year 1", KeePassTime.stored(at(-1e30)), "AAAAAAAAAAA=")
+    expect("reads the KDBX 4 form", KeePassTime.date("v2HS1w4AAAA=") == known)
+    expect("reads the ISO form", KeePassTime.date("2021-03-04T05:06:07Z") == known)
+    expect("reads ISO with fractions", abs((KeePassTime.date("2021-03-04T05:06:07.250Z")?.timeIntervalSince(known) ?? 9) - 0.25) < 0.001)
+    expect("reads nothing from text that is no time", KeePassTime.date("yesterday") == nil && KeePassTime.date("") == nil)
+    check("the ISO writer is still ISO", KeePassTime.string(known), "2021-03-04T05:06:07Z")
+
+    setClock(1_614_834_367)
+    var doc = try freshDocument("Dates")
+    let item = VaultItem(kind: .login, title: "Dated", account: "a@example.net", website: "dated.example", secret: "one")
+    doc.upsert(item)
+    check("an entry's times are written in the KDBX 4 form", "\(timeText(doc, item.id, "CreationTime")) \(timeText(doc, item.id, "LastModificationTime")) \(timeText(doc, item.id, "LastAccessTime")) \(timeText(doc, item.id, "LocationChanged"))",
+          "v2HS1w4AAAA= v2HS1w4AAAA= v2HS1w4AAAA= v2HS1w4AAAA=")
+    check("a new vault's group time is in the KDBX 4 form", doc.rootGroup!.child("Times")!.child("CreationTime")!.text, "v2HS1w4AAAA=")
+    check("a new vault's Meta times are in the KDBX 4 form", doc.meta!.child("DatabaseNameChanged")!.text, "v2HS1w4AAAA=")
+    check("and RecycleBinChanged", doc.meta!.child("RecycleBinChanged")!.text, "v2HS1w4AAAA=")
+    let first = current(doc, item.id)
+    expect("the item carries the dates", first.created == known && first.modified == known)
+
+    setClock(1_669_206_896)
+    var changed = first; changed.secret = "two"; doc.upsert(changed)
+    check("an edit moves the modification time to now", timeText(doc, item.id, "LastModificationTime"), "cAoQ2w4AAAA=")
+    check("and leaves the creation time", timeText(doc, item.id, "CreationTime"), "v2HS1w4AAAA=")
+    doc.touchModified()
+    check("the database's modified time is in the KDBX 4 form", doc.rootGroup!.child("Times")!.child("LastModificationTime")!.text, "cAoQ2w4AAAA=")
+    doc.databaseName = "Renamed"
+    check("a rename stamps DatabaseNameChanged in the KDBX 4 form", doc.meta!.child("DatabaseNameChanged")!.text, "cAoQ2w4AAAA=")
+    check("history snapshots keep the time of their version", EntryMapping.string(entryNode(doc, item.id)!.child("History")!.children[0], "Password") ?? "", "one")
+
+    let reopened = try KDBX.open(try KDBX.save(doc), credentials: .init(password: "pw"))
+    let back = current(reopened, item.id)
+    expect("the dates survive a save and open", back.created == known && back.modified == at(1_669_206_896))
+    check("and are still stored in the KDBX 4 form", timeText(reopened, item.id, "CreationTime"), "v2HS1w4AAAA=")
+
+    // The ISO form (KDBX 3) reads as the same dates.
+    let times = entryNode(doc, item.id)!.child("Times")!
+    times.child("CreationTime")!.text = "2021-03-04T05:06:07Z"
+    times.child("LastModificationTime")!.text = "2022-11-23T12:34:56Z"
+    expect("ISO times read as the same dates", current(doc, item.id).created == known && current(doc, item.id).modified == at(1_669_206_896))
+
+    // A deletion is stamped in the KDBX 4 form too.
+    doc.remove(item.id)
+    check("a deletion is recorded in the KDBX 4 form", doc.rootNode!.child("DeletedObjects")!.children.last!.child("DeletionTime")!.text, "cAoQ2w4AAAA=")
+    resetClock()
+}
+
+// An entry's modification time always moves forward.
+do {
+    let doc = try freshDocument()
+    setClock(1_700_000_000)
+    let item = VaultItem(kind: .login, title: "Mono", website: "mono.example", secret: "p0")
+    doc.upsert(item)
+    var seen: [Int] = []
+    for i in 1...4 {
+        edit(doc, item.id, at: 1_700_000_000) { $0.secret = "p\(i)" }   // the clock stands still
+        seen.append(Int(current(doc, item.id).modified!.timeIntervalSince1970) - 1_700_000_000)
+    }
+    check("saves within one second get consecutive times", "\(seen)", "[1, 2, 3, 4]")
+    edit(doc, item.id, at: 1_600_000_000) { $0.secret = "p5" }          // the clock went back
+    check("a clock that went backwards still moves it forward", "\(Int(current(doc, item.id).modified!.timeIntervalSince1970) - 1_700_000_000)", "5")
+    edit(doc, item.id, at: 1_800_000_000) { $0.secret = "p6" }
+    check("a clock ahead of the entry is used as it is", "\(Int(current(doc, item.id).modified!.timeIntervalSince1970))", "1800000000")
+    check("the next time after a given time", "\(Int(KDBXDocument.nextModificationTime(after: at(100.9), now: at(50)).timeIntervalSince1970)) \(Int(KDBXDocument.nextModificationTime(after: nil, now: at(50.7)).timeIntervalSince1970))", "101 50")
+    resetClock()
+}
+
+// An entry with no Times element gets one when it is next changed.
+do {
+    let doc = try freshDocument()
+    setClock(1_700_000_000)
+    let item = VaultItem(kind: .login, title: "Timeless", website: "timeless.example", secret: "p0")
+    doc.upsert(item)
+    let node = entryNode(doc, item.id)!
+    node.children.removeAll { $0.name == "Times" }
+    expect("an entry without times has no dates", current(doc, item.id).created == nil && current(doc, item.id).modified == nil)
+    edit(doc, item.id, at: 1_700_000_100) { $0.title = "Timeless 2" }
+    expect("the next change gives it times, both now", current(doc, item.id).created == at(1_700_000_100) && current(doc, item.id).modified == at(1_700_000_100))
+    expect("the times sit before the strings", (node.children.firstIndex { $0.name == "Times" } ?? 99) < (node.children.firstIndex { $0.name == "String" } ?? 0))
+    check("it has all seven fields", "\(node.child("Times")!.children.map(\.name))", "[\"CreationTime\", \"LastModificationTime\", \"LastAccessTime\", \"ExpiryTime\", \"Expires\", \"UsageCount\", \"LocationChanged\"]")
+    edit(doc, item.id, at: 1_700_000_100) { $0.title = "Timeless 3" }
+    expect("then it moves forward like any entry", current(doc, item.id).created == at(1_700_000_100) && current(doc, item.id).modified == at(1_700_000_101))
+    resetClock()
+}
+
+// The passkey's own creation date.
+do {
+    let doc = try freshDocument()
+    setClock(1_700_000_000)
+    var record = Passkeys.register(rpID: "pk.example", userHandle: Data("u".utf8), clientDataHash: Data(count: 32)).record
+    record.created = at(1_577_934_245)   // 2020-01-02T03:04:05Z
+    var item = VaultItem(kind: .login, title: "PK", account: "pk@example.net", website: "pk.example", secret: "x")
+    item.passkey = record
+    doc.upsert(item)
+    let node = entryNode(doc, item.id)!
+    check("the passkey date is stored when the passkey is first written", EntryMapping.string(node, EntryMapping.passkeyCreated) ?? "-", "2020-01-02T03:04:05Z")
+    expect("the passkey reads its own date, not the entry's", current(doc, item.id).passkey?.created == at(1_577_934_245) && current(doc, item.id).created == at(1_700_000_000))
+    edit(doc, item.id, at: 1_700_000_500) { $0.title = "PK 2" }
+    check("editing the entry leaves the passkey date", EntryMapping.string(node, EntryMapping.passkeyCreated) ?? "-", "2020-01-02T03:04:05Z")
+    let reopened = try KDBX.open(try KDBX.save(doc), credentials: .init(password: "pw"))
+    expect("the passkey date survives a save", current(reopened, item.id).passkey?.created == at(1_577_934_245))
+    // A passkey written by another app has no such string: the entry's creation time stands in.
+    node.children.removeAll { $0.name == "String" && $0.child("Key")?.text == EntryMapping.passkeyCreated }
+    expect("without the string the entry's creation time stands in", current(doc, item.id).passkey?.created == at(1_700_000_000))
+    edit(doc, item.id, at: 1_700_000_600) { $0.title = "PK 3" }
+    expect("editing such an entry does not invent a passkey date", !hasString(node, EntryMapping.passkeyCreated))
+    // A new credential gets a new date.
+    var replacement = Passkeys.register(rpID: "pk.example", userHandle: Data("u".utf8), clientDataHash: Data(count: 32)).record
+    replacement.created = at(1_650_000_000)
+    edit(doc, item.id, at: 1_700_000_700) { $0.passkey = replacement }
+    check("a different passkey is stamped with its own date", EntryMapping.string(node, EntryMapping.passkeyCreated) ?? "-", KeePassTime.string(at(1_650_000_000)))
+    edit(doc, item.id, at: 1_700_000_800) { $0.passkey = nil }
+    expect("removing the passkey removes its date", !hasString(node, EntryMapping.passkeyCreated) && !hasString(node, EntryMapping.passkeyCredential))
+    resetClock()
+}
+
+// The protected flag is corrected on the strings Psss protects, and left alone on the others.
+do {
+    let doc = try freshDocument()
+    setClock(1_700_000_000)
+    var item = VaultItem(kind: .login, title: "Flags", account: "f@example.net", website: "flags.example", secret: "one", notes: "n", otpSecret: "JBSWY3DPEHPK3PXP")
+    item.passkey = Passkeys.register(rpID: "flags.example", userHandle: Data("u".utf8), clientDataHash: Data(count: 32)).record
+    doc.upsert(item)
+    let node = entryNode(doc, item.id)!
+    for string in node.children(named: "String") { string.child("Value")?.setAttribute("Protected", nil) }   // as another app might have left them
+    let anchor = node.children.firstIndex { $0.name == "AutoType" } ?? node.children.endIndex
+    node.children.insert(XNode("String", children: [XNode("Key", text: "Token"), XNode("Value", text: "t", attributes: [("Protected", "True")])]), at: anchor)
+    node.children.insert(XNode("String", children: [XNode("Key", text: "Plain"), XNode("Value", text: "p")]), at: anchor)
+    node.children.first { $0.name == "String" && $0.child("Key")?.text == "Notes" }?.child("Value")?.setAttribute("Protected", "True")
+    edit(doc, item.id, at: 1_700_000_100) { $0.secret = "two"; $0.title = "Flags 2" }
+    check("password flag corrected", stringFlag(node, "Password") ?? "-", "True")
+    check("one-time code flag corrected", stringFlag(node, "otp") ?? "-", "True")
+    check("passkey key flag corrected", stringFlag(node, EntryMapping.passkeyKey) ?? "-", "True")
+    check("an unprotected title stays unprotected", stringFlag(node, "Title") ?? "-", "-")
+    check("an unprotected user name stays unprotected", stringFlag(node, "UserName") ?? "-", "-")
+    check("a protected note stays protected", stringFlag(node, "Notes") ?? "-", "True")
+    check("a protected custom string stays protected", stringFlag(node, "Token") ?? "-", "True")
+    check("an unprotected custom string stays unprotected", stringFlag(node, "Plain") ?? "-", "-")
+    resetClock()
+}
+
+// sameContent compares every stored field; usage, dates and the passkey's own date do not count.
+do {
+    let record = Passkeys.register(rpID: "same.example", userHandle: Data("h".utf8), clientDataHash: Data(count: 32)).record
+    let other = Passkeys.register(rpID: "other.example", userHandle: Data("g".utf8), clientDataHash: Data(count: 32)).record
+    var base = VaultItem(kind: .login, title: "T", account: "a", website: "https://same.example", secret: "s", notes: "n", otpSecret: "JBSWY3DPEHPK3PXP")
+    base.passkey = record
+    var card = VaultItem(kind: .creditCard, title: "C", account: "Alex", secret: "4242424242424242", expiry: "08/30", notes: "n")
+    card.passkey = nil
+    let differing: [(String, VaultItem, (inout VaultItem) -> Void)] = [
+        ("title", base, { $0.title = "T2" }), ("account", base, { $0.account = "b" }), ("website", base, { $0.website = "https://other.example" }),
+        ("password", base, { $0.secret = "s2" }), ("notes", base, { $0.notes = "n2" }), ("one-time code", base, { $0.otpSecret = "KRSXG5CTMVRXEZLU" }),
+        ("one-time code removed", base, { $0.otpSecret = "" }),
+        ("code digits", base, { $0.otpSettings.digits = 8 }), ("code period", base, { $0.otpSettings.period = 60 }),
+        ("code algorithm", base, { $0.otpSettings.algorithm = .sha256 }),
+        ("passkey removed", base, { $0.passkey = nil }), ("passkey credential", base, { $0.passkey?.credentialID = Data(repeating: 1, count: 16) }),
+        ("passkey user handle", base, { $0.passkey?.userHandle = Data("x".utf8) }), ("passkey relying party", base, { $0.passkey?.rpID = "x.example" }),
+        ("passkey key", base, { $0.passkey?.privateKey = other.privateKey }),
+        ("kind", base, { item in item = VaultItem(id: item.id, kind: .keePassEntry, title: item.title, account: item.account, website: item.website, secret: item.secret, notes: item.notes) }),
+        ("card number", card, { $0.secret = "4242424242424241" }), ("card expiry", card, { $0.expiry = "09/30" }), ("card holder", card, { $0.account = "Sam" }),
+    ]
+    for (name, start, change) in differing {
+        var changed = start; change(&changed)
+        expect("sameContent sees a change to \(name)", !EntryMapping.sameContent(start, changed))
+        let doc = try freshDocument()
+        doc.upsert(start)
+        setClock(1_700_000_000 + 5_000)
+        expect("upsert saves a change to \(name)", doc.upsert(changed))
+        resetClock()
+    }
+    var same = base
+    same.lastUsed = .now; same.useCount = 9
+    same.passkey?.signCount = 5; same.passkey?.created = at(5)
+    same.otpSecret = "jbsw y3dp ehpk 3pxp"
+    expect("usage, the passkey's own date and the spelling of the code do not count", EntryMapping.sameContent(base, same))
+    var named = base; named.title = "same.example"; var unnamed = base; unnamed.title = ""
+    expect("a login named by its host is the login without a name", EntryMapping.sameContent(named, unnamed))
+    var cardWithCode = card; cardWithCode.otpSecret = "JBSWY3DPEHPK3PXP"; cardWithCode.website = card.website
+    expect("a code on a card, which is not stored, does not count", EntryMapping.sameContent(card, cardWithCode))
+    let doc = try freshDocument()
+    doc.upsert(base)
+    expect("upsert of unchanged content or only usage reports no change", !doc.upsert(base) && !doc.upsert(same))
+}
+
+// Coalescing: a small, recent change that touches no secret folds into the current version.
+do {
+    let t0: TimeInterval = 1_700_000_000
+    setClock(t0)
+    let doc = try freshDocument()
+    let item = VaultItem(kind: .login, title: "T", account: "a", website: "co.example", secret: "one")
+    doc.upsert(item)
+    edit(doc, item.id, at: t0 + 100) { $0.notes = "n1" }
+    check("a small change within the window makes no revision", "\(historyCount(doc, item.id))", "0")
+    edit(doc, item.id, at: t0 + 699) { $0.title = "T2" }
+    check("nor one 599 seconds after the last change", "\(historyCount(doc, item.id))", "0")
+    check("the current version has the changes", "\(current(doc, item.id).title) \(current(doc, item.id).notes)", "T2 n1")
+    expect("the modification time still moved", current(doc, item.id).modified == at(t0 + 699))
+    edit(doc, item.id, at: t0 + 699 + 600) { $0.title = "T3" }
+    check("exactly ten minutes after the last change is outside the window", "\(historyCount(doc, item.id))", "1")
+    check("the revision holds the version before", EntryMapping.string(entryNode(doc, item.id)!.child("History")!.children[0], "Title") ?? "", "T2")
+    let base = t0 + 1300
+    edit(doc, item.id, at: base + 10) { $0.secret = "two" }
+    check("a changed password always makes a revision", "\(historyCount(doc, item.id))", "2")
+    edit(doc, item.id, at: base + 20) { $0.otpSecret = "JBSWY3DPEHPK3PXP" }
+    check("a changed one-time code always makes a revision", "\(historyCount(doc, item.id))", "3")
+    var record = Passkeys.register(rpID: "co.example", userHandle: Data("u".utf8), clientDataHash: Data(count: 32)).record
+    edit(doc, item.id, at: base + 30) { $0.passkey = record }
+    check("a new passkey always makes a revision", "\(historyCount(doc, item.id))", "4")
+    record = Passkeys.register(rpID: "co.example", userHandle: Data("u".utf8), clientDataHash: Data(count: 32)).record
+    edit(doc, item.id, at: base + 40) { $0.passkey = record }
+    check("a replaced passkey always makes a revision", "\(historyCount(doc, item.id))", "5")
+    edit(doc, item.id, at: base + 50) { $0.notes = "n9" }
+    check("a small change after secrets, within the window, still folds", "\(historyCount(doc, item.id))", "5")
+
+    let cardDoc = try freshDocument()
+    let card = VaultItem(kind: .creditCard, title: "Card", account: "Alex", secret: "4242424242424242", expiry: "08/30")
+    setClock(t0); cardDoc.upsert(card)
+    edit(cardDoc, card.id, at: t0 + 5) { $0.expiry = "09/30" }
+    check("a card's expiry within the window folds", "\(historyCount(cardDoc, card.id))", "0")
+    edit(cardDoc, card.id, at: t0 + 10) { $0.secret = "5555555555554444" }
+    check("a changed card number always makes a revision", "\(historyCount(cardDoc, card.id))", "1")
+
+    // A string the file marks protected is a secret, whatever it holds.
+    let protectedDoc = try freshDocument()
+    protectedDoc.meta!.child("MemoryProtection")!.child("ProtectNotes")!.text = "True"
+    let note = VaultItem(kind: .secureNote, title: "Note", notes: "text")
+    setClock(t0); protectedDoc.upsert(note)
+    edit(protectedDoc, note.id, at: t0 + 5) { $0.title = "Note 2" }
+    check("a title change within the window folds", "\(historyCount(protectedDoc, note.id))", "0")
+    edit(protectedDoc, note.id, at: t0 + 10) { $0.notes = "other text" }
+    check("a change to a protected string always makes a revision", "\(historyCount(protectedDoc, note.id))", "1")
+    resetClock()
+}
+
+// History is bounded by HistoryMaxItems and HistoryMaxSize, oldest first, and never repeats its newest item.
+do {
+    let t0: TimeInterval = 1_700_000_000
+    func build(_ name: String, items: String, size: String, passwords: [String]) throws -> (document: KDBXDocument, id: UUID) {
+        let doc = try freshDocument(name)
+        doc.meta!.setChildText("HistoryMaxItems", items)
+        doc.meta!.setChildText("HistoryMaxSize", size)
+        setClock(t0)
+        let item = VaultItem(kind: .login, title: "T", account: "a", website: "trim.example", secret: "p0")
+        doc.upsert(item)
+        for (n, password) in passwords.enumerated() { edit(doc, item.id, at: t0 + Double(n + 1) * 1000) { $0.secret = password } }
+        return (doc, item.id)
+    }
+    func passwords(_ doc: KDBXDocument, _ id: UUID) -> [String] {
+        (entryNode(doc, id)!.child("History")?.children ?? []).map { EntryMapping.string($0, "Password") ?? "" }
+    }
+    let six = (1...6).map { "p\($0)" }
+    var r = try build("count", items: "3", size: "-1", passwords: six)
+    check("HistoryMaxItems keeps the newest items", "\(passwords(r.document, r.id))", "[\"p3\", \"p4\", \"p5\"]")
+    r = try build("unlimited", items: "-1", size: "-1", passwords: (1...12).map { "q\($0)" })
+    check("HistoryMaxItems -1 is unlimited", "\(historyCount(r.document, r.id))", "12")
+    r = try build("none", items: "0", size: "-1", passwords: six)
+    check("HistoryMaxItems 0 keeps no history", "\(historyCount(r.document, r.id))", "0")
+    let big = (1...5).map { String(repeating: Character(UnicodeScalar(96 + UInt8($0))), count: 1000) }   // aaaa… bbbb… 1000 characters each
+    r = try build("size", items: "-1", size: "2500", passwords: big)
+    check("HistoryMaxSize drops the oldest until it fits", "\(historyCount(r.document, r.id))", "2")
+    check("and keeps the newest", "\(passwords(r.document, r.id).map { String($0.prefix(1)) })", "[\"c\", \"d\"]")
+    expect("what is kept fits", r.document.historySize(of: entryNode(r.document, r.id)!.child("History")!.children[0]) * 2 <= 2500)
+    r = try build("size unlimited", items: "-1", size: "-1", passwords: big)
+    check("HistoryMaxSize -1 is unlimited", "\(historyCount(r.document, r.id))", "5")
+    r = try build("size zero", items: "-1", size: "0", passwords: big)
+    check("HistoryMaxSize 0 keeps no history", "\(historyCount(r.document, r.id))", "0")
+    r = try build("no limits in the file", items: "10", size: "6291456", passwords: six)
+    r.document.meta!.children.removeAll { $0.name == "HistoryMaxItems" || $0.name == "HistoryMaxSize" }
+    for n in 7...20 { edit(r.document, r.id, at: t0 + Double(n) * 1000) { $0.secret = "p\(n)" } }
+    check("a file that names no limit gets KeePass's default of ten items", "\(historyCount(r.document, r.id))", "10")
+
+    // Dedupe: a snapshot identical to the newest history item is not added again.
+    let doc = try freshDocument("dedupe")
+    setClock(t0)
+    let item = VaultItem(kind: .login, title: "T", website: "dedupe.example", secret: "one")
+    doc.upsert(item)
+    let node = entryNode(doc, item.id)!
+    doc.pushHistory(doc.historySnapshot(of: node), to: node)
+    doc.pushHistory(doc.historySnapshot(of: node), to: node)
+    check("an identical snapshot is not appended twice", "\(historyCount(doc, item.id))", "1")
+    edit(doc, item.id, at: t0 + 5000) { $0.secret = "two" }
+    check("an edit whose snapshot equals the newest item adds nothing either", "\(historyCount(doc, item.id))", "1")
+    edit(doc, item.id, at: t0 + 9000) { $0.secret = "three" }
+    check("the next edit, with a different snapshot, does", "\(historyCount(doc, item.id))", "2")
+    resetClock()
+}
+
+// Previous passwords, when the current one was set, restore and clear.
+do {
+    let t: TimeInterval = 1_700_000_000
+    setClock(t)
+    let doc = try freshDocument()
+    let item = VaultItem(kind: .login, title: "X", account: "a", website: "pw.example", secret: "A")
+    doc.upsert(item)
+    expect("no history: no previous passwords and an unknown change date", doc.previousPasswords(of: item.id).isEmpty && doc.passwordChanged(of: item.id) == nil)
+    edit(doc, item.id, at: t + 1000) { $0.secret = "B" }
+    edit(doc, item.id, at: t + 2000) { $0.title = "X2" }          // outside the window: a second version with B
+    edit(doc, item.id, at: t + 3000) { $0.secret = "C" }
+    edit(doc, item.id, at: t + 4000) { $0.secret = "D" }
+    func rows() -> String { doc.previousPasswords(of: item.id).map { "\($0.password)@\(Int($0.replaced.timeIntervalSince1970 - t))" }.joined(separator: " ") }
+    check("previous passwords, newest first, versions with one password collapsed", rows(), "C@4000 B@3000 A@1000")
+    check("the current password was set at the last change", "\(Int(doc.passwordChanged(of: item.id)!.timeIntervalSince1970 - t))", "4000")
+    edit(doc, item.id, at: t + 5000) { $0.title = "X3" }
+    check("a later title edit leaves the previous passwords", rows(), "C@4000 B@3000 A@1000")
+    check("and the date the password was set", "\(Int(doc.passwordChanged(of: item.id)!.timeIntervalSince1970 - t))", "4000")
+
+    // Restore: B comes back through the normal change path.
+    let before = historyCount(doc, item.id)
+    setClock(t + 6000)
+    expect("restore of an unknown row does nothing", !doc.restorePassword(of: item.id, replacedAt: at(t + 1234)))
+    expect("restore puts the password back", doc.restorePassword(of: item.id, replacedAt: at(t + 3000)))
+    check("the restored password is current", current(doc, item.id).secret, "B")
+    check("restoring is itself a revision", "\(historyCount(doc, item.id))", "\(before + 1)")
+    check("the password it replaced joins the list, and the restored one, now current, leaves it", rows(), "D@6000 C@4000 A@1000")
+    expect("the modification time moved", current(doc, item.id).modified == at(t + 6000))
+    // A password that was current again is not listed as previous.
+    let again = try freshDocument()
+    setClock(t); again.upsert(VaultItem(kind: .login, title: "Y", website: "again.example", secret: "one"))
+    let againID = again.items()[0].id
+    edit(again, againID, at: t + 1000) { $0.secret = "two" }
+    edit(again, againID, at: t + 2000) { $0.secret = "one" }
+    check("the current password is left out of the previous ones", again.previousPasswords(of: againID).map(\.password).joined(separator: ","), "two")
+    // An empty password is not a previous password.
+    let blank = try freshDocument()
+    setClock(t); blank.upsert(VaultItem(kind: .login, title: "Z", website: "blank.example", secret: ""))
+    let blankID = blank.items()[0].id
+    edit(blank, blankID, at: t + 1000) { $0.secret = "first" }
+    check("an empty earlier password is not listed", "\(blank.previousPasswords(of: blankID).count)", "0")
+    check("but it marks when the password was set", "\(Int(blank.passwordChanged(of: blankID)!.timeIntervalSince1970 - t))", "1000")
+
+    // Clear.
+    expect("clear removes the history", doc.clearPreviousPasswords(of: item.id))
+    expect("nothing is left to show", doc.previousPasswords(of: item.id).isEmpty && historyCount(doc, item.id) == 0)
+    check("the entry itself is untouched", current(doc, item.id).secret, "B")
+    expect("clearing twice reports nothing to do", !doc.clearPreviousPasswords(of: item.id))
+    resetClock()
+}
+
+// MARK: Recycle Bin
+
+func groupNode(_ document: KDBXDocument, named name: String) -> XNode? {
+    func visit(_ group: XNode) -> XNode? {
+        if group.child("Name")?.text == name { return group }
+        for child in group.children(named: "Group") { if let found = visit(child) { return found } }
+        return nil
+    }
+    return document.rootGroup.flatMap(visit)
+}
+func count(_ document: KDBXDocument, _ id: UUID) -> Int { document.locations().filter { EntryMapping.uuid(of: $0.entry) == id }.count }
+func deletedObjects(_ document: KDBXDocument) -> Int { document.rootNode?.child("DeletedObjects")?.children.count ?? 0 }
+func sourceList(_ document: KDBXDocument) -> [String] { DeletedSources.read(from: document.root).sorted() }
+func withSource(_ item: VaultItem, _ source: String, in document: KDBXDocument) {
+    EntryMapping.setCustomData(entryNode(document, item.id)!, KeePassImport.sourceKey, source, modified: KeePassTime.storedNow)
+}
+
+do {
+    let t: TimeInterval = 1_700_000_000   // 2023-11-14T22:13:20Z
+    setClock(t)
+    let doc = try freshDocument("Bin")
+    let work = XNode("Group", children: [XNode("UUID", text: UUID().kdbxBase64), XNode("Name", text: "Work")])
+    doc.rootGroup!.children.append(work)
+    let a = VaultItem(kind: .login, title: "A", account: "a", website: "a.example", secret: "a1")
+    let b = VaultItem(kind: .login, title: "B", account: "b", website: "b.example", secret: "b1")
+    let c = VaultItem(kind: .login, title: "C", account: "c", website: "c.example", secret: "c1")
+    for item in [a, b, c] { doc.upsert(item) }
+    let aNode = entryNode(doc, a.id)!
+    doc.rootGroup!.children.removeAll { $0 === aNode }
+    work.children.append(aNode)
+    edit(doc, a.id, at: t + 10) { $0.secret = "a2" }
+    check("A has one revision before it is deleted", "\(historyCount(doc, a.id))", "1")
+    let historyBefore = aNode.child("History")!.deepCopy()
+    expect("no bin yet", groupNode(doc, named: "Recycle Bin") == nil && doc.recycleBinID == nil)
+
+    setClock(t + 100)
+    let modifiedBeforeMove = timeText(doc, a.id, "LastModificationTime")
+    expect("move to the Recycle Bin", doc.moveToRecycleBin(a.id))
+    let bin = groupNode(doc, named: "Recycle Bin")!
+    check("the bin has the standard icon", bin.child("IconID")?.text ?? "", "43")
+    check("Meta points at the bin", doc.meta!.child("RecycleBinUUID")!.text, bin.child("UUID")!.text)
+    check("Meta says the bin is enabled", doc.meta!.child("RecycleBinEnabled")!.text, "True")
+    check("RecycleBinChanged is stamped in the KDBX 4 form", doc.meta!.child("RecycleBinChanged")!.text, KeePassTime.stored(at(t + 100)))
+    expect("the bin is in the root group and the entry in the bin", doc.rootGroup!.children.contains { $0 === bin } && bin.children.contains { $0 === aNode })
+    expect("the entry left its group", !work.children.contains { $0 === aNode })
+    check("the live items are the others", "\(doc.items().map(\.title).sorted())", "[\"B\", \"C\"]")
+    check("the bin lists the entry", "\(doc.recycledItems().map(\.item.title))", "[\"A\"]")
+    expect("with its deletion time", doc.recycledItems()[0].deleted == at(t + 100) && doc.recycledItems()[0].item.secret == "a2")
+    check("the group it came from is recorded", EntryMapping.customData(aNode, RecycleBinKeys.deletedFrom) ?? "-", work.child("UUID")!.text)
+    check("and when", EntryMapping.customData(aNode, RecycleBinKeys.deletedAt) ?? "-", "2023-11-14T22:15:00Z")
+    check("LocationChanged is set", aNode.child("Times")!.child("LocationChanged")!.text, KeePassTime.stored(at(t + 100)))
+    expect("the history moved with it", aNode.child("History")!.isEqual(to: historyBefore))
+    check("a move does not change the modification time", timeText(doc, a.id, "LastModificationTime"), modifiedBeforeMove)
+    expect("a bin entry is known to the import duplicate check as recycled", KeePassImport.known(in: doc).first { $0.node === aNode }?.existing.inRecycleBin == true)
+    expect("moving it again does nothing", !doc.moveToRecycleBin(a.id))
+    expect("an unknown id does nothing", !doc.moveToRecycleBin(UUID()) && !doc.restoreFromRecycleBin(UUID()) && !doc.deletePermanently(UUID()))
+    setClock(t + 200)
+    expect("a second entry goes to the same bin", doc.moveToRecycleBin(b.id))
+    check("there is still one Recycle Bin", "\(doc.rootGroup!.children(named: "Group").filter { $0.child("Name")?.text == "Recycle Bin" }.count)", "1")
+    check("newest deletion first", "\(doc.recycledItems().map(\.item.title))", "[\"B\", \"A\"]")
+    check("the file round trip keeps it", "\(try KDBX.open(try KDBX.save(doc), credentials: .init(password: "pw")).recycledItems().count) \(try KDBX.open(try KDBX.save(doc), credentials: .init(password: "pw")).items().count)", "2 1")
+
+    // Restore to the original group, and when it is gone, to the root.
+    setClock(t + 300)
+    expect("restore", doc.restoreFromRecycleBin(a.id))
+    expect("it is back in its group", work.children.contains { $0 === aNode })
+    check("LocationChanged is updated", aNode.child("Times")!.child("LocationChanged")!.text, KeePassTime.stored(at(t + 300)))
+    expect("the deletion record is gone", EntryMapping.customData(aNode, RecycleBinKeys.deletedFrom) == nil && EntryMapping.customData(aNode, RecycleBinKeys.deletedAt) == nil && aNode.child("CustomData") == nil)
+    expect("it is live again with its history", doc.items().contains { $0.id == a.id } && aNode.child("History")!.isEqual(to: historyBefore))
+    expect("restoring a live entry does nothing", !doc.restoreFromRecycleBin(a.id))
+    expect("it is not in the bin list any more", !doc.recycledItems().contains { $0.item.id == a.id })
+    doc.moveToRecycleBin(a.id)
+    doc.rootGroup!.children.removeAll { $0 === work }
+    expect("restore after the group was deleted", doc.restoreFromRecycleBin(a.id))
+    expect("goes to the root group", doc.rootGroup!.children.contains { $0 === aNode })
+
+    // An entry another app recycled has no Psss data: its LocationChanged is the deletion time, and restore goes to the root.
+    doc.moveToRecycleBin(c.id)
+    let cNode = entryNode(doc, c.id)!
+    cNode.child("CustomData")?.children.removeAll()
+    cNode.children.removeAll { $0.name == "CustomData" }
+    cNode.child("Times")!.child("LocationChanged")!.text = KeePassTime.stored(at(t - 5000))
+    expect("another app's deletion date is its LocationChanged", doc.recycledItems().first { $0.item.id == c.id }?.deleted == at(t - 5000))
+    expect("restore needs no Psss data", doc.restoreFromRecycleBin(c.id) && doc.rootGroup!.children.contains { $0 === cNode })
+
+    // Writes consider the bin: upsert of an id that is in the bin restores it, and never makes a second entry.
+    doc.moveToRecycleBin(b.id)
+    check("b is in the bin once", "\(count(doc, b.id))", "1")
+    setClock(t + 400)
+    var changedB = b; changedB.title = "B2"
+    expect("saving an item from the bin restores and updates it", doc.upsert(changedB))
+    check("still exactly one entry with that identifier", "\(count(doc, b.id))", "1")
+    check("it is live with the new title", "\(doc.items().first { $0.id == b.id }?.title ?? "-")", "B2")
+    check("and the bin no longer holds it", "\(doc.recycledItems().map(\.item.id).contains(b.id))", "false")
+    doc.moveToRecycleBin(b.id)
+    expect("saving the same content restores it too, and reports a change", doc.upsert(doc.recycledItems().first { $0.item.id == b.id }!.item))
+    check("again exactly one", "\(count(doc, b.id))", "1")
+    // A live and a bin entry with one identifier: a restore would duplicate it, so it is refused.
+    doc.moveToRecycleBin(b.id)
+    let twin = entryNode(doc, b.id)!.deepCopy()
+    doc.rootGroup!.children.append(twin)
+    expect("restoring over a live duplicate is refused", !doc.restoreFromRecycleBin(b.id))
+    check("both stay where they are", "\(doc.items().filter { $0.id == b.id }.count) \(doc.recycledItems().filter { $0.item.id == b.id }.count)", "1 1")
+    expect("an upsert goes to the live one", doc.upsert({ var item = doc.items().first { $0.id == b.id }!; item.notes = "live"; return item }()) && count(doc, b.id) == 2)
+    expect("deleting for good removes both", doc.deletePermanently(b.id) && count(doc, b.id) == 0)
+    resetClock()
+}
+
+// Deleting for good, emptying, the purge, and the deleted-sources list.
+do {
+    let t: TimeInterval = 1_700_000_000
+    setClock(t)
+    let doc = try freshDocument("Gone")
+    func make(_ title: String) -> VaultItem {
+        let item = VaultItem(kind: .login, title: title, website: "\(title.lowercased()).example", secret: title)
+        doc.upsert(item)
+        return item
+    }
+    let live = make("Live"), binned = make("Binned"), sourced = make("Sourced"), twin = make("Twin"), other = make("Other")
+    withSource(sourced, "1password:S1", in: doc); withSource(twin, "1password:S1", in: doc); withSource(other, "1password:S2", in: doc)
+    withSource(binned, "1password:B1", in: doc)
+    check("a vault without deletions has no list", "\(sourceList(doc))", "[]")
+
+    // Direct, from the live entries.
+    setClock(t + 50)
+    expect("delete for good from the live entries", doc.deletePermanently(live.id))
+    check("it is gone everywhere", "\(count(doc, live.id))", "0")
+    check("the deletion is recorded with its time", "\(deletedObjects(doc)) \(doc.rootNode!.child("DeletedObjects")!.children[0].child("DeletionTime")!.text == KeePassTime.stored(at(t + 50))) \(doc.rootNode!.child("DeletedObjects")!.children[0].child("UUID")!.text == live.id.kdbxBase64)", "1 true true")
+    check("an entry without a source adds nothing to the list", "\(sourceList(doc))", "[]")
+
+    // Moving and restoring leave the list alone.
+    doc.moveToRecycleBin(binned.id)
+    check("moving to the bin does not add the source", "\(sourceList(doc))", "[]")
+    doc.restoreFromRecycleBin(binned.id)
+    check("restoring does not either", "\(sourceList(doc))", "[]")
+    doc.moveToRecycleBin(binned.id)
+    expect("delete for good from the bin", doc.deletePermanently(binned.id))
+    check("its source is on the list", "\(sourceList(doc))", "[\"1password:B1\"]")
+    check("and the deletion is recorded", "\(deletedObjects(doc))", "2")
+    expect("the list survives a save", DeletedSources.read(from: try KDBX.open(try KDBX.save(doc), credentials: .init(password: "pw")).root) == ["1password:B1"])
+    expect("restoring does not remove from the list", { doc.restoreFromRecycleBin(binned.id); return sourceList(doc) == ["1password:B1"] }())
+
+    // Emptying and the purge.
+    doc.moveToRecycleBin(sourced.id); doc.moveToRecycleBin(twin.id); doc.moveToRecycleBin(other.id)
+    check("three in the bin", "\(doc.recycledItems().count)", "3")
+    check("emptying returns how many it deleted", "\(doc.emptyRecycleBin())", "3")
+    expect("the bin is empty and nothing is live", doc.recycledItems().isEmpty && doc.items().isEmpty)
+    check("each deletion is recorded", "\(deletedObjects(doc))", "5")
+    check("two entries with one source add it once", "\(sourceList(doc))", "[\"1password:B1\", \"1password:S1\", \"1password:S2\"]")
+
+    let day: TimeInterval = 24 * 60 * 60
+    let now = at(t + 100 * day)
+    func recycle(_ title: String, deletedAgo seconds: TimeInterval, source: String? = nil) -> VaultItem {
+        let item = VaultItem(kind: .login, title: title, website: "\(title.lowercased()).example", secret: title)
+        setClock(t)
+        doc.upsert(item)
+        if let source { withSource(item, source, in: doc) }
+        setClock(now.timeIntervalSince1970 - seconds)
+        doc.moveToRecycleBin(item.id)
+        return item
+    }
+    let fresh = recycle("Fresh", deletedAgo: 29 * day)
+    let edge = recycle("Edge", deletedAgo: 30 * day)
+    let over = recycle("Over", deletedAgo: 30 * day + 1, source: "1password:P1")
+    let old = recycle("Old", deletedAgo: 90 * day)
+    let undated = recycle("Undated", deletedAgo: 90 * day)
+    let undatedNode = entryNode(doc, undated.id)!
+    undatedNode.children.removeAll { $0.name == "CustomData" }
+    undatedNode.child("Times")!.children.removeAll { $0.name == "LocationChanged" }
+    let before = deletedObjects(doc)
+    let purged = doc.purgeRecycleBin(olderThan: RecycleBinKeys.retention, now: now)
+    check("the purge removes what is more than 30 days old", "\(purged)", "2")
+    expect("exactly 30 days stays, 30 days and a second goes", count(doc, edge.id) == 1 && count(doc, over.id) == 0 && count(doc, old.id) == 0 && count(doc, fresh.id) == 1)
+    expect("an entry with no known deletion date is never purged", count(doc, undated.id) == 1)
+    check("the purge records its deletions and the sources", "\(deletedObjects(doc) - before) \(sourceList(doc).contains("1password:P1"))", "2 true")
+    check("nothing more to purge", "\(doc.purgeRecycleBin(olderThan: RecycleBinKeys.retention, now: now))", "0")
+    check("retention is 30 days", "\(RecycleBinKeys.retention / day)", "30.0")
+    resetClock()
+}
+
+// The legacy remove(_:) is a permanent delete too, from anywhere.
+do {
+    let doc = try freshDocument()
+    let item = VaultItem(kind: .login, title: "R", website: "r.example", secret: "r")
+    doc.upsert(item)
+    doc.moveToRecycleBin(item.id)
+    doc.remove(item.id)
+    check("remove deletes from the bin too", "\(count(doc, item.id)) \(deletedObjects(doc))", "0 1")
+}
+
+// MARK: The store API, on both stores
+
+do {
+    let sample = SampleVaultStore()
+    let first = SampleVault.items[0], second = SampleVault.items[1]
+    let total = sample.items().count
+    try sample.moveToRecentlyDeleted(first.id)
+    expect("sample: moving takes an item out of the list", sample.items().count == total - 1 && !sample.items().contains { $0.id == first.id })
+    check("sample: and puts it in Recently Deleted", "\(sample.recentlyDeleted().map(\.item.id) == [first.id])", "true")
+    try sample.restore(first.id)
+    expect("sample: restore brings it back", sample.items().count == total && sample.recentlyDeleted().isEmpty)
+    try sample.moveToRecentlyDeleted(first.id); try sample.moveToRecentlyDeleted(second.id)
+    check("sample: newest first", "\(sample.recentlyDeleted().map(\.item.id) == [second.id, first.id])", "true")
+    try sample.deletePermanently(first.id)
+    expect("sample: delete for good from Recently Deleted", sample.recentlyDeleted().count == 1 && !sample.items().contains { $0.id == first.id })
+    try sample.emptyRecentlyDeleted()
+    expect("sample: empty", sample.recentlyDeleted().isEmpty && sample.items().count == total - 2)
+    try sample.delete(SampleVault.items[2].id)
+    expect("sample: delete stays permanent", sample.recentlyDeleted().isEmpty && sample.items().count == total - 3)
+    expect("sample: no previous passwords", sample.previousPasswords(of: second.id).isEmpty && sample.passwordChanged(of: second.id) == nil)
+    try sample.restorePassword(of: second.id, replacedAt: .now); try sample.clearPreviousPasswords(of: second.id)
+    print("ok   sample: previous-password calls are no-ops")
+}
+
+do {
+    let fm = FileManager.default
+    let dir = fm.temporaryDirectory.appendingPathComponent("psss-groundwork-\(UUID().uuidString)")
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    func backupNames(_ id: UUID) -> [String] {
+        ((try? fm.contentsOfDirectory(atPath: VaultFiles.storageRoot.appendingPathComponent("Backups/\(id.uuidString)").path)) ?? []).sorted()
+    }
+    func makeStore(_ name: String, password: String = "old-pw") throws -> (store: KeePassVaultStore, url: URL, id: UUID) {
+        let url = dir.appendingPathComponent("\(name).kdbx")
+        let data = try KDBX.save(try KDBX.create(name: name, credentials: .init(password: password), kdf: light))
+        try data.write(to: url)
+        let id = UUID()
+        let store = KeePassVaultStore(reference: VaultReference(id: id, name: name, managed: true, bookmark: nil, fileName: url.lastPathComponent),
+                                      url: url, scoped: false, document: try KDBX.open(data, credentials: .init(password: password)), fileData: data)
+        return (store, url, id)
+    }
+    func opensWith(_ url: URL, _ password: String) -> Bool { (try? KDBX.open(Data(contentsOf: url), credentials: .init(password: password))) != nil }
+    func onDisk(_ url: URL, _ password: String = "old-pw") throws -> KDBXDocument { try KDBX.open(Data(contentsOf: url), credentials: .init(password: password)) }
+    let day: TimeInterval = 24 * 60 * 60
+
+    let v = try makeStore("groundwork")
+    let x = VaultItem(kind: .login, title: "X", account: "x@example.net", website: "x.example", secret: "x1")
+    let y = VaultItem(kind: .login, title: "Y", account: "y@example.net", website: "y.example", secret: "y1")
+    let z = VaultItem(kind: .login, title: "Z", account: "z@example.net", website: "z.example", secret: "z1")
+    /// Runs the operation and says how many rollback copies it made, which is one per write of the vault file.
+    func writes(_ body: () throws -> Void) async throws -> Int {
+        try await Task.sleep(for: .milliseconds(8))
+        let before = Set(backupNames(v.id))
+        try body()
+        try await Task.sleep(for: .milliseconds(8))
+        return Set(backupNames(v.id)).subtracting(before).count
+    }
+    check("save writes once", "\(try await writes { try v.store.save([x, y]) })", "1")
+    expect("items carry the entry's dates", v.store.items().allSatisfy { $0.created != nil && $0.modified != nil })
+
+    check("move to Recently Deleted writes once", "\(try await writes { try v.store.moveToRecentlyDeleted(x.id) })", "1")
+    expect("the item left the list and is in Recently Deleted", !v.store.items().contains { $0.id == x.id } && v.store.recentlyDeleted().map(\.item.id) == [x.id])
+    expect("the file holds it in the Recycle Bin", try onDisk(v.url).recycledItems().map(\.item.id) == [x.id] && !(try onDisk(v.url).items().contains { $0.id == x.id }))
+    check("moving something that is not there writes nothing", "\(try await writes { try v.store.moveToRecentlyDeleted(UUID()) })", "0")
+    check("restore writes once", "\(try await writes { try v.store.restore(x.id) })", "1")
+    expect("the item is back", v.store.items().contains { $0.id == x.id } && v.store.recentlyDeleted().isEmpty)
+    check("restoring a live item writes nothing", "\(try await writes { try v.store.restore(x.id) })", "0")
+    _ = try await writes { try v.store.moveToRecentlyDeleted(x.id) }
+    UsageLog.record(x.id, in: v.id)
+    check("delete for good from Recently Deleted writes once", "\(try await writes { try v.store.deletePermanently(x.id) })", "1")
+    expect("it is gone, with its usage", v.store.recentlyDeleted().isEmpty && !v.store.items().contains { $0.id == x.id } && UsageLog.load(for: v.id)[x.id] == nil)
+    check("delete, as before, is permanent and writes once", "\(try await writes { try v.store.delete(y.id) })", "1")
+    expect("and leaves nothing to restore", v.store.recentlyDeleted().isEmpty && !v.store.items().contains { $0.id == y.id })
+    check("deleting for good something that is not there writes nothing", "\(try await writes { try v.store.deletePermanently(UUID()) })", "0")
+
+    _ = try await writes { try v.store.save([x, y, z]) }
+    _ = try await writes { try v.store.moveToRecentlyDeleted(x.id) }
+    _ = try await writes { try v.store.moveToRecentlyDeleted(y.id) }
+    check("empty writes once", "\(try await writes { try v.store.emptyRecentlyDeleted() })", "1")
+    expect("Recently Deleted is empty and z is live", v.store.recentlyDeleted().isEmpty && v.store.items().map(\.id) == [z.id])
+    check("emptying an empty bin writes nothing", "\(try await writes { try v.store.emptyRecentlyDeleted() })", "0")
+
+    // The purge writes only when it removes something.
+    let now = Date()
+    let oldItem = VaultItem(kind: .login, title: "Old", website: "old.example", secret: "o")
+    let newItem = VaultItem(kind: .login, title: "New", website: "new.example", secret: "n")
+    _ = try await writes { try v.store.save([oldItem, newItem]) }
+    KeePassTime.clock = { now.addingTimeInterval(-40 * day) }
+    _ = try await writes { try v.store.moveToRecentlyDeleted(oldItem.id) }
+    resetClock()
+    _ = try await writes { try v.store.moveToRecentlyDeleted(newItem.id) }
+    var purged = 0
+    check("purge writes once when something is old", "\(try await writes { purged = try v.store.purgeRecentlyDeleted() })", "1")
+    check("it deleted the old item only", "\(purged) \(v.store.recentlyDeleted().map(\.item.title))", "1 [\"New\"]")
+    check("a purge that finds nothing writes nothing", "\(try await writes { purged = try v.store.purgeRecentlyDeleted() })", "0")
+    check("and deletes nothing", "\(purged)", "0")
+
+    // Previous passwords through the store.
+    let p = VaultItem(kind: .login, title: "P", account: "p@example.net", website: "p.example", secret: "s1")
+    _ = try await writes { try v.store.save([p]) }
+    for secret in ["s2", "s3"] {
+        var item = v.store.items().first { $0.id == p.id }!; item.secret = secret
+        _ = try await writes { try v.store.save([item]) }
+    }
+    check("previous passwords, newest first", "\(v.store.previousPasswords(of: p.id).map(\.password))", "[\"s2\", \"s1\"]")
+    expect("the date the password was set is known", v.store.passwordChanged(of: p.id) != nil)
+    let oldest = v.store.previousPasswords(of: p.id)[1]
+    check("restoring writes once", "\(try await writes { try v.store.restorePassword(of: p.id, replacedAt: oldest.replaced) })", "1")
+    check("the restored password is current", v.store.items().first { $0.id == p.id }!.secret, "s1")
+    check("and the one it replaced is listed", "\(v.store.previousPasswords(of: p.id).map(\.password))", "[\"s3\", \"s2\"]")
+    check("restoring a row that is not there writes nothing", "\(try await writes { try v.store.restorePassword(of: p.id, replacedAt: at(5)) })", "0")
+    check("clearing writes once", "\(try await writes { try v.store.clearPreviousPasswords(of: p.id) })", "1")
+    expect("nothing is listed afterwards", v.store.previousPasswords(of: p.id).isEmpty && v.store.passwordChanged(of: p.id) == nil)
+    check("clearing again writes nothing", "\(try await writes { try v.store.clearPreviousPasswords(of: p.id) })", "0")
+    expect("the file has no history for it", (try onDisk(v.url)).locations().first { EntryMapping.uuid(of: $0.entry) == p.id }?.entry.child("History")?.children.isEmpty == true)
+    for id in [v.id] { VaultFiles.removeBackups(for: id) }
+
+    // The purge on unlock is the app's: the AutoFill extension runs the same unlock and leaves it off.
+    let session = VaultSession()
+    session.forget()
+    VaultSession.purgesRecentlyDeletedOnUnlock = false
+    try await session.create(name: "Purge on unlock", credentials: .init(password: "pw"), items: [])
+    let oldOne = VaultItem(kind: .login, title: "Old", website: "o.example", secret: "o")
+    let newOne = VaultItem(kind: .login, title: "New", website: "n.example", secret: "n")
+    try session.store!.save([oldOne, newOne])
+    KeePassTime.clock = { now.addingTimeInterval(-40 * day) }
+    try session.store!.moveToRecentlyDeleted(oldOne.id)
+    resetClock()
+    try session.store!.moveToRecentlyDeleted(newOne.id)
+    let sessionURL = session.store!.url
+    session.lock()
+    let untouched = try Data(contentsOf: sessionURL)
+    try await session.unlock(credentials: .init(password: "pw"))
+    expect("without the app's switch, unlocking does not write", try Data(contentsOf: sessionURL) == untouched)
+    check("and purges nothing", "\(session.store!.recentlyDeleted().count)", "2")
+    session.lock()
+    VaultSession.purgesRecentlyDeletedOnUnlock = true
+    try await session.unlock(credentials: .init(password: "pw"))
+    check("with it, unlocking purges what is over 30 days old", "\(session.store!.recentlyDeleted().map(\.item.title))", "[\"New\"]")
+    expect("and wrote the vault", try Data(contentsOf: sessionURL) != untouched)
+    session.lock()
+    let afterPurge = try Data(contentsOf: sessionURL)
+    try await session.unlock(credentials: .init(password: "pw"))
+    expect("a later unlock with nothing to purge does not write", try Data(contentsOf: sessionURL) == afterPurge)
+    expect("the purged item is gone for good", !(try KDBX.open(afterPurge, credentials: .init(password: "pw")).locations().contains { EntryMapping.uuid(of: $0.entry) == oldOne.id }))
+    VaultSession.purgesRecentlyDeletedOnUnlock = false
+    session.forget()
+
+    // MARK: Store follow-ups from the security validation
+
+    // Rollback copies that cannot be removed after a password change are reported, and removed on a later write.
+    if getuid() != 0 {
+        let c = try makeStore("backups-remain")
+        try c.store.save([x]); try c.store.save([y])
+        let folder = VaultFiles.storageRoot.appendingPathComponent("Backups/\(c.id.uuidString)")
+        let copies = backupNames(c.id)
+        expect("rollback copies exist before the password change", copies.count >= 2)
+        try fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
+        expect("removeBackups reports a failure", VaultFiles.removeBackups(for: c.id) == false)
+        let result = try await c.store.changeCredentials(to: .init(password: "new-pw"))
+        check("the change reports that older copies remain", "\(result)", "changedBackupsRemain")
+        expect("the password did change", opensWith(c.url, "new-pw") && !opensWith(c.url, "old-pw"))
+        expect("the old copies are still there, and open with the old password", backupNames(c.id) == copies && copies.allSatisfy { name in
+            (try? KDBX.open(Data(contentsOf: folder.appendingPathComponent(name)), credentials: .init(password: "old-pw"))) != nil })
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
+        try c.store.save([z])
+        expect("a later write removes them", backupNames(c.id).allSatisfy { name in
+            (try? KDBX.open(Data(contentsOf: folder.appendingPathComponent(name)), credentials: .init(password: "old-pw"))) == nil })
+        expect("and keeps its own copy, made with the new password", !backupNames(c.id).isEmpty && backupNames(c.id).allSatisfy { name in
+            (try? KDBX.open(Data(contentsOf: folder.appendingPathComponent(name)), credentials: .init(password: "new-pw"))) != nil })
+        VaultFiles.removeBackups(for: c.id)
+
+        let ok = try makeStore("backups-removed")
+        try ok.store.save([x])
+        let outcome = try await ok.store.changeCredentials(to: .init(password: "new-pw"))
+        check("when the copies are removed the change reports a plain success", "\(outcome) \(backupNames(ok.id).count)", "changed 0")
+        check("removing copies that are not there is a success", "\(VaultFiles.removeBackups(for: ok.id))", "true")
+    } else { print("skip backup-removal failure test: running as root") }
+    try? fm.removeItem(at: dir)
+}
+
+// The stored vault reference is changed field by field and cannot be brought back after a forget. Two sessions stand in for two
+// processes, the app and the AutoFill extension.
+do {
+    let app = VaultSession()
+    app.forget()
+    try await app.create(name: "Reference A", credentials: .init(password: "pw"), items: [])
+    let old = app.reference!
+    let extensionProcess = VaultSession()   // read the reference before the app forgets it
+    expect("both read the same reference", extensionProcess.reference?.id == old.id)
+    app.forget()
+    check("forgetting removes the stored reference", "\(VaultReference.load()?.id.uuidString ?? "none")", "none")
+    extensionProcess.declineBiometricOffer()
+    extensionProcess.disableBiometric()
+    try? extensionProcess.enableBiometric()
+    check("a stale copy cannot write a forgotten reference back", "\(VaultReference.load()?.id.uuidString ?? "none")", "none")
+    old.persist()
+    check("nor persist it directly", "\(VaultReference.load()?.id.uuidString ?? "none")", "none")
+    expect("the update helper refuses it too", VaultReference.update(old.id) { $0.name = "x" } == nil && VaultReference.load() == nil)
+
+    // A new vault is not affected, and the old copy still cannot touch it.
+    try await app.create(name: "Reference B", credentials: .init(password: "pw"), items: [])
+    let id = app.reference!.id
+    expect("a vault created after the forget is stored", VaultReference.load()?.id == id && id != old.id)
+    extensionProcess.declineBiometricOffer()
+    old.persist()
+    expect("the forgotten vault's copies still change nothing", VaultReference.load()?.id == id && VaultReference.load()?.biometricDeclined == false && VaultReference.load()?.name == "Reference B")
+
+    // Toggling in one process while the other marks the saved key stale.
+    try app.enableBiometric()
+    let other = VaultSession()      // the extension, holding biometricUnlock = true
+    expect("the extension read the setting", other.reference?.biometricUnlock == true)
+    app.lock()
+    BiometricKey.memory[id] = Data(repeating: 9, count: 32)         // the saved key no longer fits
+    do { try await other.unlockWithBiometrics(); failures += 1; print("FAIL stale key unlocked") } catch BiometricKeyError.invalidated { print("ok   the extension marks the key stale") }
+    check("the stale mark is stored", "\(VaultReference.load()?.biometricUnlock ?? true) \(VaultReference.load()?.biometricStale ?? false)", "false true")
+    app.declineBiometricOffer()      // the app still holds biometricUnlock = true from before
+    check("the app's change keeps the stale mark and lands itself", "\(VaultReference.load()?.biometricUnlock ?? true) \(VaultReference.load()?.biometricStale ?? false) \(VaultReference.load()?.biometricDeclined ?? false)", "false true true")
+    expect("the app adopted what was stored", app.reference?.biometricStale == true && app.reference?.biometricUnlock == false)
+    try await app.unlock(credentials: .init(password: "pw"))
+    check("a password unlock turns the setting back on", "\(VaultReference.load()?.biometricUnlock ?? false) \(VaultReference.load()?.biometricStale ?? true)", "true false")
+    // The app toggles the setting off while the extension, with an older copy, records a decline: both stay.
+    let snapshot = VaultSession()
+    app.disableBiometric()
+    snapshot.declineBiometricOffer()
+    check("a toggle and a setting changed by another copy both stay", "\(VaultReference.load()?.biometricUnlock ?? true) \(VaultReference.load()?.biometricDeclined ?? false)", "false true")
+    app.forget()
+}
+
+// MARK: Cards
+
+do {
+    let brands: [(String, CardBrand)] = [
+        ("4242424242424242", .visa), ("4111111111111111", .visa), ("5555555555554444", .mastercard), ("2221000000000009", .mastercard),
+        ("2720999999999996", .mastercard), ("378282246310005", .americanExpress), ("341111111111111", .americanExpress),
+        ("6011111111111117", .discover), ("6500000000000002", .discover), ("3530111333300000", .jcb), ("30569309025904", .dinersClub),
+        ("36227206271667", .dinersClub), ("6759649826438453", .maestro), ("5018000000000009", .maestro), ("6304000000000000", .maestro),
+        ("6200000000000005", .unionPay), ("6212345678901234567", .unionPay), ("2200123456789019", .mir), ("2204123456789012", .mir),
+        ("5066991111111118", .elo), ("4011780000000000", .elo), ("6362970000457013", .elo), ("6504060000000000", .elo), ("6277800000000000", .elo),
+    ]
+    for (number, brand) in brands { check("brand of \(number)", CardBrand(number: number).map { $0.name } ?? "none", brand.name) }
+    check("spaces and dashes are ignored", CardBrand(number: "3782 822463-10005")?.name ?? "none", "American Express")
+    expect("short or unknown numbers have no brand", CardBrand(number: "") == nil && CardBrand(number: "9") == nil && CardBrand(number: "1234567890123456") == nil)
+    expect("the new networks have no logo asset yet, the old ones do", [CardBrand.maestro, .unionPay, .mir, .elo].allSatisfy { !$0.hasLogo } && [CardBrand.visa, .mastercard, .americanExpress, .discover, .jcb, .dinersClub].allSatisfy(\.hasLogo))
+    check("Amex grouping", "\(CardBrand.americanExpress.grouping(digitCount: 15))", "[4, 6, 5]")
+    check("a 14-digit Diners Club is 4-6-4", "\(CardBrand.dinersClub.grouping(digitCount: 14))", "[4, 6, 4]")
+    check("a 16-digit Diners Club is 4-4-4-4", "\(CardBrand.dinersClub.grouping(digitCount: 16).prefix(4))", "[4, 4, 4, 4]")
+
+    let grouped: [(String, String)] = [
+        ("4242424242424242", "4242 4242 4242 4242"), ("378282246310005", "3782 822463 10005"), ("30569309025904", "3056 930902 5904"),
+        ("6212345678901234567", "6212 3456 7890 1234 567"), ("4", "4"), ("42424", "4242 4"), ("37828224", "3782 8224"), ("378282246", "3782 82246"),
+        ("4242-4242 4242", "4242 4242 4242"), ("", ""), ("abcd", ""), ("1234567890123456", "1234 5678 9012 3456"), ("12345", "1234 5"),
+        ("42424242424242424242", "4242 4242 4242 4242 4242"), ("٤٢", ""),
+    ]
+    for (input, want) in grouped { check("grouped \"\(input)\"", CardNumber.grouped(input), want) }
+    let normalized: [(String, String)] = [("4242 4242-4242.4242", "4242424242424242"), (" 12 34 ", "1234"), ("abc", ""), ("4２4", "44")]
+    for (input, want) in normalized { check("normalized \"\(input)\"", CardNumber.normalized(input), want) }
+    let luhn: [(String, Bool)] = [("4242424242424242", true), ("4242 4242 4242 4241", false), ("378282246310005", true), ("6011111111111117", true),
+                                  ("30569309025904", true), ("5555555555554444", true), ("4111111111111112", false), ("", false), ("7", false), ("0000000000000000", true)]
+    for (input, want) in luhn { check("luhn \"\(input)\"", "\(CardNumber.isValidLuhn(input))", "\(want)") }
+
+    let accepted: [(String, String)] = [("08/30", "08/2030"), ("0830", "08/2030"), ("8/30", "08/2030"), ("08/2030", "08/2030"), ("2030-08", "08/2030"),
+                                        ("08-30", "08/2030"), ("203008", "08/2030"), ("082030", "08/2030"), ("12/99", "12/2099"), ("1/30", "01/2030"),
+                                        (" 08 / 30 ", "08/2030"), ("08.30", "08/2030"), ("830", "08/2030"), ("82030", "08/2030"), ("2030/8", "08/2030"),
+                                        ("122030", "12/2030"), ("201203", "03/2012")]
+    for (input, want) in accepted {
+        let parsed = CardExpiry.parse(input)
+        check("expiry \"\(input)\"", parsed.map { String(format: "%02d/%d", $0.month, $0.year) } ?? "nil", want)
+    }
+    for input in ["", "13/30", "00/30", "08/3", "08/20300", "abc", "08/30x", "2030", "08/1999", "1/2/3", "0", "08/", "/30", "08\u{2215}30", "٠٨/٣٠"] {
+        check("expiry rejects \"\(input)\"", CardExpiry.parse(input).map { $0.formatted } ?? "nil", "nil")
+    }
+    check("formatted is MM/YY", [CardExpiry.parse("8/2030")!.formatted, CardExpiry.parse("12/05")!.formatted, CardExpiry.parse("2099-01")!.formatted].joined(separator: " "), "08/30 12/05 01/99")
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(identifier: "UTC")!
+    let midAugust = Date(timeIntervalSince1970: 1_912_939_200)   // 2030-08-14T12:00:00Z
+    check("the test date", ISO8601DateFormatter().string(from: midAugust), "2030-08-14T12:00:00Z")
+    let past: [(String, Bool)] = [("08/30", false), ("09/30", false), ("07/30", true), ("12/29", true), ("01/31", false), ("08/29", true), ("08/2031", false)]
+    for (input, want) in past { check("\(input) is past on 14 August 2030", "\(CardExpiry.parse(input)!.isPast(now: midAugust, calendar: calendar))", "\(want)") }
+    let endOfMonth = Date(timeIntervalSince1970: 1_914_451_199)   // 2030-08-31T23:59:59Z
+    let nextMonth = Date(timeIntervalSince1970: 1_914_451_200)    // 2030-09-01T00:00:00Z
+    expect("a card is good through the last day of its month", !CardExpiry.parse("08/30")!.isPast(now: endOfMonth, calendar: calendar) && CardExpiry.parse("08/30")!.isPast(now: nextMonth, calendar: calendar))
+}
+
+// MARK: Interop with KeePassXC: dates and the Recycle Bin
+
+if run(["which", "keepassxc-cli"]).status == 0 {
+    /// The entry with this title (not a history item) from `keepassxc-cli export -f xml`, which prints times as KeePassXC parsed them.
+    func exported(_ path: URL, _ password: String, title: String) -> XNode? {
+        let out = run(["keepassxc-cli", "export", "-q", "-f", "xml", path.path], input: password + "\n").out
+        guard let root = try? XMLTree.parse(Data(out.utf8)) else { return nil }
+        var found: XNode?
+        func visit(_ node: XNode) {
+            if node.name == "History" { return }
+            if node.name == "Entry", EntryMapping.string(node, "Title") == title { found = node }
+            for child in node.children { visit(child) }
+        }
+        visit(root)
+        return found
+    }
+    func listing(_ path: URL, _ password: String) -> [String] {
+        run(["keepassxc-cli", "ls", "-q", "-R", "-f", path.path], input: password + "\n").out
+            .split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    // An entry written here shows the right dates in KeePassXC, in the KDBX 4 form.
+    let datesPath = fixtures.appendingPathComponent("dates.kdbx")
+    let dated = VaultItem(kind: .login, title: "Dated", account: "d@example.net", website: "https://dated.example", secret: "d1")
+    let datesDocument = try freshDocument("Dates")
+    setClock(1_614_834_367)               // 2021-03-04T05:06:07Z
+    datesDocument.upsert(dated)
+    edit(datesDocument, dated.id, at: 1_669_206_896) { $0.secret = "d2" }    // 2022-11-23T12:34:56Z
+    resetClock()
+    try KDBX.save(datesDocument).write(to: datesPath)
+    if let entry = exported(datesPath, "pw", title: "Dated") {
+        check("keepassxc reads the creation time we wrote", entry.child("Times")?.child("CreationTime")?.text ?? "-", "v2HS1w4AAAA=")
+        check("keepassxc reads the modification time we wrote", entry.child("Times")?.child("LastModificationTime")?.text ?? "-", "cAoQ2w4AAAA=")
+        expect("as the dates we meant", KeePassTime.date(entry.child("Times")?.child("CreationTime")?.text ?? "") == at(1_614_834_367)
+               && KeePassTime.date(entry.child("Times")?.child("LastModificationTime")?.text ?? "") == at(1_669_206_896))
+    } else { failures += 1; print("FAIL keepassxc export of our entry") }
+    let ours = try KDBX.open(Data(contentsOf: datesPath), credentials: .init(password: "pw"))
+    expect("the file holds the KDBX 4 form", timeText(ours, dated.id, "CreationTime") == "v2HS1w4AAAA=")
+    expect("we read our own dates back", current(ours, dated.id).created == at(1_614_834_367) && current(ours, dated.id).modified == at(1_669_206_896))
+
+    // Files KeePassXC wrote read as the same dates KeePassXC reports, in the ISO form (KDBX 3.1) and the KDBX 4 form.
+    let xcPath = fixtures.appendingPathComponent("xc-dates.kdbx")
+    run(["keepassxc-cli", "db-create", "-q", "-p", xcPath.path], input: "xc pw\nxc pw\n")
+    run(["keepassxc-cli", "add", "-q", "-u", "xc", "-p", xcPath.path, "XC entry"], input: "xc pw\nxc-secret\n")
+    let xcDocument = try KDBX.open(Data(contentsOf: xcPath), credentials: .init(password: "xc pw"))
+    let xcItem = xcDocument.items().first { $0.title == "XC entry" }!
+    let xcRaw = timeText(xcDocument, xcItem.id, "CreationTime")
+    print("     keepassxc wrote \(xcDocument.sourceVersion ?? "KDBX 4") times as \(xcRaw.contains(":") ? "ISO text" : "base64")")
+    if let entry = exported(xcPath, "xc pw", title: "XC entry") {
+        let reported = KeePassTime.date(entry.child("Times")?.child("CreationTime")?.text ?? "")
+        expect("we read the creation date KeePassXC reports for its own entry", reported != nil && xcItem.created == reported)
+        expect("and the modification date", xcItem.modified == KeePassTime.date(entry.child("Times")?.child("LastModificationTime")?.text ?? ""))
+        expect("both are now", abs((xcItem.created ?? .distantPast).timeIntervalSinceNow) < 300 && abs((xcItem.modified ?? .distantPast).timeIntervalSinceNow) < 300)
+    } else { failures += 1; print("FAIL keepassxc export of its own entry") }
+    let minePath = fixtures.appendingPathComponent("mine.kdbx")      // saved by KeePassXC as KDBX 4 when it added "Zed site"
+    if let mine = try? KDBX.open(Data(contentsOf: minePath), credentials: .init(password: "interop pw")),
+       let zed = mine.items().first(where: { $0.title == "Zed site" }), let entry = exported(minePath, "interop pw", title: "Zed site") {
+        expect("a KDBX 4 file saved by KeePassXC is in the base64 form", !timeText(mine, zed.id, "CreationTime").contains(":"))
+        expect("and reads as the dates KeePassXC reports", zed.created == KeePassTime.date(entry.child("Times")?.child("CreationTime")?.text ?? "") && zed.created != nil)
+    } else { print("skip: mine.kdbx from the earlier interop block is not there") }
+
+    // The Recycle Bin in both directions.
+    let binPath = fixtures.appendingPathComponent("bin.kdbx")
+    let keep = VaultItem(kind: .login, title: "Keep", account: "k", website: "keep.example", secret: "k1")
+    let gone = VaultItem(kind: .login, title: "Gone", account: "g", website: "gone.example", secret: "g1")
+    let zap = VaultItem(kind: .login, title: "Zap", account: "z", website: "zap.example", secret: "z1")
+    var binDocument = try KDBX.create(name: "Bin", credentials: .init(password: "bin pw"), kdf: light)
+    for item in [keep, gone, zap] { binDocument.upsert(item) }
+    binDocument.moveToRecycleBin(gone.id)
+    try KDBX.save(binDocument).write(to: binPath)
+    var lines = listing(binPath, "bin pw")
+    print("     keepassxc lists: \(lines)")
+    expect("keepassxc shows the deleted entry under Recycle Bin", lines.contains("Recycle Bin/Gone"))
+    expect("and not anywhere else", !lines.contains("Gone") && lines.filter { $0.hasSuffix("Gone") }.count == 1)
+    expect("the others are where they were", lines.contains("Keep") && lines.contains("Zap"))
+    expect("keepassxc still shows the entry's fields", run(["keepassxc-cli", "show", "-q", "-s", binPath.path, "Recycle Bin/Gone"], input: "bin pw\n").out.contains("Password: g1"))
+
+    // An entry KeePassXC recycled is in the bin for us, dated by LocationChanged, and we can restore it.
+    let beforeRemoval = Date()
+    run(["keepassxc-cli", "rm", "-q", binPath.path, "Zap"], input: "bin pw\n")
+    binDocument = try KDBX.open(Data(contentsOf: binPath), credentials: .init(password: "bin pw"))
+    check("KeePassXC's own recycling shows in Recently Deleted", "\(binDocument.recycledItems().map(\.item.title).sorted())", "[\"Gone\", \"Zap\"]")
+    let zapRow = binDocument.recycledItems().first { $0.item.id == zap.id }
+    expect("with the deletion date taken from LocationChanged", zapRow != nil && abs(zapRow!.deleted.timeIntervalSince(beforeRemoval)) < 120
+           && EntryMapping.customData(entryNode(binDocument, zap.id)!, RecycleBinKeys.deletedAt) == nil)
+    expect("it is not in the live items", !binDocument.items().contains { $0.id == zap.id } && binDocument.items().map(\.title) == ["Keep"])
+    expect("we restore it", binDocument.restoreFromRecycleBin(zap.id))
+    try KDBX.save(binDocument).write(to: binPath)
+    lines = listing(binPath, "bin pw")
+    expect("keepassxc shows the restored entry at the top again", lines.contains("Zap") && !lines.contains("Recycle Bin/Zap"))
+    expect("and the other one still in the bin", lines.contains("Recycle Bin/Gone"))
+
+    // Deleted for good here, gone there.
+    binDocument.deletePermanently(gone.id)
+    try KDBX.save(binDocument).write(to: binPath)
+    lines = listing(binPath, "bin pw")
+    expect("after a permanent delete KeePassXC no longer lists the entry", !lines.contains { $0.hasSuffix("Gone") })
+    expect("and cannot show it", run(["keepassxc-cli", "show", "-q", binPath.path, "Gone"], input: "bin pw\n").status != 0)
+    expect("while the others are still there", lines.contains("Keep") && lines.contains("Zap"))
+    check("the file records the deletion for KeePassXC's own merge", "\(deletedObjects(binDocument))", "1")
+}
+
+// MARK: Performance: listing and saving must stay linear in the number of entries
+
+do {
+    func generated(_ count: Int, iso: Bool = false) throws -> KDBXDocument {
+        let doc = try freshDocument("Perf")
+        var items = (0..<count).map { VaultItem(kind: .login, title: "T\($0)", account: "u\($0)@example.net", website: "https://site\($0).example", secret: "p\($0)", notes: "n") }
+        doc.upsert(items)
+        for i in stride(from: 0, to: count, by: 10) { items[i].secret = "q\(i)" }   // a tenth of them have history
+        doc.upsert(items.enumerated().filter { $0.offset % 10 == 0 }.map(\.element))
+        if iso {
+            for location in doc.locations() {
+                let times = location.entry.child("Times")!
+                times.child("CreationTime")!.text = "2021-03-04T05:06:07Z"
+                times.child("LastModificationTime")!.text = "2021-03-04T05:06:08Z"
+            }
+        }
+        return doc
+    }
+    func seconds(_ body: () -> Void) -> Double { let start = Date(); body(); return Date().timeIntervalSince(start) }
+    func listing(_ doc: KDBXDocument) -> Double { var count = 0; let t = seconds { count = doc.items().count }; expect("every generated entry is listed", count > 0); return t }
+    func fmt(_ t: Double) -> String { String(format: "%.2f s", t) }
+
+    var times: [Int: Double] = [:]
+    for count in [500, 5_000, 20_000, 50_000] {
+        let doc = try generated(count, iso: count == 20_000 || count == 50_000)
+        let t = listing(doc)
+        times[count] = t
+        print("     items() on \(count) entries\(count >= 20_000 ? " with ISO times" : ""): \(fmt(t))")
+        if count == 5_000 || count == 50_000 { print("     deep copy of the XML tree of \(count) entries (the snapshot before a store change): \(fmt(seconds { _ = doc.root.deepCopy() }))") }
+        check("items() lists all \(count)", "\(doc.items().count)", "\(count)")
+    }
+    expect("items() on 20,000 entries takes under 1 second", times[20_000]! < 1.0)
+    expect("items() on 50,000 entries takes under 2.5 seconds", times[50_000]! < 2.5)
+    expect("items() scales linearly: 20,000 take at most about 5 times as long as 5,000", times[20_000]! <= 5.5 * max(times[5_000]!, 0.02))
+    let tBase64 = listing(try generated(20_000))
+    print("     items() on 20000 entries with KDBX 4 times: \(fmt(tBase64))")
+    expect("and with KDBX 4 times too", tBase64 < 1.0)
+
+    // A batch save is one pass and one commit.
+    let fm = FileManager.default
+    let dir = fm.temporaryDirectory.appendingPathComponent("psss-perf-\(UUID().uuidString)")
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    let url = dir.appendingPathComponent("perf.kdbx")
+    let data = try KDBX.save(try freshDocument("Perf"))
+    try data.write(to: url)
+    let id = UUID()
+    let store = KeePassVaultStore(reference: VaultReference(id: id, name: "Perf", managed: true, bookmark: nil, fileName: "perf.kdbx"),
+                                  url: url, scoped: false, document: try KDBX.open(data, credentials: .init(password: "pw")), fileData: data)
+    let batch = (0..<2_000).map { VaultItem(kind: .login, title: "B\($0)", account: "b\($0)", website: "https://batch\($0).example", secret: "s\($0)") }
+    let backupsBefore = Set(((try? fm.contentsOfDirectory(atPath: VaultFiles.storageRoot.appendingPathComponent("Backups/\(id.uuidString)").path)) ?? []))
+    let tSave = try { () throws -> Double in let start = Date(); try store.save(batch); return Date().timeIntervalSince(start) }()
+    print("     save of 2000 new items in one call: \(fmt(tSave))")
+    expect("saving 2,000 new items in one call takes under 2 seconds", tSave < 2.0)
+    check("and they are all there", "\(store.items().count)", "2000")
+    let backupsAfter = Set(((try? fm.contentsOfDirectory(atPath: VaultFiles.storageRoot.appendingPathComponent("Backups/\(id.uuidString)").path)) ?? []))
+    check("one commit: one rollback copy", "\(backupsAfter.subtracting(backupsBefore).count)", "1")
+    let reread = try KDBX.open(Data(contentsOf: url), credentials: .init(password: "pw"))
+    check("the file holds them", "\(reread.items().count)", "2000")
+    let tEdit = try { () throws -> Double in
+        var changed = batch; for i in changed.indices { changed[i].notes = "edited" }
+        let start = Date(); try store.save(changed); return Date().timeIntervalSince(start)
+    }()
+    print("     save of 2000 edited items in one call: \(fmt(tEdit))")
+    expect("editing 2,000 items in one call takes under 2 seconds", tEdit < 2.0)
+    VaultFiles.removeBackups(for: id)
+    try? fm.removeItem(at: dir)
+
+    // Listing and emptying the bin.
+    let binned = try generated(2_000)
+    let all = binned.items()
+    for item in all { binned.moveToRecycleBin(item.id) }
+    var recycled = 0
+    let tBin = seconds { recycled = binned.recycledItems().count }
+    print("     recycledItems() with 2000 binned entries: \(fmt(tBin))")
+    check("all 2,000 are in the bin", "\(recycled) \(binned.items().count)", "2000 0")
+    expect("recycledItems() with 2,000 entries takes under half a second", tBin < 0.5)
+    var emptied = 0
+    let tEmpty = seconds { emptied = binned.emptyRecycleBin() }
+    print("     emptyRecycleBin() with 2000 entries: \(fmt(tEmpty))")
+    check("emptying removes them all", "\(emptied) \(binned.recycledItems().count)", "2000 0")
+    expect("emptying 2,000 entries takes under 2 seconds", tEmpty < 2.0)
+}
+
+
+do {  // Verification codes and the fill site (release rules for the AutoFill provider)
+    var withCode = VaultItem(kind: .login, title: "Mail", account: "ada", website: "https://login.example.com", secret: "pw",
+                             otpSecret: "JBSWY3DPEHPK3PXP")
+    expect("code: readable setup, same site", ReleaseCheck.oneTimeCode(item: withCode, serviceIdentifier: "login.example.com"))
+    expect("code: subdomain of the stored site", ReleaseCheck.oneTimeCode(item: withCode, serviceIdentifier: "deep.login.example.com"))
+    expect("code: URL identifier", ReleaseCheck.oneTimeCode(item: withCode, serviceIdentifier: "https://login.example.com/path"))
+    expect("code: wrong site refused", !ReleaseCheck.oneTimeCode(item: withCode, serviceIdentifier: "evil.example"))
+    expect("code: parent site refused", !ReleaseCheck.oneTimeCode(item: withCode, serviceIdentifier: "example.com"))
+    expect("code: unknown site refused", !ReleaseCheck.oneTimeCode(item: withCode, serviceIdentifier: ""))
+    expect("code: javascript: identifier refused", !ReleaseCheck.oneTimeCode(item: withCode, serviceIdentifier: "javascript:alert(1)"))
+    var noCode = withCode; noCode.otpSecret = ""
+    expect("code: login without a setup refused", !ReleaseCheck.oneTimeCode(item: noCode, serviceIdentifier: "login.example.com"))
+    var badCode = withCode; badCode.otpSecret = "not base32 !!"
+    expect("code: unreadable setup refused", !ReleaseCheck.oneTimeCode(item: badCode, serviceIdentifier: "login.example.com"))
+    var noSite = withCode; noSite.website = ""
+    expect("code: login without a website refused", !ReleaseCheck.oneTimeCode(item: noSite, serviceIdentifier: "login.example.com"))
+    let note = VaultItem(kind: .secureNote, title: "Note", website: "login.example.com", otpSecret: "JBSWY3DPEHPK3PXP")
+    expect("code: only a login releases a code", !ReleaseCheck.oneTimeCode(item: note, serviceIdentifier: "login.example.com"))
+    // The code uses the item's own digits, period and algorithm.
+    withCode.otpSettings = TOTPSettings(digits: 8, period: 60, algorithm: .sha256)
+    let at = Date(timeIntervalSince1970: 1_700_000_000)
+    check("code: current code follows the item's settings",
+          ReleaseCheck.currentCode(for: withCode, at: at) ?? "nil",
+          TOTP.code(secret: "JBSWY3DPEHPK3PXP", settings: TOTPSettings(digits: 8, period: 60, algorithm: .sha256), at: at) ?? "nil")
+    check("code: eight digits", "\((ReleaseCheck.currentCode(for: withCode, at: at) ?? "").count)", "8")
+    expect("code: no current code without a setup", ReleaseCheck.currentCode(for: noCode) == nil)
+
+    check("site: https URL", "\(FillSite(serviceIdentifier: "https://www.example.com/login"))", "secure(host: \"example.com\")")
+    check("site: bare domain", "\(FillSite(serviceIdentifier: "example.com"))", "secure(host: \"example.com\")")
+    check("site: http URL", "\(FillSite(serviceIdentifier: "http://example.com/login"))", "plainHTTP(host: \"example.com\")")
+    check("site: http scheme in capitals", "\(FillSite(serviceIdentifier: "HTTP://Example.com"))", "plainHTTP(host: \"example.com\")")
+    check("site: http with a port", "\(FillSite(serviceIdentifier: "http://example.com:8080/"))", "plainHTTP(host: \"example.com\")")
+    check("site: http on localhost is fine", "\(FillSite(serviceIdentifier: "http://localhost:8080/login"))", "secure(host: \"localhost\")")
+    check("site: http on 127.0.0.1 is fine", "\(FillSite(serviceIdentifier: "http://127.0.0.1:3000"))", "secure(host: \"127.0.0.1\")")
+    check("site: http on ::1 is fine", "\(FillSite(serviceIdentifier: "http://[::1]:3000/"))", "secure(host: \"::1\")")
+    check("site: http on another loopback address is not this rule's business", "\(FillSite(serviceIdentifier: "http://127.0.0.2/"))", "plainHTTP(host: \"127.0.0.2\")")
+    check("site: lookalike of localhost over http", "\(FillSite(serviceIdentifier: "http://localhost.example.com/"))", "plainHTTP(host: \"localhost.example.com\")")
+    check("site: nil", "\(FillSite(serviceIdentifier: nil))", "unknown")
+    check("site: empty", "\(FillSite(serviceIdentifier: "  "))", "unknown")
+    check("site: javascript:", "\(FillSite(serviceIdentifier: "javascript:alert(1)"))", "unknown")
+    check("site: user info before the host", "\(FillSite(serviceIdentifier: "http://evil.example@example.com/"))", "unknown")
+    check("site: http with no host", "\(FillSite(serviceIdentifier: "http://"))", "unknown")
+    check("site: host of a secure site", FillSite(serviceIdentifier: "https://a.example.com").host ?? "nil", "a.example.com")
+    expect("site: unknown has no host", FillSite(serviceIdentifier: nil).host == nil)
+}
+
+// MARK: Validation round 2: purge ages, odd times, all-or-nothing store, attachments, one time form, disabled bin
+
+failures += runTimeParserTests()
+
+func runCapturing(_ args: [String], input: String = "") -> (status: Int32, out: String, err: String) {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = args
+    let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
+    process.standardInput = stdin; process.standardOutput = stdout; process.standardError = stderr
+    try! process.run()
+    stdin.fileHandleForWriting.write(Data(input.utf8)); try? stdin.fileHandleForWriting.close()
+    let out = stdout.fileHandleForReading.readDataToEndOfFile(), err = stderr.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    return (process.terminationStatus, String(decoding: out, as: UTF8.self), String(decoding: err, as: UTF8.self))
+}
+/// What keepassxc-cli printed on stderr besides the password prompt: the warnings.
+func warnings(_ run: (status: Int32, out: String, err: String)) -> String {
+    run.err.split(whereSeparator: \.isNewline).filter { !$0.hasPrefix("Enter password") }.joined(separator: "\n")
+}
+func binGroup(_ name: String, locationChanged: TimeInterval) -> XNode {
+    let stored = KeePassTime.stored(at(locationChanged))
+    return XNode("Group", children: [
+        XNode("UUID", text: UUID().kdbxBase64), XNode("Name", text: name), XNode("Notes"), XNode("IconID", text: "48"),
+        XNode("Times", children: [XNode("CreationTime", text: stored), XNode("LastModificationTime", text: stored), XNode("LastAccessTime", text: stored),
+                                  XNode("ExpiryTime", text: stored), XNode("Expires", text: "False"), XNode("UsageCount", text: "0"),
+                                  XNode("LocationChanged", text: stored)])])
+}
+func setLocationChanged(_ entry: XNode, _ seconds: TimeInterval) { entry.child("Times")?.setChildText("LocationChanged", KeePassTime.stored(at(seconds))) }
+func move(_ entry: XNode, from: XNode, to: XNode) { from.children.removeAll { $0 === entry }; to.children.append(entry) }
+func binNode(_ document: KDBXDocument) -> XNode? { document.recycleBinID.flatMap { id in
+    var found: XNode?
+    document.rootGroup?.walk { if $0.name == "Group", $0.child("UUID")?.text == id { found = $0 } }
+    return found
+} }
+let dayLength: TimeInterval = 24 * 60 * 60
+
+// BIN-1: the time an entry was deleted is the latest of its own, its recycled groups' and Psss's record.
+do {
+    let t: TimeInterval = 1_700_000_000
+    setClock(t)
+    let doc = try freshDocument("Groups")
+    let a = VaultItem(kind: .login, title: "InGroupA", website: "a.example", secret: "a1")
+    let b = VaultItem(kind: .login, title: "InGroupB", website: "b.example", secret: "b1")
+    let solo = VaultItem(kind: .login, title: "Solo", website: "solo.example", secret: "s1")
+    doc.upsert([a, b, solo])
+    doc.moveToRecycleBin(solo.id)                     // binned by Psss at t
+    let bin = binNode(doc)!
+    // Another app recycles a group a minute ago whose entries were last moved 100 days ago.
+    let old = binGroup("Old", locationChanged: t + 40 * dayLength - 60)
+    bin.children.append(old)
+    for item in [a, b] { let node = entryNode(doc, item.id)!; move(node, from: doc.rootGroup!, to: old); setLocationChanged(node, t - 100 * dayLength) }
+    let now = at(t + 40 * dayLength)
+    check("a recycled group's entries are dated by the group", "\(doc.recycledItems().filter { $0.item.title.hasPrefix("InGroup") }.map { Int($0.deleted.timeIntervalSince1970 - t) })",
+          "[\(Int(40 * dayLength - 60)), \(Int(40 * dayLength - 60))]")
+    check("the purge ignores the entries' own old LocationChanged", "\(doc.purgeRecycleBin(olderThan: 30 * dayLength, now: now))", "1")   // only Solo (binned at t)
+    expect("the group's entries are still there", count(doc, a.id) == 1 && count(doc, b.id) == 1 && groupNode(doc, named: "Old") != nil)
+    // A group recycled 40 days ago that holds a younger entry stays, with that entry.
+    let aged = binGroup("Aged", locationChanged: t - 40 * dayLength)
+    bin.children.append(aged)
+    let young = VaultItem(kind: .login, title: "Young", website: "y.example", secret: "y1"), older = VaultItem(kind: .login, title: "Older", website: "o.example", secret: "o1")
+    doc.upsert([young, older])
+    for item in [young, older] { move(entryNode(doc, item.id)!, from: doc.rootGroup!, to: aged) }
+    setLocationChanged(entryNode(doc, young.id)!, t + 35 * dayLength)
+    setLocationChanged(entryNode(doc, older.id)!, t - 41 * dayLength)
+    let report = doc.purgeRecycleBinReport(olderThan: 30 * dayLength, now: now)
+    check("an entry younger than the group keeps its own time, so the older one in the group goes", "\(count(doc, young.id)) \(count(doc, older.id))", "1 0")   // older: max(own, group) = t - 40d
+    expect("a group that still holds a younger entry stays", groupNode(doc, named: "Aged") != nil && report.groups == 0)
+    // Later, everything is past the limit: the entries and the groups go, with no empty shell.
+    let later = doc.purgeRecycleBinReport(olderThan: 30 * dayLength, now: at(t + 200 * dayLength))
+    expect("everything old goes, groups included, leaving no empty shell", doc.recycledItems().isEmpty && groupNode(doc, named: "Old") == nil
+           && groupNode(doc, named: "Aged") == nil && later.groups == 2 && binNode(doc)!.children.filter { $0.name == "Group" || $0.name == "Entry" }.isEmpty)
+    expect("the removed groups are recorded as deleted objects", deletedObjects(doc) >= 2 + 2)
+    // A group with no time at all, and an entry with no time at all, are never purged.
+    let timeless = XNode("Group", children: [XNode("UUID", text: UUID().kdbxBase64), XNode("Name", text: "Timeless")])
+    binNode(doc)!.children.append(timeless)
+    let lone = VaultItem(kind: .login, title: "Lone", website: "l.example", secret: "l1")
+    doc.upsert(lone)
+    let loneNode = entryNode(doc, lone.id)!
+    move(loneNode, from: doc.rootGroup!, to: timeless)
+    loneNode.children.removeAll { $0.name == "Times" }
+    check("with no time known nothing is purged", "\(doc.purgeRecycleBin(olderThan: 0, now: at(t + 1000 * dayLength))) \(count(doc, lone.id)) \(groupNode(doc, named: "Timeless") != nil)", "0 1 true")
+    resetClock()
+}
+
+// BIN-1 again, with a real keepassxc-cli rmdir.
+if run(["which", "keepassxc-cli"]).status == 0 {
+    let path = fixtures.appendingPathComponent("rmdir.kdbx")
+    let t = Date().timeIntervalSince1970
+    let doc = try KDBX.create(name: "Rmdir", credentials: .init(password: "rm pw"), kdf: light)
+    let e1 = VaultItem(kind: .login, title: "Inside One", website: "one.example", secret: "1"), e2 = VaultItem(kind: .login, title: "Inside Two", website: "two.example", secret: "2")
+    doc.upsert([e1, e2])
+    let group = binGroup("Old group", locationChanged: t - 100 * dayLength)
+    doc.rootGroup!.children.append(group)
+    for item in [e1, e2] { let node = entryNode(doc, item.id)!; move(node, from: doc.rootGroup!, to: group); setLocationChanged(node, t - 100 * dayLength) }
+    try KDBX.save(doc).write(to: path)
+    let removal = run(["keepassxc-cli", "rmdir", "-q", path.path, "Old group"], input: "rm pw\n")
+    let reopened = try KDBX.open(Data(contentsOf: path), credentials: .init(password: "rm pw"))
+    expect("keepassxc-cli rmdir moved the group to the bin (status \(removal.status))", removal.status == 0 && reopened.items().isEmpty && reopened.recycledItems().count == 2)
+    expect("the entries inside show as deleted a moment ago", reopened.recycledItems().allSatisfy { abs($0.deleted.timeIntervalSince1970 - t) < 120 })
+    check("unlocking does not destroy them", "\(reopened.purgeRecycleBin(olderThan: 30 * dayLength, now: Date())) \(reopened.recycledItems().count)", "0 2")
+    check("and in 31 days they go with their group", "\(reopened.purgeRecycleBin(olderThan: 30 * dayLength, now: Date().addingTimeInterval(31 * dayLength))) \(reopened.recycledItems().count) \(groupNode(reopened, named: "Old group") == nil)", "2 0 true")
+}
+
+// BIN-2: an entry taken out of the bin by another app and recycled again starts a new countdown.
+do {
+    let t: TimeInterval = 1_700_000_000
+    setClock(t)
+    let doc = try freshDocument("Again")
+    let e = VaultItem(kind: .login, title: "Again", website: "again.example", secret: "x")
+    let other = VaultItem(kind: .login, title: "Other", website: "other.example", secret: "o")
+    doc.upsert([e, other])
+    doc.moveToRecycleBin(e.id)
+    let node = entryNode(doc, e.id)!
+    move(node, from: binNode(doc)!, to: doc.rootGroup!)                  // another app restores it, keeping Psss's marks
+    setLocationChanged(node, t + 10 * dayLength)
+    _ = doc.items()
+    expect("reading items does not touch an entry", EntryMapping.customData(node, RecycleBinKeys.deletedAt) != nil)
+    doc.upsert(VaultItem(kind: .login, title: "New", website: "new.example", secret: "n"))
+    expect("a write drops the stale deleted-at and deleted-from from an entry outside the bin",
+           EntryMapping.customData(node, RecycleBinKeys.deletedAt) == nil && EntryMapping.customData(node, RecycleBinKeys.deletedFrom) == nil)
+    // Without that cleanup, the latest time still decides: marks from t, recycled again at t + 40 days.
+    EntryMapping.setCustomData(node, RecycleBinKeys.deletedAt, KeePassTime.string(at(t)), modified: KeePassTime.stored(at(t)))
+    move(node, from: doc.rootGroup!, to: binNode(doc)!)
+    setLocationChanged(node, t + 40 * dayLength)
+    check("recycled again later, it is not purged at once", "\(doc.purgeRecycleBin(olderThan: 30 * dayLength, now: at(t + 41 * dayLength))) \(count(doc, e.id))", "0 1")
+    check("its countdown runs from the second recycling", "\(doc.purgeRecycleBin(olderThan: 30 * dayLength, now: at(t + 71 * dayLength))) \(count(doc, e.id))", "1 0")
+    resetClock()
+}
+
+// BIN-4 and BIN-5: a switched-off bin, and corrupt bin identifiers.
+do {
+    let t: TimeInterval = 1_700_000_000
+    setClock(t)
+    let doc = try freshDocument("Disabled")
+    let x = VaultItem(kind: .login, title: "InTheOldBin", website: "x.example", secret: "x"), y = VaultItem(kind: .login, title: "ToDelete", website: "y.example", secret: "y")
+    doc.upsert([x, y])
+    doc.moveToRecycleBin(x.id)
+    let bin = binNode(doc)!
+    doc.meta!.setChildText("RecycleBinEnabled", "False")                 // another app switched the bin off
+    expect("with the bin off its group is an ordinary group: the entry shows", doc.items().contains { $0.id == x.id } && doc.recycledItems().isEmpty)
+    doc.moveToRecycleBin(y.id)
+    check("deleting reuses the existing group, no second Recycle Bin", "\(doc.rootGroup!.children(named: "Group").filter { $0.child("Name")?.text == "Recycle Bin" }.count)", "1")
+    expect("and sets the flag back on", doc.meta!.child("RecycleBinEnabled")?.text == "True" && binNode(doc) === bin)
+    expect("the entries that were already in that group are now in the bin", Set(doc.recycledItems().map(\.item.title)) == ["InTheOldBin", "ToDelete"])
+    check("they start a countdown now: none is purged next day", "\(doc.purgeRecycleBin(olderThan: 30 * dayLength, now: at(t + dayLength)))", "0")
+    // No bin at all: one is made.
+    let fresh = try freshDocument("None")
+    fresh.upsert(y)
+    fresh.moveToRecycleBin(y.id)
+    check("with no bin one is made", "\(fresh.rootGroup!.children(named: "Group").count)", "1")
+
+    // The bin is the root group: no bin.
+    let corrupt = try freshDocument("Corrupt")
+    let c1 = VaultItem(kind: .login, title: "C1", website: "c1.example", secret: "1"), c2 = VaultItem(kind: .login, title: "C2", website: "c2.example", secret: "2")
+    corrupt.upsert([c1, c2])
+    corrupt.meta!.setChildText("RecycleBinEnabled", "True")
+    corrupt.meta!.setChildText("RecycleBinUUID", corrupt.rootGroup!.child("UUID")!.text)
+    check("a bin that names the root group is no bin", "\(corrupt.recycleBinID == nil) \(corrupt.items().count) \(corrupt.recycledItems().count)", "true 2 0")
+    check("and a purge deletes nothing", "\(corrupt.purgeRecycleBin(olderThan: 0, now: at(t + 1000 * dayLength))) \(corrupt.items().count)", "0 2")
+    corrupt.meta!.setChildText("RecycleBinUUID", UUID().kdbxBase64)       // a group that does not exist
+    check("a bin that names no group hides nothing", "\(corrupt.items().count) \(corrupt.purgeRecycleBin(olderThan: 0, now: at(t + 1000 * dayLength)))", "2 0")
+    corrupt.moveToRecycleBin(c1.id)
+    expect("deleting then makes a proper bin", corrupt.recycledItems().map(\.item.title) == ["C1"] && corrupt.items().map(\.title) == ["C2"])
+    resetClock()
+}
+
+// DATE-1 at the document level: one odd time does not crash listing.
+do {
+    let doc = try freshDocument("Odd")
+    let item = VaultItem(kind: .login, title: "Odd time", website: "odd.example", secret: "x")
+    doc.upsert(item)
+    let times = entryNode(doc, item.id)!.child("Times")!
+    times.setChildText("CreationTime", "2021-03-04T05:06:07.12345678901234567890Z")
+    times.setChildText("LastModificationTime", "2021-02-30T00:00:00Z")
+    let listed = doc.items()
+    expect("items() lists an entry with a 20-digit fraction and a 30 February", listed.count == 1
+           && abs((listed[0].created?.timeIntervalSince1970 ?? 0) - 1_614_834_367.123456789) < 1e-3 && listed[0].modified == nil)
+}
+
+// Protected flags are corrected on every write of an entry, and reading never writes.
+do {
+    let doc = try freshDocument("Flags")
+    let item = VaultItem(kind: .login, title: "Flags", account: "f", website: "f.example", secret: "secret-1")
+    doc.upsert(item)
+    let node = entryNode(doc, item.id)!
+    func unprotect() { node.children(named: "String").first { $0.child("Key")?.text == "Password" }?.child("Value")?.setAttribute("Protected", nil) }
+    let modifiedBefore = timeText(doc, item.id, "LastModificationTime")
+    unprotect()
+    _ = doc.items()
+    expect("reading does not correct (or write) anything", stringFlag(node, "Password") == nil)
+    expect("saving the same content counts as a write, because the flag was wrong", doc.upsert(item))
+    expect("and the flag is back", stringFlag(node, "Password") == "True")
+    check("without a revision or a new modification time", "\(historyCount(doc, item.id)) \(timeText(doc, item.id, "LastModificationTime") == modifiedBefore)", "0 true")
+    expect("with the flag right, saving the same content is no write", !doc.upsert(item))
+    var edited = item; edited.secret = "secret-2"
+    doc.upsert(edited)
+    unprotect()
+    doc.clearPreviousPasswords(of: item.id)
+    expect("clearing the previous passwords corrects it", stringFlag(node, "Password") == "True")
+    unprotect()
+    doc.moveToRecycleBin(item.id)
+    expect("so does moving to the bin", stringFlag(node, "Password") == "True")
+    unprotect()
+    doc.restoreFromRecycleBin(item.id)
+    expect("and restoring", stringFlag(node, "Password") == "True")
+}
+
+// clearPreviousPasswords moves the modification time forward.
+do {
+    let t: TimeInterval = 1_700_000_000
+    let doc = try freshDocument("Clear")
+    let item = VaultItem(kind: .login, title: "Clear", website: "clear.example", secret: "one")
+    setClock(t); doc.upsert(item)
+    edit(doc, item.id, at: t + 3600) { $0.secret = "two" }
+    let before = current(doc, item.id).modified!
+    setClock(t + 7200)
+    doc.clearPreviousPasswords(of: item.id)
+    expect("clearing the history stamps the entry later, without a snapshot", current(doc, item.id).modified! > before && historyCount(doc, item.id) == 0)
+    resetClock()
+}
+
+// A strict reader needs numbers in HistoryMaxItems and HistoryMaxSize; the other times follow in one form.
+do {
+    let doc = try freshDocument("Limits")
+    doc.meta!.setChildText("HistoryMaxItems", "many")
+    doc.meta!.setChildText("HistoryMaxSize", "-5")
+    var reopened = try KDBX.open(KDBX.save(doc), credentials: .init(password: "pw"))
+    check("a limit that is not a number is saved as the default, a negative one as -1", "\(reopened.meta!.child("HistoryMaxItems")!.text) \(reopened.meta!.child("HistoryMaxSize")!.text)", "10 -1")
+    doc.meta!.setChildText("HistoryMaxItems", "-1"); doc.meta!.setChildText("HistoryMaxSize", "123")
+    reopened = try KDBX.open(KDBX.save(doc), credentials: .init(password: "pw"))
+    check("valid limits are left alone", "\(reopened.meta!.child("HistoryMaxItems")!.text) \(reopened.meta!.child("HistoryMaxSize")!.text)", "-1 123")
+}
+
+// One form of time in a saved file, with every instant unchanged.
+let timeElementNames: Set<String> = ["CreationTime", "LastModificationTime", "LastAccessTime", "ExpiryTime", "LocationChanged", "DeletionTime", "DatabaseNameChanged",
+                                     "DatabaseDescriptionChanged", "DefaultUserNameChanged", "MasterKeyChanged", "RecycleBinChanged", "EntryTemplatesGroupChanged", "SettingsChanged"]
+func timeElements(_ document: KDBXDocument) -> [XNode] {
+    var found: [XNode] = []
+    document.root.walk { if timeElementNames.contains($0.name), $0.children.isEmpty { found.append($0) } }
+    return found
+}
+do {
+    let doc = try freshDocument("Mixed")
+    let items = (0..<3).map { VaultItem(kind: .login, title: "M\($0)", website: "m\($0).example", secret: "p\($0)") }
+    doc.upsert(items)
+    edit(doc, items[0].id, at: Date().timeIntervalSince1970 + 5) { $0.secret = "changed" }       // history
+    resetClock()
+    doc.moveToRecycleBin(items[2].id)
+    doc.deletePermanently(items[1].id)
+    for node in timeElements(doc) { node.text = KeePassTime.string(KeePassTime.date(node.text)!) }  // as a KDBX 3 file or an older Psss wrote them
+    let before = timeElements(doc).map { KeePassTime.date($0.text)!.timeIntervalSince1970 }
+    expect("the test file has ISO text everywhere, history, deleted objects and meta included", timeElements(doc).count > 30 && timeElements(doc).allSatisfy { KeePassTime.isISO($0.text) })
+    let reopened = try KDBX.open(KDBX.save(doc), credentials: .init(password: "pw"))
+    let after = timeElements(reopened).map { KeePassTime.date($0.text)!.timeIntervalSince1970 }
+    expect("a saved file holds every time in the KDBX 4 form", timeElements(reopened).allSatisfy { !KeePassTime.isISO($0.text) && Data(base64Encoded: $0.text)?.count == 8 })
+    expect("and every instant is unchanged", before == after)
+    expect("saving does not change the open document", timeElements(doc).allSatisfy { KeePassTime.isISO($0.text) })
+}
+if run(["which", "keepassxc-cli"]).status == 0 {
+    // A KDBX 3.1 file KeePassXC wrote, with a history item, upgraded by one save here.
+    let path = fixtures.appendingPathComponent("upgrade.kdbx"), upgraded = fixtures.appendingPathComponent("upgraded.kdbx")
+    run(["keepassxc-cli", "db-create", "-q", "-p", path.path], input: "up pw\nup pw\n")
+    run(["keepassxc-cli", "add", "-q", "-u", "u", "-p", path.path, "Upgrade me"], input: "up pw\nsecret-one\n")
+    run(["keepassxc-cli", "edit", "-q", "-p", path.path, "Upgrade me"], input: "up pw\nsecret-two\n")
+    let old = try KDBX.open(Data(contentsOf: path), credentials: .init(password: "up pw"))
+    let item = old.items().first { $0.title == "Upgrade me" }
+    expect("the file KeePassXC wrote is read as \(old.sourceVersion ?? "KDBX 4") with a history item", item != nil && historyCount(old, item!.id) >= 1)
+    let before = timeElements(old).map { KeePassTime.date($0.text)!.timeIntervalSince1970 }
+    try KDBX.save(old).write(to: upgraded)
+    let now = try KDBX.open(Data(contentsOf: upgraded), credentials: .init(password: "up pw"))
+    expect("the upgrade writes one form: no ISO text left", timeElements(now).allSatisfy { Data(base64Encoded: $0.text)?.count == 8 })
+    expect("every instant is unchanged (to the second)", before == timeElements(now).map { KeePassTime.date($0.text)!.timeIntervalSince1970 }.map { $0 })
+    let out = runCapturing(["keepassxc-cli", "export", "-q", "-f", "xml", upgraded.path], input: "up pw\n")
+    if let exportedRoot = try? XMLTree.parse(Data(out.out.utf8)) {
+        var reported: [Double] = [], written: [Double] = []
+        func collect(_ node: XNode, into list: inout [Double]) {
+            if ["CreationTime", "LastModificationTime", "LastAccessTime", "ExpiryTime", "LocationChanged"].contains(node.name), node.children.isEmpty, let date = KeePassTime.date(node.text) { list.append(date.timeIntervalSince1970) }
+            for child in node.children { collect(child, into: &list) }
+        }
+        collect(exportedRoot, into: &reported)
+        collect(now.root, into: &written)
+        expect("KeePassXC reports the same instants for the upgraded file", reported.sorted() == written.sorted() && !reported.isEmpty)
+    } else { failures += 1; print("FAIL keepassxc export of the upgraded file") }
+    expect("keepassxc opens it without a warning", warnings(runCapturing(["keepassxc-cli", "ls", upgraded.path], input: "up pw\n")).isEmpty)
+}
+
+// BIN-3: attachments nothing refers to any more leave the file.
+do {
+    var doc = try freshDocument("Attachments")
+    let a = VaultItem(kind: .login, title: "HasBig", website: "big.example", secret: "a"), b = VaultItem(kind: .login, title: "HasSmall", website: "small.example", secret: "b")
+    let c = VaultItem(kind: .login, title: "HistoryOnly", website: "hist.example", secret: "c1")
+    doc.upsert([a, b, c])
+    let bigBody = Data((0..<3_000_000).map { _ in UInt8.random(in: 0...255) })
+    let smallBody = Data("small attachment, still referenced".utf8), historyBody = Data("referenced only by a history item".utf8)
+    doc.binaries = [Data([0]) + bigBody, Data([0]) + smallBody, Data([1]) + historyBody]
+    func attach(_ id: UUID, _ name: String, _ index: Int) {
+        let entry = entryNode(doc, id)!
+        entry.children.insert(XNode("Binary", children: [XNode("Key", text: name), XNode("Value", attributes: [("Ref", String(index))])]),
+                              at: entry.children.firstIndex { $0.name == "AutoType" } ?? entry.children.endIndex)
+    }
+    attach(a.id, "big.bin", 0); attach(b.id, "small.bin", 1); attach(c.id, "history.bin", 2)
+    var changed = c; changed.secret = "c2"
+    doc.upsert(changed)                                                   // the snapshot in History carries the attachment
+    entryNode(doc, c.id)!.children.removeAll { $0.name == "Binary" }     // the live entry no longer has it
+    let path = fixtures.appendingPathComponent("attachments.kdbx")
+    let full = try KDBX.save(doc)
+    doc.deletePermanently(a.id)
+    let smaller = try KDBX.save(doc)
+    try smaller.write(to: path)
+    print("     attachment file: \(full.count) bytes with the 3 MB attachment, \(smaller.count) after deleting its entry")
+    expect("the file shrinks by about the attachment", full.count - smaller.count > 2_900_000)
+    let reopened = try KDBX.open(smaller, credentials: .init(password: "pw"))
+    check("two attachments are left", "\(reopened.binaries.count)", "2")
+    let ref = { (id: UUID) in entryNode(reopened, id)!.child("Binary")?.child("Value")?.attribute("Ref") ?? "-" }
+    check("the other entry's reference is renumbered", ref(b.id), "0")
+    check("the reference in a history item too", entryNode(reopened, c.id)!.child("History")!.children[0].child("Binary")!.child("Value")!.attribute("Ref") ?? "-", "1")
+    expect("the bytes are the same", reopened.binaries[0].dropFirst() == smallBody && reopened.binaries[1].dropFirst() == historyBody && reopened.binaries[1].first == 1)
+    if run(["which", "keepassxc-cli"]).status == 0 {
+        let exportPath = fixtures.appendingPathComponent("small-export.bin")
+        try? FileManager.default.removeItem(at: exportPath)
+        let exportRun = runCapturing(["keepassxc-cli", "attachment-export", "-q", path.path, "HasSmall", "small.bin", exportPath.path], input: "pw\n")
+        expect("keepassxc exports the other attachment with identical bytes (status \(exportRun.status))", (try? Data(contentsOf: exportPath)) == smallBody)
+        let listed = runCapturing(["keepassxc-cli", "ls", path.path], input: "pw\n")
+        expect("keepassxc reads the file with no warning: [\(warnings(listed))]", listed.status == 0 && warnings(listed).isEmpty)
+    }
+    // Clearing the history frees its attachment, and so does emptying the bin.
+    doc.clearPreviousPasswords(of: c.id)
+    check("clearing history leaves one attachment", "\(try KDBX.open(KDBX.save(doc), credentials: .init(password: "pw")).binaries.count)", "1")
+    doc.deletePermanently(b.id)
+    check("deleting the last owner leaves none", "\(try KDBX.open(KDBX.save(doc), credentials: .init(password: "pw")).binaries.count)", "0")
+    // A reference to a binary that does not exist is left alone.
+    var broken = try freshDocument("Broken")
+    let r = VaultItem(kind: .login, title: "Broken ref", website: "br.example", secret: "r")
+    broken.upsert(r)
+    broken.binaries = [Data([0, 1, 2]), Data([0, 3])]
+    entryNode(broken, r.id)!.children.append(XNode("Binary", children: [XNode("Key", text: "x"), XNode("Value", attributes: [("Ref", "7")])]))
+    check("a dangling reference stops the pruning, nothing is renumbered", "\(try KDBX.open(KDBX.save(broken), credentials: .init(password: "pw")).binaries.count)", "2")
+}
+
+// STORE-1: every mutating store method is all-or-nothing, RELOAD-1, and the conflict exception.
+do {
+    let fm = FileManager.default
+    let dir = fm.temporaryDirectory.appendingPathComponent("psss-atomic-\(UUID().uuidString)")
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    let url = dir.appendingPathComponent("atomic.kdbx")
+    let t0 = Date().timeIntervalSince1970
+    let seed = try KDBX.create(name: "Atomic", credentials: .init(password: "old-pw"), kdf: light)
+    let x = VaultItem(kind: .login, title: "X", account: "x", website: "x.example", secret: "x1")
+    let y = VaultItem(kind: .login, title: "Y", account: "y", website: "y.example", secret: "y1")
+    let z = VaultItem(kind: .login, title: "Z", account: "z", website: "z.example", secret: "z1")
+    let binned = VaultItem(kind: .login, title: "Binned", account: "b", website: "b.example", secret: "b1")
+    let stale = VaultItem(kind: .login, title: "Stale", account: "s", website: "s.example", secret: "s1")
+    seed.upsert([x, y, z, binned, stale])
+    setClock(t0 - 100 * dayLength); seed.moveToRecycleBin(stale.id)
+    setClock(t0 - 1000); seed.moveToRecycleBin(binned.id); resetClock()
+    var withHistory = x; withHistory.secret = "x2"; seed.upsert(withHistory)
+    let data = try KDBX.save(seed)
+    try data.write(to: url)
+    let id = UUID()
+    let store = KeePassVaultStore(reference: VaultReference(id: id, name: "Atomic", managed: true, bookmark: nil, fileName: "atomic.kdbx"), url: url, scoped: false,
+                                  document: try KDBX.open(data, credentials: .init(password: "old-pw")), fileData: data)
+    func state() -> String {
+        let items = store.items().map { "\($0.id)|\($0.title)|\($0.secret)|\($0.notes)|\($0.modified?.timeIntervalSince1970 ?? 0)" }.sorted().joined(separator: ";")
+        let deleted = store.recentlyDeleted().map { "\($0.item.id)|\($0.deleted.timeIntervalSince1970)" }.joined(separator: ";")
+        return items + "#" + deleted + "#" + hex(KDBXCrypto.sha256(store.documentDump))
+    }
+    let plan = try CSVSource.plan(from: "Title,URL,Username,Password\nImported,https://imported.example,i,pw\n")
+    let operations: [(String, () async throws -> Void)] = [
+        ("save", { try store.save([withHistory, VaultItem(kind: .secureNote, title: "New note", notes: "n")]) }),
+        ("delete", { try store.delete(y.id) }),
+        ("moveToRecentlyDeleted", { try store.moveToRecentlyDeleted(z.id) }),
+        ("restore", { try store.restore(binned.id) }),
+        ("restorePassword", { try store.restorePassword(of: x.id, replacedAt: store.previousPasswords(of: x.id)[0].replaced) }),
+        ("deletePermanently", { try store.deletePermanently(binned.id) }),
+        ("emptyRecentlyDeleted", { try store.emptyRecentlyDeleted() }),
+        ("clearPreviousPasswords", { try store.clearPreviousPasswords(of: x.id) }),
+        ("purgeRecentlyDeleted", { _ = try store.purgeRecentlyDeleted(now: Date()) }),
+        ("rename", { try store.rename("Renamed") }),
+        ("changeCredentials", { _ = try await store.changeCredentials(to: .init(password: "new-pw")) }),
+        ("apply", { _ = try store.apply(plan) }),
+    ]
+    func setReadable(_ readable: Bool) { try? fm.setAttributes([.posixPermissions: NSNumber(value: readable ? 0o644 : 0o000)], ofItemAtPath: url.path) }
+    expect("the setup has something to purge and something to restore", store.recentlyDeleted().count == 2 && !store.previousPasswords(of: x.id).isEmpty)
+    let bytesBefore = try Data(contentsOf: url)
+    for (name, operation) in operations {
+        let before = state()
+        setReadable(false)
+        var threw = false
+        do { try await operation() } catch { threw = true }
+        setReadable(true)
+        expect("\(name): fails when the file cannot be read", threw)
+        expect("\(name): items, Recently Deleted and the document are as before", state() == before)
+        expect("\(name): the file is untouched", (try? Data(contentsOf: url)) == bytesBefore)
+    }
+    // And the stores still work, writing only what is asked.
+    try store.save([VaultItem(kind: .secureNote, title: "After", notes: "ok")])
+    let onDisk = try KDBX.open(Data(contentsOf: url), credentials: .init(password: "old-pw"))
+    expect("a later save writes only what was asked, none of the failed edits", Set(onDisk.items().map(\.title)) == ["X", "Y", "Z", "After"])
+    expect("the failed password change left the old password", (try? KDBX.open(Data(contentsOf: url), credentials: .init(password: "new-pw"))) == nil)
+
+    // The one exception: a write refused because the file changed elsewhere keeps the edit for Overwrite.
+    try Data("another app wrote this".utf8).write(to: url)
+    do { try store.save([VaultItem(kind: .secureNote, title: "Kept for overwrite", notes: "n")]) } catch VaultStoreError.changedOnDisk {}
+    expect("a conflict keeps the edit in memory for Overwrite or Reload", store.items().contains { $0.title == "Kept for overwrite" })
+    try store.commit(overwrite: true)
+    expect("Overwrite writes it", try KDBX.open(Data(contentsOf: url), credentials: .init(password: "old-pw")).items().contains { $0.title == "Kept for overwrite" })
+
+    // RELOAD-1: a reload that finishes after a save keeps the save.
+    let reloading = Task { try await store.reload() }
+    await Task.yield()
+    try store.save([VaultItem(kind: .secureNote, title: "Saved during reload", notes: "n")])
+    try await reloading.value
+    expect("a reload that finishes after a save keeps what was saved", store.items().contains { $0.title == "Saved during reload" })
+    do { try store.save([VaultItem(kind: .secureNote, title: "And again", notes: "n")]); print("ok   and the next save does not fail with changed-on-disk") }
+    catch { failures += 1; print("FAIL the next save after the reload threw \(error)") }
+    try await store.reload()
+    expect("a reload with nothing in between does load the file", store.items().contains { $0.title == "And again" })
+
+    // changeCredentials stamps MasterKeyChanged.
+    let stampBefore = try KDBX.open(Data(contentsOf: url), credentials: .init(password: "old-pw")).meta!.child("MasterKeyChanged")!.text
+    setClock(t0 + 5000)
+    _ = try await store.changeCredentials(to: .init(password: "new-pw"))
+    resetClock()
+    let stampAfter = try KDBX.open(Data(contentsOf: url), credentials: .init(password: "new-pw")).meta!.child("MasterKeyChanged")!.text
+    check("changing the password stamps MasterKeyChanged", "\(stampAfter != stampBefore) \(stampAfter == KeePassTime.stored(at(t0 + 5000)))", "true true")
+    VaultFiles.removeBackups(for: id)
+    try? fm.removeItem(at: dir)
+}
+
+// The purge on unlock: a failed write leaves memory as it was, and unlock still works.
+do {
+    let fm = FileManager.default
+    let dir = fm.temporaryDirectory.appendingPathComponent("psss-purge-\(UUID().uuidString)")
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    let url = dir.appendingPathComponent("purge.kdbx")
+    let doc = try KDBX.create(name: "Purge", credentials: .init(password: "pw"), kdf: light)
+    let item = VaultItem(kind: .login, title: "Old", website: "old.example", secret: "o")
+    doc.upsert(item)
+    setClock(Date().timeIntervalSince1970 - 40 * dayLength); doc.moveToRecycleBin(item.id); resetClock()
+    let data = try KDBX.save(doc)
+    try data.write(to: url)
+    let id = UUID()
+    let store = KeePassVaultStore(reference: VaultReference(id: id, name: "Purge", managed: true, bookmark: nil, fileName: "purge.kdbx"), url: url, scoped: false,
+                                  document: try KDBX.open(data, credentials: .init(password: "pw")), fileData: data)
+    try? fm.setAttributes([.posixPermissions: NSNumber(value: 0o000)], ofItemAtPath: url.path)
+    let result = try? store.purgeRecentlyDeleted()
+    try? fm.setAttributes([.posixPermissions: NSNumber(value: 0o644)], ofItemAtPath: url.path)
+    expect("a purge whose write fails reports it and keeps the entry in memory", result == nil && store.recentlyDeleted().count == 1)
+    check("the next purge, with the file readable, does delete it", "\(try store.purgeRecentlyDeleted()) \(store.recentlyDeleted().count)", "1 0")
+    VaultFiles.removeBackups(for: id)
+    try? fm.removeItem(at: dir)
+}
+
+// CARD-1: Gregorian dates under any calendar and time zone; Maestro ranges.
+do {
+    let expiry = CardExpiry.parse("08/30")!
+    let midAugust = Date(timeIntervalSince1970: 1_912_939_200)   // 2030-08-14T12:00:00Z
+    for identifier in [Calendar.Identifier.buddhist, .japanese, .islamicUmmAlQura, .persian, .republicOfChina, .hebrew] {
+        var calendar = Calendar(identifier: identifier)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        expect("a 08/30 card is not expired in mid-August 2030 under the \(identifier) calendar", !expiry.isPast(now: midAugust, calendar: calendar))
+        expect("and a 07/30 card is expired under the \(identifier) calendar", CardExpiry.parse("07/30")!.isPast(now: midAugust, calendar: calendar))
+    }
+    var buddhist = Calendar(identifier: .buddhist)
+    buddhist.timeZone = TimeZone(identifier: "Pacific/Kiritimati")!             // UTC+14: it is 1 September there
+    let lateAugust = Date(timeIntervalSince1970: 1_914_451_200 - 3600)          // 2030-08-31T23:00:00Z
+    expect("the month is the one in the person's time zone: already September in UTC+14", expiry.isPast(now: lateAugust, calendar: buddhist))
+    buddhist.timeZone = TimeZone(identifier: "Pacific/Pago_Pago")!              // UTC-11
+    expect("and still August in UTC-11", !expiry.isPast(now: lateAugust, calendar: buddhist))
+    for (number, want) in [("5612000000000000", CardBrand.maestro), ("6390000000000000", .maestro), ("6304000000000000", .maestro), ("6759649826438453", .maestro),
+                           ("6767700000000000", .maestro), ("5018000000000000", .maestro), ("5893000000000000", .maestro), ("5020000000000000", .maestro),
+                           ("5066990000000000", .elo), ("5090000000000000", .elo), ("6362970000000000", .elo), ("6277800000000000", .elo),
+                           ("6011000000000000", .discover), ("6500000000000000", .discover), ("6200000000000000", .unionPay), ("4111111111111111", .visa),
+                           ("5105105105105100", .mastercard), ("2200000000000000", .mir), ("3782822463100005", .americanExpress), ("3530111333300000", .jcb)] {
+        check("\(number.prefix(6)) is \(want.name)", CardBrand(number: number)?.name ?? "none", want.name)
+    }
+    expect("numbers outside every block have no network", CardBrand(number: "9999999999999999") == nil && CardBrand(number: "6000000000000000") == nil)
 }
 
 print(failures == 0 ? "all passed" : "\(failures) failed")

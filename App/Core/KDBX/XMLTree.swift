@@ -36,6 +36,15 @@ final class XNode: @unchecked Sendable {
         XNode(name, text: text, attributes: attributes, children: children.map { $0.deepCopy() })
     }
 
+    /// Whether both trees have the same names, attributes (in any order), text and children, in order.
+    func isEqual(to other: XNode) -> Bool {
+        guard name == other.name, text == other.text, children.count == other.children.count,
+              attributes.count == other.attributes.count,
+              attributes.allSatisfy({ attribute in other.attributes.contains { $0.name == attribute.name && $0.value == attribute.value } })
+        else { return false }
+        return zip(children, other.children).allSatisfy { $0.isEqual(to: $1) }
+    }
+
     /// Visits this node and every descendant in document order.
     func walk(_ visit: (XNode) -> Void) {
         visit(self)

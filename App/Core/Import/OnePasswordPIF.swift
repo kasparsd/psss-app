@@ -63,6 +63,7 @@ enum OnePasswordPIF {
         var folderIDs: [String] = []                      // per item: the folder it sits in
         var validRecords = 0, encodingFallbacks = 0, undefinedBytes = 0, tagsAltered = 0, longLines = 0, lineNumber = 0, inBrokenRecord = false, sawWindows = false
         var sawContent = false
+        var brokenRecords = 0
         var allAttachmentBytes = 0
 
         func unreadable(_ kind: ImportIssue.Kind, _ detail: String) {
@@ -94,6 +95,7 @@ enum OnePasswordPIF {
             inBrokenRecord = false
             guard let (object, fellBack, undefined) = parse(trimmed) else {
                 inBrokenRecord = true
+                brokenRecords += 1
                 unreadable(.unreadableRecord, String(localized: "Line \(lineNumber) could not be read and was skipped"))
                 return true
             }
@@ -111,7 +113,14 @@ enum OnePasswordPIF {
                 validRecords += 1
                 sawWindows = sawWindows || windows
                 plan.recordCount += 1
-                if trashed { plan.skipped.trashed += 1; return true }
+                if trashed {
+                    plan.skipped.trashed += 1
+                    if !record.uuid.isEmpty {
+                        let shownTitle = record.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? record.fallbackTitle : record.title
+                        plan.trashedSources.append(TrashedSource(id: "1password:" + record.uuid, title: ImportText.clean(shownTitle)))
+                    }
+                    return true
+                }
                 if plan.items.count >= limits.items { tooMany = true; return false }
                 var built = PlanBuilder.build(record, now: now)
                 plan.skipped.webFormFields += built.webFormFields
@@ -131,6 +140,11 @@ enum OnePasswordPIF {
         guard validRecords > 0 else {
             // One line over the limit and nothing else readable is a different problem from a file that is not an export.
             if longLines > 0, plan.skipped.unreadable == longLines { throw ImportError.lineTooLong(limitMegabytes) }
+            // Lines that look like records but cannot be parsed (a lone surrogate, a cut-off line) are not the same as a file that is
+            // not an export: say what happened.
+            if brokenRecords > 0, plan.skipped.unreadable == brokenRecords {
+                throw ImportError.unreadable(String(localized: "None of the \(brokenRecords) records in it could be read."))
+            }
             throw sawContent ? ImportError.notAnExport : ImportError.empty
         }
         guard !plan.items.isEmpty || plan.skipped.trashed > 0 else { throw ImportError.empty }
@@ -152,7 +166,12 @@ enum OnePasswordPIF {
             plan.issues.append(ImportIssue(kind: .windowsExport, item: nil,
                                            detail: String(localized: "This export looks like 1Password for Windows, which is less tested. Check the imported items")))
         }
-        for index in plan.items.indices { plan.items[index].folder = path(of: folderIDs[index], in: folders) }
+        var flattened = false
+        for index in plan.items.indices { plan.items[index].folder = path(of: folderIDs[index], in: folders, flattened: &flattened) }
+        if flattened {
+            plan.issues.append(ImportIssue(kind: .foldersFlattened, item: nil, detail: String(localized: "Folders nested deeper than 32 levels were flattened.")))
+        }
+        plan.separateSharedIdentifiers()
         return plan
     }
 
@@ -225,15 +244,17 @@ enum OnePasswordPIF {
     }
 
     /// Folder names from the top down. A folder that points back at itself ends the walk.
-    private static func path(of folder: String, in folders: [String: (title: String, parent: String?)]) -> [String] {
+    private static func path(of folder: String, in folders: [String: (title: String, parent: String?)], flattened: inout Bool) -> [String] {
         var names: [String] = []
         var seen = Set<String>()
         var current: String? = folder.isEmpty ? nil : folder
-        while let id = current, let entry = folders[id], seen.insert(id).inserted, names.count < 32 {
+        while names.count < 32, let id = current, let entry = folders[id], seen.insert(id).inserted {
             let name = ImportText.clean(entry.title).trimmingCharacters(in: .whitespacesAndNewlines)
             names.append(name.isEmpty ? String(localized: "Untitled folder") : name)
             current = entry.parent
         }
+        // The walk stopped at 32 names with a parent still above: the top of a deeper path is cut, and the import says so once.
+        if names.count >= 32, let id = current, folders[id] != nil, !seen.contains(id) { flattened = true }
         return names.reversed()
     }
 
@@ -303,14 +324,30 @@ enum OnePasswordPIF {
         return String(cString: resolved)
     }
 
+    /// A path with `.` and `..` resolved by the text alone, without asking the file system and without the `/private` rewriting
+    /// that `NSString.standardizingPath` does. Both sides of every comparison are real paths, so they are spelled the same way.
+    private static func lexical(_ path: String) -> String {
+        var parts: [Substring] = []
+        for part in path.split(separator: "/", omittingEmptySubsequences: true) {
+            if part == "." { continue }
+            if part == ".." { _ = parts.popLast(); continue }
+            parts.append(part)
+        }
+        return "/" + parts.joined(separator: "/")
+    }
+
     /// Where a link points when that is a path inside `root` that holds no link of its own, anywhere along it. Nil otherwise,
-    /// so a chain of links, a loop and a link out of the folder all fail the same way.
+    /// so a chain of links, a loop and a link out of the folder all fail the same way. `path` and `root` are real paths (the
+    /// caller resolved them), and the target is compared with its own real path, so `/tmp` and `/private/tmp` are one place.
     private static func oneLink(_ path: String, inside root: String) -> String? {
         guard let target = try? FileManager.default.destinationOfSymbolicLink(atPath: path) else { return nil }
         let full = target.hasPrefix("/") ? target : (path as NSString).deletingLastPathComponent + "/" + target
-        let standard = (full as NSString).standardizingPath
-        guard standard.hasPrefix(root + "/"), realPath(standard) == standard else { return nil }
-        return standard
+        let spelled = lexical(full)
+        guard let real = realPath(spelled), real.hasPrefix(root + "/") else { return nil }
+        // The last part of the target must not be a link itself (a chain), whatever the folders above it are called.
+        guard let parent = realPath((spelled as NSString).deletingLastPathComponent),
+              parent + "/" + (spelled as NSString).lastPathComponent == real else { return nil }
+        return real
     }
 
     /// Opens without blocking, so a FIFO with no writer cannot hang the open, and checks what was opened. A device, a socket or

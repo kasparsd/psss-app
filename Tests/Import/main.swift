@@ -99,7 +99,9 @@ func issueCount(_ issues: [ImportIssue], _ kind: ImportIssue.Kind) -> Int { issu
 func item(_ plan: ImportPlan, _ title: String) -> ImportItem? { plan.items.first { $0.title == title } }
 
 func seconds(_ text: String?) -> String { text.flatMap { KeePassTime.date($0) }.map { "\($0.timeIntervalSince1970)" } ?? "none" }
-func iso(_ seconds: TimeInterval) -> String { KeePassTime.string(Date(timeIntervalSince1970: seconds)) }
+/// What the writer's time reads back as, in ISO text.
+func shown(_ d: Date) -> String { KeePassTime.date(ImportTime.iso(d)).map { KeePassTime.string($0) } ?? "unreadable" }
+func iso(_ seconds: TimeInterval) -> String { KeePassTime.stored(Date(timeIntervalSince1970: seconds)) }
 
 
 /// A plan whose texts all hold characters the vault file cannot store, and names that meet once those are gone.
@@ -507,7 +509,8 @@ do {
     expect("meta: a Windows record marks the plan lower confidence", p.lowConfidence)
     var vault = try emptyVault()
     let summary = try vault.apply(p)
-    check("meta: the duplicate identifier is skipped", "\(summary.duplicatesSkipped) \(summary.itemCount)", "1 8")
+    check("meta: the second item with the same identifier and other content is its own entry", "\(summary.duplicatesSkipped) \(summary.itemCount)", "0 9")
+    expect("meta: and the two share one identifier is reported", summary.issues.contains { $0.kind == .sharedIdentifier })
     let back = try reopen(vault)
     func group(_ parent: XNode, _ name: String) -> XNode? { parent.children(named: "Group").first { $0.child("Name")?.text == name } }
     let work = group(back.rootGroup!, "Work")
@@ -526,8 +529,8 @@ do {
 // MARK: dates
 
 do {
-    check("dates: the writer's time text equals the system's", ImportTime.iso(Date(timeIntervalSince1970: 1_795_386_026)), KeePassTime.string(Date(timeIntervalSince1970: 1_795_386_026)))
-    check("dates: and for a leap day", ImportTime.iso(Date(timeIntervalSince1970: 951_782_400 + 45_678)), KeePassTime.string(Date(timeIntervalSince1970: 951_782_400 + 45_678)))
+    check("dates: the writer's time is the codec's stored form, and reads back", "\(ImportTime.iso(Date(timeIntervalSince1970: 1_795_386_026)) == KeePassTime.stored(Date(timeIntervalSince1970: 1_795_386_026))) \(shown(Date(timeIntervalSince1970: 1_795_386_026)))", "true 2026-11-22T22:20:26Z")
+    check("dates: and for a leap day", shown(Date(timeIntervalSince1970: 951_782_400 + 45_678)), "2000-02-29T12:41:18Z")
 }
 
 // MARK: attachments
@@ -683,17 +686,17 @@ do {
     check("duplicates: but not into one that already has another 1Password identifier", ImportDuplicates.classify(login1, against: [ImportDuplicates.Existing(sourceID: "1password:B", hosts: ["site.example.net"], username: "u", password: "p")]).map { "\($0)" }.joined(), "duplicate")
     var inBin = plain
     inBin.inRecycleBin = true
-    check("duplicates: an entry in the recycle bin is never merged into", ImportDuplicates.classify(login1, against: [inBin]).map { "\($0)" }.joined(), "duplicate")
+    check("duplicates: an entry in the recycle bin never absorbs an imported item", ImportDuplicates.classify(login1, against: [inBin]).map { "\($0)" }.joined(), "add")
     var csvItem = login1
     csvItem.items[0].sourceID = nil
     check("duplicates: a CSV item is never richer, so it is a duplicate", ImportDuplicates.classify(csvItem, against: [plain]).map { "\($0)" }.joined(), "duplicate")
     var sameID = ImportDuplicates.Existing(sourceID: "1password:A", hosts: ["site.example.net"], username: "u", password: "p")
-    sameID.contentHash = login1.items[0].fingerprint
+    sameID.contentHash = ImportItem.salted("", login1.items[0].fingerprint)
     check("duplicates: the same identifier and content is skipped", ImportDuplicates.classify(login1, against: [sameID]).map { "\($0)" }.joined(), "duplicate")
     sameID.contentHash = "0000"
     check("duplicates: the same identifier and other content is an update", ImportDuplicates.classify(login1, against: [sameID]).map { "\($0)" }.joined(), "update(0)")
     sameID.inRecycleBin = true
-    check("duplicates: but a deleted item does not come back", ImportDuplicates.classify(login1, against: [sameID]).map { "\($0)" }.joined(), "duplicate")
+    check("duplicates: an item in the recycle bin does not come back", ImportDuplicates.classify(login1, against: [sameID]).map { "\($0)" }.joined(), "inRecycleBin(0)")
 }
 
 // MARK: all or nothing
@@ -754,22 +757,22 @@ func storeChecks(writesWork: Bool) async throws {
         return
     }
     let summary = try store.apply(p)
-    check("store: the import is added", "\(summary.itemCount) \(store.items().count)", "8 8")
+    check("store: the import is added", "\(summary.itemCount) \(store.items().count)", "9 9")
     check("store: one commit made one rollback copy", "\(backups())", "1")
     let onDisk = try KDBX.open(Data(contentsOf: url), credentials: .init(password: "pw"))
-    check("store: the file holds the items", "\(onDisk.items().count)", "8")
+    check("store: the file holds the items", "\(onDisk.items().count)", "9")
     let again = try store.apply(p)
     check("store: importing again adds nothing and writes nothing", "\(again.itemCount) \(backups())", "0 1")
     do { _ = try SampleVaultStore().apply(p); failures += 1; print("FAIL the sample vault took an import") } catch ImportError.sampleVault { print("ok   the sample vault refuses an import") }
     let other = try plan("logins")
     let third = try store.apply(other)
-    check("store: a later import is one more commit", "\(third.itemCount) \(backups()) \(store.items().count)", "2 2 10")
+    check("store: a later import is one more commit", "\(third.itemCount) \(backups()) \(store.items().count)", "2 2 11")
     // A changed file on disk fails the write and leaves the open vault as it was.
     let intruder = try KDBX.open(Data(contentsOf: url), credentials: .init(password: "pw"))
     try KDBX.save(intruder).write(to: url)
     let codes = try plan("codes")
     do { _ = try store.apply(codes); failures += 1; print("FAIL a changed file was overwritten") } catch VaultStoreError.changedOnDisk { print("ok   a file changed elsewhere refuses the import") }
-    check("store: and the open vault holds nothing of it", "\(store.items().count)", "10")
+    check("store: and the open vault holds nothing of it", "\(store.items().count)", "11")
 }
 // The store writes with complete file protection, which the system refuses while the Mac is locked or asleep. The existing
 // KDBX test has the same limit. The failed-write checks hold either way; the ones that need a write are skipped with a note.
@@ -845,7 +848,7 @@ do {
     check("csv: the trailing comma is harmless", item(p, "csv login")!.first(.notes) ?? "", "csv notes")
     check("csv: an unreadable code is kept as a hidden field", "\(item(p, "Coded")!.fields.first { $0.label == "One-time code" }?.value ?? "") \(issueCount(p.items.flatMap(\.issues), .unreadableCode))", "not a code 1")
     check("csv: dates are the import time and counted", "\(p.items[0].created == now) \(p.missingDates)", "true 3")
-    check("csv: no source identifier", "\(p.items[0].sourceID == nil)", "true")
+    check("csv: every row has a marker made of site, user and title", "\(p.items.allSatisfy { $0.sourceID?.hasPrefix("csv:") == true })", "true")
     expectThrows("csv: not a passwords file", .notAnExport) { _ = try CSVSource.plan(from: "a,b\n1,2\n", now: now) }
     expectThrows("csv: nothing but a header", .empty) { _ = try CSVSource.plan(from: "Title,Url,Username,Password\n", now: now) }
     // The existing reader still works for its current caller.
@@ -854,7 +857,7 @@ do {
     let summary = try vault.apply(p)
     check("csv: applied", "\(summary.logins) \(vault.items().count)", "3 3")
     let strs = strings(entry(vault, "Coded")!)
-    check("csv: no source on an entry without an identifier", "\(KeePassImport.sourceID(of: entry(vault, "Coded")!) == nil)", "true")
+    check("csv: the entry keeps the marker", "\(KeePassImport.sourceID(of: entry(vault, "Coded")!)?.hasPrefix("csv:") ?? false)", "true")
     check("csv: the unreadable code is protected", "\(strs["One-time code"]?.protected ?? false)", "true")
     let csvFile = work.appendingPathComponent("login.csv")
     try Data(text.utf8).write(to: csvFile)
@@ -1058,7 +1061,7 @@ do {
     check("numbers: zero, a negative and null are missing, not invalid", "\(V.stamp(0)) \(V.stamp(-5)) \(V.stamp(NSNull())) \(V.stamp(nil))", "missing missing missing missing")
     check("numbers: months are 1 to 12 and years 1 to 9999", "\(String(describing: V.yearMonth(202412))) \(String(describing: V.yearMonth(202413))) \(String(describing: V.yearMonth(1e30))) \(String(describing: V.yearMonth("nan"))) \(String(describing: V.yearMonth(99999999999999999)))", "Optional((2024, 12)) nil nil nil nil")
     check("numbers: a day is a day or nothing", "\(V.day(9223372036854775807) ?? "nil") \(V.day(9.3e18) ?? "nil") \(V.day(0) ?? "nil") \(V.day(-62135596800) ?? "nil") \(V.day("inf") ?? "nil")", "nil nil 1970-01-01 0001-01-01 nil")
-    check("numbers: the writer's time text clamps instead of trapping", "\(ImportTime.iso(Date(timeIntervalSince1970: 1e300))) \(ImportTime.iso(Date(timeIntervalSince1970: .nan))) \(ImportTime.iso(Date(timeIntervalSince1970: -1e300)))", "9999-12-31T23:59:59Z 1970-01-01T00:00:00Z 0001-01-01T00:00:00Z")
+    check("numbers: the writer's time text clamps instead of trapping", "\(shown(Date(timeIntervalSince1970: 1e300))) \(shown(Date(timeIntervalSince1970: .nan))) \(KeePassTime.date(ImportTime.iso(Date(timeIntervalSince1970: -1e300)))?.timeIntervalSince1970 ?? 1)", "9999-12-31T23:59:59Z 1970-01-01T00:00:00Z -62135596800.0")
 
     let p = try plan("extremes")
     check("extremes: every record is read", "\(p.items.count) \(p.skipped.unreadable)", "12 0")
@@ -1362,9 +1365,9 @@ do {
     check("merge: preview and apply agree", summaryLine(mergePreview), summaryLine(mergeSummary))
     check("merge: the login merged and the other two were added", summaryLine(mergeSummary), "added 2 updated 0 merged 1 skipped 0 similar 0")
     let mine = entry(merge, "My own title")!
-    check("merge: the title stays, the imported one is kept under a new label, and it is reported",
-          "\(strings(mine)["Title"]?.value ?? "-") | \(strings(mine)["Title (1Password)"]?.value ?? "-") | \(mergeSummary.issues.filter { $0.kind == .mergeConflict }.map { "\($0.item ?? "-"): \($0.detail)" }.joined())",
-          "My own title | History login | History login: it already held another value for Title, so that value was kept and the imported one was saved in a field ending in (1Password)")
+    check("merge: the title stays, no copy is made of the other one, and nothing is reported",
+          "\(strings(mine)["Title"]?.value ?? "-") | \(strings(mine)["Title (1Password)"]?.value ?? "-") | \(mergeSummary.issues.filter { $0.kind == .mergeConflict }.count)",
+          "My own title | - | 0")
     check("merge: the same site with another path is not a conflict, and the notes stay", "\(strings(mine)["URL"]?.value ?? "-") \(strings(mine)["URL (1Password)"] == nil) \(strings(mine)["Notes"]?.value ?? "-")", "https://hist.example.com/login true my notes")
     check("merge: the password is the one both had", strings(mine)["Password"]?.value ?? "", "current-a")
     check("merge: the older passwords come in, and the version before the merge is the newest record", "\(historyPasswords(mine))", "[\"old-a1\", \"old-a2\", \"current-a\"]")
@@ -1391,6 +1394,443 @@ do {
     gateVault.upsert(VaultItem(kind: .login, title: "Gate", account: "g", website: "gate.example.com", secret: "gp"))
     let gateSummary = try gateVault.apply(gate)
     check("merge: a merge alone counts as a change, so the store would write it", "\(gateSummary.itemCount) \(gateSummary.addedCount) \(gateSummary.merged)", "1 0 1")
+}
+
+// MARK: Round 3: secrets, links, nesting, identifiers, bytes, surrogates, salting and the nine behaviours
+
+func mk(_ id: String?, _ title: String, user: String = "u", password: String = "p", site: String? = "site.example.net", folder: [String] = [],
+        tags: [String] = [], extra: [ImportField] = [], attachments: [ImportAttachment] = []) -> ImportItem {
+    var fields = [ImportField(.username, value: user), ImportField(.password, value: password, concealed: true)]
+    if let site { fields.append(ImportField(.website, value: site)) }
+    return ImportItem(sourceID: id, kind: .login, title: title, fields: fields + extra, tags: tags, folder: folder, created: now, modified: now, attachments: attachments)
+}
+func planOf(_ items: [ImportItem]) -> ImportPlan {
+    var p = ImportPlan(source: .onePasswordPIF)
+    p.importedAt = now
+    p.items = items
+    return p
+}
+func groupPath(_ document: KDBXDocument, _ title: String) -> String {
+    KeePassImport.known(in: document).first { EntryMapping.string($0.node, "Title") == title }.map { $0.path.joined(separator: "/") } ?? "missing"
+}
+func moveEntry(_ document: KDBXDocument, _ title: String, toGroup name: String) {
+    guard let known = KeePassImport.known(in: document).first(where: { EntryMapping.string($0.node, "Title") == title }), let root = document.rootGroup else { return }
+    known.parent.children.removeAll { $0 === known.node }
+    let group = root.children(named: "Group").first { $0.child("Name")?.text == name } ?? {
+        let node = XNode("Group", children: [XNode("UUID", text: UUID().kdbxBase64), XNode("Name", text: name)])
+        root.children.append(node)
+        return node
+    }()
+    group.children.append(known.node)
+}
+func moveToBin(_ document: KDBXDocument, _ title: String) {
+    guard let meta = document.root.child("Meta") else { return }
+    let id = UUID().kdbxBase64
+    let bin = XNode("Group", children: [XNode("UUID", text: id), XNode("Name", text: "Recycle Bin")])
+    document.rootGroup?.children.append(bin)
+    meta.setChildText("RecycleBinUUID", id)
+    meta.setChildText("RecycleBinEnabled", "True")
+    moveEntry(document, title, toGroup: "Recycle Bin")
+}
+func tagsOf(_ document: KDBXDocument, _ title: String) -> String { entry(document, title)?.child("Tags")?.text ?? "" }
+func binaryNames(_ node: XNode) -> [String] { node.children(named: "Binary").compactMap { $0.child("Key")?.text }.sorted() }
+func details(_ summary: ImportSummary, _ kind: ImportIssue.Kind) -> String {
+    summary.issues.filter { $0.kind == kind }.map { ($0.item ?? "-") + ": " + $0.detail }.joined(separator: " | ")
+}
+func attachmentText(_ document: KDBXDocument, _ title: String, _ name: String) -> String {
+    guard let node = entry(document, title)?.children(named: "Binary").first(where: { $0.child("Key")?.text == name }),
+          let ref = node.child("Value")?.attribute("Ref").flatMap(Int.init), document.binaries.indices.contains(ref) else { return "missing" }
+    return String(decoding: document.binaries[ref].dropFirst(), as: UTF8.self)
+}
+func login(_ title: String, secret: String = "p", otp: String = "") -> VaultItem {
+    var v = VaultItem(kind: .login, title: title, account: "u", website: "https://site.example.net", secret: secret)
+    v.otpSecret = otp
+    return v
+}
+
+do {
+    // N1: a secret is never changed silently.
+    var secrets = ImportItem(sourceID: "1password:N1", kind: .login, title: "Secret\u{FFFE}Site",
+                             fields: [ImportField(.username, value: "us\u{1}er"), ImportField(.password, value: "pa\u{FFFF}ss", concealed: true),
+                                      ImportField(.website, value: "site.example.net"), ImportField(.notes, value: "no\u{B}tes"),
+                                      ImportField(.code, value: "otp\u{FFFE}auth", concealed: true),
+                                      ImportField(.custom, label: "Hidden", value: "h\u{FFFE}h", concealed: true), ImportField(.custom, label: "Plain", value: "x\u{FFFE}y")],
+                             created: now, modified: now)
+    secrets.sanitize()
+    let said = secrets.issues.filter { $0.kind == .secretChanged }.map(\.detail)
+    check("n1: the password is kept cleaned and the change names item and field",
+          "\(secrets.password) | \(secrets.issues.first { $0.kind == .secretChanged }?.item ?? "-") | \(said.first ?? "-")",
+          "pass | SecretSite | the password contained characters that cannot be stored and was changed. Check it in 1Password before you rely on it.")
+    check("n1: a one-time code and a hidden field are named too", said.dropFirst().joined(separator: " | "),
+          "the one-time code contained characters that cannot be stored and was changed. Check it in 1Password before you rely on it. | the hidden field Hidden contained characters that cannot be stored and was changed. Check it in 1Password before you rely on it.")
+    check("n1: the title, notes and a plain field are cleaned without a word", "\(secrets.title) \(secrets.first(.notes) ?? "") \(secrets.issues.filter { $0.kind != .secretChanged }.count)", "SecretSite notes 0")
+    check("n1: the plan counts them as a separate number", "\(planOf([secrets]).summary.secretsChanged) \(try emptyVault().preview(planOf([secrets])).secretsChanged)", "3 3")
+    var card = ImportItem(sourceID: nil, kind: .card, title: "Card", fields: [ImportField(.cardNumber, value: "4111\u{FFFE}", concealed: true), ImportField(.pin, value: "\u{FFFF}", concealed: true), ImportField(.securityCode, value: "1\u{1}2", concealed: true)], created: now, modified: now)
+    card.sanitize()
+    check("n1: a card number, a PIN and a security code are named, and an empty one says it could not be stored",
+          card.issues.map(\.detail).joined(separator: " | "),
+          "the card number contained characters that cannot be stored and was changed. Check it in 1Password before you rely on it. | the PIN could not be stored at all. Check it in 1Password before you rely on it. | the security code contained characters that cannot be stored and was changed. Check it in 1Password before you rely on it.")
+    var emptyTitle = ImportItem(sourceID: nil, kind: .note, title: "\u{FFFE}", fields: [ImportField(.notes, value: "\u{1}"), ImportField(.custom, label: "\u{FFFE}", value: "v")], created: now, modified: now)
+    emptyTitle.sanitize()
+    check("n1: text that becomes empty is reported once per item, as text and not as a secret", "\(emptyTitle.issues.filter { $0.kind == .textEmptied }.count) \(emptyTitle.issues.filter { $0.kind == .secretChanged }.count)", "1 0")
+    var untouched = mk(nil, "Fine")
+    untouched.sanitize()
+    check("n1: a clean item says nothing", "\(untouched.issues.count)", "0")
+    let viaFile = try writeExport("n1-file", [loginJSON(1, "Via file", user: "u", password: "p\\ufffeq", site: "site.example.net")])
+    let viaPlan = try OnePasswordPIF.plan(from: viaFile, now: now)
+    check("n1: the same through a 1PIF", "\(viaPlan.items[0].password) \(viaPlan.summary.secretsChanged)", "pq 1")
+    let viaCSV = try CSVSource.plan(from: "title,url,username,password\nCsv row,site.example.net,u,\"pa\u{FFFF}ss\"\n", now: now)
+    check("n1: and through a CSV", "\(viaCSV.items[0].password) \(viaCSV.summary.secretsChanged)", "pass 1")
+
+    // N2: a link inside the export folder, reached through /tmp or /private/tmp.
+    let alias = "/tmp/psss-import-alias-\(getpid())"
+    try? fm.removeItem(atPath: alias)
+    try fm.createDirectory(atPath: alias, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(atPath: alias) }
+    let records = [loginJSON(7, "Through a link", user: "u", password: "p", site: "link.example.net")].map { $0 + "\n" + separatorLine }.joined()
+    try Data(records.utf8).write(to: URL(fileURLWithPath: alias + "/real-data.txt"))
+    try fm.createSymbolicLink(atPath: alias + "/data.1pif", withDestinationPath: "real-data.txt")
+    for spelling in [alias, "/private" + alias] {
+        let outcomeText = (try? OnePasswordPIF.plan(from: URL(fileURLWithPath: spelling), now: now).items.first?.title) ?? "refused"
+        check("n2: data.1pif linked to a file in the folder is read through \(spelling.hasPrefix("/private") ? "/private/tmp" : "/tmp")", outcomeText, "Through a link")
+    }
+    let outside = "/tmp/psss-import-outside-\(getpid())"
+    try Data(records.utf8).write(to: URL(fileURLWithPath: outside))
+    defer { try? fm.removeItem(atPath: outside) }
+    try? fm.removeItem(atPath: alias + "/data.1pif")
+    try fm.createSymbolicLink(atPath: alias + "/data.1pif", withDestinationPath: outside)
+    check("n2: a link to a file outside the folder is still refused", (try? OnePasswordPIF.plan(from: URL(fileURLWithPath: alias), now: now).items.count).map(String.init) ?? "refused", "refused")
+
+    // N3: folders nested deeper than 32 levels are flattened, and the import says so once.
+    var deepRecords: [String] = []
+    for level in 1...40 {
+        deepRecords.append("{\"uuid\":\"F\(level)\",\"typeName\":\"system.folder.Regular\",\"title\":\"L\(level)\"" + (level > 1 ? ",\"folderUuid\":\"F\(level - 1)\"" : "") + "}")
+    }
+    deepRecords.append(loginJSON(1, "Deep one", user: "u", password: "p", site: "deep.example.net").replacingOccurrences(of: "\"updatedAt\"", with: "\"folderUuid\":\"F40\",\"updatedAt\""))
+    deepRecords.append(loginJSON(2, "Deep two", user: "u", password: "p2", site: "deep.example.net").replacingOccurrences(of: "\"updatedAt\"", with: "\"folderUuid\":\"F39\",\"updatedAt\""))
+    let deepPlan = try OnePasswordPIF.plan(from: try writeExport("deep-folders", deepRecords), now: now)
+    check("n3: the path is cut at 32 and reported once", "\(deepPlan.items[0].folder.count) \(deepPlan.items[1].folder.count) \(issueCount(deepPlan.issues, .foldersFlattened)) \(deepPlan.issues.first { $0.kind == .foldersFlattened }?.detail ?? "-")", "32 32 1 Folders nested deeper than 32 levels were flattened.")
+    let shallowPlan = try OnePasswordPIF.plan(from: try writeExport("shallow-folders", Array(deepRecords.prefix(5)) + [loginJSON(1, "Shallow", user: "u", password: "p", site: "s.example.net").replacingOccurrences(of: "\"updatedAt\"", with: "\"folderUuid\":\"F5\",\"updatedAt\"")]), now: now)
+    check("n3: a path of five is not reported", "\(shallowPlan.items[0].folder.count) \(issueCount(shallowPlan.issues, .foldersFlattened))", "5 0")
+
+    // N4: the same identifier twice.
+    let twice = try OnePasswordPIF.plan(from: try writeExport("same-id", [loginJSON(5, "First", user: "u", password: "one", site: "a.example.net"), loginJSON(5, "First", user: "u", password: "two", site: "b.example.net"),
+                                                                       loginJSON(6, "Third", user: "u", password: "three", site: "c.example.net"), loginJSON(6, "Third", user: "u", password: "three", site: "c.example.net")]), now: now)
+    let twiceIssues = twice.items.flatMap(\.issues) + twice.issues
+    check("n4: other content makes separate entries and an issue each, identical content is dropped and counted", "\(twice.items.count) \(issueCount(twiceIssues, .sharedIdentifier)) \(twice.duplicatesInExport) \(Set(twice.items.compactMap(\.sourceID)).count)", "3 2 1 3")
+    check("n4: the issue says so", twiceIssues.first { $0.kind == .sharedIdentifier }?.detail ?? "-", "two items in the export share one identifier, so this one was added as a separate entry")
+    var shared = try emptyVault()
+    let sharedSummary = try shared.apply(twice)
+    check("n4: the vault holds the three and counts the repeat", "\(sharedSummary.addedCount) \(sharedSummary.duplicatesInExport)", "3 1")
+    let sharedAgain = try shared.apply(twice)
+    check("n4: importing it again changes nothing", summaryLine(sharedAgain), "added 0 updated 0 merged 0 skipped 3 similar 0")
+
+    // N5: two imported items for one hand-made login. The second becomes its own entry and is listed as similar.
+    var onceMerged = try emptyVault()
+    onceMerged.upsert(login("Hand made"))
+    let mergedSummary = try onceMerged.apply(planOf([mk("1password:M1", "First copy"), mk("1password:M2", "Second copy")]))
+    check("n5: one merges, the other is added and listed as similar", "\(mergedSummary.merged) \(mergedSummary.addedCount) \(mergedSummary.similarAdded) \(issueCount(mergedSummary.issues, .similarLogin))", "1 1 1 1")
+    check("n5: and both are in the vault", "\(allEntries(onceMerged).count)", "2")
+
+    // N6: the bytes decide, not the name and the size.
+    let bytesFile = work.appendingPathComponent("bytes.bin")
+    try Data("AAAA".utf8).write(to: bytesFile)
+    var bytesVault = try emptyVault()
+    let attach = ImportAttachment(name: "doc.bin", size: 4, url: bytesFile)
+    try bytesVault.apply(planOf([mk("1password:B1", "Bytes", attachments: [attach])]))
+    check("n6: the first import holds the first bytes", attachmentText(bytesVault, "Bytes", "doc.bin"), "AAAA")
+    try Data("BBBB".utf8).write(to: bytesFile)
+    let bytesPlan = planOf([mk("1password:B1", "Bytes", attachments: [attach])])
+    let bytesSummary = try bytesVault.apply(bytesPlan)
+    check("n6: same name and size with other bytes is an update", "\(bytesSummary.updated) \(bytesSummary.attachments)", "1 1")
+    check("n6: and the entry now holds the new bytes", attachmentText(bytesVault, "Bytes", "doc.bin"), "BBBB")
+    let bytesAgain = try bytesVault.apply(bytesPlan)
+    check("n6: the same bytes again is nothing", summaryLine(bytesAgain), "added 0 updated 0 merged 0 skipped 1 similar 0")
+
+    // N7: a record with a lone surrogate is skipped and reported like any unreadable line.
+    let lone = "{\"uuid\":\"\(uid(9))\",\"typeName\":\"securenotes.SecureNote\",\"title\":\"Lone\\ud800surrogate\",\"secureContents\":{\"notesPlain\":\"n\"}}"
+    let loneMixed = try OnePasswordPIF.plan(from: try writeExport("lone-mixed", [noteJSON(1, "Good one"), lone, noteJSON(2, "Good two")]), now: now)
+    check("n7: the other records are read and the bad one is reported", "\(loneMixed.items.count) \(loneMixed.skipped.unreadable) \(issueCount(loneMixed.issues, .unreadableRecord))", "2 1 1")
+    expectThrows("n7: a file whose only record is bad says the records could not be read, not that it is not an export", .unreadable("None of the 1 records in it could be read.")) {
+        _ = try OnePasswordPIF.plan(from: try writeExport("lone-only", [lone]), now: now)
+    }
+
+    // Salting: the stored fingerprint differs per entry.
+    var saltA = try emptyVault(), saltB = try emptyVault()
+    let saltItem = mk("1password:S1", "Salted")
+    try saltA.apply(planOf([saltItem]))
+    try saltB.apply(planOf([saltItem]))
+    let hashA = KeePassImport.baseline(of: entry(saltA, "Salted")!)?.content ?? "a", hashB = KeePassImport.baseline(of: entry(saltB, "Salted")!)?.content ?? "b"
+    check("salt: the content fingerprint of the same item differs between two entries", "\(hashA != hashB) \(hashA != saltItem.fingerprint)", "true true")
+    check("salt: and is the item's fingerprint salted with the entry's own identifier", hashA, ImportItem.salted(entry(saltA, "Salted")!.child("UUID")!.text, saltItem.fingerprint))
+    check("salt: importing it again is a duplicate", summaryLine(try saltA.apply(planOf([saltItem]))), "added 0 updated 0 merged 0 skipped 1 similar 0")
+}
+
+do {
+    // Behaviour 1: a folder moved in 1Password moves the entry, unless the person moved it.
+    var moved = try emptyVault()
+    try moved.apply(planOf([mk("1password:F1", "Folder item", folder: ["A"]), mk("1password:F2", "Person moved", user: "v", folder: ["A"])]))
+    moveEntry(moved, "Person moved", toGroup: "Mine")
+    let movePlan = planOf([mk("1password:F1", "Folder item", folder: ["B"]), mk("1password:F2", "Person moved", user: "v", folder: ["B"])])
+    check("move: the preview counts the move as an update", "\(moved.preview(movePlan).updated)", "1")
+    let moveSummary = try moved.apply(movePlan)
+    check("move: the entry follows the source, the one the person moved stays", "\(groupPath(moved, "Folder item")) | \(groupPath(moved, "Person moved")) | \(moveSummary.updated)", "B | Mine | 1")
+    check("move: it survives a save", groupPath(try reopen(moved), "Folder item"), "B")
+
+    // Behaviour 2: trashed in 1Password after the import.
+    var trashed = try emptyVault()
+    try trashed.apply(planOf([mk("1password:T1", "Will be trashed")]))
+    var trashPlan = planOf([])
+    trashPlan.trashedSources = [TrashedSource(id: "1password:T1", title: "Will be trashed"), TrashedSource(id: "1password:never", title: "Never imported")]
+    let trashSummary = try trashed.apply(trashPlan)
+    check("trashed: the entry stays and the person is told once", "\(allEntries(trashed).count) | \(details(trashSummary, .trashedInSource))", "1 | Will be trashed: it was deleted in 1Password; it is still in your vault")
+
+    // Behaviour 3: deleted in Psss, then imported again.
+    var gone = try emptyVault()
+    gone.root.child("Meta")!.child("CustomData")!.children.append(XNode("Item", children: [XNode("Key", text: DeletedSources.key), XNode("Value", text: "[\"1password:D1\"]"), XNode("LastModificationTime", text: "2026-01-01T00:00:00Z")]))
+    check("deleted: the list is read from the vault's own custom data", "\(DeletedSources.read(from: gone.root).sorted())", "[\"1password:D1\"]")
+    DeletedSources.record("1password:D2", in: gone.root)
+    DeletedSources.record("1password:D2", in: gone.root)
+    check("deleted: the helper adds an identifier once, and it survives a save", "\(DeletedSources.read(from: try reopen(gone).root).sorted())", "[\"1password:D1\", \"1password:D2\"]")
+    let freshMeta = try emptyVault()
+    DeletedSources.record("1password:X", in: freshMeta.root)
+    check("deleted: it works in a vault that has no list yet", "\(DeletedSources.read(from: freshMeta.root).sorted())", "[\"1password:X\"]")
+    var deletedPlan = planOf([mk("1password:D1", "Deleted one"), mk("1password:D2", "Deleted two", user: "w"), mk("1password:D3", "Still wanted", user: "x")])
+    let deletedPreview = gone.preview(deletedPlan)
+    let deletedSummary = try gone.apply(deletedPlan)
+    check("deleted: only the one never deleted comes back, and the person is told how many", "\(deletedSummary.addedCount) \(deletedSummary.deletedNotImported) | \(details(deletedSummary, .deletedNotImported)) | \(deletedPreview.deletedNotImported)",
+          "1 2 | -: 2 items you deleted in Psss were not imported again | 2")
+    check("deleted: the summary lists them by title and kind for a screen", deletedSummary.deletedItems.map { "\($0.title) (\($0.kind.rawValue))" }.joined(separator: ", "), "Deleted one (login), Deleted two (login)")
+    deletedPlan.includeDeleted = true
+    let broughtBack = try gone.apply(deletedPlan)
+    check("deleted: asking for them brings them back", "\(broughtBack.addedCount) \(broughtBack.deletedNotImported)", "2 0")
+
+    // Behaviour 4: in Recently Deleted.
+    var binned = try emptyVault()
+    try binned.apply(planOf([mk("1password:R1", "Binned", password: "p1")]))
+    moveToBin(binned, "Binned")
+    let binSummary = try binned.apply(planOf([mk("1password:R1", "Binned", password: "p2")]))
+    check("bin: changed in the source, it is skipped and reported", "\(binSummary.itemCount) \(allEntries(binned).count) \(details(binSummary, .inRecycleBin))", "0 1 Binned: it is in Recently Deleted; it was not imported again")
+    let binSame = try binned.apply(planOf([mk("1password:R1", "Binned", password: "p1")]))
+    check("bin: unchanged, it is skipped and reported too", "\(binSame.itemCount) \(issueCount(binSame.issues, .inRecycleBin))", "0 1")
+    var handMade = try emptyVault()
+    handMade.upsert(login("Hand login"))
+    moveToBin(handMade, "Hand login")
+    let handSummary = try handMade.apply(planOf([mk("1password:H1", "Imported login")]))
+    check("bin: a hand-made login in the bin neither blocks nor absorbs an imported item", "\(handSummary.addedCount) \(handSummary.merged) \(handSummary.duplicatesSkipped) \(allEntries(handMade).count)", "1 0 0 2")
+
+    // Behaviour 5: a tag the person removed stays removed.
+    var tags = try emptyVault()
+    try tags.apply(planOf([mk("1password:G1", "Tagged", tags: ["a", "b"])]))
+    entry(tags, "Tagged")!.child("Tags")!.text = "a;mine"
+    let tagSummary = try tags.apply(planOf([mk("1password:G1", "Tagged", tags: ["a", "b", "c"])]))
+    check("tags: the removed tag stays removed, the person's stays, the source's new one comes", "\(tagsOf(tags, "Tagged")) \(tagSummary.updated)", "a;mine;c 1")
+    let tagSummary2 = try tags.apply(planOf([mk("1password:G1", "Tagged", tags: ["a", "b"])]))
+    check("tags: a tag the source dropped goes", "\(tagsOf(tags, "Tagged")) \(tagSummary2.updated)", "a;mine 1")
+
+    // Behaviour 6: an attachment removed in 1Password goes, unless the person changed it.
+    let f1 = work.appendingPathComponent("r3-one.txt"), f2 = work.appendingPathComponent("r3-two.txt"), f3 = work.appendingPathComponent("r3-three.txt")
+    try Data("one".utf8).write(to: f1); try Data("two!".utf8).write(to: f2); try Data("three!!".utf8).write(to: f3)
+    let a1 = ImportAttachment(name: "one.txt", size: 3, url: f1), a2 = ImportAttachment(name: "two.txt", size: 4, url: f2), a3 = ImportAttachment(name: "three.txt", size: 7, url: f3)
+    var files = try emptyVault()
+    try files.apply(planOf([mk("1password:A1", "Files", attachments: [a1, a2, a3])]))
+    let fileNode = entry(files, "Files")!
+    // The person adds one of their own and replaces three.txt with other bytes.
+    let ownRef = fileNode.children(named: "Binary").first { $0.child("Key")?.text == "one.txt" }!.child("Value")!.attribute("Ref")!
+    fileNode.children.append(XNode("Binary", children: [XNode("Key", text: "mine.txt"), XNode("Value", attributes: [("Ref", ownRef)])]))
+    fileNode.children.first { $0.name == "Binary" && $0.child("Key")?.text == "three.txt" }!.child("Value")!.setAttribute("Ref", ownRef)
+    let fileSummary = try files.apply(planOf([mk("1password:A1", "Files", attachments: [a1])]))
+    check("files: the removed ones go, the person's own and the changed one stay, and nothing is reported", "\(binaryNames(entry(files, "Files")!).joined(separator: ",")) \(fileSummary.updated) \(fileSummary.issues.count)", "mine.txt,one.txt,three.txt 1 0")
+    check("files: the removal is listed by item and file name", fileSummary.removedAttachments.map { "\($0.item): \($0.file)" }.joined(), "Files: two.txt")
+    check("files: the old file is still in the history", "\(entry(files, "Files")!.child("History")?.children.contains { binaryNames($0).contains("two.txt") } ?? false)", "true")
+
+    // Behaviour 7: merge noise.
+    var noise = try emptyVault()
+    noise.upsert({ var v = login("Mine"); v.notes = "my notes"; return v }())
+    var other = login("other.example.net"); other.account = "u2"; other.website = "https://other.example.net"; other.secret = "q"
+    noise.upsert(other)
+    let noiseSummary = try noise.apply(planOf([mk("1password:N1", "Theirs", extra: [ImportField(.notes, value: "their notes")]),
+                                               mk("1password:N2", "Better title", user: "u2", password: "q", site: "other.example.net")]))
+    check("noise: a title never conflicts, the entry's own stays unless it is only its site", "\(entry(noise, "Mine") != nil) \(entry(noise, "Better title") != nil) \(allEntries(noise).filter { strings($0)["Title (1Password)"] != nil }.count)", "true true 0")
+    check("noise: differing notes are joined, entry's first, and listed once", "\(strings(entry(noise, "Mine")!)["Notes"]?.value ?? "") | \(issueCount(noiseSummary.issues, .notesCombined)) \(issueCount(noiseSummary.issues, .mergeConflict))", "my notes\n\ntheir notes | 1 0")
+    var conflictVault = try emptyVault()
+    conflictVault.upsert(login("Own"))
+    entry(conflictVault, "Own")!.children.append(XNode("String", children: [XNode("Key", text: "Pin"), XNode("Value", text: "1111")]))
+    let conflictSummary = try conflictVault.apply(planOf([mk("1password:C1", "Own", extra: [ImportField(.custom, label: "Pin", value: "9999", concealed: true)])]))
+    check("noise: a custom field with the same label and another value is the one conflict", "\(strings(entry(conflictVault, "Own")!)["Pin"]?.value ?? "") \(strings(entry(conflictVault, "Own")!)["Pin (1Password)"]?.value ?? "") | \(details(conflictSummary, .mergeConflict))",
+          "1111 9999 | Own: it already held another value for Pin, so that value was kept and the imported one was saved in a field ending in (1Password)")
+
+    // Behaviour 8: a different one-time code is kept apart and reported as not in use.
+    var codes = try emptyVault()
+    codes.upsert(login("Coded", otp: "JBSWY3DPEHPK3PXP"))
+    let codeSummary = try codes.apply(planOf([mk("1password:O1", "Coded", extra: [ImportField(.code, value: "otpauth://totp/Coded?secret=KRSXG5CTMVRXEZLU&issuer=Coded", concealed: true)])]))
+    let codeStrings = strings(entry(codes, "Coded")!)
+    check("code: the other code is a hidden field, the one in use stays", "\(codeStrings["One-time code (1Password)"]?.protected ?? false) \(codeStrings["otp"]?.value.contains("JBSWY3DPEHPK3PXP") ?? false) \(codeStrings["One-time code (1Password)"]?.value.contains("KRSXG5CTMVRXEZLU") ?? false)", "true true true")
+    check("code: and it is reported as not in use, not as a conflict", "\(issueCount(codeSummary.issues, .codeNotInUse)) \(issueCount(codeSummary.issues, .mergeConflict))", "1 0")
+
+    // Behaviour 9: of several entries that match, a CSV one first, then the newest, then the first.
+    func ex(_ source: String?, modified: Double) -> ImportDuplicates.Existing {
+        var e = ImportDuplicates.Existing(sourceID: source, hosts: ["site.example.net"], username: "u", password: "p")
+        e.modified = Date(timeIntervalSince1970: modified)
+        return e
+    }
+    let one = planOf([mk("1password:P1", "Pick")])
+    check("pick: a CSV entry wins over a newer hand-made one", ImportDuplicates.classify(one, against: [ex(nil, modified: 300), ex("csv:x", modified: 100)]).map { "\($0)" }.joined(), "merge(1)")
+    check("pick: otherwise the most recently modified", ImportDuplicates.classify(one, against: [ex(nil, modified: 100), ex(nil, modified: 300), ex(nil, modified: 200)]).map { "\($0)" }.joined(), "merge(1)")
+    check("pick: otherwise the first", ImportDuplicates.classify(one, against: [ex(nil, modified: 100), ex(nil, modified: 100)]).map { "\($0)" }.joined(), "merge(0)")
+    check("pick: a second item takes the next one, a third has none left and is similar", ImportDuplicates.classify(planOf([mk("1password:P1", "A"), mk("1password:P2", "B"), mk("1password:P3", "C")]), against: [ex(nil, modified: 100), ex(nil, modified: 200)]).map { "\($0)" }.joined(separator: ","), "merge(1),merge(0),addSimilar")
+}
+
+// MARK: Follow-ups: CSV markers, spaces in secrets, order-free shared identifiers, refreshed hashes, emptied values
+
+func csvPlan(_ text: String) throws -> ImportPlan { try CSVSource.plan(from: text, now: now) }
+func setBaseline(_ node: XNode, _ edit: (inout [String: Any]) -> Void) {
+    guard let item = node.child("CustomData")?.children(named: "Item").first(where: { $0.child("Key")?.text == KeePassImport.hashesKey }),
+          var object = (try? JSONSerialization.jsonObject(with: Data((item.child("Value")?.text ?? "").utf8))) as? [String: Any] else { return }
+    edit(&object)
+    item.setChildText("Value", String(decoding: try! JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), as: UTF8.self))
+}
+
+do {
+    // D-D: a CSV row with no password is a duplicate, and a repeated CSV import is a no-op.
+    let noPassword = "title,url,username,password\nNo secret,site.example.net,u,\nWith secret,other.example.net,v,pw1\n"
+    var csvVault = try emptyVault()
+    let csv1 = try csvVault.apply(try csvPlan(noPassword))
+    let csvBefore = XMLTree.serialize(csvVault.root)
+    let csvPreview = csvVault.preview(try csvPlan(noPassword))
+    let csv2 = try csvVault.apply(try csvPlan(noPassword))
+    check("csv again: the first import adds both, the second skips both with no issue", "\(csv1.addedCount) \(csv2.addedCount) \(csv2.duplicatesSkipped) \(csv2.similarAdded) \(issueCount(csv2.issues, .similarLogin)) \(csv2.needsWrite) \(csvPreview.needsWrite)", "2 0 2 0 0 false false")
+    check("csv again: the vault is byte-identical", XMLTree.serialize(csvVault.root) == csvBefore ? "same" : "changed", "same")
+    var handNoPassword = try emptyVault()
+    handNoPassword.upsert(login("No secret", secret: ""))
+    let handCSV = try handNoPassword.apply(try csvPlan("title,url,username,password\nNo secret,site.example.net,u,\n"))
+    check("csv again: a row with no password matches a hand-made login with none (site, user name, title)", "\(handCSV.addedCount) \(handCSV.duplicatesSkipped) \(issueCount(handCSV.issues, .similarLogin))", "0 1 0")
+    let otherTitle = try handNoPassword.apply(try csvPlan("title,url,username,password\nAnother title,site.example.net,u,\n"))
+    check("csv again: another title is another login", "\(otherTitle.addedCount)", "1")
+    // The marker is made of site, user name and title, so a changed password is an update with history.
+    let changedCSV = try csvVault.apply(try csvPlan("title,url,username,password\nWith secret,other.example.net,v,pw2\n"))
+    check("csv again: a changed password is an update, and the old one is in the history", "\(changedCSV.updated) \(changedCSV.addedCount) \(historyPasswords(entry(csvVault, "With secret")!)) \(strings(entry(csvVault, "With secret")!)["Password"]?.value ?? "")", "1 0 [\"pw1\"] pw2")
+    let marker = KeePassImport.sourceID(of: entry(csvVault, "With secret")!) ?? ""
+    expect("csv again: the marker is csv: and a digest, not the password", marker.hasPrefix("csv:") && !marker.contains("pw"))
+    let sameMarker = try csvPlan("title,url,username,password\nWith secret,other.example.net,v,anything\n").items[0].sourceID ?? ""
+    check("csv again: the marker does not depend on the password", sameMarker, marker)
+    // Two rows with one marker.
+    let twoRows = try csvPlan("title,url,username,password\nSame,s.example.net,u,a\nSame,s.example.net,u,b\nSame,s.example.net,u,a\n")
+    check("csv again: rows that share a marker and differ are kept apart, an identical one is dropped", "\(twoRows.items.count) \(twoRows.duplicatesInExport) \(Set(twoRows.items.compactMap(\.sourceID)).count)", "2 1 2")
+
+    // D-C: with markers, a CSV entry is the one a 1Password item merges into.
+    var csvFirst = try emptyVault()
+    try csvFirst.apply(try csvPlan("title,url,username,password\nFrom CSV,site.example.net,u,p\n"))
+    csvFirst.upsert(login("Hand made later"))
+    let csvMerge = try csvFirst.apply(planOf([mk("1password:W1", "Theirs")]))
+    check("pick: a 1Password item merges into the CSV entry, not into the hand-made one", "\(csvMerge.merged) \(KeePassImport.sourceID(of: entry(csvFirst, "From CSV")!) ?? "-") \(KeePassImport.sourceID(of: entry(csvFirst, "Hand made later")!) ?? "none")", "1 1password:W1 none")
+
+    // D-A: a secret is never trimmed.
+    var spaces = ImportItem(sourceID: "1password:SP", kind: .login, title: "Spacey", fields: [ImportField(.password, value: " ", concealed: true), ImportField(.website, value: "site.example.net")], created: now, modified: now)
+    spaces.sanitize()
+    check("spaces: a password of one space is kept and reported", "\(spaces.password.count) \(details(planOf([spaces]).summary, .secretSpaces))", "1 Spacey: the password is only spaces. Check it in 1Password.")
+    let cardFile = try writeExport("spacey-card", [
+        "{\"uuid\":\"\(uid(21))\",\"typeName\":\"wallet.financial.CreditCard\",\"title\":\"Spacey card\",\"createdAt\":1700000000,\"updatedAt\":1700500000,\"secureContents\":{\"sections\":[{\"title\":\"\",\"name\":\"s\",\"fields\":["
+        + "{\"k\":\"string\",\"n\":\"cardholder\",\"v\":\"A B\",\"t\":\"cardholder\"},{\"k\":\"string\",\"n\":\"ccnum\",\"v\":\"   \",\"t\":\"number\"},"
+        + "{\"k\":\"concealed\",\"n\":\"cvv\",\"v\":\"  \",\"t\":\"verification number\"},{\"k\":\"concealed\",\"n\":\"pin\",\"v\":\" \",\"t\":\"PIN\"},"
+        + "{\"k\":\"concealed\",\"n\":\"other\",\"v\":\"\t\",\"t\":\"Other\"},{\"k\":\"string\",\"n\":\"plain\",\"v\":\"   \",\"t\":\"Plain\"},{\"k\":\"concealed\",\"n\":\"empty\",\"v\":\"\",\"t\":\"Empty\"}]}]}}"])
+    let cardPlan = try OnePasswordPIF.plan(from: cardFile, now: now)
+    let spaced = cardPlan.items[0]
+    check("spaces: a card number, security code, PIN and hidden field of only spaces are kept exactly", "\(spaced.first(.cardNumber) ?? "-")|\(spaced.first(.securityCode) ?? "-")|\(spaced.first(.pin) ?? "-")|\(spaced.fields.first { $0.label == "Other" }?.value ?? "-")", "   |  | |\t")
+    check("spaces: each is reported by name, an empty one and a plain one are skipped silently", cardPlan.items[0].issues.filter { $0.kind == .secretSpaces }.map(\.detail).joined(separator: " | "),
+          "the card number is only spaces. Check it in 1Password. | the security code is only spaces. Check it in 1Password. | the PIN is only spaces. Check it in 1Password. | the hidden field Other is only spaces. Check it in 1Password.")
+    check("spaces: and no field is made for the empty or plain ones", "\(spaced.fields.contains { $0.label == "Empty" || $0.label == "Plain" })", "false")
+    let spacedCSV = try csvPlan("title,url,username,password\nSp,site.example.net,u, \n")
+    check("spaces: a CSV password of one space is kept and reported", "\(spacedCSV.items[0].password.count) \(issueCount(spacedCSV.items[0].issues, .secretSpaces))", "1 1")
+
+    // D-B: shared identifiers do not depend on the order of the export.
+    let aRec = loginJSON(5, "Alpha", user: "u", password: "one", site: "a.example.net"), bRec = loginJSON(5, "Beta", user: "u", password: "two", site: "b.example.net")
+    var shared2 = try emptyVault()
+    let firstOrder = try OnePasswordPIF.plan(from: try writeExport("order-a", [aRec, bRec]), now: now)
+    try shared2.apply(firstOrder)
+    let sharedBefore = XMLTree.serialize(shared2.root)
+    let reordered = try OnePasswordPIF.plan(from: try writeExport("order-b", [bRec, aRec]), now: now)
+    let reorderPreview = shared2.preview(reordered)
+    let reorderedSummary = try shared2.apply(reordered)
+    check("shared: reordering the export and importing again changes nothing", "\(reorderedSummary.itemCount) \(reorderedSummary.duplicatesSkipped) \(reorderedSummary.needsWrite) \(reorderPreview.needsWrite) \(XMLTree.serialize(shared2.root) == sharedBefore)", "0 2 false false true")
+    check("shared: each entry keeps its own content", "\(strings(entry(shared2, "Alpha")!)["Password"]?.value ?? "") \(strings(entry(shared2, "Beta")!)["Password"]?.value ?? "")", "one two")
+    check("shared: every item of the group has a suffix made of a digest, the first included", "\(firstOrder.items.map { $0.sourceID ?? "" }.allSatisfy { $0.hasPrefix("1password:\(uid(5))#") && $0.count == "1password:\(uid(5))#".count + 8 })", "true")
+    // A title edited in 1Password: matched by fields and reported.
+    let renamed = try OnePasswordPIF.plan(from: try writeExport("order-c", [bRec, loginJSON(5, "Alpha renamed", user: "u", password: "one-changed", site: "a.example.net")]), now: now)
+    let renamedSummary = try shared2.apply(renamed)
+    check("shared: a changed title is matched to the entry by its fields, updated and reported", "\(renamedSummary.updated) \(renamedSummary.addedCount) \(allEntries(shared2).count) \(strings(entry(shared2, "Alpha renamed")!)["Password"]?.value ?? "-") \(issueCount(renamedSummary.issues, .sharedIdentifier))", "1 0 2 one-changed 2")
+    let renamedAgain = try shared2.apply(renamed)
+    check("shared: and then it is quiet again", "\(renamedAgain.needsWrite)", "false")
+
+    // D-F: hashes of an older form are refreshed in place, once.
+    var old = try emptyVault()
+    let oldPlan = planOf([mk("1password:OLD1", "Old import", folder: ["Fo"], attachments: [ImportAttachment(name: "one.txt", size: 3, url: work.appendingPathComponent("r3-one.txt"))])])
+    try old.apply(oldPlan)
+    setBaseline(entry(old, "Old import")!) { $0["v"] = 1; $0["content"] = "0123"; $0.removeValue(forKey: "folder"); $0.removeValue(forKey: "files") }
+    let oldPreview = old.preview(oldPlan)
+    let refreshed = try old.apply(oldPlan)
+    check("refresh: an old entry unchanged in every field is refreshed and counted apart", "\(refreshed.refreshed) \(refreshed.itemCount) \(refreshed.needsWrite) \(refreshed.duplicatesSkipped) \(oldPreview.refreshed)", "1 0 true 0 1")
+    let refreshedState = XMLTree.serialize(old.root)
+    let after = try old.apply(oldPlan)
+    check("refresh: the next import writes nothing and the vault is byte-identical", "\(after.refreshed) \(after.needsWrite) \(after.duplicatesSkipped) \(XMLTree.serialize(old.root) == refreshedState)", "0 false 1 true")
+    var movedPlan = oldPlan
+    movedPlan.items[0].folder = ["Elsewhere"]
+    movedPlan.items[0].attachments = []
+    let afterMove = try old.apply(movedPlan)
+    check("refresh: afterwards a folder move and a removed attachment are noticed", "\(afterMove.updated) \(groupPath(old, "Old import")) \(afterMove.removedAttachments.map { "\($0.item): \($0.file)" })", "1 Elsewhere [\"Old import: one.txt\"]")
+    let digestHex = AttachmentDigest.shared.hex(of: work.appendingPathComponent("r3-one.txt"), size: 3)
+    var fresh = try emptyVault(), fresh2 = try emptyVault()
+    try fresh.apply(oldPlan); try fresh2.apply(oldPlan)
+    let digestA = KeePassImport.baseline(of: entry(fresh, "Old import")!)?.files["one.txt"] ?? "a", digestB = KeePassImport.baseline(of: entry(fresh2, "Old import")!)?.files["one.txt"] ?? "b"
+    check("salt: the attachment digest in the stored hashes is salted per entry, not the plain SHA-256", "\(digestA != digestB) \(digestA != digestHex) \(digestA.count != 64)", "true true true")
+
+    // D-G: an earlier password emptied by cleaning is not a history entry.
+    var hist = mk("1password:HG", "History gone")
+    hist.history = [ImportRevision(password: "\u{FFFE}", date: now.addingTimeInterval(-200)), ImportRevision(password: "ok\u{FFFE}", date: now.addingTimeInterval(-100))]
+    hist.sanitize()
+    check("history: the emptied one is dropped, the changed one is kept, and each says what happened", "\(hist.history.map(\.password)) | \(hist.issues.filter { $0.kind == .secretChanged }.map(\.detail).joined(separator: " | "))",
+          "[\"ok\"] | an earlier password contained characters that cannot be stored and was changed. Check it in 1Password before you rely on it. | an earlier password could not be stored at all and was left out. Check it in 1Password before you rely on it.")
+    var histVault = try emptyVault()
+    try histVault.apply(planOf([hist]))
+    check("history: the entry holds one snapshot", "\(historyPasswords(entry(histVault, "History gone")!))", "[\"ok\"]")
+
+    // D-H: no empty custom field, and no empty notes on a merge.
+    var emptied = mk("1password:EM", "Emptied", extra: [ImportField(.custom, label: "Gone", value: "\u{FFFE}"), ImportField(.custom, label: "Kept", value: "x")])
+    emptied.sanitize()
+    var emptiedVault = try emptyVault()
+    try emptiedVault.apply(planOf([emptied]))
+    check("emptied: the value is reported once and no field is written for it", "\(issueCount(emptied.issues, .textEmptied)) \(customKeys(entry(emptiedVault, "Emptied")!).sorted())", "1 [\"Kept\"]")
+    var noNotes = try emptyVault()
+    noNotes.upsert(login("No notes"))
+    let noNotesNode = entry(noNotes, "No notes")!
+    noNotesNode.children.removeAll { $0.name == "String" && $0.child("Key")?.text == "Notes" }
+    try noNotes.apply(planOf([mk("1password:NN", "Theirs")]))
+    check("emptied: a merge writes no empty Notes when neither side has any", "\(strings(entry(noNotes, "No notes")!)["Notes"] == nil)", "true")
+}
+
+do {
+    // PERF-1: recording many identifiers.
+    let bulk = try emptyVault()
+    let batchStart = Date()
+    DeletedSources.record((0..<20_000).map { "1password:bulk-\($0)" }, in: bulk.root)
+    let batchSeconds = Date().timeIntervalSince(batchStart)
+    check("deleted: 20,000 identifiers through the batch form are listed and take well under a second", "\(DeletedSources.read(from: bulk.root).count) \(batchSeconds < 1.0)", "20000 true")
+    let singles = try emptyVault()
+    let singleStart = Date()
+    for i in 0..<2_000 { DeletedSources.record("1password:single-\(i)", in: singles.root) }
+    let singleSeconds = Date().timeIntervalSince(singleStart)
+    check("deleted: the single form called 2,000 times stays under a second", "\(DeletedSources.read(from: singles.root).count) \(singleSeconds < 1.0)", "2000 true")
+    DeletedSources.record(["1password:bulk-1", "1password:new"], in: bulk.root)
+    check("deleted: a batch skips the ones it holds and adds the others", "\(DeletedSources.read(from: bulk.root).count)", "20001")
+    let reopenedBulk = try reopen(bulk)
+    check("deleted: the long list survives a save", "\(DeletedSources.read(from: reopenedBulk.root).count)", "20001")
+    let control = try emptyVault()
+    DeletedSources.record(["1password:ctl\u{1}x", "1password:ctlx", "1password:ctl\u{FFFE}x"], in: control.root)
+    DeletedSources.record("1password:ctl\u{1}x", in: control.root)
+    let rawList = control.root.child("Meta")?.child("CustomData")?.children(named: "Item").first?.child("Value")?.text ?? ""
+    check("deleted: an identifier with a control character is cleaned first and listed once", rawList, "[\"1password:ctlx\"]")
+    let metaTime = control.root.child("Meta")?.child("CustomData")?.children(named: "Item").first?.child("LastModificationTime")?.text ?? ""
+    check("deleted: the item's time is in the codec's stored form", "\(Data(base64Encoded: metaTime)?.count ?? 0) \(KeePassTime.date(metaTime) != nil)", "8 true")
 }
 
 // MARK: Limits by default, and what they say (D14)
@@ -1471,6 +1911,9 @@ if run(["which", "keepassxc-cli"]).status == 0 {
     check("keepassxc xml: tags (KeePassXC writes the separator as a comma)", (exportedEntry("Tagged")?.entry.child("Tags")?.text ?? "").replacingOccurrences(of: ",", with: ";"), "alpha;beta gamma")
     check("keepassxc xml: nested groups", exportedEntry("In nested folder")?.path.joined(separator: "/") ?? "", "Work/Projects")
     check("keepassxc xml: creation time", seconds(exportedEntry("Tagged")?.entry.child("Times")?.child("CreationTime")?.text), "1700000000.0")
+    let taggedTimes = exportedEntry("Tagged")?.entry.child("Times")
+    check("keepassxc xml: exact created and edited dates of an imported entry, as stored and as read", "\(taggedTimes?.child("CreationTime")?.text ?? "") \(taggedTimes?.child("LastModificationTime")?.text ?? "") \(shown(KeePassTime.date(taggedTimes?.child("CreationTime")?.text ?? "") ?? .distantPast)) \(shown(KeePassTime.date(taggedTimes?.child("LastModificationTime")?.text ?? "") ?? .distantPast))",
+          "AOjl3A4AAAA= IInt3A4AAAA= 2023-11-14T22:13:20Z 2023-11-20T17:06:40Z")
     check("keepassxc xml: modification time", seconds(exportedEntry("Tagged")?.entry.child("Times")?.child("LastModificationTime")?.text), "1700500000.0")
     let oldest = exportedEntry("History login")?.entry.child("History")?.children.first
     check("keepassxc xml: a snapshot's time and password", "\(seconds(oldest?.child("Times")?.child("LastModificationTime")?.text)) \(oldest.flatMap { EntryMapping.string($0, "Password") } ?? "")", "1699000000.0 old-a1")

@@ -26,10 +26,26 @@ struct KDBXDocument: @unchecked Sendable {
 
     /// Replaces the vault password or key file. Runs the KDF, so call it off the main actor.
     mutating func changeCredentials(to credentials: KDBXCredentials) throws {
+        try replaceKey(to: credentials)
+        stampMasterKeyChanged()
+    }
+
+    /// The key derivation of `changeCredentials` alone: a new seed and the new transformed key. It touches no part of the XML
+    /// tree, so it may run off the main actor while the tree is in use. The caller stamps `MasterKeyChanged`.
+    mutating func replaceKey(to credentials: KDBXCredentials) throws {
         let composite = try credentials.compositeKey()
         header.kdf.regenerateSeed()
         transformedKey = try header.kdf.transform(composite)
     }
+
+    /// Takes the key and key derivation settings of a document made by `replaceKey`, and nothing else of it.
+    mutating func adoptKey(from other: KDBXDocument) {
+        header.kdf = other.header.kdf
+        transformedKey = other.transformedKey
+    }
+
+    /// Stamps the master key as changed, as KeePass does when the password or key file changes.
+    func stampMasterKeyChanged() { meta?.setChildText("MasterKeyChanged", KeePassTime.storedNow) }
 }
 
 struct KDBXCredentials: Sendable {
@@ -464,7 +480,11 @@ enum KDBX {
     }
 
     /// Serializes with a fresh master seed, IV and inner stream key. Does not run the KDF.
-    static func save(_ document: KDBXDocument) throws -> Data {
+    static func save(_ source: KDBXDocument) throws -> Data {
+        // Work on a copy: preparing the document and protecting values must not change the open one.
+        var document = source
+        document.root = source.root.deepCopy()
+        document.prepareForSave()
         var header = document.header
         header.masterSeed = KDBXCrypto.randomBytes(32)
         header.encryptionIV = KDBXCrypto.randomBytes(header.cipher.ivLength)
@@ -487,8 +507,7 @@ enum KDBX {
         let hmacKey = KDBXCrypto.sha512(header.masterSeed + document.transformedKey + Data([1]))
         out.append(KDBXCrypto.hmacSHA256(key: blockKey(hmacKey, index: .max), headerBytes))
 
-        // Work on a copy: protecting values must not change the open document.
-        let xml = document.root.deepCopy()
+        let xml = document.root
         let streamKey = KDBXCrypto.randomBytes(64)
         var stream = innerStream(streamKey)
         encryptProtected(xml, &stream)
@@ -525,7 +544,7 @@ enum KDBX {
     static func create(name: String, credentials: KDBXCredentials, kdf: KDBXKDF = .recommended()) throws -> KDBXDocument {
         let composite = try credentials.compositeKey()
         let transformed = try kdf.transform(composite)
-        let now = KeePassTime.string(.now)
+        let now = KeePassTime.storedNow
         let zeroUUID = Data(count: 16).base64EncodedString()
         func times() -> XNode {
             XNode("Times", children: [XNode("CreationTime", text: now), XNode("LastModificationTime", text: now),
@@ -659,24 +678,110 @@ extension Data {
     }
 }
 
-/// KeePass writes times as ISO 8601 in UTC, or in KDBX 4 as base64 of seconds since 0001-01-01. Read both, write ISO.
+/// KeePass writes times as ISO 8601 text in UTC (KDBX 3), or in KDBX 4 as base64 of an 8-byte little-endian count of seconds
+/// since 0001-01-01T00:00:00Z. Both are read. Psss always writes KDBX 4, so the codec writes the base64 form with `stored`;
+/// `string` is the ISO text form, kept for KDBX 3 files and for callers that need readable text.
 enum KeePassTime {
     private static let epochOffset: TimeInterval = 62_135_596_800 // 0001-01-01 to 1970-01-01
 
+    /// What the codec treats as the current time. Tests replace it to put entries at known times; nothing else does.
+    nonisolated(unsafe) static var clock: @Sendable () -> Date = { Date() }
+
+    static var now: Date { clock() }
+
+    /// ISO 8601 text, whole seconds, UTC.
     static func string(_ date: Date) -> String {
         ISO8601DateFormatter().string(from: date)
     }
 
+    /// The KDBX 4 form: base64 of the little-endian seconds since year 1. Whole seconds, rounded down. A date outside years
+    /// 1 to 9999, or one that is not a number, is clamped, so no input can trap or write a time the file cannot hold.
+    static func stored(_ date: Date) -> String {
+        var value = date.timeIntervalSince1970
+        if !value.isFinite { value = 0 }
+        value = min(max(value, -epochOffset), 253_402_300_799)
+        let seconds = UInt64((value + epochOffset).rounded(.down))
+        return KDBXCrypto.le64(seconds).base64EncodedString()
+    }
+
+    static var storedNow: String { stored(now) }
+
+    /// The last second of year 9999, and the first of year 1, as Unix times.
+    private static let latest: TimeInterval = 253_402_300_799
+
+    /// Reads both forms, for any text: it never traps and returns nil for what it cannot read. No formatter is built, so `items()`
+    /// stays fast on a vault of tens of thousands of entries. Accepts `YYYY-MM-DDTHH:MM:SS`, then optional fractional seconds (only
+    /// the first nine digits count, the rest are ignored), then `Z` or an offset `+HH:MM`, `-HH:MM`, `+HHMM`, `-HHMM`; or 8 bytes
+    /// of base64. A calendar date that does not exist (30 February) and a year outside 1 to 9999 are nil.
     static func date(_ text: String) -> Date? {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let plain = ISO8601DateFormatter()
-        if let date = plain.date(from: value) { return date }
-        plain.formatOptions.insert(.withFractionalSeconds)
-        if let date = plain.date(from: value) { return date }
+        if let date = parseISO(value) { return date }
         if let data = Data(base64Encoded: value), data.count == 8 {
             let seconds = data.enumerated().reduce(UInt64(0)) { $0 | UInt64($1.element) << UInt64(8 * $1.offset) }
+            guard seconds <= UInt64(latest + epochOffset) else { return nil }
             return Date(timeIntervalSince1970: TimeInterval(seconds) - epochOffset)
         }
         return nil
+    }
+
+    /// Whether the text is ISO 8601 (KDBX 3) rather than the KDBX 4 form, for the pass that converts a file's times to one form.
+    static func isISO(_ text: String) -> Bool { text.utf8.count >= 20 && parseISO(text.trimmingCharacters(in: .whitespacesAndNewlines)) != nil }
+
+    private static func parseISO(_ value: String) -> Date? {
+        let bytes = Array(value.utf8)
+        guard bytes.count >= 20, bytes.count < 200 else { return nil }
+        // Exactly `count` ASCII digits at `at`, as a number. At most nine digits, so no sum can overflow.
+        func number(_ at: Int, _ count: Int) -> Int? {
+            guard at >= 0, count > 0, count <= 9, at + count <= bytes.count else { return nil }
+            var n = 0
+            for i in at..<(at + count) { guard (48...57).contains(bytes[i]) else { return nil }; n = n * 10 + Int(bytes[i] - 48) }
+            return n
+        }
+        guard bytes[4] == 45, bytes[7] == 45, bytes[10] == 84, bytes[13] == 58, bytes[16] == 58,
+              let y = number(0, 4), let m = number(5, 2), let d = number(8, 2),
+              let hh = number(11, 2), let mm = number(14, 2), let ss = number(17, 2),
+              (1...9999).contains(y), (1...12).contains(m), hh < 24, mm < 60, ss < 61 else { return nil }
+        let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
+        let monthLength = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1]
+        guard (1...monthLength).contains(d) else { return nil }
+
+        var position = 19
+        var fraction = 0.0
+        if bytes[position] == 46 {
+            position += 1
+            let start = position
+            while position < bytes.count, (48...57).contains(bytes[position]) { position += 1 }
+            let digits = position - start
+            guard digits > 0 else { return nil }
+            let used = min(digits, 9)
+            fraction = Double(number(start, used)!) / pow(10, Double(used))
+        }
+        // The zone: Z, or a signed offset of hours and minutes.
+        var offset = 0
+        guard position < bytes.count else { return nil }
+        if bytes[position] == 90 {
+            position += 1
+        } else if bytes[position] == 43 || bytes[position] == 45 {
+            let sign = bytes[position] == 43 ? 1 : -1
+            guard let oh = number(position + 1, 2) else { return nil }
+            var next = position + 3
+            if next < bytes.count, bytes[next] == 58 { next += 1 }
+            guard let om = number(next, 2), oh < 24, om < 60 else { return nil }
+            offset = sign * (oh * 3600 + om * 60)
+            position = next + 2
+        } else {
+            return nil
+        }
+        guard position == bytes.count else { return nil }
+        // Days from civil date (proleptic Gregorian), as in Howard Hinnant's algorithm.
+        let yy = m <= 2 ? y - 1 : y
+        let era = (yy >= 0 ? yy : yy - 399) / 400
+        let yoe = yy - era * 400
+        let doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1
+        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+        let days = era * 146_097 + doe - 719_468
+        let seconds = TimeInterval(days * 86_400 + hh * 3600 + mm * 60 + ss - offset) + fraction
+        guard seconds >= -epochOffset, seconds <= latest + 1 else { return nil }
+        return Date(timeIntervalSince1970: seconds)
     }
 }

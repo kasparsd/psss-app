@@ -28,6 +28,11 @@ struct VaultItem: Identifiable, Sendable, Codable {
     var useCount = 0
     /// Set when this login also holds a passkey.
     var passkey: PasskeyRecord?
+    /// When the entry was made and last changed, read from the file's `CreationTime` and `LastModificationTime`. The codec owns
+    /// them: they are never written from an item, so setting them on an item you save has no effect. Nil for an item that was
+    /// not read from a file, or whose entry has no such time.
+    private(set) var created: Date?
+    private(set) var modified: Date?
 
     /// The `otpauth://` link that moves this TOTP secret to another authenticator.
     var totpSetupURL: String? {
@@ -54,7 +59,8 @@ struct VaultItem: Identifiable, Sendable, Codable {
 
     init(id: UUID = UUID(), kind: ItemKind, title: String = "", account: String = "", website: String = "",
          secret: String = "", expiry: String = "", notes: String = "",
-         otpSecret: String = "", otpSettings: TOTPSettings = .standard, lastUsed: Date? = nil, useCount: Int = 0) {
+         otpSecret: String = "", otpSettings: TOTPSettings = .standard, lastUsed: Date? = nil, useCount: Int = 0,
+         created: Date? = nil, modified: Date? = nil) {
         self.id = id
         self.kind = kind
         self.title = title
@@ -67,5 +73,7 @@ struct VaultItem: Identifiable, Sendable, Codable {
         self.otpSettings = otpSettings
         self.lastUsed = lastUsed
         self.useCount = useCount
+        self.created = created
+        self.modified = modified
     }
 }

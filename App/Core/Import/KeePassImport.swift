@@ -10,8 +10,8 @@ extension KDBXDocument {
     /// What `apply` would do against this vault, without changing it: counts, duplicates, updates, merges and issues. It runs the
     /// same comparison `apply` runs, so the two always agree.
     func preview(_ plan: ImportPlan) -> ImportSummary {
-        let resolutions = KeePassImport.resolve(plan, in: self)
-        return KeePassImport.account(plan, resolutions, historyLimit: KeePassImport.historyLimit(in: self))
+        let resolved = KeePassImport.resolve(plan, in: self)
+        return KeePassImport.account(plan, resolved, historyLimit: KeePassImport.historyLimit(in: self))
     }
 
     /// Applies the plan. All or nothing: the work is done on a copy of the entry tree, the entries it wrote are serialized and
@@ -47,15 +47,16 @@ enum KeePassImport {
         return (Array(item.history.suffix(limit)), item.history.count - limit)
     }
 
-    static func account(_ plan: ImportPlan, _ resolutions: [Resolution], historyLimit limit: Int) -> ImportSummary {
+    static func account(_ plan: ImportPlan, _ resolved: Resolved, historyLimit limit: Int) -> ImportSummary {
         var summary = ImportSummary()
+        summary.duplicatesInExport = plan.duplicatesInExport
         summary.trashedSkipped = plan.skipped.trashed
         summary.unreadable = plan.skipped.unreadable
         summary.webFormFieldsSkipped = plan.skipped.webFormFields
         summary.rowsSkipped = plan.skipped.rows
         summary.missingDates = plan.missingDates
-        summary.issues = plan.issues
-        for (item, resolution) in zip(plan.items, resolutions) {
+        summary.issues = plan.issues + resolved.issues
+        for (item, resolution) in zip(plan.items, resolved.items) {
             let title: String? = item.title.isEmpty ? nil : item.title
             switch resolution {
             case .skip:
@@ -65,8 +66,20 @@ enum KeePassImport {
                 summary.similarAdded += 1
                 summary.issues.append(ImportIssue(kind: .similarLogin, item: title,
                                                   detail: String(localized: "a login for this site and username with another password was already in the vault, so this one was added separately")))
+            case .refresh:
+                summary.refreshed += 1
+                continue
+            case .inRecycleBin:
+                summary.issues.append(ImportIssue(kind: .inRecycleBin, item: title,
+                                                  detail: String(localized: "it is in Recently Deleted; it was not imported again")))
+                continue
+            case .deletedByPerson:
+                summary.deletedNotImported += 1
+                summary.deletedItems.append(SkippedItem(title: item.title, kind: item.kind))
+                continue
             case .update(let change):
                 summary.updated += 1
+                for name in change.removedFiles { summary.removedAttachments.append(RemovedAttachment(item: item.title, file: name)) }
                 summary.attachments += change.attachments.count
                 summary.historyEntries += change.historyAdds.count
                 if !change.overwritten.isEmpty {
@@ -83,6 +96,14 @@ enum KeePassImport {
                     summary.issues.append(ImportIssue(kind: .mergeConflict, item: title,
                                                       detail: String(localized: "it already held another value for \(change.conflicts.joined(separator: ", ")), so that value was kept and the imported one was saved in a field ending in (1Password)")))
                 }
+                if change.notesCombined {
+                    summary.issues.append(ImportIssue(kind: .notesCombined, item: title,
+                                                      detail: String(localized: "its notes differed, so the notes from 1Password were added below the ones already here")))
+                }
+                if change.codeNotInUse {
+                    summary.issues.append(ImportIssue(kind: .codeNotInUse, item: title,
+                                                      detail: String(localized: "it already had another one-time code, so the one from 1Password was saved in the hidden field One-time code (1Password). It is not in use")))
+                }
                 summary.issues += item.issues
                 continue
             case .add: break
@@ -97,6 +118,13 @@ enum KeePassImport {
             counted.history = revisions
             summary.count(counted)
         }
+        if summary.deletedNotImported > 0 {
+            summary.issues.append(ImportIssue(kind: .deletedNotImported, item: nil,
+                                              detail: summary.deletedNotImported == 1
+                                                ? String(localized: "1 item you deleted in Psss was not imported again")
+                                                : String(localized: "\(summary.deletedNotImported) items you deleted in Psss were not imported again")))
+        }
+        summary.secretsChanged = summary.issues.filter { $0.kind == .secretChanged }.count
         return summary
     }
 
@@ -107,8 +135,20 @@ enum KeePassImport {
         case add
         case addSimilar
         case skip
+        /// The same identifier as an entry in the recycle bin: left alone and reported.
+        case inRecycleBin
+        /// The person deleted this item in Psss.
+        case deletedByPerson
         case update(Change)
         case merge(Change)
+        /// Nothing differs, but the stored hashes are in an older form and are rewritten in the current one.
+        case refresh(Change)
+    }
+
+    /// One resolution per plan item, and what the vault says about items that are no longer in the source.
+    struct Resolved {
+        var items: [Resolution]
+        var issues: [ImportIssue]
     }
 
     /// Everything an update or merge would do to one entry, worked out without touching it.
@@ -121,6 +161,13 @@ enum KeePassImport {
         var removes: [String] = []
         var tags: [String]?
         var attachments: [ImportAttachment] = []
+        /// Attachment names an update removes: the source dropped them and the person did not change them.
+        var removedFiles: [String] = []
+        /// The group path an update moves the entry to: the source moved it and the person did not.
+        var moveTo: [String]?
+        var parent: XNode?
+        var notesCombined = false
+        var codeNotInUse = false
         /// Attachment names that already exist with other bytes and take the new ones (an update only).
         var replaced: Set<String> = []
         var historyAdds: [ImportRevision] = []
@@ -132,7 +179,8 @@ enum KeePassImport {
         var baseline: Baseline
 
         var isEmpty: Bool {
-            sets.isEmpty && removes.isEmpty && tags == nil && attachments.isEmpty && historyAdds.isEmpty && creation == nil
+            sets.isEmpty && removes.isEmpty && tags == nil && attachments.isEmpty && removedFiles.isEmpty && moveTo == nil
+                && historyAdds.isEmpty && creation == nil
         }
     }
 
@@ -149,35 +197,53 @@ enum KeePassImport {
         var websites: [String]
     }
 
-    /// What was written by an import: a fingerprint of the whole item, one per field and the tags.
+    /// What was written by an import: a salted fingerprint of the whole item, one per field, the tags, the folder it was in and the
+    /// SHA-256 of each attachment, so a later import can tell a change in the source from a change the person made here.
     struct Baseline {
+        /// Version 3: content salted with the entry identifier, folder, and attachment digests salted per entry and name.
+        static let current = 3
+        var version = Baseline.current
         var content: String
         var fields: [String: String]
         var tags: [String]
+        /// Where the source had the item. Nil in a baseline that did not record it.
+        var folder: [String]?
+        /// Attachment name to the SHA-256 of its bytes, salted with the entry identifier and the name.
+        var files: [String: String] = [:]
 
         var json: String {
-            let object: [String: Any] = ["v": 1, "content": content, "fields": fields, "tags": tags]
+            var object: [String: Any] = ["v": Baseline.current, "content": content, "fields": fields, "tags": tags, "files": files]
+            if let folder { object["folder"] = folder }
             guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return "" }
             return String(decoding: data, as: UTF8.self)
         }
 
-        init(content: String, fields: [String: String], tags: [String]) {
+        init(content: String, fields: [String: String], tags: [String], folder: [String]? = nil, files: [String: String] = [:]) {
             self.content = content
             self.fields = fields
             self.tags = tags
+            self.folder = folder
+            self.files = files
         }
 
         init?(json: String) {
             guard let object = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any],
                   let content = object["content"] as? String else { return nil }
             self.content = content
+            version = (object["v"] as? Int) ?? 1
             fields = (object["fields"] as? [String: String]) ?? [:]
             tags = (object["tags"] as? [String]) ?? []
+            folder = object["folder"] as? [String]
+            // Digests of an older form cannot be compared; they are left out and a write brings them up to date.
+            files = version >= Baseline.current ? (object["files"] as? [String: String]) ?? [:] : [:]
         }
     }
 
     struct Known {
         var node: XNode
+        var parent: XNode
+        /// The names of the groups above the entry, below the root group.
+        var path: [String]
         var existing: ImportDuplicates.Existing
     }
 
@@ -188,18 +254,18 @@ enum KeePassImport {
         let zero = Data(count: 16).base64EncodedString()
         var bin = meta?.child("RecycleBinUUID")?.text
         if bin == zero { bin = nil }
-        func visit(_ group: XNode, inBin: Bool) {
+        func visit(_ group: XNode, path: [String], inBin: Bool) {
             for child in group.children {
                 if child.name == "Group" {
-                    visit(child, inBin: inBin || (bin != nil && child.child("UUID")?.text == bin))
+                    visit(child, path: path + [child.child("Name")?.text ?? ""], inBin: inBin || (bin != nil && child.child("UUID")?.text == bin))
                 } else if child.name == "Entry" {
                     var entry = describe(child)
                     entry.inRecycleBin = inBin
-                    found.append(Known(node: child, existing: entry))
+                    found.append(Known(node: child, parent: group, path: path, existing: entry))
                 }
             }
         }
-        if let root = document.rootGroup { visit(root, inBin: false) }
+        if let root = document.rootGroup { visit(root, path: [], inBin: false) }
         return found
     }
 
@@ -218,10 +284,15 @@ enum KeePassImport {
             }
         }
         let type = strings[EntryMapping.typeKey]
-        return ImportDuplicates.Existing(sourceID: sourceID(of: entry) ?? strings[sourceKey],
+        let baselineOnce = baseline(of: entry)
+        var existing = ImportDuplicates.Existing(sourceID: sourceID(of: entry) ?? strings[sourceKey],
                                          hosts: type == nil || type == "login" ? hosts : [],
                                          username: strings["UserName"] ?? "", password: strings["Password"] ?? "",
-                                         contentHash: baseline(of: entry)?.content)
+                                         contentHash: baselineOnce?.content, entryID: entry.child("UUID")?.text ?? "",
+                                         modifiedText: entry.child("Times")?.child("LastModificationTime")?.text ?? "")
+        existing.title = strings["Title"] ?? ""
+        existing.baselineStale = (baselineOnce?.version ?? Baseline.current) < Baseline.current
+        return existing
     }
 
     /// The `PSSS_SOURCE` custom data of an entry.
@@ -235,12 +306,13 @@ enum KeePassImport {
 
     /// The decisions of the duplicate rules, with each update and merge worked out. An update that would change nothing is a
     /// skip. Both `preview` and `apply` call this, so they cannot disagree.
-    static func resolve(_ plan: ImportPlan, in document: KDBXDocument) -> [Resolution] {
+    static func resolve(_ plan: ImportPlan, in document: KDBXDocument) -> Resolved {
         resolutions(plan, known: known(in: document), document: document)
     }
 
-    private static func resolutions(_ plan: ImportPlan, known: [Known], document: KDBXDocument) -> [Resolution] {
-        let decisions = ImportDuplicates.classify(plan, against: known.map(\.existing))
+    private static func resolutions(_ plan: ImportPlan, known: [Known], document: KDBXDocument) -> Resolved {
+        let outcome = ImportDuplicates.decide(plan, against: known.map(\.existing), deleted: DeletedSources.read(from: document.root))
+        let decisions = outcome.decisions
         let protected = protectedStandard(in: document)
         let limit = historyLimit(in: document)
         var out: [Resolution] = []
@@ -250,14 +322,31 @@ enum KeePassImport {
             case .add: out.append(.add)
             case .addSimilar: out.append(.addSimilar)
             case .duplicate: out.append(.skip)
+            case .inRecycleBin: out.append(.inRecycleBin)
+            case .deletedByPerson: out.append(.deletedByPerson)
             case .update(let index):
-                let change = diff(item, entry: known[index].node, merge: false, protected: protected, binaries: document.binaries, limit: limit)
-                out.append(change.isEmpty ? .skip : .update(change))
+                let change = diff(item, known: known[index], merge: false, protected: protected, binaries: document.binaries, limit: limit)
+                out.append(!change.isEmpty ? .update(change) : known[index].existing.baselineStale ? .refresh(change) : .skip)
             case .merge(let index):
-                out.append(.merge(diff(item, entry: known[index].node, merge: true, protected: protected, binaries: document.binaries, limit: limit)))
+                out.append(.merge(diff(item, known: known[index], merge: true, protected: protected, binaries: document.binaries, limit: limit)))
             }
         }
-        return out
+        // Items that were deleted in the source after an earlier import stay in the vault, and the person is told.
+        var issues: [ImportIssue] = []
+        for position in outcome.matchedByFields.sorted() {
+            let title = plan.items[position].title
+            issues.append(ImportIssue(kind: .sharedIdentifier, item: title.isEmpty ? nil : title,
+                                      detail: String(localized: "its title or site changed since the last import, so it was matched to the existing entry by its fields")))
+        }
+        if !plan.trashedSources.isEmpty {
+            var live = Set<String>()
+            for entry in known where !entry.existing.inRecycleBin { if let id = entry.existing.sourceID { live.insert(id) } }
+            for trashed in plan.trashedSources where live.contains(trashed.id) {
+                issues.append(ImportIssue(kind: .trashedInSource, item: trashed.title.isEmpty ? nil : trashed.title,
+                                          detail: String(localized: "it was deleted in 1Password; it is still in your vault")))
+            }
+        }
+        return Resolved(items: out, issues: issues)
     }
 
     private static func protectedStandard(in document: KDBXDocument) -> Set<String> {
@@ -315,7 +404,7 @@ enum KeePassImport {
             }
         }
         for (offset, site) in websites.dropFirst().enumerated() { string(offset == 0 ? "KP2A_URL" : "KP2A_URL_\(offset)", site) }
-        for field in item.fields where [.securityCode, .pin, .custom].contains(field.role) {
+        for field in item.fields where [.securityCode, .pin, .custom].contains(field.role) && !clean(field.value).isEmpty {
             string(labels.claim(field.label.isEmpty ? field.role.rawValue : field.label), field.value, protected: field.concealed)
         }
         for field in extraCodes { string(labels.claim(field.label), field.value, protected: true) }
@@ -334,8 +423,11 @@ enum KeePassImport {
     private static func fieldHash(_ entryID: String, _ key: String, _ value: String) -> String {
         var hasher = SHA256()
         for part in [entryID, key, value] { hasher.update(data: Data(part.utf8)); hasher.update(data: Data([0])) }
-        return Data(hasher.finalize()).prefix(12).map { String(format: "%02x", $0) }.joined()
+        return Hex.string(hasher.finalize().prefix(12))
     }
+
+    /// What the baseline keeps of an attachment: its digest salted with the entry and the file name.
+    private static func fileHash(_ entryID: String, _ name: String, _ digest: String) -> String { fieldHash(entryID, "file:" + name, digest) }
 
     private static func splitTags(_ text: String) -> [String] {
         text.split(whereSeparator: { $0 == ";" || $0 == "," }).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
@@ -343,10 +435,30 @@ enum KeePassImport {
 
     // MARK: Updates and merges
 
+    /// The SHA-256 of an attachment's bytes as the vault holds them (the pool keeps a protection flag byte in front).
+    private static func hex(ofPooled data: Data) -> String {
+        Hex.string(SHA256.hash(data: data.dropFirst()))
+    }
+
+    /// Whether the entry's own title is only its site, which says nothing the imported title does not say better.
+    private static func isHostTitle(_ title: String, hosts: Set<String>) -> Bool {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.contains(" ") else { return false }
+        let host = ImportDuplicates.host(trimmed)
+        return !host.isEmpty && hosts.contains(host)
+    }
+
+    private static func oneTimeSecret(_ value: String) -> String? {
+        if case .setup(let setup) = TOTP.parse(value) { return setup.secret }
+        return nil
+    }
+
     /// What an item changes in an entry it has met before. An update (same source identifier) writes the source's new values and
-    /// leaves what the source never had. A merge (the same login from a richer source) only fills in: a value the entry already
-    /// holds and that differs is kept, and the imported one is added as a field ending in "(1Password)".
-    private static func diff(_ item: ImportItem, entry: XNode, merge: Bool, protected: Set<String>, binaries: [Data], limit: Int) -> Change {
+    /// leaves what the source never had or the person changed. A merge (the same login from a richer source) only fills in: a user
+    /// name, password or custom field that differs is kept and the imported one is added as a field ending in "(1Password)"; a
+    /// title never conflicts; differing notes are joined; a differing one-time code is kept apart and is not in use.
+    private static func diff(_ item: ImportItem, known: Known, merge: Bool, protected: Set<String>, binaries: [Data], limit: Int) -> Change {
+        let entry = known.node
         let rendered = render(item, protected: protected)
         let entryID = entry.child("UUID")?.text ?? ""
         let before = baseline(of: entry)
@@ -354,8 +466,23 @@ enum KeePassImport {
         for node in entry.children where node.name == "String" {
             if let key = node.child("Key")?.text { current[key] = node.child("Value")?.text ?? "" }
         }
+        // What the entry holds as attachments, by name, with the digest of the bytes.
+        var held: [String: String] = [:]
+        for node in entry.children where node.name == "Binary" {
+            guard let name = node.child("Key")?.text, let ref = node.child("Value")?.attribute("Ref").flatMap(Int.init), binaries.indices.contains(ref) else { continue }
+            held[name] = fileHash(entryID, name, hex(ofPooled: binaries[ref]))
+        }
+        var files: [String: String] = [:]
+        for file in item.attachments {
+            let name = ImportText.clean(file.name)
+            files[name] = fileHash(entryID, name, AttachmentDigest.shared.hex(of: file.url, size: file.size))
+        }
+        let folder = item.folder.map(ImportText.clean)
+
         var change = Change(entry: entry, rendered: rendered, isMerge: merge,
-                            baseline: Baseline(content: item.fingerprint, fields: [:], tags: rendered.tags))
+                            baseline: Baseline(content: ImportItem.salted(entryID, item.fingerprint), fields: [:], tags: rendered.tags,
+                                               folder: folder, files: files))
+        change.parent = known.parent
 
         // The hosts the entry already lists, so a merge adds only a site it does not have.
         var knownHosts = Set<String>()
@@ -387,25 +514,45 @@ enum KeePassImport {
                 change.sets.append(Pair(key: name, value: pair.value, protected: pair.protected))
                 continue
             }
-            guard let held = current[key] else {
-                change.sets.append(pair)
-                used.insert(key)
+            guard let now = current[key] else {
+                // A value that is empty on both sides is not written.
+                if !pair.value.isEmpty { change.sets.append(pair); used.insert(key) }
                 continue
             }
-            if held == pair.value { continue }
-            // The same site with another path is the same site: the match was made on it.
-            if merge, key == "URL", !held.isEmpty, ImportDuplicates.host(held) == ImportDuplicates.host(pair.value) { continue }
+            if now == pair.value { continue }
             if merge {
-                if held.isEmpty {
+                if now.isEmpty {
                     change.sets.append(pair)
-                } else if !pair.value.isEmpty {
+                    continue
+                }
+                if pair.value.isEmpty { continue }
+                switch key {
+                case "URL":
+                    // The same site with another path is the same site: the match was made on it.
+                    if ImportDuplicates.host(now) != ImportDuplicates.host(pair.value) {
+                        change.sets.append(Pair(key: freeLabel("Website (1Password)"), value: pair.value, protected: pair.protected))
+                        change.conflicts.append("Website")
+                    }
+                case "Title":
+                    // A title is not worth a conflict: the entry's own stays unless it is only its site.
+                    if isHostTitle(now, hosts: knownHosts) { change.sets.append(pair) }
+                case "Notes":
+                    if !now.contains(pair.value) {
+                        change.sets.append(Pair(key: key, value: now + "\n\n" + pair.value, protected: pair.protected))
+                        change.notesCombined = true
+                    }
+                case "otp":
+                    if let a = oneTimeSecret(now), let b = oneTimeSecret(pair.value), a == b { continue }
+                    change.sets.append(Pair(key: freeLabel("One-time code (1Password)"), value: pair.value, protected: true))
+                    change.codeNotInUse = true
+                default:
                     change.sets.append(Pair(key: freeLabel("\(shown(key)) (1Password)"), value: pair.value, protected: pair.protected))
                     change.conflicts.append(shown(key))
                 }
             } else {
                 // Only a field the source changed is written. One the source left alone keeps what the person made of it.
                 if let known = before?.fields[key], known == fieldHash(entryID, key, pair.value) { continue }
-                if let known = before?.fields[key], known != fieldHash(entryID, key, held) { change.overwritten.append(shown(key)) }
+                if let known = before?.fields[key], known != fieldHash(entryID, key, now) { change.overwritten.append(shown(key)) }
                 change.sets.append(pair)
             }
         }
@@ -413,38 +560,51 @@ enum KeePassImport {
         if !merge, let before {
             let live = Set(rendered.pairs.map(\.key))
             for (key, hash) in before.fields.sorted(by: { $0.key < $1.key }) where !live.contains(key) {
-                if let held = current[key], fieldHash(entryID, key, held) == hash { change.removes.append(key) }
+                if let now = current[key], fieldHash(entryID, key, now) == hash { change.removes.append(key) }
             }
         }
         // What the source said, not what the entry holds: a value the person changed then still differs from it next time.
         change.baseline.fields = rendered.pairs.reduce(into: [:]) { $0[$1.key] = fieldHash(entryID, $1.key, $1.value) }
 
-        // Tags: a merge adds. An update follows the source and keeps the tags that were never the source's.
-        let held = splitTags(entry.child("Tags")?.text ?? "")
-        var wanted = held
+        // Tags: a merge adds. An update applies what the source added or removed since the last import, so a tag the person
+        // removed here stays removed and one the person added stays.
+        let heldTags = splitTags(entry.child("Tags")?.text ?? "")
+        var wanted = heldTags
         if merge {
             for tag in rendered.tags where !wanted.contains(tag) { wanted.append(tag) }
         } else {
-            let dropped = Set(before?.tags ?? []).subtracting(rendered.tags)
-            wanted = held.filter { !dropped.contains($0) }
-            for tag in rendered.tags where !wanted.contains(tag) { wanted.append(tag) }
+            let earlier = Set(before?.tags ?? [])
+            let dropped = earlier.subtracting(rendered.tags)
+            wanted = heldTags.filter { !dropped.contains($0) }
+            for tag in rendered.tags where !wanted.contains(tag) && !earlier.contains(tag) { wanted.append(tag) }
         }
-        if wanted != held { change.tags = wanted }
+        if wanted != heldTags { change.tags = wanted }
 
-        // Attachments, by name. The same name and size is the same file.
-        var sizes: [String: Int] = [:]
-        for node in entry.children where node.name == "Binary" {
-            guard let name = node.child("Key")?.text, let ref = node.child("Value")?.attribute("Ref").flatMap(Int.init), binaries.indices.contains(ref) else { continue }
-            sizes[name] = binaries[ref].count - 1
-        }
+        // Attachments, by name and bytes. The same name and the same bytes is the same file.
         for file in item.attachments {
             let name = ImportText.clean(file.name)
-            if let size = sizes[name] {
-                if size == file.size { continue }
-                if !merge { change.replaced.insert(name) }
+            let digest = files[name] ?? ""
+            if let present = held[name] {
+                if present == digest { continue }
+                if merge { change.attachments.append(file); continue }
+                // The source did not change it: the person replaced it here, and that stays.
+                if before?.files[name] == digest { continue }
+                change.replaced.insert(name)
+            } else if !merge, before?.files[name] == digest {
+                // The source did not change it and the person removed it here.
+                continue
             }
             change.attachments.append(file)
         }
+        // An attachment the source dropped goes too, unless the person changed it here. The bytes stay in the entry's history.
+        if !merge, let before {
+            for (name, digest) in before.files.sorted(by: { $0.key < $1.key }) where files[name] == nil && held[name] == digest {
+                change.removedFiles.append(name)
+            }
+        }
+
+        // Where it is: an update follows the source's move unless the person moved it here.
+        if !merge, let was = before?.folder, was != folder, known.path == was { change.moveTo = folder }
 
         // Earlier passwords the entry does not hold yet, and the earlier creation date.
         var passwords = Set<String>()
@@ -457,7 +617,7 @@ enum KeePassImport {
         for revision in kept(item, limit: limit).revisions where passwords.insert(ImportText.clean(revision.password)).inserted {
             change.historyAdds.append(revision)
         }
-        if merge, let held = stamp(entry.child("Times")?.child("CreationTime")), item.created < held {
+        if merge, let heldDate = stamp(entry.child("Times")?.child("CreationTime")), item.created < heldDate {
             change.creation = item.created
         }
         return change
@@ -473,24 +633,26 @@ enum KeePassImport {
         var recycleBin: String?
         var now: String
         var touched: [XNode] = []
+        var rootGroup: XNode?
     }
 
     fileprivate static func write(_ plan: ImportPlan, into document: inout KDBXDocument) throws -> ImportSummary {
         guard let rootGroup = document.rootGroup else { throw ImportError.vaultStructure }
         let meta = document.root.child("Meta")
         let limit = historyLimit(in: document)
-        let resolutions = resolve(plan, in: document)
-        let summary = account(plan, resolutions, historyLimit: limit)
+        let resolved = resolve(plan, in: document)
+        let summary = account(plan, resolved, historyLimit: limit)
 
         let zero = Data(count: 16).base64EncodedString()
         var recycleBin = meta?.child("RecycleBinEnabled")?.text.lowercased() == "false" ? nil : meta?.child("RecycleBinUUID")?.text
         if recycleBin == zero { recycleBin = nil }
         var state = State(binaries: document.binaries, protected: protectedStandard(in: document), recycleBin: recycleBin,
                           now: ImportTime.iso(plan.importedAt))
+        state.rootGroup = rootGroup
 
-        for (item, resolution) in zip(plan.items, resolutions) {
+        for (item, resolution) in zip(plan.items, resolved.items) {
             switch resolution {
-            case .skip: continue
+            case .skip, .inRecycleBin, .deletedByPerson: continue
             case .add, .addSimilar:
                 // KeePassFile, Root and the root group are three levels, then the folders, the entry, and a string with its key
                 // (a history record goes two levels further).
@@ -500,6 +662,9 @@ enum KeePassImport {
                 state.touched.append(entry)
             case .update(let change), .merge(let change):
                 try apply(change, item: item, limit: limit, state: &state)
+                state.touched.append(change.entry)
+            case .refresh(let change):
+                refresh(change, state: state)
                 state.touched.append(change.entry)
             }
         }
@@ -557,9 +722,14 @@ enum KeePassImport {
         children += binaries
         children.append(XNode("AutoType", children: [XNode("Enabled", text: "True"), XNode("DataTransferObfuscation", text: "0")]))
         if let source = item.sourceID {
-            let baseline = Baseline(content: item.fingerprint,
+            var files: [String: String] = [:]
+            for file in item.attachments {
+                let name = ImportText.clean(file.name)
+                files[name] = fileHash(entryID, name, AttachmentDigest.shared.hex(of: file.url, size: file.size))
+            }
+            let baseline = Baseline(content: ImportItem.salted(entryID, item.fingerprint),
                                     fields: rendered.pairs.reduce(into: [:]) { $0[$1.key] = fieldHash(entryID, $1.key, $1.value) },
-                                    tags: rendered.tags)
+                                    tags: rendered.tags, folder: item.folder.map(ImportText.clean), files: files)
             children.append(customData(source: ImportText.clean(source), baseline: baseline, modified: modified))
         }
         let entry = XNode("Entry", children: children)
@@ -590,6 +760,21 @@ enum KeePassImport {
         return XNode("CustomData", children: items)
     }
 
+    /// Rewrites only the stored hashes of an entry, in the current form. Nothing the person sees changes.
+    private static func refresh(_ change: Change, state: State) {
+        let entry = change.entry
+        let data = entry.child("CustomData") ?? {
+            let node = XNode("CustomData")
+            entry.children.insert(node, at: entry.children.firstIndex { $0.name == "History" } ?? entry.children.count)
+            return node
+        }()
+        if let node = data.children(named: "Item").first(where: { $0.child("Key")?.text == hashesKey }) {
+            node.setChildText("Value", change.baseline.json)
+        } else {
+            data.children.append(XNode("Item", children: [XNode("Key", text: hashesKey), XNode("Value", text: change.baseline.json), XNode("LastModificationTime", text: state.now)]))
+        }
+    }
+
     /// Writes a `Change` into its entry. The version the entry had is kept as the newest history record first.
     private static func apply(_ change: Change, item: ImportItem, limit: Int, state: inout State) throws {
         let entry = change.entry
@@ -603,7 +788,7 @@ enum KeePassImport {
         let snapshot = entry.deepCopy()
         snapshot.children.removeAll { $0.name == "History" }
         var records = history.children
-        if !change.sets.isEmpty || !change.removes.isEmpty || change.tags != nil || !change.attachments.isEmpty { records.append(snapshot) }
+        if change.isMerge || !change.sets.isEmpty || !change.removes.isEmpty || change.tags != nil || !change.attachments.isEmpty || !change.removedFiles.isEmpty { records.append(snapshot) }
         for revision in change.historyAdds {
             let old = snapshot.deepCopy()
             old.children.first { $0.name == "String" && $0.child("Key")?.text == "Password" }?.child("Value")?.text = ImportText.clean(revision.password)
@@ -650,6 +835,17 @@ enum KeePassImport {
                 let node = XNode("Binary", children: [XNode("Key", text: unique(name, &names)), XNode("Value", attributes: [("Ref", String(index))])])
                 let at = entry.children.lastIndex { $0.name == "Binary" || $0.name == "String" }.map { $0 + 1 } ?? entry.children.count
                 entry.children.insert(node, at: at)
+            }
+        }
+        for name in change.removedFiles {
+            entry.children.removeAll { $0.name == "Binary" && $0.child("Key")?.text == name }
+        }
+        if let target = change.moveTo, let parent = change.parent, let rootGroup = state.rootGroup {
+            let destination = group(for: target, root: rootGroup, state: &state)
+            if destination !== parent {
+                parent.children.removeAll { $0 === entry }
+                destination.children.append(entry)
+                entry.child("Times")?.setChildText("LocationChanged", state.now)
             }
         }
         if let creation = change.creation { entry.child("Times")?.setChildText("CreationTime", ImportTime.iso(creation)) }
@@ -711,6 +907,8 @@ enum KeePassImport {
             }
             state.index = index
         }
+        AttachmentDigest.shared.remember(attachment.url, size: attachment.size,
+                                         digest: Hex.string(SHA256.hash(data: stored.dropFirst())))
         let key = Data(SHA256.hash(data: stored))
         if let position = state.index?[key] { return position }
         state.binaries.append(stored)
@@ -763,17 +961,9 @@ enum KeePassImport {
     }
 }
 
-/// KeePass times as ISO 8601 UTC, made without a formatter so tens of thousands of entries stay quick. A date outside years 1
-/// to 9999, or one that is not a number, is clamped, so no input can trap or write a year the file cannot hold.
+/// KeePass times as the codec stores them. A date outside years 1 to 9999, or one that is not a number, is clamped by the codec,
+/// so no input can trap or write a time the file cannot hold.
 enum ImportTime {
-    static func iso(_ date: Date) -> String {
-        var value = date.timeIntervalSince1970
-        if !value.isFinite { value = 0 }
-        value = min(max(value, -62_135_596_800), 253_402_300_799)
-        let seconds = Int64(value.rounded(.down))
-        let days = PlanBuilder.Value.floorDivide(seconds, 86_400)
-        let rest = Int(seconds - days * 86_400)
-        let (y, m, d) = PlanBuilder.Value.civil(daysSinceEpoch: days)
-        return String(format: "%04d-%02d-%02dT%02d:%02d:%02dZ", y, m, d, rest / 3600, rest % 3600 / 60, rest % 60)
-    }
+    /// The codec's stored form (base64 for KDBX 4), which is what Psss writes everywhere else.
+    static func iso(_ date: Date) -> String { KeePassTime.stored(date) }
 }
