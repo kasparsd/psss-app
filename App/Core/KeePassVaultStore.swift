@@ -141,7 +141,10 @@ enum VaultFiles {
 
     #if HOSTLESS_TESTS
     static var testRoot: URL? {
-        guard let path = ProcessInfo.processInfo.environment["PSSS_TEST_ROOT"], !path.isEmpty else { return nil }
+        // A test build never falls back to the real app data: without a root it stops.
+        guard let path = ProcessInfo.processInfo.environment["PSSS_TEST_ROOT"], !path.isEmpty else {
+            fatalError("PSSS_TEST_ROOT is not set. Run the tests through scripts/, which point them at a folder under build/.")
+        }
         let url = URL(fileURLWithPath: path, isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
@@ -564,6 +567,7 @@ final class VaultSession {
 
     /// Opens the remembered vault after a lock or relaunch.
     func unlock(credentials: KDBXCredentials) async throws {
+        biometricNotice = nil
         try await unlock { data in try KDBX.open(data, credentials: credentials) }
         syncReference()  // the AutoFill extension may have marked the saved key stale while the vault was opening
         // After every password unlock the saved key is replaced with the key just derived from the file as it is now. A key saved
@@ -572,7 +576,17 @@ final class VaultSession {
         // Saving asks for no Face ID, and `BiometricKey.save` keeps the biometric access control.
         // Biometric unlock may also be off because its key went stale, not because the person turned it off: that turns it back on.
         guard let current = reference, current.biometricUnlock || current.biometricStale else { return }
-        do { try enableBiometric() } catch { setBiometric(false) }
+        do { try enableBiometric() } catch { dropBiometricKey() }
+    }
+
+    /// Set when a saved Face ID or Touch ID key could not be replaced and biometric unlock was switched off because of it, so
+    /// the person is told once instead of finding it off. The vault screen shows it and clears it.
+    var biometricNotice: String?
+
+    /// Switches biometric unlock off after its key could not be saved again, and records the notice.
+    private func dropBiometricKey() {
+        setBiometric(false)
+        biometricNotice = String(localized: "\(BiometryKind.nameForMessages) could not be turned on again for this vault. You can turn it on in Setup.")
     }
 
     /// Adopts the persisted reference when it is the same vault. Every change is persisted as it is made, so what is stored is
@@ -589,8 +603,6 @@ final class VaultSession {
         guard var current = reference else { return }
         if let stored = VaultReference.update(current.id, change) { reference = stored } else { change(&current); reference = current }
     }
-
-    private func clearStale() { change { $0.biometricStale = false } }
 
     /// Unlocks with Face ID or Touch ID. Never throws for a cancelled prompt; the lock screen just stays.
     /// If the saved key no longer fits (Face ID re-enrolled, or the vault password was changed elsewhere), biometric unlock is
@@ -680,7 +692,7 @@ final class VaultSession {
     /// After the vault password changed, the saved key is stale. Replace it, or drop it if that fails.
     func refreshBiometricKey() {
         guard let reference, reference.biometricUnlock else { return }
-        do { try enableBiometric() } catch { setBiometric(false) }
+        do { try enableBiometric() } catch { dropBiometricKey() }
     }
 
     private func setBiometric(_ on: Bool, stale: Bool = false) {

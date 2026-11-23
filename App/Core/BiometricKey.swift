@@ -140,9 +140,10 @@ enum BiometricKey {
 
     #if HOSTLESS_TESTS
     /// Hostless tests replace the Keychain with this table, so no test touches the real one and no prompt is needed. A test sets
-    /// `failure` to make the next loads throw, and edits `memory` to make a saved key stale.
+    /// `failure` to make loads throw and `saveFailure` to make saves throw, and edits `memory` to make a saved key stale.
     nonisolated(unsafe) static var memory: [UUID: Data] = [:]
     nonisolated(unsafe) static var failure: BiometricKeyError?
+    nonisolated(unsafe) static var saveFailure: BiometricKeyError?
     #endif
 
     /// A provisioned Mac app, once: removes every login-keychain item under Psss's key service, whatever vault it was for. A
@@ -164,6 +165,7 @@ enum BiometricKey {
 
     static func save(_ key: Data, for id: UUID) throws {
         #if HOSTLESS_TESTS
+        if let saveFailure { throw saveFailure }
         memory[id] = key
         return
         #else

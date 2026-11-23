@@ -219,7 +219,13 @@ struct VaultView: View {
         } message: {
             Text("\(session.biometry?.label ?? "Face ID") opens this vault on this device only. Your vault password still works, and you need it if you change \(session.biometry?.label ?? "Face ID"). Turn it off any time in Setup.")
         }
-        .task { if !store.isSample, session.shouldOfferBiometric { offersBiometric = true } }
+        // The notice replaces the offer: Face ID was just turned off because its key could not be saved, so asking again would only
+        // fail again. Setup has the switch.
+        .alert("\(session.biometry?.label ?? BiometryKind.nameForMessages) is off",
+               isPresented: Binding(get: { session.biometricNotice != nil }, set: { if !$0 { session.biometricNotice = nil } })) {
+            Button("OK") { session.biometricNotice = nil }
+        } message: { Text(session.biometricNotice ?? "") }
+        .task { if !store.isSample, session.biometricNotice == nil, session.shouldOfferBiometric { offersBiometric = true } }
         .sheet(isPresented: $changingPassword) {
             if let store = store as? KeePassVaultStore { ChangePasswordSheet(store: store, onReloaded: { adoptReloadedVault() },
                                                           onChangedElsewhere: { gate.lock(notice: Self.changedElsewhereNotice) }) }
@@ -969,7 +975,7 @@ private struct ItemDetail: View {
                 } header: {
                     Text("Verification code setup")
                 } footer: {
-                    Text("Move these verification codes to another authenticator with the setup key, the link or the QR code. Anyone who has any of them can make your codes, so treat them like a password.")
+                    Text("To move this verification code to another authenticator, use the setup key, the link or the QR code. Anyone who has one of them can make your codes, so treat them like a password.")
                 }
             }
             if let passkey = item.passkey {
@@ -1045,7 +1051,7 @@ private struct ItemDetail: View {
                             Text("\(remaining)")
                         }
                         .gaugeStyle(.accessoryCircularCapacity)
-                        .tint(remaining <= 5 ? .red : .accentColor)
+                        .tint(Color.accentColor)
                         .scaleEffect(0.7)
                         .frame(width: 40, height: 40)
                         .accessibilityHidden(true)

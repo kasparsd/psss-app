@@ -274,9 +274,6 @@ struct FillList: View {
         screen.sheet(item: $pending) { pending in
             ConfirmSheet(title: alertTitle(for: pending), lines: lines(for: pending), confirmTitle: "Fill Anyway",
                          confirm: { self.pending = nil; choose(pending.item) }, cancel: { self.pending = nil })
-            #if os(iOS)
-            .presentationDetents([.medium, .large])
-            #endif
         }
     }
 
@@ -416,30 +413,52 @@ struct ConfirmLine {
 /// iPad: two full-width buttons, Cancel first.
 private struct ConfirmSheet: View {
     let title: LocalizedStringKey
-    /// A line with a value is two `Text` views of one size: the label in secondary style, the value in primary.
+    /// A line with a value is one `Text` of one size: the label in secondary style, the value in primary.
     let lines: [ConfirmLine]
     let confirmTitle: LocalizedStringKey
     let confirm: () -> Void
     let cancel: () -> Void
 
-    var body: some View {
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// The height of the text, so the Mac sheet is as tall as its text up to a limit and scrolls beyond it.
+    @State private var contentHeight: CGFloat = 0
+
+    /// The title and the lines. Every line wraps, whatever its length or the text size, and none is ever cut short: the sites are
+    /// the whole point of this sheet, and a host that ends in an ellipsis could hide which site it is. The whole sheet scrolls if
+    /// the text does not fit, and the buttons stay below it.
+    private var content: some View {
         VStack(alignment: .leading, spacing: 16) {
             #if os(macOS)
-            Text(title).font(.title2.bold())
+            Text(title).font(.title2.bold()).fixedSize(horizontal: false, vertical: true)
             #else
-            Text(title).font(.title2.bold()).padding(.top, 8)
+            Text(title).font(.title2.bold()).fixedSize(horizontal: false, vertical: true).padding(.top, 8)
             #endif
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                    if let value = line.value {
-                        // Wraps as one paragraph, so a long value cannot push the label out of view.
-                        (Text(verbatim: line.label + " ").foregroundStyle(.secondary) + Text(verbatim: value))
-                    } else {
-                        Text(verbatim: line.label)
+                    Group {
+                        if let value = line.value {
+                            // One paragraph, so a long value cannot push the label out of view.
+                            Text("\(Text(verbatim: line.label).foregroundStyle(.secondary)) \(Text(verbatim: value))")
+                        } else {
+                            Text(verbatim: line.label)
+                        }
                     }
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            #if os(macOS)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    var body: some View {
+        #if os(macOS)
+        VStack(spacing: 0) {
+            ScrollView {
+                content.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+            }
+            .frame(height: min(max(contentHeight, 1), 420))
             HStack {
                 Spacer()
                 Button(confirmTitle, action: confirm)
@@ -447,21 +466,23 @@ private struct ConfirmSheet: View {
                 // Escape does the same as Cancel; only one button can carry each shortcut.
                 Button("Cancel", action: cancel).keyboardShortcut(.cancelAction).opacity(0).frame(width: 0).accessibilityHidden(true)
             }
-            #else
-            Spacer(minLength: 0)
-            VStack(spacing: 12) {
-                Button(action: cancel) { Text("Cancel").frame(maxWidth: .infinity) }
-                    .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.defaultAction)
-                Button(action: confirm) { Text(confirmTitle).frame(maxWidth: .infinity) }
-                    .buttonStyle(.bordered).controlSize(.large)
-            }
-            #endif
+            .padding([.horizontal, .bottom], 20)
         }
-        .padding(20)
-        #if os(macOS)
         .frame(width: 420)
         #else
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        ScrollView { content }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(spacing: 12) {
+                    Button(action: cancel) { Text("Cancel").frame(maxWidth: .infinity).fixedSize(horizontal: false, vertical: true) }
+                        .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.defaultAction)
+                    Button(action: confirm) { Text(confirmTitle).frame(maxWidth: .infinity).fixedSize(horizontal: false, vertical: true) }
+                        .buttonStyle(.bordered).controlSize(.large)
+                }
+                .padding(20)
+                .background(.bar)
+            }
+            // At the accessibility text sizes the text needs the whole height from the start.
+            .presentationDetents(typeSize.isAccessibilitySize ? [.large] : [.medium, .large])
         #endif
     }
 }

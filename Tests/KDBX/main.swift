@@ -18,7 +18,20 @@ func expectError(_ name: String, _ want: KDBXError, _ body: () throws -> Void) {
     do { try body(); failures += 1; print("FAIL \(name): no error") } catch let error as KDBXError { check(name, "\(error)", "\(want)") } catch { failures += 1; print("FAIL \(name): \(error)") }
 }
 
-let fixtures = URL(fileURLWithPath: CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : ".build-kdbx-fixtures")
+// Every process works in folders of its own (fixtures, and the app-data root the script names in PSSS_TEST_ROOT), named by its
+// process number and removed at exit, so several copies can run at once without deleting each other's files.
+let processFolder = "run-\(ProcessInfo.processInfo.processIdentifier)"
+let fixtures = URL(fileURLWithPath: CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : ".build-kdbx-fixtures").appendingPathComponent(processFolder)
+let processRoot: URL? = {
+    guard let root = ProcessInfo.processInfo.environment["PSSS_TEST_ROOT"], !root.isEmpty else { return nil }
+    let own = URL(fileURLWithPath: root).appendingPathComponent(processFolder)
+    setenv("PSSS_TEST_ROOT", own.path, 1)
+    return own
+}()
+func removeProcessFolders() {
+    try? FileManager.default.removeItem(at: fixtures)
+    if let processRoot { try? FileManager.default.removeItem(at: processRoot) }
+}
 try? FileManager.default.removeItem(at: fixtures)
 try FileManager.default.createDirectory(at: fixtures, withIntermediateDirectories: true)
 
@@ -678,6 +691,41 @@ do {
     lifecycle.lock()
     try await lifecycle.unlockWithBiometrics()
     expect("the fresh key opens the vault", lifecycle.isOpen)
+    lifecycle.lock()
+
+    expect("a password unlock that saved its key leaves no notice", lifecycle.biometricNotice == nil)
+
+    // The fresh key cannot be saved during a password unlock (the key was stale first): the unlock still works, biometric unlock
+    // is off with no key and no stale mark, and the person is told.
+    lifecycle.lock()
+    BiometricKey.memory[id] = Data(repeating: 9, count: 32)
+    do { try await lifecycle.unlockWithBiometrics(); failures += 1; print("FAIL stale key unlocked") } catch BiometricKeyError.invalidated { print("ok   stale key reported before the failing save") }
+    expect("the key is stale before the failing save", lifecycle.reference?.biometricStale == true)
+    BiometricKey.saveFailure = .failed(-34018)
+    try await lifecycle.unlock(credentials: .init(password: "pw1"))
+    BiometricKey.saveFailure = nil
+    expect("the password unlock succeeds although the key could not be saved", lifecycle.isOpen)
+    expect("the biometric setting is off", lifecycle.reference?.biometricUnlock == false && VaultReference.load()?.biometricUnlock == false)
+    expect("the stale mark is cleared", lifecycle.reference?.biometricStale == false && VaultReference.load()?.biometricStale == false)
+    expect("no key is left", BiometricKey.memory[id] == nil)
+    check("the notice names the problem and the way back", lifecycle.biometricNotice ?? "nil",
+          "\(BiometryKind.nameForMessages) could not be turned on again for this vault. You can turn it on in Setup.")
+    lifecycle.lock()
+    try await lifecycle.unlock(credentials: .init(password: "pw1"))
+    expect("the next password unlock clears the notice", lifecycle.biometricNotice == nil)
+    lifecycle.lock()
+
+    // The Not Now answer is stored: it survives a lock, a password unlock and a new session, and Setup can still turn it on.
+    lifecycle.disableBiometric()
+    try await lifecycle.unlock(credentials: .init(password: "pw1"))
+    lifecycle.declineBiometricOffer()
+    expect("Not Now is stored", VaultReference.load()?.biometricDeclined == true)
+    lifecycle.lock()
+    try await lifecycle.unlock(credentials: .init(password: "pw1"))
+    expect("Not Now survives a lock and a password unlock", lifecycle.reference?.biometricDeclined == true && VaultReference.load()?.biometricDeclined == true)
+    expect("a new session reads Not Now", VaultSession().reference?.biometricDeclined == true)
+    try lifecycle.enableBiometric()
+    expect("Setup can still turn it on, which clears the decline", lifecycle.reference?.biometricUnlock == true && lifecycle.reference?.biometricDeclined == false)
     lifecycle.lock()
 
     // Switched off by the person: a password unlock leaves it off.
@@ -2986,4 +3034,5 @@ await unlockGateNoticeChecks()
 #endif
 
 print(failures == 0 ? "all passed" : "\(failures) failed")
+removeProcessFolders()
 exit(failures == 0 ? 0 : 1)

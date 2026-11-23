@@ -432,11 +432,11 @@ struct VaultPasswordView: View {
             gate.lockNotice = nil
             gate.markUnlocked()
         } catch BiometricKeyError.cancelled {
-            focused = true
+            refocus()
         } catch BiometricKeyError.unavailable {
             gate.lockNotice = nil
             problem = String(localized: "\(biometry?.label ?? "Face ID") cannot be used right now. Enter the vault password this time.")
-            focused = true
+            refocus()
         } catch BiometricKeyError.invalidated {
             gate.lockNotice = nil
             if session.reference?.biometricStale == true {
@@ -444,7 +444,7 @@ struct VaultPasswordView: View {
             } else {
                 problem = String(localized: "\(biometry?.label ?? "Face ID") no longer opens \(vaultName), for example because it changed. Enter the vault password once. You can turn it on again afterwards.")
             }
-            focused = true
+            refocus()
         } catch {
             gate.lockNotice = nil
             if case VaultStoreError.fileMissing = error { missing = true }
@@ -470,9 +470,21 @@ struct VaultPasswordView: View {
                     problem = (error as? KDBXError)?.message ?? (error as? VaultStoreError)?.message ?? error.localizedDescription
                 }
                 password = ""
-                focused = true
+                working = false
+                refocus()
             }
             working = false
+        }
+    }
+
+    /// Puts the cursor back in the password field after a failed attempt, so the person can type again at once. The field was
+    /// disabled while the vault was checked, and a disabled field gives up focus; asking again for focus that is still marked
+    /// as held does nothing, so it is released first and taken once the field is enabled again.
+    private func refocus() {
+        focused = false
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(150))
+            if !missing { focused = true }
         }
     }
 }
@@ -673,9 +685,21 @@ struct ProblemText: View {
     let text: String
     var secondary = false
 
+    /// What VoiceOver reads: one element, with "Warning" in front when something went wrong.
+    private var spoken: String { secondary ? text : String(localized: "Warning: \(text)") }
+
     var body: some View {
-        Label { Text(verbatim: text) } icon: { Image(systemName: "exclamationmark.triangle") }
+        Label { Text(verbatim: text) } icon: { Image(systemName: "exclamationmark.triangle").accessibilityHidden(true) }
             .foregroundStyle(secondary ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
-            .accessibilityAddTraits(.updatesFrequently)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(verbatim: spoken))
+            // A problem that appears, or changes, is spoken at once: the person is looking at the field, not at this line.
+            .onAppear { announce() }
+            .onChange(of: text) { announce() }
+    }
+
+    private func announce() {
+        guard !text.isEmpty else { return }
+        AccessibilityNotification.Announcement(spoken).post()
     }
 }
