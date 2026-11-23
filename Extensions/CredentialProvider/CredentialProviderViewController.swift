@@ -20,7 +20,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 
     override func prepareCredentialList(for serviceIdentifiers: [ASCredentialServiceIdentifier]) {
         unlocked { [self] in
-        present(FillList(site: FillSite(serviceIdentifier: serviceIdentifiers.first?.identifier),
+        present(FillList(site: FillSite(serviceIdentifiers: serviceIdentifiers.map(\.identifier)),
                          items: items.filter { $0.kind == .login && !$0.secret.isEmpty },
                          choose: { [weak self] in self?.complete(with: $0) },
                          cancel: { [weak self] in self?.cancel(.userCanceled) }))
@@ -167,8 +167,9 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     override func prepareOneTimeCodeCredentialList(for serviceIdentifiers: [ASCredentialServiceIdentifier]) {
         unlocked { [self] in
             // Only logins with a code that belong to the site. There is no list of other logins for codes.
-            let identifier = serviceIdentifiers.first?.identifier
-            let host = identifier.map { SharedVault.host($0) }.flatMap { $0.isEmpty ? nil : $0 }
+            // The site is the first identifier that has a host.
+            let identifier = serviceIdentifiers.map(\.identifier).first { !SharedVault.host($0).isEmpty }
+            let host = identifier.map { SharedVault.host($0) }
             let matching = identifier.map { identifier in
                 items.filter { ReleaseCheck.oneTimeCode(item: $0, serviceIdentifier: identifier) }
             } ?? []
@@ -238,7 +239,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             do {
                 // No vault yet (or no shared storage): nothing to open and nothing may be written.
                 guard VaultReference.load() != nil else {
-                    present(NotReady(close: { self.cancel(.userCanceled) }))
+                    present(NotReady(reason: .noVault, close: { self.cancel(.userCanceled) }))
                     return
                 }
                 let session = VaultSession()
@@ -247,8 +248,11 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
                 work()
             } catch BiometricKeyError.cancelled {
                 cancel(.userCanceled)
+            } catch VaultStoreError.fileMissing {
+                present(NotReady(reason: .fileMissing, close: { self.cancel(.userCanceled) }))
             } catch {
-                present(NotReady(close: { self.cancel(.userCanceled) }))
+                // Unlock with Face ID or Touch ID is off, was reset, or cannot be used now.
+                present(NotReady(reason: .biometryOff, close: { self.cancel(.userCanceled) }))
             }
         }
     }

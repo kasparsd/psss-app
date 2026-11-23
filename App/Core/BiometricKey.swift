@@ -48,16 +48,19 @@ enum BiometricKeyError: Error {
     case failed(OSStatus)
 }
 
-/// The vault's key (after the KDF), kept in the Keychain behind biometrics so the person does not retype the vault password.
-/// The item is readable only on this device, only with the same enrolled fingers or face, and is removed when they change.
-/// The vault password always still works.
+/// The vault's key (after the KDF), kept in the Keychain so the person does not retype the vault password. The vault password
+/// always still works.
 ///
-/// On iOS and iPadOS the item is in the data protection keychain with a biometric access control and the shared access group,
-/// so the AutoFill extension reads the same item. macOS works the same way in a provisioned build. A build without the
-/// entitlements (unsigned, or ad-hoc signed) cannot add that item; the app then keeps the key in the login keychain and asks for
-/// Touch ID itself before it reads it. Which of the two holds the key is recorded by the Keychain: saving removes both and adds
-/// one, and reading tries the protected item first, so reading always uses the mode the key was saved in. The AutoFill
-/// extension on the Mac only ever reads the protected item and never the login keychain.
+/// There are two kinds of build, decided once per process and never per error:
+/// - Provisioned (every iOS and iPadOS build, and a Mac build signed with the team's profile, which carries the shared
+///   `keychain-access-groups` entry): the key is a data protection keychain item with a biometric access control
+///   (`.biometryCurrentSet`, this device only) in the shared access group, readable by the AutoFill extension and only with
+///   the enrolled face or fingers. This is the only item such a build ever reads or writes, and any error is an error: there
+///   is no fallback to a weaker item. A login-keychain item left by an earlier local build is deleted, never read.
+/// - Local (an unsigned or ad-hoc signed Mac build, which cannot use the protected item): the key sits in the login keychain,
+///   readable on this device, and the app asks for Touch ID itself before it reads it. The AutoFill extension never runs in
+///   such a build, and an extension never touches the login keychain.
+/// Saving always removes both variants first and adds one.
 enum BiometricKey {
     private static let service = "local.kdbox.vault-key"
 
@@ -82,13 +85,25 @@ enum BiometricKey {
         return access
     }
 
-    #if os(macOS)
-    /// What adding or reading a protected item returns in a build that is not provisioned for it: the entitlement is missing
-    /// (-34018, what unsigned and ad-hoc builds get), or the parameters do not fit this Mac (-50, -4, -25291).
-    private static let unprovisioned: Set<OSStatus> = [-34018, errSecParam, errSecUnimplemented, errSecNotAvailable]
+    /// True when a process whose `keychain-access-groups` entitlement is `keychainGroups` may use the protected item in `group`:
+    /// the group has a team prefix (see `SharedVault.teamPrefixedGroup`) and is one of the entitled groups.
+    static func isProvisioned(keychainGroups: [String]?, group: String) -> Bool {
+        SharedVault.teamPrefixedGroup(in: [group]) != nil && keychainGroups?.contains(group) == true
+    }
 
-    /// True in an app extension, such as the AutoFill provider. It must never read a key from the login keychain.
+    #if os(macOS)
+    /// Decided once, from this process's own entitlements: does it carry the shared Keychain group?
+    private static let provisioned: Bool = {
+        let groups = SecTaskCreateFromSelf(nil).flatMap {
+            SecTaskCopyValueForEntitlement($0, "keychain-access-groups" as CFString, nil) as? [String]
+        }
+        return isProvisioned(keychainGroups: groups, group: SharedVault.groupID)
+    }()
+
+    /// True in an app extension, such as the AutoFill provider. It must never touch the login keychain.
     private static var isExtension: Bool { Bundle.main.infoDictionary?["NSExtension"] != nil }
+    #else
+    private static let provisioned = true
     #endif
 
     #if HOSTLESS_TESTS
@@ -109,23 +124,23 @@ enum BiometricKey {
 
     private static func saveToKeychain(_ key: Data, for id: UUID) throws {
         delete(for: id)
+        #if os(macOS)
+        if !provisioned {
+            // Local build: the login keychain item. (An extension is never a local build, and never writes this item.)
+            guard !isExtension else { throw BiometricKeyError.unavailable }
+            var login = baseQuery(for: id, protected: false)
+            login[kSecValueData as String] = key
+            login[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            let status = SecItemAdd(login as CFDictionary, nil)
+            guard status == errSecSuccess else { throw BiometricKeyError.failed(status) }
+            return
+        }
+        #endif
         var query = baseQuery(for: id, protected: true)
         query[kSecValueData as String] = key
         query[kSecAttrAccessControl as String] = try protectedAccessControl()
         let status = SecItemAdd(query as CFDictionary, nil)
-        if status == errSecSuccess { return }
-        #if os(macOS)
-        // Not provisioned for the protected item: the app keeps the key in the login keychain. An extension never does.
-        if unprovisioned.contains(status), !isExtension {
-            var login = baseQuery(for: id, protected: false)
-            login[kSecValueData as String] = key
-            login[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-            let loginStatus = SecItemAdd(login as CFDictionary, nil)
-            guard loginStatus == errSecSuccess else { throw BiometricKeyError.failed(loginStatus) }
-            return
-        }
-        #endif
-        throw BiometricKeyError.failed(status)
+        guard status == errSecSuccess else { throw BiometricKeyError.failed(status) }
     }
 
     /// Shows the system Face ID or Touch ID prompt and returns the key. Runs off the main actor: reading blocks.
@@ -136,6 +151,15 @@ enum BiometricKey {
         return key
         #else
         return try await Task.detached {
+            #if os(macOS)
+            guard provisioned else {
+                guard !isExtension else { throw BiometricKeyError.unavailable }
+                return try await loadFromLoginKeychain(for: id, reason: reason)
+            }
+            // A login-keychain item from an earlier local build must never open this build: it is not tied to the enrolled
+            // fingers. The app removes it; an extension leaves the login keychain alone.
+            if !isExtension { SecItemDelete(baseQuery(for: id, protected: false) as CFDictionary) }
+            #endif
             let context = LAContext()
             context.localizedReason = reason
             var query = baseQuery(for: id, protected: true)
@@ -150,18 +174,20 @@ enum BiometricKey {
                 return data
             case errSecUserCanceled, errSecAuthFailed:
                 throw BiometricKeyError.cancelled
+            case errSecItemNotFound:
+                // The item is gone: the enrolled face or fingers changed, or it was never saved. The extension only reports
+                // "unavailable", so it never switches the app's setting off.
+                #if os(macOS)
+                if isExtension { throw BiometricKeyError.unavailable }
+                #endif
+                throw BiometricKeyError.invalidated
             default:
                 #if os(macOS)
-                if status == errSecItemNotFound || unprovisioned.contains(status) {
-                    // The AutoFill extension reads only the protected item. Say "unavailable", never "invalidated", so the
-                    // app's Touch ID setting is not switched off just because the extension cannot see the key.
-                    if isExtension { throw BiometricKeyError.unavailable }
-                    return try await loadFromLoginKeychain(for: id, reason: reason)
-                }
+                // Anything else (interaction not allowed, a busy keychain, ...) may be transient: keep the key and the setting.
+                throw BiometricKeyError.unavailable
                 #else
-                if status == errSecItemNotFound { throw BiometricKeyError.invalidated }
-                #endif
                 throw BiometricKeyError.failed(status)
+                #endif
             }
         }.value
         #endif
@@ -205,7 +231,8 @@ enum BiometricKey {
         #else
         SecItemDelete(baseQuery(for: id, protected: true) as CFDictionary)
         #if os(macOS)
-        SecItemDelete(baseQuery(for: id, protected: false) as CFDictionary)
+        // An extension never touches the login keychain.
+        if !isExtension { SecItemDelete(baseQuery(for: id, protected: false) as CFDictionary) }
         #endif
         #endif
     }

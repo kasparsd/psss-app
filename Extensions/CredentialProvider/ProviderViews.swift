@@ -14,7 +14,7 @@ struct ProviderAction {
 
 /// The frame every provider screen sits in.
 struct ProviderScreen<Content: View>: View {
-    /// Mac only: the heading above the content (iOS shows "Psss" in the navigation bar).
+    /// The screen's title: the navigation title on iOS ("Psss" when there is none), a heading above the content on the Mac.
     var heading: LocalizedStringKey?
     /// Cancel in the navigation bar on iOS, in the footer on the Mac.
     var cancel: ProviderAction?
@@ -28,7 +28,7 @@ struct ProviderScreen<Content: View>: View {
         #if os(iOS)
         NavigationStack {
             content
-                .navigationTitle("Psss")
+                .navigationTitle(heading ?? "Psss")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     if let cancel {
@@ -45,10 +45,12 @@ struct ProviderScreen<Content: View>: View {
             content.frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
             HStack {
-                if let back { Button(back.title, action: back.run) }
+                // Escape leaves the second level when there is one, and cancels the request otherwise.
+                if let back { Button(back.title, action: back.run).keyboardShortcut(.cancelAction) }
                 Spacer()
                 if let cancel {
-                    Button(cancel.title, action: cancel.run).keyboardShortcut(.cancelAction)
+                    if back == nil { Button(cancel.title, action: cancel.run).keyboardShortcut(.cancelAction) }
+                    else { Button(cancel.title, action: cancel.run) }
                 }
                 if let primary {
                     Button(primary.title, action: primary.run).keyboardShortcut(.defaultAction).disabled(!primary.isEnabled)
@@ -57,7 +59,7 @@ struct ProviderScreen<Content: View>: View {
             .padding(16)
         }
         .frame(minWidth: 460, idealWidth: 480, minHeight: 360, idealHeight: 420)
-        .onExitCommand { (cancel ?? primary)?.run() }
+        .onExitCommand { if cancel == nil, back == nil { primary?.run() } }
         #endif
     }
 }
@@ -80,28 +82,50 @@ private struct InlinePrimary: View {
     }
 }
 
+/// The label above a group of rows: body-size secondary text, not the system's smaller header size.
+private struct GroupLabel: View {
+    let text: String
+    var body: some View {
+        Text(verbatim: text).foregroundStyle(.secondary).listRowSeparator(.hidden)
+    }
+}
+
+/// Why AutoFill cannot open the vault.
+enum NotReadyReason {
+    /// No vault has been created.
+    case noVault
+    /// Unlock with Face ID or Touch ID is off, was reset, or cannot be used now.
+    case biometryOff
+    /// The vault file cannot be found.
+    case fileMissing
+
+    var sentence: String {
+        switch self {
+        case .noVault:
+            String(localized: "Open Psss and create a vault.")
+        case .biometryOff:
+            String(localized: "Open Psss, unlock with your vault password and turn on \(BiometryKind.current?.label ?? String(localized: "biometric unlock")).")
+        case .fileMissing:
+            String(localized: "Psss cannot find the vault file. Open Psss to locate it.")
+        }
+    }
+}
+
 /// Shown when AutoFill cannot open the vault: Face ID or Touch ID unlock is off, was reset, or the vault file is out of reach.
 struct NotReady: View {
+    let reason: NotReadyReason
     let close: () -> Void
 
     var body: some View {
         ProviderScreen(primary: ProviderAction(title: "Close", run: close)) {
             VStack(spacing: 16) {
                 Text("Can’t open your vault here").font(.title2.bold()).multilineTextAlignment(.center)
-                Text(Self.explanation).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Text(verbatim: reason.sentence).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 InlinePrimary(title: "Close", action: close)
             }
             .padding(24)
             .frame(maxHeight: .infinity)
         }
-    }
-
-    private static var explanation: LocalizedStringKey {
-        #if os(iOS)
-        "AutoFill opens your vault with Face ID or Touch ID, so you never type the vault password here. If you have not created a vault yet, open Psss and create one. Then unlock it with your vault password and turn on Face ID or Touch ID. Vaults you opened from Files must be moved into Psss first. Nothing was changed."
-        #else
-        "AutoFill opens your vault with Touch ID, so you never type the vault password here. If you have not created a vault yet, open Psss and create one. Then unlock it with your vault password and turn on Touch ID. Nothing was changed."
-        #endif
     }
 }
 
@@ -144,7 +168,7 @@ private struct LoginRow: View {
     let action: () -> Void
 
     private var detail: String {
-        let site = SharedVault.host(item.website)
+        let site = HostDisplay.shown(SharedVault.host(item.website))
         return showsSite && !site.isEmpty ? "\(item.account) · \(site)" : item.account
     }
 
@@ -179,10 +203,23 @@ struct FillList: View {
     let choose: (VaultItem) -> Void
     let cancel: () -> Void
 
-    @State private var showOthers = false
+    @State private var showOthers: Bool
     @State private var showSiteLogins = false
     @State private var search = ""
     @State private var pending: Pending?
+
+    /// `startOnOthers` and `confirming` start the screen on the Other Logins list or with a confirmation open. Only the
+    /// interface harness uses them; the provider leaves both at their defaults.
+    init(site: FillSite, items: [VaultItem], choose: @escaping (VaultItem) -> Void, cancel: @escaping () -> Void,
+         startOnOthers: Bool = false, confirming: VaultItem? = nil) {
+        self.site = site; self.items = items; self.choose = choose; self.cancel = cancel
+        _showOthers = State(initialValue: startOnOthers)
+        _pending = State(initialValue: confirming.map { item in
+            let own = site.host.map { SharedVault.matches(item, host: $0) } ?? false
+            let http: Bool = if case .plainHTTP = site { true } else { false }
+            return Pending(item: item, otherSite: !own, plainHTTP: http)
+        })
+    }
 
     /// A choice waiting for the confirmation.
     private struct Pending: Identifiable {
@@ -209,20 +246,30 @@ struct FillList: View {
     }
 
     var body: some View {
+        #if os(macOS)
+        // A system alert cannot make Cancel both the default (Return) and the cancel button (Escape), so the Mac shows its own sheet.
+        screen.sheet(item: $pending) { pending in
+            ConfirmSheet(title: alertTitle(for: pending), message: message(for: pending), confirmTitle: "Fill Anyway",
+                         confirm: { self.pending = nil; choose(pending.item) }, cancel: { self.pending = nil })
+        }
+        #else
         screen
-            .alert(alertTitle, isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }), presenting: pending) { pending in
-                // Cancel is the default: continuing takes a deliberate choice.
+            .alert(alertTitle(for: pending), isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }), presenting: pending) { pending in
+                // Cancel is the preferred button: continuing takes a deliberate choice.
                 Button("Fill Anyway") { choose(pending.item) }
-                Button("Cancel", role: .cancel) {}.keyboardShortcut(.defaultAction)
+                Button("Cancel", role: .cancel) {}
             } message: { pending in
                 Text(message(for: pending))
             }
+        #endif
     }
 
     @ViewBuilder private var screen: some View {
         #if os(iOS)
         ProviderScreen(cancel: ProviderAction(title: "Cancel", run: cancel)) {
-            mainContent.navigationDestination(isPresented: $showOthers) { othersContent }
+            mainContent.navigationDestination(isPresented: $showOthers) {
+                othersContent.navigationTitle("Other Logins").navigationBarTitleDisplayMode(.inline)
+            }
         }
         #else
         if showOthers {
@@ -242,19 +289,25 @@ struct FillList: View {
                 switch site {
                 case .secure(let host):
                     if siteLogins.isEmpty {
-                        Section { Text("No logins are saved for \(host).").foregroundStyle(.secondary) }
+                        Section { Text("No logins are saved for \(HostDisplay.shown(host)).").foregroundStyle(.secondary) }
                     } else {
-                        Section { ForEach(siteLogins) { row($0, isDefault: siteLogins.count == 1) } } header: { Text("For \(host)") }
+                        Section {
+                            GroupLabel(text: String(localized: "For \(HostDisplay.shown(host))"))
+                            ForEach(siteLogins) { row($0, isDefault: siteLogins.count == 1) }
+                        }
                     }
                 case .plainHTTP(let host):
                     Section {
-                        Text("\(host) is not encrypted (http), so Psss does not offer logins here by itself.").foregroundStyle(.secondary)
+                        Text("\(HostDisplay.shown(host)) is not encrypted (http), so Psss does not offer logins here by itself.").foregroundStyle(.secondary)
                         if !showSiteLogins {
-                            Button("Show Logins for \(host)…") { showSiteLogins = true }
+                            Button("Show Logins for \(HostDisplay.shown(host))…") { showSiteLogins = true }
                         }
                     }
                     if showSiteLogins {
-                        Section { ForEach(siteLogins) { row($0) } } header: { Text("For \(host)") }
+                        Section {
+                            GroupLabel(text: String(localized: "For \(HostDisplay.shown(host))"))
+                            ForEach(siteLogins) { row($0) }
+                        }
                     }
                 case .unknown:
                     Section { Text("Psss could not tell which site this is.").foregroundStyle(.secondary) }
@@ -304,7 +357,7 @@ struct FillList: View {
         }
     }
 
-    private var alertTitle: LocalizedStringKey {
+    private func alertTitle(for pending: Pending?) -> LocalizedStringKey {
         pending?.otherSite == false ? "Fill on a page that is not encrypted?" : "Fill a login from another site?"
     }
 
@@ -312,17 +365,45 @@ struct FillList: View {
         let httpWarning = String(localized: "This page is not encrypted (http), so anything filled here can be read on the network.")
         guard pending.otherSite else { return httpWarning }
         let name = pending.item.displayTitle
-        let saved = SharedVault.host(pending.item.website)
+        let saved = HostDisplay.shown(SharedVault.host(pending.item.website))
         let savedFor = saved.isEmpty ? String(localized: "“\(name)” has no website saved") : String(localized: "“\(name)” was saved for \(saved)")
         let base: String
         if let host = site.host {
-            base = String(localized: "\(savedFor), and you are signing in to \(host). Only continue if you trust this page.")
+            base = String(localized: "\(savedFor), and you are signing in to \(HostDisplay.shown(host)). Only continue if you trust this page.")
         } else {
             base = String(localized: "\(savedFor), and Psss could not tell which site you are signing in to. Only continue if you trust this page.")
         }
         return pending.plainHTTP ? base + " " + httpWarning : base
     }
 }
+
+#if os(macOS)
+/// A confirmation for the Mac: the safe choice is the default button (Return) and Escape also takes it. The action is on the
+/// left, Cancel at the trailing edge, as in a standard Mac alert.
+private struct ConfirmSheet: View {
+    let title: LocalizedStringKey
+    let message: String
+    let confirmTitle: LocalizedStringKey
+    let confirm: () -> Void
+    let cancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(title).font(.title2.bold())
+            Text(verbatim: message)
+            HStack {
+                Spacer()
+                Button(confirmTitle, action: confirm)
+                Button("Cancel", action: cancel).keyboardShortcut(.defaultAction)
+                // Escape does the same as Cancel; only one button can carry each shortcut.
+                Button("Cancel", action: cancel).keyboardShortcut(.cancelAction).opacity(0).frame(width: 0).accessibilityHidden(true)
+            }
+        }
+        .padding(20)
+        .frame(width: 420)
+    }
+}
+#endif
 
 /// Shown when the person asks for a verification code. Only logins that have a code and belong to the site are listed: there is
 /// no way to choose a code for another site.
@@ -339,10 +420,12 @@ struct CodeList: View {
             List {
                 if let host {
                     if items.isEmpty {
-                        Text("No verification codes are saved for \(host).").foregroundStyle(.secondary)
+                        Text("No verification codes are saved for \(HostDisplay.shown(host)).").foregroundStyle(.secondary)
                     } else {
-                        Section { ForEach(items) { item in LoginRow(item: item, verb: "Use Code", isDefault: items.count == 1) { choose(item) } } }
-                        header: { Text("For \(host)") }
+                        Section {
+                            GroupLabel(text: String(localized: "For \(HostDisplay.shown(host))"))
+                            ForEach(items) { item in LoginRow(item: item, verb: "Use Code", isDefault: items.count == 1) { choose(item) } }
+                        }
                     }
                 } else {
                     Text("Psss could not tell which site this is.").foregroundStyle(.secondary)
@@ -360,12 +443,16 @@ struct FillConfirm: View {
     let fill: () -> Void
     let cancel: () -> Void
 
+    /// The site the login was saved for.
+    private var site: String { HostDisplay.shown(SharedVault.host(item.website)) }
+
     var body: some View {
         ProviderScreen(cancel: ProviderAction(title: "Cancel", run: cancel), primary: ProviderAction(title: verb, run: fill)) {
             VStack(spacing: 16) {
                 Spacer()
                 Text(verbatim: item.displayTitle).font(.title2.bold()).multilineTextAlignment(.center)
                 Text(verbatim: item.account).foregroundStyle(.secondary)
+                if !site.isEmpty { Text("for \(site)").foregroundStyle(.secondary) }
                 InlinePrimary(title: verb, action: fill).padding(.horizontal)
                 Spacer()
             }
@@ -437,7 +524,8 @@ struct PasskeyPick: View {
     var body: some View {
         ProviderScreen(heading: "Choose a Passkey", cancel: ProviderAction(title: "Cancel", run: cancel)) {
             List {
-                Section("Passkeys for \(rpID)") {
+                Section {
+                    GroupLabel(text: String(localized: "Passkeys for \(HostDisplay.shown(rpID))"))
                     if items.isEmpty { Text("No passkeys for this site yet.").foregroundStyle(.secondary) }
                     ForEach(items) { item in LoginRow(item: item, verb: "Sign in", isDefault: items.count == 1) { choose(item) } }
                 }

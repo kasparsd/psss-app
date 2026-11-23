@@ -62,6 +62,24 @@
 			"path" = "SafariExtension-macOS.entitlements";
 			"sourceTree" = "<group>";
 		};
+		000000000000000000000073 = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "text.plist.entitlements";
+			"path" = "App-macOS-local.entitlements";
+			"sourceTree" = "<group>";
+		};
+		000000000000000000000074 = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "text.plist.entitlements";
+			"path" = "CredentialProvider-macOS-local.entitlements";
+			"sourceTree" = "<group>";
+		};
+		000000000000000000000075 = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "text.plist.entitlements";
+			"path" = "SafariExtension-macOS-local.entitlements";
+			"sourceTree" = "<group>";
+		};
 		000000000000000000000007 = {
 			"isa" = "PBXGroup";
 			"path" = "Configuration";
@@ -75,6 +93,9 @@
 				000000000000000000000070,
 				000000000000000000000071,
 				000000000000000000000072,
+				000000000000000000000073,
+				000000000000000000000074,
+				000000000000000000000075,
 			);
 		};
 		000000000000000000000008 = {

@@ -14,15 +14,36 @@ enum FillSite: Equatable, Sendable {
     /// Hosts that are this machine: an `http` page there never leaves it.
     private static let thisMachine: Set<String> = ["localhost", "127.0.0.1", "::1"]
 
-    /// Reads the first service identifier the system gave. A URL with the scheme `http` (any letter case) on a host that is not
-    /// this machine is `plainHTTP`. Every other identifier is judged by its host alone: a domain name, an `https` URL or a URL
-    /// with another scheme.
+    /// Reads one service identifier. A URL with the scheme `http` (any letter case) on a host that is not this machine is
+    /// `plainHTTP`. Every other identifier is judged by its host alone: a domain name, an `https` URL or a URL with another
+    /// scheme. Whether the host is this machine is decided on the host as written: `www.127.0.0.1` is not loopback.
     init(serviceIdentifier: String?) {
         let text = serviceIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let host = SiteMatch.normalizedHost(text)
         guard !host.isEmpty else { self = .unknown; return }
         let isHTTP = text.lowercased().hasPrefix("http://")
-        self = isHTTP && !Self.thisMachine.contains(host) ? .plainHTTP(host: host) : .secure(host: host)
+        self = isHTTP && !Self.thisMachine.contains(Self.hostAsWritten(text)) ? .plainHTTP(host: host) : .secure(host: host)
+    }
+
+    /// Reads every service identifier the system gave, most specific first. The site is the first identifier that has a host.
+    /// The page counts as plain `http` when ANY identifier is an `http` URL for a host that is not this machine, so a secure
+    /// first identifier cannot hide an insecure one behind it.
+    init(serviceIdentifiers: [String]) {
+        let sites = serviceIdentifiers.map { FillSite(serviceIdentifier: $0) }
+        guard let host = sites.lazy.compactMap(\.host).first else { self = .unknown; return }
+        let insecure = sites.contains { if case .plainHTTP = $0 { true } else { false } }
+        self = insecure ? .plainHTTP(host: host) : .secure(host: host)
+    }
+
+    /// The host of an `http://` URL exactly as written, lowercased, without port, brackets or trailing dot, and without
+    /// stripping `www.`.
+    private static func hostAsWritten(_ text: String) -> String {
+        var rest = Substring(text.lowercased().dropFirst("http://".count))
+        if let end = rest.firstIndex(where: { "/?#".contains($0) }) { rest = rest[..<end] }
+        if rest.hasPrefix("["), let close = rest.firstIndex(of: "]") { return String(rest[rest.index(after: rest.startIndex)..<close]) }
+        if rest.filter({ $0 == ":" }).count == 1, let colon = rest.firstIndex(of: ":") { rest = rest[..<colon] }
+        if rest.hasSuffix(".") { rest = rest.dropLast() }
+        return String(rest)
     }
 
     /// The normalized host, nil for an unknown site.

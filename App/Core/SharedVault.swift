@@ -25,14 +25,24 @@ enum SharedVault {
 
     private static let defaultGroupID = "group.local.kdbox.prototype"
 
+    /// The first identifier in `groups` that starts with a team identifier: ten letters or digits (upper case), a dot and
+    /// then a name. What `$(TeamIdentifierPrefix)` leaves in a build with no team (`local.kdbox.prototype`, or one that starts
+    /// with a dot) is refused, because macOS would not give an extension that group's container anyway.
+    static func teamPrefixedGroup(in groups: [String]) -> String? {
+        groups.first { group in
+            let bytes = Array(group.utf8)
+            guard bytes.count > 11, bytes[10] == 46 else { return false }
+            return bytes[..<10].allSatisfy { ($0 >= 65 && $0 <= 90) || ($0 >= 48 && $0 <= 57) } && bytes[11] != 46
+        }
+    }
+
     #if os(macOS)
-    /// The first App Group in this process's entitlements, or nil when it has none or the entry is empty or starts with a dot
-    /// (what `$(TeamIdentifierPrefix)` leaves behind in a build with no team).
+    /// The team-prefixed App Group in this process's entitlements, or nil when it has none.
     private static var signedGroupID: String? {
         guard let task = SecTaskCreateFromSelf(nil),
               let groups = SecTaskCopyValueForEntitlement(task, "com.apple.security.application-groups" as CFString, nil) as? [String]
         else { return nil }
-        return groups.first { !$0.isEmpty && !$0.hasPrefix(".") }
+        return teamPrefixedGroup(in: groups)
     }
     #endif
 
