@@ -1,1 +1,10 @@
-{}
+{
+  "background": {
+    "scripts": [
+      "protocol.js",
+      "host.js",
+      "background.js"
+    ],
+    "persistent": false
+  }
+}

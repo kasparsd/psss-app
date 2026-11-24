@@ -1,4 +1,4 @@
-// Shared helpers for the browser end-to-end tests: sample site, CDP client, polling.
+// Shared helpers for the browser end-to-end tests: test site (Packages/test-sites, Node 24), CDP client, polling.
 import { spawn } from 'node:child_process';
 import { createConnection } from 'node:net';
 import { fileURLToPath } from 'node:url';
@@ -24,12 +24,12 @@ const portOpen = (port) => new Promise((ok) => {
   s.on('error', () => ok(false));
 });
 
-/** Starts the sample site unless one is already listening. Returns a stop function. */
+/** Starts the test site on :8080 unless one is already listening. Returns a stop function. Needs Node 24 (the running Node). */
 export async function startSite({ detach = false } = {}) {
   if (await portOpen(8080)) return () => {};
-  const child = spawn('python3', [resolve(ROOT, 'prototype/sample-site/server.py')], { stdio: 'ignore', detached: detach });
+  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', resolve(ROOT, 'Packages/test-sites/src/server.ts'), '--port', '8080'], { stdio: 'ignore', detached: detach });
   if (detach) child.unref();
-  await until(() => portOpen(8080), 'sample site on :8080');
+  await until(() => portOpen(8080), 'test site on :8080');
   return () => { if (!detach) child.kill(); };
 }
 

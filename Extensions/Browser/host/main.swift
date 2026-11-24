@@ -52,6 +52,7 @@ func configureStorage() {
         ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Psss Prototype")
     try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     BrowserPrototypeStore.directory = directory
+    BrowserProtocol.vaultService = BrowserPrototypeStore.vaultService
 }
 
 // MARK: Main

@@ -139,6 +139,8 @@ def referenced_files(manifest: dict) -> list[str]:
     files += list(action.get("default_icon", {}).values())
     if "default_popup" in action:
         files.append(action["default_popup"])
+    background = manifest.get("background", {})
+    files += [background["service_worker"]] if "service_worker" in background else background.get("scripts", [])
     return files
 
 
@@ -258,7 +260,7 @@ def safari_project() -> None:
 # MARK: Native host ------------------------------------------------------------------------
 
 HOST_SOURCES = [HERE / "host" / "main.swift"] + [
-    ROOT / "App" / "Core" / name for name in ("VaultItem.swift", "SampleVault.swift", "SharedVault.swift", "SiteMatch.swift", "PublicSuffixList.swift", "Passkey.swift", "TOTP.swift", "PasswordGenerator.swift", "BrowserPrototypeStore.swift", "BrowserProtocol.swift")
+    ROOT / "App" / "Core" / name for name in ("VaultItem.swift", "SampleVault.swift", "SharedVault.swift", "SiteMatch.swift", "PublicSuffixList.swift", "Passkey.swift", "TOTP.swift", "PasswordGenerator.swift", "BrowserPrototypeStore.swift", "BrowserProtocol.swift", "BrowserVaults.swift", "DisplayText.swift", "HostDisplay.swift", "ItemSearch.swift", "CardNumber.swift", "CardBrand.swift", "GeneratorSettings.swift", "GeneratorText.swift", "PasswordRules.swift", "AppleStyle.swift", "OffensiveFilter.swift", "WordList.swift")
 ]
 HOST_BINARY = OUT / "host" / "psss-native-host"
 

@@ -25,8 +25,11 @@ var Host = (function () {
     cardCandidates: (origin) => send('card-candidates', { origin }),
     card: (ref, origin) => send('card', { ref, origin }),
     generate: () => send('generate'),
-    save: (origin, account, secret) => send('save', { origin, account, secret }),
-    search: (origin, query) => send('search', { origin, query }),
+    save: (origin, vault, account, secret) => send('save', { origin, vault, account, secret }),
+    search: (origin, query, fields = []) => send('search', { origin, query, fields }),
+    vaults: () => send('vaults'),
+    switchVault: (vault) => send('switch-vault', { vault }),
+    unlockVault: (vault) => send('unlock-vault', { vault }),
     credential: (ref, origin, manual = false) => send('credential', { ref, origin, ...(manual ? { manual: true } : {}) })
   };
 })();

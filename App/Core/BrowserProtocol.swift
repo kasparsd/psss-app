@@ -10,7 +10,15 @@ import Foundation
 /// every request that would read or write a credential is answered `unsupported`. The shipping design keeps the vault key out of the host: it relays each
 /// request to the running app, which verifies the peer, unlocks and approves release.
 enum BrowserProtocol {
-    static let version = 1
+    /// 3 (2026-11-24): `vaults` answers each vault's `state` (and `reason`) instead of a `locked` flag, `unlock-vault` is new,
+    /// `switch-vault` only makes the vault current (it no longer asks for the unlock), `save` carries the `vault` it saves into and
+    /// `candidates` carry the `website`. 2 added field-aware `search`, `vaults` and `switch-vault`. Hosts and extensions of
+    /// different versions are not mixed: a mismatch is `unsupported`.
+    static let version = 3
+
+    /// Who holds the vaults in this process. The native host installs the prototype's, the Safari app extension the stored list
+    /// (read only). Nil answers `vaults` and `switch-vault` with `unsupported`.
+    nonisolated(unsafe) static var vaultService: BrowserVaultService?
 
     // MARK: Origin rule, mirrored from the extension (src/lib/origin.js). Both sides enforce it.
 
@@ -30,6 +38,21 @@ enum BrowserProtocol {
         SHA256.hash(data: Data("\(item.website)|\(item.account)".utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
     }
 
+    /// What a request may not read or write while the current vault is not open: `locked` when the person can open it (Touch ID or
+    /// the vault password), `not-available` when the file cannot be used.
+    private static let vaultRequests = ["candidates", "search", "save", "credential", "card-candidates", "card"]
+
+    private static func vaultsReply(_ service: BrowserVaultService) -> [String: Any] { ["vaults": service.vaults().map(\.json)] }
+
+    /// The names the protocol uses for the search fields (`SearchField` is the app's, with localized labels).
+    private static func searchName(_ field: SearchField) -> String {
+        switch field { case .name: "name"; case .website: "website"; case .username: "username" }
+    }
+
+    private static func searchField(_ name: String) -> SearchField? {
+        SearchField.allCases.first { searchName($0) == name }
+    }
+
     /// Sample cards have a fixed order across native-host invocations. The connected vault uses record IDs.
     private static func sampleCardReference(_ index: Int) -> String { "sample-card-\(index)" }
 
@@ -44,8 +67,13 @@ enum BrowserProtocol {
 
         let type = request["type"] as? String
         // No credential is served or stored unless the native host enabled the prototype file.
-        if ["candidates", "search", "save", "credential", "card-candidates", "card"].contains(type),
-           !BrowserPrototypeStore.isAvailable { return fail("unsupported") }
+        if let type, vaultRequests.contains(type), !BrowserPrototypeStore.isAvailable { return fail("unsupported") }
+
+        // The current vault may not be open (locked, needs its password, not available). Nothing is served from it.
+        if let type, vaultRequests.contains(type), let service = vaultService, let current = service.vaults().first(where: \.active),
+           !current.isOpen {
+            return fail(current.state.isAvailable ? "locked" : "not-available")
+        }
 
         switch type {
         case "ping":
@@ -57,42 +85,102 @@ enum BrowserProtocol {
             let matches = BrowserPrototypeStore.allItems.filter {
                 $0.fillValue(for: .password) != nil && SharedVault.matches($0, host: requested)
             }
-            return ok(["candidates": matches.map { ["ref": reference($0), "title": $0.displayTitle, "account": $0.visibleAccount] }])
+            return ok(["candidates": matches.map { ["ref": reference($0), "title": $0.displayTitle, "account": $0.visibleAccount,
+                                                    "website": $0.visibleWebsite, "passkey": $0.passkey != nil] as [String: Any] }])
 
         case "search":
-            // Metadata only. `matches` tells the popup which results belong to this page.
+            // Metadata only. `matches` says whether a result belongs to this page. The search is the app's (`ItemSearch`): the
+            // text is looked for in the chosen fields (none chosen: all three), `counts` says how many logins have it in each
+            // field whatever is chosen, and each result says which field it was found in and which part of it to set in bold.
             guard let origin = request["origin"] as? String, let host = fillableHost(origin) else { return fail("forbidden") }
-            let query = (request["query"] as? String ?? "").lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !query.isEmpty, query.count <= 100 else { return ok(["results": [Any]()]) }
+            let query = (request["query"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let counts = ["name": 0, "website": 0, "username": 0]
+            guard !query.isEmpty, query.count <= 100 else { return ok(["results": [Any](), "counts": counts, "total": 0]) }
+            let chosen = Set((request["fields"] as? [String] ?? []).compactMap(searchField))
             let requested = SharedVault.host(host)
-            let hits = BrowserPrototypeStore.allItems
-                .filter { $0.kind == .login && !$0.secret.isEmpty
-                    && [$0.displayTitle, $0.visibleAccount, $0.visibleWebsite].contains { $0.lowercased().contains(query) } }
-                .prefix(20)
-            return ok(["results": hits.map {
-                ["ref": reference($0), "title": $0.displayTitle, "account": $0.visibleAccount, "website": $0.visibleWebsite,
-                 "matches": SharedVault.matches($0, host: requested)] as [String: Any]
-            }])
+            let logins = BrowserPrototypeStore.allItems.filter { $0.kind == .login && !$0.secret.isEmpty }
+            let found = logins
+                .filter { ItemSearch.matches($0, query: query, in: chosen) }
+                .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
+            let perField = ItemSearch.counts(logins, query: query)
+            return ok([
+                "results": found.prefix(20).map { item -> [String: Any] in
+                    var row: [String: Any] = ["ref": reference(item), "title": item.displayTitle, "account": item.visibleAccount,
+                                              "website": item.visibleWebsite, "matches": SharedVault.matches(item, host: requested),
+                                              "passkey": item.passkey != nil]
+                    if let hit = ItemSearch.hit(of: item, query: query, chosen: chosen) {
+                        row["found"] = searchName(hit.field)
+                        row["hit"] = hit.text
+                        if let range = hit.range { row["hitRange"] = [range.lowerBound, range.count] }
+                    }
+                    return row
+                },
+                "counts": Dictionary(uniqueKeysWithValues: SearchField.allCases.map { (searchName($0), perField[$0] ?? 0) }),
+                "total": found.count,
+            ])
+
+        case "vaults":
+            guard let service = vaultService else { return fail("unsupported") }
+            return ok(vaultsReply(service))
+
+        case "switch-vault":
+            // Makes the vault the app's current one (the open vault locks) and does not unlock it: the popup shows Unlock when
+            // the new vault is locked. The reply carries the new list so the popup draws the states as they are now.
+            guard let service = vaultService else { return fail("unsupported") }
+            guard let vault = request["vault"] as? String, !vault.isEmpty, vault.count <= 64 else { return fail("not-found") }
+            switch service.switchVault(id: vault) {
+            case .switched: return ok(vaultsReply(service))
+            case .notFound: return fail("not-found")
+            case .unsupported: return fail("unsupported")
+            }
+
+        case "unlock-vault":
+            // Unlocks the current vault: Touch ID when it is ready, otherwise the app is asked to come forward on that vault's lock
+            // screen, or the answer is `needs-app`. Every answer except the input errors carries the vault list, so the popup (or
+            // the next one, after the Touch ID prompt closed it) draws the state as it is now. No secret is ever in a reply.
+            guard let service = vaultService else { return fail("unsupported") }
+            guard let vault = request["vault"] as? String, !vault.isEmpty, vault.count <= 64 else { return fail("not-found") }
+            let list = vaultsReply(service)
+            switch service.unlockVault(id: vault) {
+            case .unlocked: return ok(vaultsReply(service))
+            case .cameForward: return ok(vaultsReply(service)).merging(["app": "opened"]) { $1 }
+            case .needsApp: return fail("needs-app").merging(vaultsReply(service)) { $1 }
+            case .cancelled: return fail("cancelled").merging(vaultsReply(service)) { $1 }
+            case .failed: return fail("failed").merging(vaultsReply(service)) { $1 }
+            case .notAvailable: return fail("not-available").merging(vaultsReply(service)) { $1 }
+            case .notFound: return fail("not-found")
+            case .notCurrent: return fail("forbidden").merging(list) { $1 }
+            case .unsupported: return fail("unsupported")
+            }
 
         case "generate":
             return ok(["password": PasswordGenerator.strong()])
 
         case "save":
-            // Creates a login, or updates the secret of the saved login for the same site and account.
+            // Creates a login in the current vault, or updates the password of the saved login there for the same site and account.
+            // The request names the vault so a popup that is out of date cannot write into a vault the person has since left: only
+            // the current, open vault is written (`forbidden` for another one, `locked` or `not-available` when it is not open).
             guard let origin = request["origin"] as? String, let host = fillableHost(origin) else { return fail("forbidden") }
             guard let account = (request["account"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !account.isEmpty, account.count <= 320,
                   let secret = request["secret"] as? String, !secret.isEmpty, secret.count <= 1024 else { return fail("unsupported") }
+            guard let vault = request["vault"] as? String, !vault.isEmpty, vault.count <= 64 else { return fail("not-found") }
+            guard let service = vaultService else { return fail("unsupported") }
+            let vaults = service.vaults()
+            guard vaults.contains(where: { $0.id == vault }) else { return fail("not-found") }
+            guard let current = vaults.first(where: \.active), current.id == vault else { return fail("forbidden") }
+            guard current.isOpen else { return fail(current.state.isAvailable ? "locked" : "not-available") }
             let website = SharedVault.host(host)
-            if var existing = BrowserPrototypeStore.loadSaved().first(where: {
+            if var existing = BrowserPrototypeStore.allItems.first(where: {
                 $0.kind == .login && SharedVault.host($0.website) == website && $0.account == account
             }) {
+                // Only the password changes: never the username, title or website.
                 existing.secret = secret
-                BrowserPrototypeStore.save(existing)
-                return ok(["result": "updated"])
+                BrowserPrototypeStore.save(existing, vault: vault)
+                return ok(["result": "updated", "vault": vault])
             }
-            BrowserPrototypeStore.save(VaultItem(kind: .login, account: account, website: website, secret: secret))
-            return ok(["result": "created"])
+            BrowserPrototypeStore.save(VaultItem(kind: .login, account: account, website: website, secret: secret), vault: vault)
+            return ok(["result": "created", "vault": vault])
 
         case "credential":
             guard let origin = request["origin"] as? String, let host = fillableHost(origin),

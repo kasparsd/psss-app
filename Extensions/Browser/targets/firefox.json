@@ -12,5 +12,12 @@
   },
   "optional_permissions": [
     "privacy"
-  ]
+  ],
+  "background": {
+    "scripts": [
+      "protocol.js",
+      "host.js",
+      "background.js"
+    ]
+  }
 }
