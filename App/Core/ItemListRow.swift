@@ -11,6 +11,11 @@ struct ItemListRow<Trailing: View>: View {
     var subtitle: Text?
     /// What VoiceOver reads in place of the second line, when the written form is not how it is spoken.
     var subtitleSpoken: String?
+    /// The most lines the second line may take. One everywhere except where cutting it would hide the point (the picker's
+    /// "Saved for <site>", which names a site the person must be able to read in full).
+    var subtitleLines = 1
+    /// The text being searched for. When the name holds it, that part of the name is set in bold (search results only).
+    var titleHighlight = ""
     /// What the login has, as filled glyphs at the trailing end, only the ones it has, packed against the trailing edge
     /// (passkey, then code last), so a row with one glyph ends where a row with two ends. Only the All list shows them. Empty for none.
     var glyphs: [ItemTrait] = []
@@ -22,12 +27,14 @@ struct ItemListRow<Trailing: View>: View {
     @ViewBuilder var trailing: Trailing
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    init(item: VaultItem, subtitle: Text? = nil, subtitleSpoken: String? = nil, glyphs: [ItemTrait] = [],
+    init(item: VaultItem, subtitle: Text? = nil, subtitleSpoken: String? = nil, subtitleLines: Int = 1, titleHighlight: String = "", glyphs: [ItemTrait] = [],
          glyphColumns: [ItemTrait] = ItemTrait.glyphColumns, open: (() -> Void)? = nil,
          @ViewBuilder trailing: () -> Trailing) {
         self.item = item
         self.subtitle = subtitle
         self.subtitleSpoken = subtitleSpoken
+        self.subtitleLines = subtitleLines
+        self.titleHighlight = titleHighlight
         self.glyphs = glyphs
         self.glyphColumns = glyphColumns
         self.open = open
@@ -36,7 +43,7 @@ struct ItemListRow<Trailing: View>: View {
 
     /// The name may wrap to a second line rather than be cut ("Harbor Vault (8 dig…").
     private var titleLine: some View {
-        Text(verbatim: item.displayTitle.breakableAfterDots).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+        highlighted(item.displayTitle, query: ItemSearch.nameHighlight(of: item, query: titleHighlight), breaksAfterDots: true).lineLimit(2).fixedSize(horizontal: false, vertical: true)
     }
 
     /// Filled glyphs, secondary (they tell, they are not buttons), a little larger than the text, one fixed column each.
@@ -60,7 +67,7 @@ struct ItemListRow<Trailing: View>: View {
             VStack(alignment: .leading, spacing: 2) {
                 titleLine
                 if let subtitle {
-                    subtitle.foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    subtitle.foregroundStyle(.secondary).lineLimit(subtitleLines).truncationMode(.middle)
                         .accessibilityLabel(subtitleSpoken.map { Text(verbatim: $0) } ?? subtitle)
                 }
             }
@@ -100,10 +107,10 @@ struct ItemListRow<Trailing: View>: View {
 }
 
 extension ItemListRow where Trailing == EmptyView {
-    init(item: VaultItem, subtitle: Text? = nil, subtitleSpoken: String? = nil, glyphs: [ItemTrait] = [],
+    init(item: VaultItem, subtitle: Text? = nil, subtitleSpoken: String? = nil, subtitleLines: Int = 1, titleHighlight: String = "", glyphs: [ItemTrait] = [],
          glyphColumns: [ItemTrait] = ItemTrait.glyphColumns, open: (() -> Void)? = nil) {
-        self.init(item: item, subtitle: subtitle, subtitleSpoken: subtitleSpoken, glyphs: glyphs, glyphColumns: glyphColumns,
-                  open: open) { EmptyView() }
+        self.init(item: item, subtitle: subtitle, subtitleSpoken: subtitleSpoken, subtitleLines: subtitleLines, glyphs: glyphs,
+                  glyphColumns: glyphColumns, open: open) { EmptyView() }
     }
 }
 

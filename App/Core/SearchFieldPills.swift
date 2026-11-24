@@ -45,7 +45,21 @@ func searchSubtitle(_ item: VaultItem, query: String, chosen: Set<SearchField>) 
     else {
         return item.visibleAccount.isEmpty ? Text(item.kind.label) : Text(verbatim: item.visibleAccount)
     }
-    return Text(verbatim: String(text[..<range.lowerBound]))
-        + Text(verbatim: String(text[range])).foregroundStyle(.primary).fontWeight(.semibold)
-        + Text(verbatim: String(text[range.upperBound...]))
+    return emphasized(text, range)
+}
+
+/// `text` with the part that holds `query` in bold and the primary colour, or the plain text when it does not hold it. Case and
+/// diacritics are ignored, as in the search. For a row's name while searching.
+func highlighted(_ text: String, query: String, breaksAfterDots: Bool = false) -> Text {
+    let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !query.isEmpty, let range = text.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) else {
+        return Text(verbatim: breaksAfterDots ? text.breakableAfterDots : text)
+    }
+    return emphasized(text, range, breaksAfterDots: breaksAfterDots)
+}
+
+private func emphasized(_ text: String, _ range: Range<String.Index>, breaksAfterDots: Bool = false) -> Text {
+    func part(_ s: Substring) -> String { breaksAfterDots ? String(s).breakableAfterDots : String(s) }
+    // Interpolated, not joined with +, which is deprecated; the surrounding font still applies to every part.
+    return Text("\(Text(verbatim: part(text[..<range.lowerBound])))\(Text(verbatim: part(text[range])).foregroundStyle(.primary).fontWeight(.semibold))\(Text(verbatim: part(text[range.upperBound...])))")
 }

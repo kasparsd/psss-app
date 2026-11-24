@@ -170,6 +170,15 @@ struct KDBXKDF: Sendable {
         }
     }
 
+    /// What the derivation allocates at once: Argon2's memory parameter. Zero for AES-KDF; an unknown function counts as zero too,
+    /// because it fails before it runs.
+    var memoryBytes: UInt64 {
+        switch kind {
+        case .argon2d, .argon2id: dictionary.uint64("M") ?? 0
+        case .aes, nil: 0
+        }
+    }
+
     mutating func regenerateSeed() {
         dictionary.set("S", bytes: KDBXCrypto.randomBytes(32))
     }
@@ -285,6 +294,26 @@ enum KDBX {
     /// Fails with `wrongCredentials` when the file's KDF settings or password changed since the key was saved.
     static func open(_ file: Data, transformedKey: Data) throws -> KDBXDocument {
         try open(file, key: .transformed(transformedKey))
+    }
+
+    /// The memory in bytes the file's key derivation will ask for, read from the header alone: nothing is derived and nothing is
+    /// decrypted. Zero for AES-KDF and for KDBX 3 (which only has AES-KDF), nil when the header cannot be read (opening the file
+    /// then fails with its own error). The AutoFill extension checks this before it runs the KDF with a typed password.
+    static func keyDerivationMemory(of file: Data) -> UInt64? {
+        var reader = ByteReader(file)
+        guard file.count > 12, (try? reader.u32()) == signature1, (try? reader.u32()) == signature2,
+              (try? reader.u16()) != nil, let major = try? reader.u16() else { return nil }
+        if major == 3 { return 0 }
+        guard major == 4 else { return nil }
+        while true {
+            guard let id = try? reader.u8(), let size = (try? reader.u32()).map(Int.init), size <= maxHeader,
+                  let value = try? reader.bytes(size) else { return nil }
+            if id == 0 { return nil }
+            if id == 11 {
+                guard let dictionary = try? VariantDictionary(value) else { return nil }
+                return KDBXKDF(dictionary: dictionary).memoryBytes
+            }
+        }
     }
 
     private static func open(_ file: Data, key: KDBXKey) throws -> KDBXDocument {

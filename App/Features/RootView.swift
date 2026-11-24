@@ -31,7 +31,9 @@ struct RootView: View {
                 }
             } else if vaultSource == Self.keePassSource {
                 if gate.isUnlocked, let store = session.store {
-                    VaultView(store: store)
+                    // One view per open store: a new vault (created, opened or switched to) is never shown through the list and
+                    // saved-key state the previous vault's view took when it appeared.
+                    VaultView(store: store).id(ObjectIdentifier(store))
                 } else {
                     VaultPasswordView(session: session, gate: gate)
                 }
@@ -61,18 +63,29 @@ struct RootView: View {
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)) { _ in gate.lock() }
         .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("com.apple.screenIsLocked"))) { _ in gate.lock() }
         // Coming back from System Settings: the window's scene phase does not always say so on a Mac.
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in Task { await autoFill.refresh(); await safariExtension.refresh() } }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in Task { await autoFill.refreshSettling(); await safariExtension.refresh() } }
         #endif
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:
-                Task { await autoFill.refresh() }
+                Task { await autoFill.refreshSettling() }
                 if !vaultSource.isEmpty { Task { await gate.didBecomeActive(after: timing, prompt: usesDeviceAuth) } }
             case .inactive, .background:
                 try? session.store?.flush()
                 gate.didResignActive()
             @unknown default: break
             }
+        }
+    }
+}
+
+/// The app's scene reads focused values (menu commands) and so is evaluated again each time the vault window sets one. Without this
+/// the window's content is built again then too, which sets the focused values again: a loop that keeps the main thread at 100%
+/// and never lets the unlock finish. Comparing only what the app hands in (the environment still delivers changes) ends it.
+extension RootView: Equatable {
+    nonisolated static func == (lhs: RootView, rhs: RootView) -> Bool {
+        MainActor.assumeIsolated {
+            lhs.gate === rhs.gate && lhs.session === rhs.session && lhs.autoFill === rhs.autoFill && lhs.safariExtension === rhs.safariExtension
         }
     }
 }

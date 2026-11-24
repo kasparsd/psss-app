@@ -5,6 +5,7 @@ struct PsssApp: App {
     @FocusedValue(\.newItem) private var newItem
     @FocusedValue(\.lockVault) private var lockVault
     @FocusedValue(\.openSetup) private var openSetup
+    @FocusedValue(\.addVault) private var addVault
     @FocusedValue(\.deleteSelection) private var deleteSelection
     // One of each for the whole app: the vault window and the Mac Settings window read the same lock state and vault.
     @State private var gate = UnlockGate()
@@ -36,6 +37,7 @@ struct PsssApp: App {
     var body: some Scene {
         WindowGroup {
             RootView(gate: gate, session: session, autoFill: autoFill, safariExtension: safariExtension)
+                .equatable()
                 .environment(settingsRequests)
                 .environment(incomingCodes)
                 // A site's “set up authenticator” link. It only queues; the unlocked vault asks which login it belongs to.
@@ -86,6 +88,9 @@ struct PsssApp: App {
                     .disabled(newItem == nil)
                 Button("New Wi-Fi Network") { newItem?(.wifi) }
                     .disabled(newItem == nil)
+                Divider()
+                Button("Add Vault…") { addVault?() }
+                    .disabled(addVault == nil)
             }
         }
         #if os(macOS)

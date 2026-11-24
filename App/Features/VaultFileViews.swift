@@ -80,7 +80,7 @@ struct NewVaultSheet: View {
     var importing: [VaultItem] = []
     let onCreated: () -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var name = String(localized: "Passwords")
+    @State private var name: String
     @State private var password = ""
     @State private var confirmation = ""
     @State private var keyFile: Data?
@@ -90,7 +90,16 @@ struct NewVaultSheet: View {
     @State private var iCloudAvailable: Bool?
     @State private var location = VaultLocation.iCloudDrive
 
-    private var canCreate: Bool { !password.isEmpty && password == confirmation && !working }
+    init(session: VaultSession, importing: [VaultItem] = [], onCreated: @escaping () -> Void) {
+        self.session = session
+        self.importing = importing
+        self.onCreated = onCreated
+        _name = State(initialValue: VaultName.suggested(among: session.knownVaults.map(\.name)))
+    }
+
+    private var canCreate: Bool {
+        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !password.isEmpty && password == confirmation && !working
+    }
     /// iCloud Drive is the default and what is drawn until the answer arrives; without it the vault stays on the device.
     private var effectiveLocation: VaultLocation { iCloudAvailable == false ? .thisDevice : location }
 
@@ -118,6 +127,10 @@ struct NewVaultSheet: View {
                 Section {
                     LabeledContent("Name") {
                         TextField("Name", text: $name).multilineTextAlignment(.trailing)
+                            .autocorrectionDisabled()
+                            #if os(iOS)
+                            .textInputAutocapitalization(.words)
+                            #endif
                     }
                     Picker("Keep in", selection: Binding(get: { effectiveLocation }, set: { location = $0 })) {
                         Text("iCloud Drive").tag(VaultLocation.iCloudDrive)
@@ -239,13 +252,18 @@ struct VaultPasswordView: View {
     @State private var keyFileName: String?
     /// What the one file picker of this screen is for. It is kept after the picker closes, because the completion runs after
     /// the presentation flag was reset.
-    private enum FilePurpose { case relinkVault, keyFile, otherVault }
+    private enum FilePurpose { case relinkVault, keyFile }
     @State private var picking = false
+    /// The person asked for a key file from the wrong-password notice, so the Key file row shows although the vault is not
+    /// known to use one (mock `#/unlock-screen`, frames T and W).
+    @State private var keyFileRequested = false
+    /// The last problem is a wrong password, so its notice offers "Choose Key File…".
+    @State private var wrongPassword = false
     @State private var purpose = FilePurpose.keyFile
     @State private var working = false
     @State private var problem: String?
     @State private var missing = false
-    @State private var otherFile: URL?
+    @State private var addingVault = false
     @State private var explaining = false
     @State private var lost = false
     @State private var triedBiometric = false
@@ -269,21 +287,12 @@ struct VaultPasswordView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("vaultSource") private var vaultSource = ""
 
-    /// Input fields are darker than the grey rows around them, with a visible edge, so they read as places to type.
-    private static var fieldFill: Color {
-        #if os(macOS)
-        Color(nsColor: .textBackgroundColor)
-        #else
-        Color(uiColor: .secondarySystemBackground)
-        #endif
-    }
-
     private var biometry: BiometryKind? {
         guard session.reference?.biometricUnlock == true else { return nil }
         return session.biometry
     }
 
-    private var vaultName: String { session.reference?.name ?? "Psss" }
+    private var vaultName: String { session.reference.map { VaultName.short($0.name) } ?? "Psss" }
 
     /// The password form is shown straight away when there is nothing else to try (no biometrics, a missing file) or when
     /// something needs the password (a problem, "not recognised", a lock notice); otherwise "Use Password…" shows it.
@@ -302,15 +311,15 @@ struct VaultPasswordView: View {
     }
 
     private var introLine: String {
-        guard let biometry else { return String(localized: "Enter the vault password to open “\(vaultName)”.") }
+        guard let biometry else { return String(localized: "Enter the vault password.") }
         #if os(macOS)
         if controlActiveState != .key {
             return String(localized: "Click this window, then use \(biometry.label) or enter the vault password.")
         }
         #endif
         switch biometry {
-        case .touchID: return String(localized: "Touch ID or enter the vault password to open “\(vaultName)”.")
-        default: return String(localized: "Use \(biometry.label) or enter the vault password to open “\(vaultName)”.")
+        case .touchID: return String(localized: "Touch ID or enter the vault password.")
+        default: return String(localized: "Use \(biometry.label) or enter the vault password.")
         }
     }
 
@@ -369,18 +378,19 @@ struct VaultPasswordView: View {
                     let data = try Data(contentsOf: url)
                     _ = try KDBXCredentials.keyFileHash(data)
                     keyFile = data
+                    keyFileRequested = true
                     keyFileName = url.lastPathComponent
                     problem = nil
                 } catch {
                     problem = (error as? KDBXError)?.message ?? String(localized: "That file can't be used as a key file.")
                 }
-            case .otherVault:
-                otherFile = url
             }
         }
-        .sheet(item: $otherFile) { url in
-            OpenVaultSheet(session: session, file: url) { gate.markUnlocked() }
+        .sheet(isPresented: $addingVault) {
+            AddVaultSheet(session: session) { gate.markUnlocked() }
         }
+        // File, Add Vault… also works from the lock screen, where the vault menu has the same item.
+        .focusedSceneValue(\.addVault, working ? nil : { addingVault = true })
     }
 
     private var content: some View {
@@ -388,7 +398,6 @@ struct VaultPasswordView: View {
             LockHeader(biometry: biometry, listening: listening, dimmed: working || !listening, vaultName: vaultName, opening: opening,
                        retry: { startBiometrics(automatic: false) }, context: lockContext)
             statusLine
-            messageLine
             vaultSelector
             if showForm {
                 form
@@ -423,40 +432,34 @@ struct VaultPasswordView: View {
         }
     }
 
-    /// Where problems appear, as before: a problem replaces "not recognised", which replaces a lock notice.
+    /// Under the password field, in the one place for notices: a problem replaces "not recognised", which replaces a lock notice.
     @ViewBuilder private var messageLine: some View {
         if let problem {
-            ProblemText(text: problem)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
+            LockNotice(kind: .warning, text: problem,
+                       action: wrongPassword && UnlockKeyFile.offersChoice(rowShown: showsKeyFileRow) ? ("Choose Key File…", { choose(.keyFile) }) : nil)
         } else if notRecognised, let biometry {
-            Text("\(biometry.label) didn't recognise you. Try again, or enter the vault password.")
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+            LockNotice(kind: .info, text: String(localized: "\(biometry.label) didn't recognise you. Try again, or enter the vault password."))
         } else if let notice = gate.lockNotice {
-            // Information, not a mistake in what the person typed, so not red. A newer problem replaces it.
-            Text(notice).foregroundStyle(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
+            // Information, not a mistake in what the person typed, so not a warning. A newer problem replaces it.
+            LockNotice(kind: .info, text: notice)
         }
+    }
+
+    private var hasMessage: Bool { problem != nil || (notRecognised && biometry != nil) || gate.lockNotice != nil }
+
+    private var progressNotice: some View {
+        LockNotice(kind: .progress, title: "Checking your vault password…",
+                   text: String(localized: "This takes a moment on purpose: it makes guessing your vault password very slow. Keep this window open."))
     }
 
     private var form: some View {
         VStack(spacing: 16) {
-            SecureField("Vault Password", text: $password)
-                .textFieldStyle(.plain)
-                .focused($focused)
-                .onSubmit(unlock)
-                .disabled(missing || working)
-                .padding(12)
-                .background(Self.fieldFill, in: RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(focused ? Color.accentColor : Color.secondary.opacity(0.4), lineWidth: focused ? 2 : 1))
-                .opacity(working ? 0.5 : 1)
+            UnlockPasswordField(text: $password, focused: $focused, working: working, disabled: missing || working, onSubmit: unlock)
             // Under the field, where it was typed. No space is held for it, so the idle screen stays compact.
             if working && !unlockingWithBiometrics {
-                WorkingNotice(text: "Checking your vault password…")
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                progressNotice
+            } else {
+                messageLine
             }
             keyFileRow
             if missing {
@@ -482,39 +485,28 @@ struct VaultPasswordView: View {
             // The screen is centred, so the notice appearing under the field would move the field up. An invisible copy of the
             // notice below the buttons holds the same height until the notice takes its place, so the field never moves while
             // Unlock stays where it is when nothing is happening.
-            if !(working && !unlockingWithBiometrics) {
-                WorkingNotice(text: "Checking your vault password…")
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            if !(working && !unlockingWithBiometrics) && !hasMessage {
+                progressNotice
                     .hidden()
                     .accessibilityHidden(true)
             }
         }
         .onAppear { focused = true }
+        .onChange(of: session.reference?.id) { keyFileRequested = false; wrongPassword = false }
     }
 
-    /// A vault that uses a key file shows its row. For any other vault (or one whose reference does not know yet) a small button
-    /// adds one, so a key file is never out of reach.
+    /// The Key file row shows only when the vault is known to use a key file (Psss records that after the first unlock), a file is
+    /// chosen, or the person asked for one from the wrong-password notice. Never a standing control for a vault without one.
+    private var showsKeyFileRow: Bool {
+        UnlockKeyFile.shows(usesKeyFile: session.reference?.usesKeyFile == true, chosen: keyFile != nil, requested: keyFileRequested)
+    }
+
     @ViewBuilder private var keyFileRow: some View {
-        if session.reference?.usesKeyFile == true || keyFile != nil {
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Key file")
-                    if let keyFileName { Text(keyFileName).foregroundStyle(.secondary).lineLimit(1) }
-                }
-                Spacer(minLength: 0)
-                if keyFile != nil {
-                    Button("Remove") { keyFile = nil; keyFileName = nil }.buttonStyle(.borderless)
-                }
-                Button(keyFile == nil ? "Choose…" : "Change…") { choose(.keyFile) }
-                    #if os(iOS)
-                    .buttonStyle(.bordered)
-                    #endif
-            }
+        if showsKeyFileRow {
+            KeyFileRow(fileName: keyFile == nil ? nil : (keyFileName ?? ""), choose: { choose(.keyFile) }, remove: {
+                keyFile = nil; keyFileName = nil; keyFileRequested = false
+            })
             .disabled(working)
-        } else {
-            Button("Use a Key File…") { choose(.keyFile) }
-                .buttonStyle(.borderless)
-                .disabled(working)
         }
     }
 
@@ -555,6 +547,7 @@ struct VaultPasswordView: View {
     private func vaultChanged() {
         password = ""; keyFile = nil; keyFileName = nil
         problem = nil; notRecognised = false; formRequested = false
+        keyFileRequested = false; wrongPassword = false
         gate.lockNotice = nil
         missing = session.reference.map { !$0.isReachable } ?? false
         if missing { problem = String(localized: "“\(vaultName)” can’t be found. Its file has moved or been deleted. Choose another vault above, locate the file, or forget this vault under Forgot Password.") }
@@ -564,38 +557,25 @@ struct VaultPasswordView: View {
         startBiometrics(automatic: true)
     }
 
-    /// "Unlock Vault:" and a pop-up of every available or remembered vault, with "Open Another Vault…" last. Shown on every lock
-    /// screen, also with one vault, because the last item is the way to a file that is not listed.
+    /// The Vault row: "Vault" on the left, the vault that will open with the pop-up chevrons on the right, the system's own pop-up
+    /// idiom (a Settings row on iPhone and iPad, a pop-up button on the Mac). Its menu is the vault switcher's, every vault padlocked
+    /// closed, ending in "Add Vault…". Shown on every lock screen, also with one vault, because Add Vault… is the way to a file that
+    /// is not listed (owner, 2026-11-24).
     private var vaultSelector: some View {
-        HStack(spacing: 8) {
-            Text("Unlock Vault:").foregroundStyle(.secondary)
-            Menu {
-                ForEach(session.knownVaults, id: \.id) { vault in
-                    // A toggle in a menu shows the checkmark for the current vault. The second Text (where it lives, or
-                    // "Not found") is the item's subtitle.
-                    Toggle(isOn: Binding(get: { vault.id == session.reference?.id },
-                                         set: { _ in
-                        guard vault.id != session.reference?.id else { return }
-                        session.switchTo(vault.id)
-                        vaultChanged()
-                    })) {
-                        Text(vault.name)
-                        Text(vault.isReachable ? vault.menuLocation : String(localized: "Not found"))
-                    }
-                }
-                Divider()
-                Button("Open Another Vault…") { choose(.otherVault) }
-            } label: {
-                Text(vaultName)
-            }
-            .menuIndicator(.visible)
-            .buttonStyle(.bordered)
-            .foregroundStyle(.primary)
-            .fixedSize()
-            .disabled(working)
-            .accessibilityLabel(Text("Vault: \(vaultName)"))
-            .help("Choose a vault")
-        }
+        VaultRow(session: session, state: currentState, context: .lockScreen, choose: { id in
+            guard id != session.reference?.id else { return }
+            session.switchTo(id)
+            vaultChanged()
+        }, addVault: { addingVault = true })
+        // Not disabled while Face ID or Touch ID is being asked: the system sheet covers the screen then, and a disabled-then-enabled
+        // menu button misses the first tap that follows the sheet's dismissal (iPad). Only the password check holds it still.
+        .disabled(working && !unlockingWithBiometrics)
+    }
+
+    /// The current vault's state for the Vault row: locked here by definition, so Locked, Needs password or not available.
+    private var currentState: VaultState {
+        guard let reference = session.reference else { return .locked }
+        return session.state(of: reference, unlocked: false)
     }
 
     /// Mac and iPhone/iPad entry points. `automatic` is the screen appearing, the window becoming key or the scene becoming
@@ -678,6 +658,7 @@ struct VaultPasswordView: View {
         working = true
         opening = true
         problem = nil
+        wrongPassword = false
         gate.lockNotice = nil
         Task {
             do {
@@ -687,7 +668,8 @@ struct VaultPasswordView: View {
             } catch {
                 if case VaultStoreError.fileMissing = error { missing = true }
                 if case KDBXError.wrongCredentials = error {
-                    problem = String(localized: "That didn't open \(vaultName). Check Caps Lock and your keyboard language. If you added a key file when you created this vault, choose it below.")
+                    wrongPassword = true
+                    problem = String(localized: "That didn’t open \(vaultName). Check Caps Lock and your keyboard language. If this vault uses a key file, choose it.")
                 } else {
                     problem = (error as? KDBXError)?.message ?? (error as? VaultStoreError)?.message ?? error.localizedDescription
                 }

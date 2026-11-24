@@ -322,7 +322,7 @@ enum PasskeyCard {
         }
     }
 
-    static var heading: some View {
+    @MainActor static var heading: some View {
         HStack(spacing: 4) {
             Text("Passkey")
             InfoButton(topic: HelpTopics.passkeys)

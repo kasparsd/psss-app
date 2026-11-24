@@ -13,6 +13,29 @@ final class SettingsRequests {
     var changePassword = false
 }
 
+/// A vault's name in the Settings list: the name alone (where and how it is kept is on its page), and at the trailing end the
+/// warning glyph only when the vault is not available (not downloaded yet, not found, can't be read), with the reason spoken.
+/// No second line and no padlocks (owner, 2026-11-24, mock `#/settings`).
+struct VaultListName: View {
+    let session: VaultSession
+    let reference: VaultReference
+    let unlocked: Bool
+
+    var body: some View {
+        let state = session.state(of: reference, unlocked: unlocked)
+        HStack {
+            Text(verbatim: VaultName.short(reference.name))
+            if !state.isAvailable {
+                Spacer(minLength: 8)
+                Image(systemName: state.symbol)
+                    .foregroundStyle(.orange)
+                    .accessibilityLabel(Text(verbatim: state.spoken))
+                    .help(Text(verbatim: state.spoken))
+            }
+        }
+    }
+}
+
 /// The app's own rows: when it locks, AutoFill, help. They cover every vault and show without one.
 struct AppSettingsSections: View {
     /// The sample vault is open: the lock footer then describes the device passcode.
@@ -90,7 +113,7 @@ struct VaultSettingsPage: View {
     var body: some View {
         Form {
             Section {
-                LabeledContent("Name", value: reference.name)
+                LabeledContent("Name", value: VaultName.short(reference.name))
                 LabeledContent("Location", value: managed ? String(localized: "On this device") : reference.fileName)
                 if let store {
                     LabeledContent("Items", value: (itemCount ?? store.items().count).formatted())
@@ -150,7 +173,7 @@ struct VaultSettingsPage: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle(reference.name)
+        .navigationTitle(VaultName.short(reference.name))
         // The exporter belongs to the page that asks for it.
         .fileExporter(isPresented: Binding(get: { copyDocument != nil }, set: { if !$0 { copyDocument = nil } }),
                       document: copyDocument, contentType: .keePassVault,
@@ -207,14 +230,14 @@ struct OtherVaultSettingsPage: View {
     var body: some View {
         Form {
             Section {
-                LabeledContent("Name", value: reference.name)
+                LabeledContent("Name", value: VaultName.short(reference.name))
                 LabeledContent("Location", value: reference.managed ? String(localized: "On this device") : reference.fileName)
             } footer: {
                 Text("To change this vault, choose it with the vault switcher or on the lock screen. It then opens here.")
             }
         }
         .formStyle(.grouped)
-        .navigationTitle(reference.name)
+        .navigationTitle(VaultName.short(reference.name))
     }
 }
 

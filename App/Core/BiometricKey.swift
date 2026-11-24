@@ -1,5 +1,6 @@
 import Foundation
 import LocalAuthentication
+import os
 import Security
 
 /// What the device can use to unlock without typing the vault password.
@@ -25,6 +26,26 @@ enum BiometryKind: Sendable {
 
     /// Nil when the device has no enrolled biometry.
     static var current: BiometryKind? {
+        // Views read this on every render (a spinner re-renders at frame rate), and each read asks the system. Reuse the answer for a second.
+        cache.lock()
+        defer { cache.unlock() }
+        if let at = cache.at, Date.now.timeIntervalSince(at) < 1 { return cache.kind }
+        let kind = query()
+        cache.kind = kind
+        cache.at = .now
+        return kind
+    }
+
+    private final class Cache: @unchecked Sendable {
+        private let mutex = NSLock()
+        var kind: BiometryKind?
+        var at: Date?
+        func lock() { mutex.lock() }
+        func unlock() { mutex.unlock() }
+    }
+    private static let cache = Cache()
+
+    private static func query() -> BiometryKind? {
         let context = LAContext()
         var error: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else { return nil }
@@ -86,6 +107,9 @@ extension BiometryKind {
 struct EvaluatedContext: @unchecked Sendable {
     let context: LAContext
 }
+
+/// Which prompts the unlock asked for, to count them when a person sees two. Names and outcomes only, never a key.
+let unlockLog = Logger(subsystem: "app.psss.Psss", category: "unlock")
 
 enum BiometricKeyError: Error {
     /// The person cancelled the system prompt: stay on the lock screen, say nothing.
@@ -239,14 +263,40 @@ enum BiometricKey {
             // fingers. The app removes it; an extension leaves the login keychain alone.
             if !isExtension { SecItemDelete(baseQuery(for: id, protected: false) as CFDictionary) }
             #endif
-            let context = evaluated?.context ?? LAContext()
-            if evaluated == nil { context.localizedReason = reason }
+            var context = evaluated?.context ?? LAContext()
+            let attemptedPrompt = evaluated == nil
+            if evaluated == nil {
+                // Ask for Face ID, Touch ID or the passcode ourselves, before the Keychain read, as other managers do. The item's
+                // access control would prompt on its own, but only if the system allows interaction at that moment: in the AutoFill
+                // extension that was not reliable, and a refusal came back as an unnamed Keychain status. An explicit request shows
+                // the prompt, names the failure, and the evaluated context then satisfies the item without a second prompt.
+                // An extension that is asked before its screen is in front gets "not interactive" (-1004, "Caller is not running
+                // foreground"): wait a moment and ask again with a fresh context, a few times.
+                var attempt = 0
+                while true {
+                    context.localizedReason = reason
+                    do {
+                        unlockLog.notice("evaluatePolicy asked (attempt \(attempt))")
+                        _ = try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
+                        unlockLog.notice("evaluatePolicy passed")
+                        break
+                    } catch let error as LAError {
+                        unlockLog.notice("evaluatePolicy failed: LAError \(error.code.rawValue)")
+                        guard error.code == .notInteractive, attempt < 6 else { throw Self.keyError(for: error) }
+                        attempt += 1
+                        try? await Task.sleep(for: .milliseconds(250))
+                        context = LAContext()
+                    }
+                }
+            }
             var query = baseQuery(for: id, protected: true)
             query[kSecReturnData as String] = true
             query[kSecMatchLimit as String] = kSecMatchLimitOne
             query[kSecUseAuthenticationContext as String] = context
             var result: AnyObject?
+            unlockLog.notice("Keychain read starts (context already evaluated: \(evaluated != nil || attemptedPrompt))")
             let status = SecItemCopyMatching(query as CFDictionary, &result)
+            unlockLog.notice("Keychain read finished: status \(status)")
             switch status {
             case errSecSuccess:
                 guard let data = result as? Data else { throw BiometricKeyError.failed(errSecDecode) }
@@ -270,6 +320,20 @@ enum BiometricKey {
             }
         }.value
         #endif
+    }
+
+    /// What an explicit Face ID, Touch ID or passcode request that did not succeed means for the saved key.
+    private static func keyError(for error: LAError) -> BiometricKeyError {
+        switch error.code {
+        case .userCancel, .appCancel, .systemCancel:
+            return .cancelled
+        case .passcodeNotSet, .biometryNotEnrolled:
+            // Nothing can open the key now. The caller checks for a passcode to choose between the two explanations.
+            return .invalidated
+        default:
+            // Lockout, no interaction allowed, a busy system: transient, so the key and the setting stay as they are.
+            return .unavailable
+        }
     }
 
     #if os(macOS) && !HOSTLESS_TESTS

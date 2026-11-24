@@ -145,24 +145,16 @@ struct AutoFillCopy: Equatable, Sendable {
 
     // MARK: Saved key (Setup)
 
-    /// The footer under "Unlock with Face ID or passcode" while it is on. Says what is saved, where, what the system asks and
-    /// what turning it off does (owner, 2026-11-24).
-    var savedKeyOnFooter: String {
-        let tail = String(localized: "Psss does not store your vault password. Turn this off and the key is deleted; AutoFill then cannot open this vault.")
-        // A device with no Face ID or Touch ID is asked for its passcode (the login password on a Mac) and nothing else.
-        guard let kind = BiometryKind.current ?? BiometryKind.remembered else {
-            return device == .mac
-                ? String(localized: "Psss saves a key on this Mac so AutoFill can open this vault with your Mac password.") + " " + tail
-                : String(localized: "Psss saves a key on this \(deviceName) so AutoFill can open this vault with your \(deviceName) passcode.") + " " + tail
-        }
-        return device == .mac
-            ? String(localized: "Psss saves a key on this Mac so AutoFill can open this vault with \(kind.label), or your Mac password if \(kind.label) cannot be used.") + " " + tail
-            : String(localized: "Psss saves a key on this \(deviceName) so AutoFill can open this vault with \(kind.label), or your \(deviceName) passcode if \(kind.label) cannot be used.") + " " + tail
-    }
+    /// The footer under "Unlock with Face ID or passcode", on or off (owner, 2026-11-24, mock `#/settings`): what the switch means
+    /// for AutoFill and the browser extension. The saved key itself is described on the lock screen and in `docs/vaults.md`.
+    var savedKeyOnFooter: String { Self.usesVaultOnlyWhileOn }
 
-    /// The footer while it is off by the person's choice.
-    var savedKeyOffFooter: String {
-        String(localized: "AutoFill cannot open this vault while this is off. Turn it on and Psss saves the key again.")
+    /// The same sentence while it is off by the person's choice.
+    var savedKeyOffFooter: String { Self.usesVaultOnlyWhileOn }
+
+    /// What the switch means: AutoFill and the browser extension open the vault only while it is on.
+    static var usesVaultOnlyWhileOn: String {
+        String(localized: "AutoFill and the browser extension use this vault only while this is on. With it off, Psss asks for the vault password.")
     }
 
     // MARK: Card
@@ -240,6 +232,34 @@ struct AutoFillCopy: Equatable, Sendable {
     }
 }
 
+// MARK: - Proof from the extension
+
+/// The last time the AutoFill extension finished a request (a fill, a save, a code, a passkey), kept in the App Group.
+///
+/// The extension only runs while AutoFill is switched on for Psss, so a finished request is proof that it was on a moment ago.
+/// `ASCredentialIdentityStore.state()` was seen to report "off" in the simulator after AutoFill had been turned on and used,
+/// which brought the "Enable AutoFill" card back. The app therefore reads "off" as "on" for `window` after a finished request.
+/// A person who turns AutoFill off after using it sees the card again a day later, or at once when they have not used it today.
+enum AutoFillProof {
+    private static let key = "autoFillExtensionLastUse"
+    static let window: TimeInterval = 24 * 60 * 60
+
+    static func record(at date: Date = Date()) {
+        UserDefaults(suiteName: SharedVault.groupID)?.set(date, forKey: key)
+    }
+
+    static func lastUse() -> Date? {
+        UserDefaults(suiteName: SharedVault.groupID)?.object(forKey: key) as? Date
+    }
+
+    /// Whether `date` is recent enough to count. A date in the future (the clock was set back) does not.
+    static func holds(_ date: Date?, at now: Date = Date()) -> Bool {
+        guard let date else { return false }
+        let elapsed = now.timeIntervalSince(date)
+        return elapsed >= 0 && elapsed < window
+    }
+}
+
 // MARK: - The outside
 
 /// The system calls, behind a protocol so a test uses a stand-in.
@@ -279,7 +299,10 @@ struct UnavailableAutoFillSystem: AutoFillSystem {
 /// so the app asks when it opens, unlocks and becomes active.
 struct LiveAutoFillSystem: AutoFillSystem {
     func isEnabled() async -> Bool? {
-        await ASCredentialIdentityStore.shared.state().isEnabled
+        let enabled = await ASCredentialIdentityStore.shared.state().isEnabled
+        // The state can read off while the extension is working: a request it finished lately says it is on.
+        if !enabled, AutoFillProof.holds(AutoFillProof.lastUse()) { return true }
+        return enabled
     }
 
     func requestToTurnOn() async -> Bool {
@@ -363,6 +386,18 @@ final class AutoFillStatus {
     func refresh() async {
         let enabled = await system.isEnabled()
         apply(Self.makeReading(from: enabled))
+    }
+
+    /// `refresh`, then twice more a moment later while AutoFill is not found on. Coming back from Settings, the system can still
+    /// report the old state for a second or two, and nothing tells the app when it changes, so a card for a setting the person
+    /// just switched on would stay until the next time the app became active.
+    func refreshSettling() async {
+        await refresh()
+        for delay in [1.5, 3.0] where reading != .on {
+            try? await Task.sleep(for: .seconds(delay))
+            if Task.isCancelled { return }
+            await refresh()
+        }
     }
 
     /// The main button of the card and of Setup: the system's prompt the first time, Settings after that.

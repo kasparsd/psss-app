@@ -677,6 +677,10 @@ final class VaultSession {
     /// The other vaults the person has used, most recently left first. Shown by the lock screen's vault selector.
     private(set) var remembered: [VaultReference] = VaultReference.remembered
 
+    /// Vaults whose file was found but could not be read (damaged, not a vault, a format Psss does not open), as learned by the
+    /// last attempt to open them in this process. Shown as "Can't be read"; cleared when the vault opens.
+    private(set) var unreadable: Set<UUID> = []
+
     /// The active vault first, then the remembered ones: what the selector lists.
     var knownVaults: [VaultReference] { (reference.map { [$0] } ?? []) + remembered }
 
@@ -721,6 +725,7 @@ final class VaultSession {
             try VaultFiles.write(data, to: url)
         }
         reference.record(credentials)
+        try? store?.flush()  // the vault being replaced keeps what was pending
         reference.persist()
         self.reference = reference
         remembered = VaultReference.remembered
@@ -743,6 +748,7 @@ final class VaultSession {
                 reference = again
             }
             reference.record(credentials)
+            try? store?.flush()  // the vault being replaced keeps what was pending
             reference.persist()
             self.reference = reference
             remembered = VaultReference.remembered
@@ -754,10 +760,19 @@ final class VaultSession {
     }
 
     /// Opens the remembered vault after a lock or relaunch.
-    func unlock(credentials: KDBXCredentials) async throws {
+    ///
+    /// The AutoFill extension passes `savingQuickUnlockKey: false`: it never saves or replaces a Face ID key (that is the app's
+    /// job, after its own unlock) and `beforeKeyDerivation` to refuse a vault whose key derivation would not fit its memory
+    /// (`ExtensionUnlockBudget`). The closure gets the file's bytes before anything is derived, and runs off the main actor.
+    func unlock(credentials: KDBXCredentials, savingQuickUnlockKey: Bool = true,
+                beforeKeyDerivation: (@Sendable (Data) throws -> Void)? = nil) async throws {
         biometricNotice = nil
-        try await unlock(recording: credentials) { data in try KDBX.open(data, credentials: credentials) }
+        try await unlock(recording: credentials) { data in
+            try beforeKeyDerivation?(data)
+            return try KDBX.open(data, credentials: credentials)
+        }
         syncReference()  // the AutoFill extension may have marked the saved key stale while the vault was opening
+        guard savingQuickUnlockKey else { return }
         // After every password unlock the saved key is replaced with the key just derived from the file as it is now. A key saved
         // earlier may be stale in ways nothing has noticed yet (the password was changed elsewhere, then this unlock used the new
         // one); waiting for a failed Face ID attempt to set a flag would leave the next attempt to fail first, in any ordering.
@@ -822,6 +837,24 @@ final class VaultSession {
         }
     }
 
+    /// The memory the current vault's key derivation will ask for, read from the file's header without deriving anything.
+    /// Nil when the file cannot be reached or read as a vault (opening it then fails with its own error), 0 for AES-KDF.
+    func keyDerivationMemory() -> UInt64? {
+        guard let reference else { return nil }
+        let url: URL, scoped: Bool
+        if reference.managed {
+            url = VaultFiles.managedURL(fileName: reference.fileName)
+            scoped = false
+        } else {
+            guard let bookmark = reference.bookmark, let resolved = try? VaultFiles.resolve(bookmark) else { return nil }
+            url = resolved.url
+            scoped = url.startAccessingSecurityScopedResource()
+        }
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? VaultFiles.read(url) else { return nil }
+        return KDBX.keyDerivationMemory(of: data)
+    }
+
     /// `credentials` is what a password unlock used: once the vault has opened with them, the reference says whether a key file
     /// was part of that, before the store (and Setup) read it. A Face ID unlock passes none and changes nothing.
     private func unlock(recording credentials: KDBXCredentials? = nil,
@@ -851,12 +884,17 @@ final class VaultSession {
                 VaultReference.update(reference.id) { $0.usesKeyFile = used.usesKeyFile; $0.usesPassword = used.usesPassword }
             }
             self.reference = reference
+            unreadable.remove(reference.id)
             store = KeePassVaultStore(reference: reference, url: url, scoped: scoped, document: document, fileData: data)
             // The 30-day purge of Recently Deleted. Off unless the app switched it on, so the AutoFill extension, which opens the
             // vault through this same path, never writes because of it. A failed write is retried the next time the app unlocks.
             if Self.purgesRecentlyDeletedOnUnlock { _ = try? store?.purgeRecentlyDeleted() }
         } catch {
             if scoped { url.stopAccessingSecurityScopedResource() }
+            switch error {
+            case KDBXError.notAVault, KDBXError.corrupted, KDBXError.unsupported: unreadable.insert(reference.id)
+            default: break
+            }
             throw error
         }
     }

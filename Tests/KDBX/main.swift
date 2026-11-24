@@ -703,11 +703,15 @@ do {
 do {
     expect("no prototype directory in the test process", BrowserPrototypeStore.directory == nil)
     for type in ["save", "credential", "candidates", "search"] {
-        let reply = BrowserProtocol.handle(["v": 1, "id": "t", "type": type, "origin": "https://one.example", "ref": "x",
+        let reply = BrowserProtocol.handle(["v": BrowserProtocol.version, "id": "t", "type": type, "origin": "https://one.example", "ref": "x",
                                             "account": "a@example.net", "secret": "Demo-only-Browser1!", "query": "example"])
         check("browser \(type) without a prototype directory", "\(reply["ok"] as? Bool ?? true) \(reply["error"] as? String ?? "")", "false unsupported")
     }
-    expect("browser ping still answers", BrowserProtocol.handle(["v": 1, "id": "t", "type": "ping"])["ok"] as? Bool == true)
+    for type in ["vaults", "switch-vault", "unlock-vault"] {
+        let reply = BrowserProtocol.handle(["v": BrowserProtocol.version, "id": "t", "type": type, "vault": "x"])
+        check("browser \(type) without a vault service", "\(reply["ok"] as? Bool ?? true) \(reply["error"] as? String ?? "")", "false unsupported")
+    }
+    expect("browser ping still answers", BrowserProtocol.handle(["v": BrowserProtocol.version, "id": "t", "type": "ping"])["ok"] as? Bool == true)
 }
 
 // A passkey signs only for its own relying party.
@@ -896,6 +900,58 @@ do {
         VaultFiles.removeBackups(for: v.id)
     }
     try? fm.removeItem(at: dir)
+}
+
+// The AutoFill extension's password unlock: the header says how much memory the key derivation will ask for before anything is
+// derived, a typed password saves no Face ID key from the extension, and a refusal leaves the vault locked.
+do {
+    let light = try KDBX.save(try KDBX.create(name: "Light", credentials: .init(password: "pw"), kdf: .aesForTesting(rounds: 100)))
+    check("kdf memory: AES-KDF asks for none", "\(KDBX.keyDerivationMemory(of: light) ?? 999)", "0")
+    expect("kdf memory: not a vault is nil", KDBX.keyDerivationMemory(of: Data("not a vault".utf8)) == nil)
+    expect("kdf memory: a cut header is nil", KDBX.keyDerivationMemory(of: light.prefix(40)) == nil)
+
+    let ext = VaultSession()
+    ext.forget()
+    try await ext.create(name: "Extension test", credentials: .init(password: "pw1"), items: [])
+    let id = ext.reference!.id
+    check("kdf memory: a new vault asks for 64 MiB (Argon2id)", "\(ext.keyDerivationMemory() ?? 0 / 1048576)", "\(64 * 1048576)")
+    expect("kdf memory: 64 MiB fits the extension's ceiling on iPhone and Mac", ExtensionUnlockBudget.allows(kdfBytes: ext.keyDerivationMemory() ?? 0, availableBytes: nil))
+    try ext.enableBiometric()
+    ext.lock()
+
+    // Measured here for the record (a Mac process, not the extension): the peak memory around one 64 MiB Argon2 unlock.
+    let marker = Data(repeating: 7, count: 32)
+    BiometricKey.memory[id] = marker
+    let before = ProcessMemory.snapshot()
+    try await ext.unlock(credentials: .init(password: "pw1"), savingQuickUnlockKey: false)
+    let after = ProcessMemory.snapshot()
+    print("     argon2 64 MiB unlock: before \(before.text); after \(after.text)")
+    expect("extension unlock: opens the vault", ext.isOpen)
+    expect("extension unlock: leaves the saved key as it was", BiometricKey.memory[id] == marker && ext.reference?.biometricUnlock == true)
+    ext.lock()
+
+    // Refused before the derivation: nothing opens, nothing is saved or marked.
+    final class Seen: @unchecked Sendable { var bytes = 0 }
+    let seen = Seen()
+    do {
+        try await ext.unlock(credentials: .init(password: "pw1"), savingQuickUnlockKey: false) { data in
+            seen.bytes = data.count
+            throw ExtensionUnlockError.tooMuchMemory
+        }
+        failures += 1; print("FAIL a refused unlock opened")
+    } catch ExtensionUnlockError.tooMuchMemory { print("ok   a refused unlock throws its own error") }
+    expect("extension unlock: the check saw the file's bytes", seen.bytes > 100)
+    expect("extension unlock: refused means locked, key untouched, not marked unreadable", !ext.isOpen && BiometricKey.memory[id] == marker && ext.unreadable.isEmpty)
+
+    // A wrong password in the extension changes nothing either.
+    do { try await ext.unlock(credentials: .init(password: "nope"), savingQuickUnlockKey: false); failures += 1; print("FAIL wrong password opened") } catch KDBXError.wrongCredentials { print("ok   wrong password refused in the extension") }
+    expect("extension unlock: a wrong password leaves the key", BiometricKey.memory[id] == marker && !ext.isOpen)
+
+    // The app's own unlock still replaces the saved key.
+    try await ext.unlock(credentials: .init(password: "pw1"))
+    expect("app unlock: still saves a fresh key", BiometricKey.memory[id] != marker && BiometricKey.memory[id] != nil)
+    ext.lock()
+    ext.forget()
 }
 
 // The stale-key lifecycle, with the Keychain replaced by a table: no prompt, nothing real touched.
@@ -2223,6 +2279,8 @@ do {  // Verification codes and the fill site (release rules for the AutoFill pr
 
 failures += runTimeParserTests()
 failures += await runRememberedVaultTests()
+failures += await runBackToBackVaultTests()
+failures += await runVaultStateTests()
 
 func runCapturing(_ args: [String], input: String = "") -> (status: Int32, out: String, err: String) {
     let process = Process()
@@ -3444,6 +3502,11 @@ func reminderDisplay(_ vault: AutoFillVault, _ reading: AutoFillReading, _ memor
     func laterDisplay(after seconds: TimeInterval, _ reading: AutoFillReading = .off, confirming: Bool = false) -> AutoFillReminder.Display {
         AutoFillReminder(vault: .real, reading: reading, memory: AutoFillMemory(snoozedAt: laterAt), confirmationPending: confirming, now: laterAt.addingTimeInterval(seconds)).display
     }
+    let usedAt = Date(timeIntervalSince1970: 1_800_000_000), day = AutoFillProof.window
+    expect("autofill proof: a request finished a moment ago counts", AutoFillProof.holds(usedAt, at: usedAt.addingTimeInterval(60)))
+    expect("autofill proof: it stops counting after a day", !AutoFillProof.holds(usedAt, at: usedAt.addingTimeInterval(day)))
+    expect("autofill proof: none recorded counts for nothing", !AutoFillProof.holds(nil, at: usedAt))
+    expect("autofill proof: a clock set back does not count", !AutoFillProof.holds(usedAt, at: usedAt.addingTimeInterval(-60)))
     check("autofill: the snooze is seven days", "\(week)", "\(7.0 * 24 * 60 * 60)")
     expect("autofill: hidden right after Later", laterDisplay(after: 0) == .nothing)
     expect("autofill: hidden just before the interval", laterDisplay(after: week - 1) == .nothing)

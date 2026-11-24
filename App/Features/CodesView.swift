@@ -231,9 +231,3 @@ private struct CodeRow: View {
         }
     }
 }
-
-extension String {
-    /// For display only: a zero-width space after every dot lets a long address wrap at the dots ("greenwayparking." then
-    /// "example.com") instead of in the middle of a word. The text itself, and what is copied or spoken, is unchanged.
-    var breakableAfterDots: String { replacingOccurrences(of: ".", with: ".\u{200B}") }
-}

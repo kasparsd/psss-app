@@ -353,7 +353,8 @@ struct VaultView: View {
     @ViewBuilder
     private var vaultSwitcher: some View {
         if store is KeePassVaultStore, VaultSwitcher.isShown(session), !isEditingInPlace {
-            VaultSwitcher(session: session, unlocked: gate.isUnlocked, choose: switchVault) { addingVault = true }
+            VaultSwitcher(session: session, unlocked: gate.isUnlocked, context: .app, choose: switchVault,
+                          addVault: { addingVault = true }, lock: { gate.lock() })
         }
     }
 
@@ -370,6 +371,7 @@ struct VaultView: View {
         withSheets
             // Menu commands that would leave the page being edited are off until Save or Cancel.
             .focusedSceneValue(\.newItem, isEditingInPlace ? nil : { kind in editor = VaultItem(kind: kind) })
+            .focusedSceneValue(\.addVault, isEditingInPlace ? nil : { addingVault = true })
             .focusedSceneValue(\.vaultPlace, isEditingInPlace ? nil : placeBinding)
             .focusedSceneValue(\.openSetup, openSetupAction)
             .focusedSceneValue(\.deleteSelection, deleteCommand)
@@ -1162,12 +1164,14 @@ struct VaultView: View {
                 Section {
                     if let keePass = store as? KeePassVaultStore {
                         ForEach(session.knownVaults, id: \.id) { reference in
-                            NavigationLink(reference.name) {
+                            NavigationLink {
                                 if reference.id == keePass.reference.id {
                                     vaultPage(keePass)
                                 } else {
                                     OtherVaultSettingsPage(reference: reference)
                                 }
+                            } label: {
+                                VaultListName(session: session, reference: reference, unlocked: gate.isUnlocked)
                             }
                         }
                         Button("Add Vault…") { addingVault = true }
@@ -2317,6 +2321,18 @@ extension FocusedValues {
     var openSetup: (() -> Void)? {
         get { self[OpenSetupKey.self] }
         set { self[OpenSetupKey.self] = newValue }
+    }
+}
+
+private struct AddVaultKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+extension FocusedValues {
+    /// File, Add Vault…: opens the Add a Vault sheet in the focused window.
+    var addVault: (() -> Void)? {
+        get { self[AddVaultKey.self] }
+        set { self[AddVaultKey.self] = newValue }
     }
 }
 

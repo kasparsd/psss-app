@@ -11,7 +11,7 @@ struct ListTitleLine: View {
     var body: some View {
         // The title and count are one size, with the count in the secondary style; the detail line is body size.
         VStack(alignment: .leading, spacing: 2) {
-            (Text(verbatim: title) + Text(verbatim: " · ").foregroundStyle(.secondary) + Text(verbatim: count).foregroundStyle(.secondary))
+            Text("\(Text(verbatim: title))\(Text(verbatim: " · ").foregroundStyle(.secondary))\(Text(verbatim: count).foregroundStyle(.secondary))")
                 .font(.title2.weight(.semibold))
                 .lineLimit(1)
                 .accessibilityAddTraits(.isHeader)

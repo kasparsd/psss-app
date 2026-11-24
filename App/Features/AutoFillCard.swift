@@ -12,7 +12,7 @@ import UIKit
 
 extension AutoFillDevice {
     /// The device this build runs on, for the words of the card.
-    static var current: AutoFillDevice {
+    @MainActor static var current: AutoFillDevice {
         #if os(macOS)
         .mac
         #else

@@ -11,6 +11,7 @@ struct MacSettingsView: View {
     @Environment(SettingsRequests.self) private var requests
     @AppStorage("vaultSource") private var vaultSource = ""
     @State private var selection: Entry.ID?
+    @State private var addingVault = false
 
     private enum Entry: Identifiable, Hashable {
         case vault(UUID)
@@ -35,6 +36,13 @@ struct MacSettingsView: View {
         }
         .frame(width: 640, height: 560)
         .scenePadding()
+        .sheet(isPresented: $addingVault) {
+            AddVaultSheet(session: session) {
+                gate.markUnlocked()
+                vaultSource = RootView.keePassSource
+                selection = nil
+            }
+        }
     }
 
     private var entries: [Entry] {
@@ -46,27 +54,27 @@ struct MacSettingsView: View {
 
     private var vaultsPane: some View {
         HStack(spacing: 0) {
+            VStack(spacing: 0) {
             List(selection: Binding(get: { current }, set: { selection = $0 })) {
                 ForEach(entries) { entry in
                     switch entry {
                     case .sample:
-                        VStack(alignment: .leading) {
-                            Text("Sample vault")
-                            Text("Not saved").foregroundStyle(.secondary)
-                        }
-                        .tag(entry.id)
+                        Text("Sample vault").tag(entry.id)
                     case .vault(let id):
                         if let reference = session.knownVaults.first(where: { $0.id == id }) {
-                            VStack(alignment: .leading) {
-                                Text(reference.name)
-                                Text(vaultSummary(reference)).foregroundStyle(.secondary)
-                            }
-                            .tag(entry.id)
+                            VaultListName(session: session, reference: reference, unlocked: gate.isUnlocked).tag(entry.id)
                         }
                     }
                 }
             }
             .listStyle(.sidebar)
+                Divider()
+                HStack {
+                    Button("Add Vault…") { addingVault = true }
+                    Spacer()
+                }
+                .padding(8)
+            }
             .frame(width: 200)
             Divider()
             detail
