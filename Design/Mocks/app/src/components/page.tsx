@@ -74,12 +74,12 @@ export interface HistoryEntry { date: string; text: ReactNode }
  * The last section of every page: a dated log in words, newest first. What
  * was tried or changed, what replaced it, why, and who decided. No frames.
  */
-export function History({ entries }: { entries: HistoryEntry[] }) {
+export function History({ entries, proposal }: { entries: HistoryEntry[]; proposal?: boolean }) {
   return (
     <>
       <h2>History</h2>
       <div className="prose">
-        <p className="muted">Newest first. Within one day the order follows the working log. Nothing here is drawn: the frames above show only what holds today.</p>
+        <p className="muted">{proposal ? 'Newest first. Within one day the order follows the working log. The frames above are the current proposal; what it replaced is described here and not kept.' : 'Newest first. Within one day the order follows the working log. Nothing here is drawn: the frames above show only what holds today.'}</p>
         <ul className="hist">
           {entries.map((e, i) => (
             <li key={i}><time dateTime={e.date}>{e.date}</time><span>{e.text}</span></li>

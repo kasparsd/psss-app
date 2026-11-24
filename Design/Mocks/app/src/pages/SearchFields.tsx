@@ -123,7 +123,7 @@ function MacSearchFields({ q, chosen: c0 = [] }: { q: string; chosen?: FieldKey[
           <div className="col side" data-bounds>
             <div className="tbar"><span className="sp" /></div>
             <div className="scroll">
-              <div className="sh">Sam's vault</div>
+              <div className="sh">Passwords</div>
               {['All', 'Codes', 'Cards', 'Logins', 'Notes', 'Custom items', 'Recently Deleted'].map((l) => <div key={l} className="sr"><i />{l}</div>)}
             </div>
           </div>

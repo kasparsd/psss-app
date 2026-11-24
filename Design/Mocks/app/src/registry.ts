@@ -12,6 +12,12 @@ import { FieldMapping } from './pages/FieldMapping';
 import { CreateVault } from './pages/CreateVault';
 import { WifiPlace } from './pages/WifiPlace';
 import { SearchFields } from './pages/SearchFields';
+import { CodeSetup } from './pages/CodeSetup';
+import { Settings } from './pages/Settings';
+import { VaultSwitcher } from './pages/VaultSwitcher';
+import { VaultStates } from './pages/VaultStates';
+import { Autofill } from './pages/Autofill';
+import { BrowserExtension } from './pages/BrowserExtension';
 
 export interface PageEntry {
   slug: string;
@@ -41,4 +47,10 @@ export const pages: PageEntry[] = [
   { slug: 'create-vault', short: 'Create a vault', title: 'Create a vault: where it is kept', oldFile: '', status: 'Approved by the owner, 2026-11-24', summary: 'The create sheet with a Keep in choice: iCloud Drive by default, so the vault survives deleting the app, or This device only; and the sheet when iCloud Drive is off.', component: CreateVault },
   { slug: 'wifi-place', short: 'More and Wi-Fi', title: 'More tab, Wi-Fi and Recently Deleted', oldFile: '', status: 'Direction chosen by the owner, 2026-11-24; redraw awaiting a look', summary: 'A More tab that lists the places not in the bar: Wi-Fi networks (with Join and a QR code to share) and Recently Deleted, and room for more.', component: WifiPlace },
   { slug: 'search-fields', short: 'Search fields', title: 'Search: find in a field', oldFile: '', status: 'Approved by the owner, 2026-11-24', summary: 'Pills under the search field for Name, Website and Username, each with its count and dimmed when nothing matches, so a domain that is also a username can be found as a website.', component: SearchFields },
+  { slug: 'code-setup', short: 'Code setup', title: 'Verification code setup', oldFile: '', status: 'Option H approved by the owner, 2026-11-24; built, device check open', summary: 'Every way a verification code gets into a login, five options for the Add verification code sheet scored against each other, and the recommended sheet in each state on iPhone, iPad and Mac.', component: CodeSetup },
+  { slug: 'settings', short: 'Settings', title: 'Settings: this vault and this app', oldFile: '', status: 'Option B chosen by the owner, 2026-11-24; B and C built, Mac device check open', summary: 'Every Setup row sorted into vault or app, why Forget Vault sat apart, and three options (one page, vault pages, a Mac Settings window) with the forget and delete alerts.', component: Settings },
+  { slug: 'vault-switcher', short: 'Add and switch vaults', title: 'Vaults: add one, switch between them', oldFile: '', status: 'Proposal (revised 2026-11-24), not built', summary: 'Add Vault under the vault list, names only in the list, the Add a Vault sheet, and the compact vault icon with its dropdown in the main window once there are two vaults; its rows are the shared ones from Vault states.', component: VaultSwitcher },
+  { slug: 'vault-states', short: 'Vault states', title: 'Vault states: one picture everywhere', oldFile: '', status: 'Proposal, 2026-11-24, not built', summary: 'The five states a person sees, one vault menu and one Vault row (with Unlock beside it) drawn once, every surface against every state, locking and unlocking, and one current vault per device.', component: VaultStates },
+  { slug: 'autofill', short: 'AutoFill', title: 'AutoFill: choosing a login', oldFile: '', status: 'Redrawn 2026-11-24 from the vault-states model; lead-approved, being built', summary: 'The system picker on iPhone, iPad and Mac: the app\u2019s row and search, the Vault row with Unlock beside it, and the notices when the current vault is locked or not available.', component: Autofill },
+  { slug: 'browser-extension', short: 'Browser extension', title: 'Browser extension: the popup', oldFile: '', status: 'Redrawn 2026-11-24 from the vault-states model; lead-approved, being built', summary: 'The toolbar popup: filling and searching, the compact Vault row with Unlock, and the notices when the current vault is locked or not available.', component: BrowserExtension },
 ];

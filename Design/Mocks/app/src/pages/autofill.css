@@ -1,0 +1,39 @@
+/* Styles for the AutoFill picker and browser popup mock pages only. */
+.ac-head{color:var(--lab2);padding:8px 16px 4px}
+.ac-search{padding:2px 16px 8px}
+.ac-pills .fpills{padding:0 16px 8px}
+.ac-note{padding:10px 16px 4px}
+.ac-note.fill{flex:1;display:flex;flex-direction:column;justify-content:center}
+.ac-body{flex:1;overflow:hidden}
+.sheet .ac-head,.sheet .ac-pills .fpills,.sheet .ac-note{padding-left:4px;padding-right:4px}
+.ac-card{margin:8px 16px 12px;border-radius:12px;background:rgba(142,142,147,.16);overflow:hidden}
+.ac-kv{display:flex;justify-content:space-between;gap:12px;padding:12px 16px;border-bottom:1px solid var(--sep)}
+.ac-kv .s{color:var(--lab2)}
+.ac-kv:last-child{border-bottom:0}
+.ac-saverow{padding:0 16px 12px}
+.ac-act{padding:4px 16px 8px;text-align:center}
+.ac-act .help{color:var(--lab2);padding-top:8px}
+.sheet .ac-card,.sheet .ac-saverow{margin-left:0;margin-right:0}
+.sheet .ac-saverow{padding:0 0 12px}
+.xp-h{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.xp-h .ibtn{width:30px;height:30px;border-radius:15px}
+.maphead .trail{position:absolute;right:0;top:50%;transform:translateY(-50%)}
+.nav .trail{display:flex;justify-content:flex-end}
+/* Redrawn 2026-11-24 from the vault-states model. */
+.af-vrow{display:flex;align-items:center;gap:10px;padding:6px 16px 8px}
+.af-vrow .af-pu{flex:1;min-width:0;position:relative}
+.af-vrow .btn{flex:none}
+.sheet .af-vrow{padding-left:0;padding-right:0}
+.af-pills .fpills{padding:0 16px 4px}
+.sheet .af-pills .fpills{padding:0 0 4px}
+.af-h{color:var(--lab2);padding:8px 16px 4px}
+.sheet .af-h{padding-left:4px;padding-right:4px}
+.af-none{color:var(--lab2);padding:6px 16px}
+.sheet .af-none{padding-left:4px;padding-right:4px}
+.af-body{padding:0 14px;flex:1;overflow:hidden}
+.af-pad{padding:8px 16px;display:flex;flex-direction:column;gap:12px}
+.sheet .af-pad{padding-left:0;padding-right:0}
+.af-more{display:flex;align-items:center;gap:6px;color:var(--lab2)}
+.af-save{padding:8px 16px 12px}
+.sheet .af-save{padding-left:0;padding-right:0}
+.af-help{color:var(--lab2);text-align:center;padding:6px 16px}

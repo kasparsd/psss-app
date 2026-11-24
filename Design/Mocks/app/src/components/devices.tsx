@@ -109,7 +109,11 @@ export function MacWindow({ children, menuBar, menuOpen: open0 = false, pill }: 
               <div className="msep" />
               <div className="mi hl">Settings…<span className="k">⌘,</span></div>
               <div className="msep" />
-              <div className="mi">Lock Psss<span className="k">⌃⌘Q</span></div>
+              <div className="mi">Hide Psss<span className="k">⌘H</span></div>
+              <div className="mi">Hide Others<span className="k">⌥⌘H</span></div>
+              <div className="mi">Show All</div>
+              <div className="mi">Lock Psss<span className="k">⌘L</span></div>
+              <div className="msep" />
               <div className="mi">Quit Psss<span className="k">⌘Q</span></div>
             </div>
           )}

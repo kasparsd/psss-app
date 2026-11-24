@@ -50,7 +50,7 @@ function CardEnd({ item }: { item: Item }) {
 }
 
 /** A list row: icon, name over account, something at the trailing end. */
-export function ListRow({ item, sub, trailing, selected, onClick, mac, traits = true }: {
+export function ListRow({ item, sub, trailing, selected, onClick, mac, traits = true, wrap }: {
   item: Item;
   sub?: ReactNode;
   trailing?: ReactNode;
@@ -60,6 +60,8 @@ export function ListRow({ item, sub, trailing, selected, onClick, mac, traits = 
   mac?: boolean;
   /** The glyphs for what a login has. 'passkey' leaves the code glyph out. */
   traits?: boolean | 'passkey';
+  /** Let the second line wrap instead of cutting it (a line that must be read whole: “Saved for …”). */
+  wrap?: boolean;
 }) {
   const card = item.kind === 'card' && !sub;
   const second = sub ?? (card ? `${shortBrand(item.brand)}${item.expired ? ' · Expired' : ''}` : item.account);
@@ -68,7 +70,7 @@ export function ListRow({ item, sub, trailing, selected, onClick, mac, traits = 
       <ItemIcon item={item} />
       <div className="grow">
         <div className="trunc">{item.name}</div>
-        <div className="s trunc">{second}</div>
+        <div className={wrap ? 's' : 's trunc'}>{second}</div>
       </div>
       {card && <CardEnd item={item} />}
       {traits && !card && <TraitGlyphs item={item} code={traits !== 'passkey'} />}

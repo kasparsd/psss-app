@@ -84,3 +84,19 @@ export const TrashGlyph = () => (
 export const MoreGlyph = () => (
   <svg {...base}><circle cx="5.5" cy="12" r="1.2" fill="currentColor" /><circle cx="12" cy="12" r="1.2" fill="currentColor" /><circle cx="18.5" cy="12" r="1.2" fill="currentColor" /></svg>
 );
+/** The vault switcher: a stack of disks, the usual database symbol. Icon-only like the gear, with a spoken label and tooltip. */
+export const VaultsIcon = () => (
+  <svg {...base}><ellipse cx="12" cy="6" rx="7" ry="2.8" /><path d="M5 6v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8V6M5 12v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8v-6" /></svg>
+);
+/** A closed padlock: this vault is locked. Always paired with a spoken label. */
+export const LockClosedIcon = () => (
+  <svg {...base}><rect x="5" y="10.5" width="14" height="9.5" rx="2.2" /><path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.6 0v2.5" /></svg>
+);
+/** An open padlock: this vault is unlocked. */
+export const LockOpenIcon = () => (
+  <svg {...base}><rect x="5" y="10.5" width="14" height="9.5" rx="2.2" /><path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.3-1.4" /></svg>
+);
+/** A warning triangle: this vault is not available (not downloaded yet, not found, can't be read). Orange, always paired with a spoken label and a subtitle. */
+export const WarningIcon = () => (
+  <svg {...base}><path d="M12 4.2 21 19.5H3z" /><path d="M12 10v4.2" /><path d="M12 16.9v.1" /></svg>
+);

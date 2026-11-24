@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Against, Clarity, Decisions, Frame, Frames, History, Page, Section } from '../components/page';
 import { IPad, IPhone, MacWindow } from '../components/devices';
 import { ChevronIcon } from '../icons';
+import { VaultStateMark, archiveVault, isUnavailable, passwordsVault, workVault, type VaultRowData } from '../components/VaultMenu';
 
 /* ---------- small pieces shared by every frame on this page ---------- */
 
@@ -60,7 +61,7 @@ function VaultBody({ kind, device = 'iPhone' }: { kind: Kind; device?: string })
       <Foot>A KeePass file, encrypted with your vault password. Other KeePass apps can open it.</Foot>
       <Head>Unlock</Head>
       <Card><Toggle l={`Unlock with ${id}`} on /></Card>
-      <Foot>{`Psss keeps a key for this vault on this ${device}, behind ${id}. AutoFill uses it too. Turn it off and Psss asks for the vault password.`}</Foot>
+      <Foot>{`AutoFill and the browser extension use this vault only while this is on. With it off, Psss asks for the vault password.`}</Foot>
       <Head>Keep it safe</Head>
       <Card>
         <Line l="Save a Copy…" link />
@@ -80,7 +81,7 @@ function VaultBody({ kind, device = 'iPhone' }: { kind: Kind; device?: string })
 
 /* ---------- the app's own settings: apply to every vault ---------- */
 
-function AppBody() {
+export function AppBody() {
   return (
     <>
       <Head>Locking</Head>
@@ -88,7 +89,7 @@ function AppBody() {
         <Pick l="Lock" v="After 1 minute" />
         <Line l="Lock Now" link />
       </Card>
-      <Foot>Applies to every vault. Psss also locks when the iPhone locks.</Foot>
+      <Foot>Applies to every vault.</Foot>
       <Head>AutoFill</Head>
       <Card>
         <Line l="AutoFill is on" sub="Psss fills your logins in Safari and apps." />
@@ -104,12 +105,17 @@ function AppBody() {
   );
 }
 
-const VaultsList = () => (
+/** One vault in the list: the name only. The warning glyph appears only when the vault is not available; no second line. State and location stay on the vault's page. */
+const VaultLine = ({ v }: { v: VaultRowData }) => <Line l={v.name} v={isUnavailable(v.state) ? <VaultStateMark state={v.state} inline /> : undefined} chev />;
+
+export const VaultsList = ({ both, gone }: { both?: boolean; gone?: boolean }) => (
   <>
     <Head>Vaults</Head>
     <Card>
-      <Line l="Passwords" sub="iCloud Drive · Face ID on" chev />
-      <Line l="Add or Open a Vault…" link />
+      <VaultLine v={{ ...passwordsVault, state: 'open' }} />
+      {both && <VaultLine v={workVault} />}
+      {gone && <VaultLine v={archiveVault} />}
+      <Line l="Add Vault…" link />
     </Card>
     <Foot>Each vault has its own password, file and Face ID setting.</Foot>
   </>
@@ -134,7 +140,7 @@ function Alert({ title, message, button, red }: { title: string; message: string
 
 /* ---------- frames ---------- */
 
-function Phone({ title, back, done, children, alert }: { title: string; back?: string; done?: boolean; children: ReactNode; alert?: ReactNode }) {
+export function Phone({ title, back, done, children, alert }: { title: string; back?: string; done?: boolean; children: ReactNode; alert?: ReactNode }) {
   return (
     <IPhone tall>
       <div className="nav">
@@ -168,7 +174,7 @@ function IPadSheet({ title, back, children }: { title: string; back?: string; ch
 }
 
 /** Mac, option C: the system's Settings window, with its toolbar of panes. */
-function MacSettings({ pane }: { pane: 'general' | 'vaults' }) {
+export function MacSettings({ pane, both }: { pane: 'general' | 'vaults'; both?: boolean }) {
   const tab = (id: string, label: string) => (
     <span key={id} className="btn" style={{ background: pane === id ? 'var(--accent-bg)' : 'none', color: pane === id ? 'var(--accent)' : 'var(--lab2)', borderRadius: 10, flexDirection: 'column', padding: '6px 18px', fontWeight: 400 }}>{label}</span>
   );
@@ -186,9 +192,10 @@ function MacSettings({ pane }: { pane: 'general' | 'vaults' }) {
         ) : (
           <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
             <div style={{ width: 190, borderRight: '1px solid var(--sep)', padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div className="mapfield" style={{ background: 'var(--accent-sel)', borderRadius: 8, border: 0, minHeight: 36 }}><div className="l">Passwords<div className="s">iCloud Drive</div></div></div>
+              <div className="mapfield" style={{ background: 'var(--accent-sel)', borderRadius: 8, border: 0, minHeight: 36 }}><div className="l">Passwords</div></div>
+              {both && <div className="mapfield" style={{ borderRadius: 8, border: 0, minHeight: 36 }}><div className="l">Work</div></div>}
               <div style={{ flex: 1 }} />
-              <button className="btn">Add or Open Vault…</button>
+              <button className="btn">Add Vault…</button>
             </div>
             <div style={{ flex: 1, padding: '10px 22px', overflow: 'hidden' }}>
               <VaultBody kind="icloud" device="Mac" />
@@ -206,7 +213,7 @@ export function Settings() {
   return (
     <Page
       title="Settings: this vault and this app"
-      status={<><strong>Options B and C chosen by the owner, 2026-11-24.</strong> B is built on iPhone and iPad, C on the Mac; device check of the Mac window open. Starts from the owner's remark that “Forget vault” sits outside the vault group in Setup and makes no sense there.</>}
+      status={<><strong>Options B and C chosen by the owner, 2026-11-24.</strong> B is built on iPhone and iPad, C on the Mac; device check of the Mac window open. <strong>Proposal, not built (2026-11-24):</strong> the Face ID footer wording (see the History). Starts from the owner's remark that “Forget vault” sits outside the vault group in Setup and makes no sense there.</>}
     >
       <Clarity
         intro={<p>A person opens this screen to change something. They must know first whether it changes <em>one vault</em> or <em>the whole app</em>, and that the destructive step belongs to a vault and says what it does to the file.</p>}
@@ -265,7 +272,7 @@ export function Settings() {
         <p>The root has two kinds of thing, labeled as such: <strong>Vaults</strong> (each opens that vault’s page) and the app’s own rows. Everything that changes one vault, including leaving it, is on that vault’s page. This is how Apple’s Settings treats accounts and how Passwords treats its own settings, and it is the shape the multiple-vault design already needs (a vault list with an add action).</p>
       </Section>
       <Frames>
-        <Frame label="B1 · Settings, one vault (iPhone)" phone caption="With one vault the Vaults group has one row and “Add or Open a Vault…”, as the multiple-vaults doc says. The app rows follow, each group named for what it covers.">
+        <Frame label="B1 · Settings, one vault (iPhone)" phone caption="With one vault the Vaults group has one row and “Add Vault…”, as the multiple-vaults doc says. The app rows follow, each group named for what it covers.">
           <Phone title="Settings" done><VaultsList /><AppBody /></Phone>
         </Frame>
         <Frame label="B2 · The vault’s page, a vault in iCloud Drive" phone caption="Everything about Passwords: the file, the key kept for Face ID, the copy and password actions, then Remove last in its own group. “Forget Vault…” is in the accent colour because nothing is deleted.">
@@ -293,6 +300,9 @@ export function Settings() {
         </Frame>
       </Frames>
       <Frames>
+        <Frame label="B8 · A vault that is not available" phone caption="Archive can’t be found, so its row ends in the orange warning glyph (spoken “Not available, not found”), and nothing else: no second line. The page behind the row says what Psss can do about it. The same glyph is in every vault menu.">
+          <Phone title="Settings" done><VaultsList both gone /></Phone>
+        </Frame>
         <Frame label="B7 · iPad, the vault’s page" caption="The same sheet and the same push; the sheet’s bar carries Settings as its back button and Done.">
           <IPadSheet title="Passwords" back="Settings"><VaultBody kind="icloud" /></IPadSheet>
         </Frame>
@@ -305,7 +315,7 @@ export function Settings() {
         <Frame label="C1 · Mac, General" caption="The app’s rows. Nothing about any one vault.">
           <MacSettings pane="general" />
         </Frame>
-        <Frame label="C2 · Mac, Vaults" caption="Pick a vault on the left; its page on the right, ending in Forget Vault… or Delete Vault…. The labeled “Add or Open Vault…” button under the list is not built yet.">
+        <Frame label="C2 · Mac, Vaults" caption="Pick a vault on the left; its page on the right, ending in Forget Vault… or Delete Vault…. The labeled “Add Vault…” button under the list is not built yet.">
           <MacSettings pane="vaults" />
         </Frame>
       </Frames>
@@ -352,7 +362,7 @@ export function Settings() {
             decision: <>In the sample vault the three inert lines go, and Start Over becomes “Close Sample Vault”, which leads to the welcome screen that already has Create, Open and Import.</>,
           },
           {
-            decision: <>Not drawn and not added: “Add or Open a Vault…” in the Vaults group (the lock screen’s vault pop-up still does it; the row waits for the multiple-vaults work), About, rename vault, colour, default vault. They are listed in the multiple-vaults doc and arrive with it; the vault page has room for them under the file details.</>,
+            decision: <>“Add Vault…” sits at the end of the Vaults group (a row on iPhone and iPad, a labeled button under the list on the Mac) and opens the Add a Vault sheet drawn on <a href="#/vault-switcher">Vaults: add one, switch between them</a>. The list shows names only, with the warning glyph on a vault that is not available. Not drawn and not added: About, rename vault, colour, default vault. They are listed in the multiple-vaults doc and arrive with it; the vault page has room for them under the file details.</>,
           },
         ]}
       />
@@ -363,8 +373,13 @@ export function Settings() {
 
       <History
         entries={[
-          { date: '2026-11-24', text: <>Option C built. The Mac has a Settings scene instead of the sheet: General and Vaults panes, the vault list with its page beside it. Differs from C2: no “Add or Open Vault…” button under the list (not wired yet); while locked the Vaults pane shows only name and location and says to unlock for the rest; a vault that is remembered but not active shows name and location only. Change Vault Password opens in the vault window.</> },
-          { date: '2026-11-24', text: <>Owner chose B, then Mac C. B built: Setup is now Settings (root list plus a page per vault), Forget Vault… and Delete Vault… moved onto the vault’s page, “Reset” and “Start Over” removed. Drawn differently from the proposal: the sample vault page has one Close Sample Vault button instead of three buttons, and the Vaults group has no “Add or Open a Vault…” row yet (B1 still draws it).</> },
+          { date: '2026-11-24', text: <>Added B8: a vault that is not available (Archive) shows the warning glyph in the list. The decision about “Add Vault…” no longer says it is not drawn: the row, the button and the sheet are drawn and (on iPhone and iPad) built. Replaces the older decision that left Add Vault… for the multiple-vaults work.</> },
+          { date: '2026-11-24', text: <>Lead decisions applied: the Vaults list (iPhone, iPad and the Mac pane) is names only again; the warning glyph shows only for a vault that is not available, with no second line and no padlocks. Replaces the entry below, which gave every row a padlock and a state line. Uses the shared <code>VaultMenu.tsx</code> data; shared Vault row and menu.</> },
+          { date: '2026-11-24', text: <>(Superseded by the entry above.) The Vaults list rows end in the shared state glyph (Passwords an open padlock, Work a closed one; a warning triangle for a vault that is not available), the same as every vault menu, and carry a second line only when the state has words (“Needs vault password”, “Not found”). Still no file name or place: those stay on the vault’s page. Drawn from the shared row data in <code>VaultMenu.tsx</code>; see <a href="#/vault-states">Vault states</a>. Proposal, not built.</> },
+          { date: '2026-11-24', text: <>The footer under “Unlock with Face ID” (Touch ID on the Mac) now says plainly that AutoFill and the browser extension use this vault only while it is on. Replaces “Psss keeps a key for this vault on this iPhone, behind Face ID. AutoFill uses it too.”, which hinted at it but did not say that turning it off removes the vault from AutoFill. This toggle is the “include in AutoFill” setting; there is no second one. Proposal, not built. See <a href="#/vault-switcher">Vaults</a>.</> },
+          { date: '2026-11-24', text: <>Vault rows show names only (no file name, place or Face ID line), at the owner’s request: those facts are on each vault’s page. B1 and C2 redrawn. The Add Vault row and the switcher are on the page <a href="#/vault-switcher">Vaults: add one, switch between them</a>.</> },
+          { date: '2026-11-24', text: <>Option C built. The Mac has a Settings scene instead of the sheet: General and Vaults panes, the vault list with its page beside it. Differs from C2: no “Add Vault…” button under the list (not wired yet); while locked the Vaults pane shows only name and location and says to unlock for the rest; a vault that is remembered but not active shows name and location only. Change Vault Password opens in the vault window.</> },
+          { date: '2026-11-24', text: <>Owner chose B, then Mac C. B built: Setup is now Settings (root list plus a page per vault), Forget Vault… and Delete Vault… moved onto the vault’s page, “Reset” and “Start Over” removed. Drawn differently from the proposal: the sample vault page has one Close Sample Vault button instead of three buttons, and the Vaults group has no “Add Vault…” row yet (B1 still draws it).</> },
           { date: '2026-11-24', text: <>Page added as a proposal after the owner noted that Forget Vault sat outside the vault group in Setup. Draws three options and the rows today. Nothing replaced yet; the current Setup sheet stays until a choice is made.</> },
         ]}
       />

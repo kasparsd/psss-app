@@ -339,3 +339,85 @@ table.cmp td,table.cmp th{border-top:1px solid var(--rule);padding:6px 12px 6px 
 .fpill.on .n{color:rgba(255,255,255,.85)}
 .fpill[disabled]{opacity:.4;cursor:default}
 .hit{color:var(--lab);font-weight:600}
+
+/* ---------- verification code setup: the sheet over the editor ---------- */
+.cs-dim{position:absolute;inset:0;background:var(--dim);z-index:5}
+.cs-sheet{position:absolute;left:6px;right:6px;bottom:6px;z-index:6;background:var(--card);border-radius:32px;box-shadow:0 -4px 30px rgba(0,0,0,.3);display:flex;flex-direction:column;overflow:hidden}
+.cs-grab{width:36px;height:5px;border-radius:3px;background:var(--lab2);opacity:.5;margin:6px auto 0}
+.cs-body{padding:10px 18px 18px;display:flex;flex-direction:column;gap:12px;text-align:center;min-height:0}
+.cs-body>div{min-width:0}
+/* the one prominent control; the system Paste control is the same shape */
+.cs-go{padding:12px 26px;min-width:112px;justify-content:center}
+.cs-go:not(.pri){background:var(--accent);color:#fff}
+.cs-go.small{padding:7px 14px;min-width:0;font-weight:400}
+.cs-go[disabled]{opacity:.38}
+.cs-quiet{padding:10px 18px}
+/* equal rows in one card */
+.cs-list{background:var(--field);border-radius:16px;overflow:hidden;text-align:left}
+.cs-row{display:flex;align-items:center;gap:10px;min-height:46px;padding:0 16px;color:var(--accent);cursor:pointer}
+.cs-row+.cs-row{border-top:1px solid var(--sep)}
+.cs-row.split{justify-content:space-between;color:var(--lab);gap:12px;padding:8px 12px 8px 16px}
+.cs-row.split .btn{flex:none}
+/* today's two side-by-side buttons of different widths, kept to show the problem */
+.cs-pair{display:flex;gap:10px;justify-content:center}
+.cs-uneven{background:var(--field);font-weight:400}
+.cs-uneven:first-child{padding-left:14px;padding-right:14px}
+/* iPad and Mac frames: a window of fixed height behind the sheet */
+.cs-wide{position:relative;height:440px;background:var(--win)}
+.cs-wide .sheet{padding-bottom:12px}
+.cs-sheet .nav .mid,.cs-wide .sheetbar strong{white-space:nowrap}
+/* The vault switcher menu hangs from the sidebar toolbar and must not be clipped by the column. */
+.col.side{overflow:visible;position:relative;z-index:5}
+.ws.noside .col.side{overflow:hidden}
+
+/* ---- browser extension popup (page: browser-extension) ---- */
+.xb{width:100%;max-width:520px;border-radius:12px;background:var(--win);box-shadow:var(--shadow);position:relative;min-height:470px;overflow:visible;color:var(--lab);font-size:var(--b);line-height:1.35}
+.xb-bar{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bar);border-radius:12px 12px 0 0}
+.xb-url{flex:1;background:var(--field);border-radius:8px;padding:4px 10px;color:var(--lab2)}
+.xb-btn{width:26px;height:26px;border-radius:6px;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:700}
+.xb-page{padding:24px;opacity:.55}
+.xb-in{height:30px;border-radius:6px;background:var(--field);margin:4px 0 10px;max-width:260px}
+.xp{position:absolute;top:46px;right:8px;width:360px;background:var(--card);border-radius:12px;box-shadow:var(--shadow);padding:14px;z-index:5;display:flex;flex-direction:column;gap:10px}
+.xp-h .t{font-size:var(--t)}
+.xp-card{background:var(--field);border-radius:10px;overflow:hidden}
+.xp-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid var(--sep)}
+.xp-row.last{border-bottom:0}
+.xp-search{display:flex;gap:6px;align-items:center;background:var(--field);border-radius:8px;padding:6px 10px}
+.xp-note{color:var(--lab2)}
+.xp-field{background:var(--card);border:1px solid var(--sep);border-radius:6px;padding:5px 8px}
+.xp-foot{text-align:right}
+.xp .fpills{padding:0}
+.xb-bar .lights{position:static;display:flex;gap:6px;flex:none}
+.xb{min-height:380px}
+.lockg{display:block;width:18px;height:18px}
+.lockg svg{width:18px;height:18px;display:block}
+
+.lk-notice{display:flex;gap:10px;align-items:flex-start;text-align:left;padding:10px 12px;border-radius:10px;background:rgba(142,142,147,.16)}
+.lk-notice.warning{background:rgba(255,159,10,.16)}
+.lk-notice.info{background:rgba(10,132,255,.14)}
+.lk-nicon{flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:14px;font-weight:700;color:#fff;background:var(--lab2)}
+.lk-notice.warning .lk-nicon{background:#ff9f0a;color:#fff}
+.lk-notice.info .lk-nicon{background:#0a84ff;font-style:italic;font-family:Georgia,serif}
+.lk-notice.progress .lk-nicon{background:none}
+.lk-spin{width:16px;height:16px;border-radius:50%;border:2px solid var(--lab2);border-top-color:transparent;animation:lkspin 1s linear infinite}
+@keyframes lkspin{to{transform:rotate(360deg)}}
+
+.lk-pickrow{margin-top:10px;width:280px;position:relative}
+.lk.onphone .lk-pickrow{width:100%}
+.pur{display:flex;align-items:center;justify-content:space-between;gap:12px;box-sizing:border-box;width:100%;min-height:48px;padding:0 16px;border-radius:12px;background:rgba(142,142,147,.16);text-align:left;position:relative}
+.pur .pur-val{background:none;border:0;color:var(--accent);font:inherit;cursor:pointer;padding:0}
+.pur.mac{background:none;padding:0;min-height:0}
+
+.pur.mac{display:grid;grid-template-columns:76px 1fr;column-gap:10px;justify-content:start;width:auto;align-items:center}
+.pur.mac .pur-l{text-align:right}
+.lk-macform{display:flex;flex-direction:column;align-items:center}
+.lk-macform > .lk-fm{display:flex;flex-direction:column;gap:10px;align-items:stretch}
+.lk-pickrow .pur.mac,.lk-form .pur.mac{width:100%}
+.lk-pickrow{display:block !important;width:280px;margin-left:auto;margin-right:auto}
+.lk.onphone .lk-pickrow{width:100%}
+/* Mac: label and control meet on the centre line, so the pair sits under the centred title */
+.pur.mac{grid-template-columns:1fr 1fr;column-gap:8px}
+.pur.mac > span:last-child{justify-self:start}
+.lk-x{background:none;border:0;color:var(--lab2);font-size:18px;line-height:1;cursor:pointer;padding:0 4px}
+.xb-badge{position:absolute;right:-5px;bottom:-5px;width:13px;height:13px;border-radius:50%;background:#30d158;color:#fff;font-size:9px;font-style:normal;display:grid;place-items:center;border:1.5px solid var(--card)}
+.pur .pur-val{white-space:nowrap}

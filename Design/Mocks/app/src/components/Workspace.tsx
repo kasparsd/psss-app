@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { deletedItems, items as sampleItems, type Item } from '../data';
-import { GearIcon, SearchIcon, SidebarIcon } from '../icons';
+import { GearIcon, SearchIcon, SidebarIcon, VaultsIcon } from '../icons';
+import { VaultMenu } from './VaultMenu';
 import { ItemCard } from './ItemCard';
 import { CodeRow, EmptyState, ListHead, ListRow } from './Rows';
 import { UndoBanner } from './UndoBanner';
@@ -45,6 +46,8 @@ export interface WorkspaceInit {
   sortOpen?: boolean;
   feats?: Feat[];
   filterOpen?: boolean;
+  /** Two or more vaults: the vault dropdown (icon) in the sidebar toolbar; "open" draws its menu. One vault: no dropdown. The section header names the vault either way. */
+  vaultMenu?: boolean | 'open';
 }
 
 const az = (a: Item, b: Item) => a.name.localeCompare(b.name);
@@ -86,6 +89,7 @@ export function Workspace({ device, init = {}, empty = false, extra, custom }: {
   const [selId, setSelId] = useState<number | null>(init.sel ?? null);
   const [editing, setEditing] = useState(init.editing ?? false);
   const [showSide, setShowSide] = useState(init.showSide ?? true);
+  const [vMenu, setVMenu] = useState(init.vaultMenu === 'open');
   const [q, setQ] = useState(init.q ?? '');
   const [draftState, setDraft] = useState<string | null | undefined>(undefined);
   const [pristine, setPristine] = useState(true);
@@ -167,11 +171,17 @@ export function Workspace({ device, init = {}, empty = false, extra, custom }: {
         <div className="col side" data-bounds>
           <div className="tbar">
             <span className="sp" />
-            {!mac && <button className="ibtn" aria-label="Setup" data-tip="Setup"><GearIcon /></button>}
+            {!mac && <button className="ibtn" aria-label="Settings" data-tip="Settings"><GearIcon /></button>}
+            {init.vaultMenu && (
+              <span className="sortwrap">
+                <button className="ibtn" aria-label="Vaults" aria-haspopup="menu" aria-expanded={vMenu} data-tip={vMenu ? undefined : 'Vaults'} onClick={() => setVMenu(!vMenu)}><VaultsIcon /></button>
+                {vMenu && <VaultMenu onPick={() => setVMenu(false)} />}
+              </span>
+            )}
             <button className="ibtn" aria-label="Hide sidebar" data-tip="Hide sidebar" onClick={() => setShowSide(false)}><SidebarIcon /></button>
           </div>
           <div className="scroll">
-            <div className="sh">Sam's vault</div>
+            <div className="sh">Passwords</div>
             {sideRows.map(([k, l]) => (
               <div key={k} className={`sr${side === k && !q ? ' sel' : ''}`} onClick={() => go(k)}>
                 <i />{l}<span className="n">{count(k)}</span>
