@@ -1,6 +1,8 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { OriginPolicy } = require('../src/origin.js');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import origin from '../src/origin.js';
+
+const { OriginPolicy } = origin;
 
 test('fills on https and returns only the origin', () => {
   assert.equal(OriginPolicy.fillableOrigin('https://example.com/login?next=/a#x'), 'https://example.com');

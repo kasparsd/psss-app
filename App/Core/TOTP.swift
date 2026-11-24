@@ -129,11 +129,13 @@ enum TOTP {
         return components.string ?? ""
     }
 
-    /// A code split in the middle for reading aloud and typing: 482 913, 1234 5678.
-    static func grouped(_ code: String) -> String {
-        guard code.count == 6 || code.count == 8 else { return code }
+    /// A code split in the middle, 482 913 or 1234 5678, for writing it in two halves. Nil for any other length, which is written whole.
+    /// The halves are never joined with a space character: the screen leaves a narrow gap (`CodeDigits`) and what is copied or
+    /// spoken has none.
+    static func halves(_ code: String) -> (first: String, second: String)? {
+        guard code.count == 6 || code.count == 8 else { return nil }
         let half = code.count / 2
-        return code.prefix(half) + " " + code.suffix(half)
+        return (String(code.prefix(half)), String(code.suffix(half)))
     }
 
     static func secondsRemaining(period: Int = 30, at date: Date = .now) -> Int {

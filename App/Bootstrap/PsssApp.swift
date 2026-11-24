@@ -5,6 +5,7 @@ struct PsssApp: App {
     @FocusedValue(\.newItem) private var newItem
     @FocusedValue(\.lockVault) private var lockVault
     @FocusedValue(\.openSetup) private var openSetup
+    @FocusedValue(\.deleteSelection) private var deleteSelection
 
     init() {
         // Earlier builds may have left real logins in a plain-text file in the App Group. Delete it.
@@ -12,10 +13,10 @@ struct PsssApp: App {
         // Only the app purges Recently Deleted (items older than 30 days) when it unlocks a vault. The AutoFill extension does not.
         VaultSession.purgesRecentlyDeletedOnUnlock = true
         #if os(iOS)
-        // Undo is the capsule after Delete Item (and Command-Z on iPad). Shaking the phone must not undo anything.
+        // Undo is the capsule after Move to Recently Deleted (and Command-Z on iPad). Shaking the phone must not undo anything.
         UIApplication.shared.applicationSupportsShakeToEdit = false
         #elseif os(macOS)
-        // The window has its own All | Codes | Cards control, so the system's "Show Tab Bar" and "Show All Tabs" would only confuse.
+        // The window has its own sidebar of places, so the system's "Show Tab Bar" and "Show All Tabs" would only confuse.
         NSWindow.allowsAutomaticWindowTabbing = false
         #endif
         // Removes the login-keychain items an earlier local build left behind. Does nothing except in a provisioned Mac app.
@@ -34,14 +35,23 @@ struct PsssApp: App {
         #endif
         .commands {
             VaultPlaceCommands()
+            ItemFilterCommands()
+            ItemSortCommands()
             // Psss, Settings… (⌘,): where the Mac window has no Setup gear.
             CommandGroup(replacing: .appSettings) {
                 // Always enabled: with no window to show it in, the press does nothing rather than greying the item out.
                 Button("Settings…") { openSetup?() }
                     .keyboardShortcut(",", modifiers: .command)
             }
-            // Edit, Delete is the system's own item: the item list answers it with `onDeleteCommand` (VaultView), and a focused
-            // text field answers it first, so there is one Delete and ⌘⌫ still edits text.
+            // Edit, Delete stays the system's own item (a focused text field answers it, and the item list answers it with
+            // `onDeleteCommand`, VaultView). Under it the same move in words, with ⌘⌫: "Move to Recently Deleted" (owner,
+            // 2026-11-24), or "Delete Now…" for an item that is already there. Off while a text field is being typed in, so ⌘⌫
+            // still edits text.
+            CommandGroup(after: .pasteboard) {
+                Button(deleteSelection?.permanent == true ? "Delete Now…" : LocalizedStringKey(RecentlyDeletedText.moveButton)) { deleteSelection?.run() }
+                    .keyboardShortcut(.delete, modifiers: .command)
+                    .disabled(deleteSelection == nil)
+            }
             CommandGroup(after: .appVisibility) {
                 Button("Lock Psss") { lockVault?() }
                     .keyboardShortcut("l", modifiers: .command)
@@ -55,7 +65,7 @@ struct PsssApp: App {
                 Button("New Card") { newItem?(.creditCard) }
                     .keyboardShortcut("n", modifiers: [.command, .option])
                     .disabled(newItem == nil)
-                Button("New Secure Note") { newItem?(.secureNote) }
+                Button("New Note") { newItem?(.secureNote) }
                     .keyboardShortcut("n", modifiers: [.command, .shift])
                     .disabled(newItem == nil)
                 Button("New Custom Item") { newItem?(.keePassEntry) }

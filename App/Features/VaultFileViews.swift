@@ -36,9 +36,9 @@ private struct CredentialFields: View {
 
     var body: some View {
         Group {
-            SecureField("Vault Password", text: $password)
+            SecureField("Vault Password", text: $password).noPasswordOffers()
             if confirms {
-                SecureField("Repeat Vault Password", text: $confirmation)
+                SecureField("Repeat Vault Password", text: $confirmation).noPasswordOffers()
             }
             DisclosureGroup("Key file (optional)") {
                 VStack(alignment: .leading, spacing: 8) {

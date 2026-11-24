@@ -94,7 +94,7 @@ extension View {
     }
 }
 
-/// Puts the same Undo in the window's undo stack, so Mac and iPad (with a hardware keyboard) have Edit, Undo Delete Item and
+/// Puts the same Undo in the window's undo stack, so Mac and iPad (with a hardware keyboard) have Edit, Undo Move to Recently Deleted and
 /// Command-Z. One level, like the capsule: a newer delete replaces an older one. The entry is dropped when the capsule's own Undo
 /// runs and when the vault locks, so Command-Z never reaches a store that is no longer open.
 @MainActor

@@ -17,6 +17,35 @@ extension KDBXDocument {
         set { meta?.setChildText("DatabaseName", newValue); meta?.setChildText("DatabaseNameChanged", KeePassTime.storedNow) }
     }
 
+    /// Stores only the role assignments. The person can return to a custom item without reconstructing any strings.
+    @discardableResult
+    func mapFields(_ mapping: ItemFieldMapping, of id: UUID) throws -> Bool {
+        let matches = liveEntries().filter { EntryMapping.uuid(of: $0.entry) == id }
+        guard matches.count == 1, let entry = matches.first?.entry else { throw VaultStoreError.itemUnavailable }
+        if let issue = mapping.issue(in: EntryMapping.mappingFields(entry)) { throw VaultStoreError.invalidFieldMapping(issue) }
+        if EntryMapping.fieldMapping(entry) == mapping { return false }
+        let value = try EntryMapping.encodedMapping(mapping)
+        let snapshot = historySnapshot(of: entry)
+        EntryMapping.setCustomData(entry, EntryMapping.fieldMappingKey, value, modified: KeePassTime.storedNow)
+        pushHistory(snapshot, to: entry)
+        stampModified(entry)
+        return true
+    }
+
+    /// A draft addresses exact source rows, so an old draft cannot overwrite a field that moved or changed elsewhere.
+    func validateOtherFieldEdits(_ items: [VaultItem]) throws {
+        let drafts = items.filter { $0.otherFieldEdits?.isEmpty == false }
+        guard !drafts.isEmpty else { return }
+        let entries = liveEntries()
+        for draft in drafts {
+            let matches = entries.filter { EntryMapping.uuid(of: $0.entry) == draft.id }
+            guard items.filter({ $0.id == draft.id }).count == 1, matches.count == 1, let entry = matches.first?.entry,
+                  let current = EntryMapping.item(from: entry, document: self),
+                  EntryMapping.otherFieldWrites(draft, current: current, entry: entry) != nil
+            else { throw VaultStoreError.editedFieldsChanged }
+        }
+    }
+
     var lastModified: Date? { KeePassTime.date(rootGroup?.child("Times")?.child("LastModificationTime")?.text ?? "") }
 
     /// An entry with the group it sits in, and whether that group is the Recycle Bin or inside it.
@@ -143,16 +172,27 @@ extension KDBXDocument {
     /// Changes an existing entry to the item's content. A revision goes into the history unless the change is small, recent and
     /// touches no secret (see `Coalescing`).
     private func update(_ entry: XNode, with item: VaultItem) -> Bool {
-        guard let current = EntryMapping.item(from: entry, document: self) else { return false }
+        guard let current = EntryMapping.item(from: entry, document: self),
+              let extraWrites = EntryMapping.otherFieldWrites(item, current: current, entry: entry)
+        else { return false }
         // Same content: nothing to revise. A flag another app left off the password, code or passkey key is put back, and that
         // alone is a reason to write, since this entry is being saved.
-        if EntryMapping.sameContent(current, item) { return EntryMapping.correctProtection(entry) }
+        let standardChanged = !EntryMapping.sameContent(current, item)
+        if !standardChanged && extraWrites.isEmpty {
+            return current.fieldMapping == nil && current.fieldMappingNeedsReview != true && EntryMapping.correctProtection(entry)
+        }
         let snapshot = historySnapshot(of: entry)
         let before = Self.modificationTime(of: entry)
-        EntryMapping.apply(item, to: entry, document: self)
+        if standardChanged { EntryMapping.apply(item, to: entry, document: self) }
+        for change in extraWrites { change.node.text = change.value }
         let now = KeePassTime.now
         let recent = before.map { now.timeIntervalSince($0) < Self.coalescingWindow } ?? false
-        if !recent || EntryMapping.touchesSecret(from: snapshot, to: entry) { pushHistory(snapshot, to: entry) }
+        if !recent || extraWrites.contains(where: { $0.concealed }) || EntryMapping.touchesSecret(from: snapshot, to: entry)
+            || current.fillValue(for: .password) != item.fillValue(for: .password)
+            || current.fillValue(for: .cardNumber) != item.fillValue(for: .cardNumber)
+            || current.fillValue(for: .securityCode) != item.fillValue(for: .securityCode) {
+            pushHistory(snapshot, to: entry)
+        }
         stampModified(entry)
         return true
     }
@@ -216,6 +256,7 @@ extension UUID {
 enum EntryMapping {
     /// Private field that remembers which template an entry was created with. Other apps ignore it.
     static let typeKey = "PSSS_TYPE"
+    static let fieldMappingKey = "PSSS_FIELD_MAPPING"
     static let cardExpiryKey = "Expiry"
     /// A card's security code: a protected custom string with the name the importer already gives it.
     static let cardSecurityCodeKey = "Security code"
@@ -230,6 +271,9 @@ enum EntryMapping {
     /// time stands in.
     static let passkeyCreated = "PSSS_PASSKEY_CREATED"
     private static let passkeyKeys = [passkeyCredential, passkeyKey, passkeyRelyingParty, passkeyUsername, passkeyUserHandle]
+    private static let otpKeys = ["otp", "TimeOtp-Secret-Base32", "TOTP Seed", "TimeOtp-Length", "TimeOtp-Period", "TimeOtp-Algorithm"]
+    private static let standardStrings: Set<String> = ["Title", "UserName", "Password", "URL", "Notes"]
+    private static let internalStrings = Set(passkeyKeys + [passkeyCreated, typeKey, fieldMappingKey, "PSSS_SOURCE", "PSSS_IMPORT_HASHES"])
     /// The strings Psss itself keeps protected: the password (a card's number too), the one-time code and the passkey's private key.
     private static let protectedKeys: Set<String> = ["Password", "otp", passkeyKey, cardSecurityCodeKey]
     /// Strings whose change is a change of a secret, even where the file does not mark them protected.
@@ -249,7 +293,8 @@ enum EntryMapping {
     /// Sets, adds or removes a string. A new string is protected when Psss protects that key or the file's memory protection says
     /// so. An existing string's flag is corrected for the keys Psss itself protects (password, one-time code, passkey private
     /// key) and left as found for every other key.
-    private static func setString(_ entry: XNode, _ key: String, _ value: String?, document: KDBXDocument, keepEmpty: Bool) {
+    private static func setString(_ entry: XNode, _ key: String, _ value: String?, document: KDBXDocument, keepEmpty: Bool,
+                                  protectNew: Bool = false, preserveProtection: Bool = false) {
         let existing = entry.children(named: "String").first { $0.child("Key")?.text == key }
         guard let value, !value.isEmpty || keepEmpty else {
             if let existing { entry.children.removeAll { $0 === existing } }
@@ -262,11 +307,11 @@ enum EntryMapping {
                 existing.children.append(node)
             }
             node.text = value
-            if protectedKeys.contains(key) { node.setAttribute("Protected", "True") }
+            if !preserveProtection && protectedKeys.contains(key) { node.setAttribute("Protected", "True") }
             return
         }
         let node = XNode("Value", text: value)
-        if protectedKeys.contains(key) || document.protectsStandardField(key) { node.setAttribute("Protected", "True") }
+        if protectNew || protectedKeys.contains(key) || document.protectsStandardField(key) { node.setAttribute("Protected", "True") }
         let string = XNode("String", children: [XNode("Key", text: key), node])
         let index = entry.children.firstIndex { ["Binary", "AutoType", "CustomData", "History"].contains($0.name) } ?? entry.children.endIndex
         entry.children.insert(string, at: index)
@@ -296,6 +341,46 @@ enum EntryMapping {
         return found
     }
 
+    private static func sourceFields(_ entry: XNode) -> [StoredItemField] {
+        entry.children(named: "String").enumerated().compactMap { index, node in
+            guard let key = node.child("Key")?.text, !internalStrings.contains(key),
+                  !key.hasPrefix("KPEX_PASSKEY_"), !key.hasPrefix("KPXC_PASSKEY_"),
+                  let value = node.child("Value") else { return nil }
+            return StoredItemField(id: index, key: key, value: value.text, isProtected: value.attribute("Protected")?.lowercased() == "true")
+        }
+    }
+
+    static func mappingFields(_ entry: XNode) -> [StoredItemField] {
+        sourceFields(entry).filter { !["Title", "Notes"].contains($0.key) && !otpKeys.contains($0.key) }
+    }
+
+    static func fieldMapping(_ entry: XNode) -> ItemFieldMapping? {
+        guard let raw = customData(entry, fieldMappingKey) else { return nil }
+        return try? JSONDecoder().decode(ItemFieldMapping.self, from: Data(raw.utf8))
+    }
+
+    static func encodedMapping(_ mapping: ItemFieldMapping) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return String(decoding: try encoder.encode(mapping), as: UTF8.self)
+    }
+
+    /// Resolve a draft's fields before the ordinary editor can move or add strings. Retain the Value node, including its flags.
+    static func otherFieldWrites(_ draft: VaultItem, current: VaultItem, entry: XNode)
+        -> [(node: XNode, value: String, concealed: Bool)]? {
+        guard let edits = draft.otherFieldEdits, !edits.isEmpty else { return [] }
+        let strings = entry.children(named: "String")
+        let originals = Dictionary(uniqueKeysWithValues: (draft.otherFields ?? []).map { ($0.id, $0) })
+        let stored = Dictionary(uniqueKeysWithValues: (current.otherFields ?? []).map { ($0.id, $0) })
+        var writes: [(XNode, String, Bool)] = []
+        for (id, replacement) in edits {
+            guard let original = originals[id], stored[id] == original, strings.indices.contains(id),
+                  let node = strings[id].child("Value") else { return nil }
+            if replacement != original.value { writes.append((node, replacement, original.concealed)) }
+        }
+        return writes
+    }
+
     /// Whether going from the old copy of an entry to its current state changed a secret: a protected string, the password
     /// (a card's number), the one-time code or any passkey field. A change to a secret always makes a revision.
     static func touchesSecret(from old: XNode, to new: XNode) -> Bool {
@@ -312,33 +397,68 @@ enum EntryMapping {
 
     static func item(from entry: XNode, document: KDBXDocument) -> VaultItem? {
         guard let id = uuid(of: entry) else { return nil }
-        var title = string(entry, "Title") ?? "", account = string(entry, "UserName") ?? ""
-        let website = string(entry, "URL") ?? "", secret = string(entry, "Password") ?? "", notes = string(entry, "Notes") ?? ""
+        var title = string(entry, "Title") ?? ""
+        let fields = sourceFields(entry)
+        let candidates = fields.filter { !["Title", "Notes"].contains($0.key) && !otpKeys.contains($0.key) }
+        let mapping = fieldMapping(entry)
+        let resolved = mapping.flatMap { $0.issue(in: candidates, requireValues: false) == nil ? $0 : nil }
+        let needsReview = customData(entry, fieldMappingKey) != nil && resolved == nil
+        let assigned = resolved.flatMap { $0.kind == .keePassEntry ? nil : $0 }
+        func key(_ role: FieldRole, fallback: String) -> String? { assigned == nil ? fallback : assigned?[role] }
+        let accountKey = key(assigned?.kind == .creditCard ? .cardholder : .username, fallback: "UserName")
+        let secretKey = key(assigned?.kind == .creditCard ? .cardNumber : .password, fallback: "Password")
+        let websiteKey = key(.loginWebsite, fallback: "URL")
+        func read(_ key: String?) -> String { key.flatMap { string(entry, $0) } ?? "" }
+        let account = read(accountKey), website = read(websiteKey), secret = read(secretKey), notes = read("Notes")
         let otp = otpSetup(entry)
         let passkey = passkey(entry)
 
         // A login without a name is stored under its host so other KeePass apps show something; read it back as empty.
-        if !website.isEmpty, title == SharedVault.host(website) { title = "" }
+        if mapping == nil, !needsReview, !website.isEmpty, title == SharedVault.host(website) { title = "" }
 
         let kind: ItemKind
-        switch string(entry, typeKey) {
-        case "card": kind = .creditCard
-        case "note": kind = .secureNote
-        case "custom": kind = .keePassEntry
-        case "login": kind = .login
-        default:
-            if !website.isEmpty || !account.isEmpty || !otp.secret.isEmpty || passkey != nil { kind = .login }
-            else if secret.isEmpty && !notes.isEmpty { kind = .secureNote }
-            else { kind = .keePassEntry }
+        if let resolved { kind = resolved.kind }
+        else if needsReview { kind = .keePassEntry }
+        else {
+            switch string(entry, typeKey) {
+            case "card": kind = .creditCard
+            case "note": kind = .secureNote
+            case "custom": kind = .keePassEntry
+            case "login": kind = .login
+            default:
+                if !website.isEmpty || !account.isEmpty || !otp.secret.isEmpty || passkey != nil { kind = .login }
+                else if secret.isEmpty && !notes.isEmpty { kind = .secureNote }
+                else { kind = .keePassEntry }
+            }
         }
+        let expiryKey = kind == .creditCard ? key(.expiry, fallback: cardExpiryKey) : nil
+        let securityKey = kind == .creditCard ? key(.securityCode, fallback: cardSecurityCodeKey) : nil
         let times = entry.child("Times")
         var item = VaultItem(id: id, kind: kind, title: title, account: account, website: website, secret: secret,
-                             expiry: kind == .creditCard ? string(entry, cardExpiryKey) ?? "" : "",
-                             securityCode: kind == .creditCard ? string(entry, cardSecurityCodeKey) ?? "" : "", notes: notes,
+                             expiry: read(expiryKey), securityCode: read(securityKey), notes: notes,
                              otpSecret: kind == .login ? otp.secret : "", otpSettings: kind == .login ? otp.settings : .standard,
                              created: times?.child("CreationTime").flatMap { KeePassTime.date($0.text) },
                              modified: times?.child("LastModificationTime").flatMap { KeePassTime.date($0.text) })
         item.passkey = passkey
+        item.sourceFields = candidates
+        item.fieldMapping = resolved
+        item.fieldMappingNeedsReview = needsReview
+        let core: [(String, String?)] = [
+            ("title", "Title"), ("notes", "Notes"), ("account", accountKey), ("secret", secretKey),
+            ("website", websiteKey), ("expiry", expiryKey), ("securityCode", securityKey),
+        ]
+        let displayed = Set(core.compactMap { $0.1 }).subtracting(
+            fields.contains { $0.key == "Title" && $0.isProtected } ? ["Title"] : []
+        )
+        var usedKeys: Set<String> = []
+        item.otherFields = fields.filter { field in
+            if field.value.isEmpty, standardStrings.contains(field.key) { return false }
+            if kind == .login, !otp.secret.isEmpty, otpKeys.contains(field.key) { return false }
+            return !displayed.contains(field.key) || !usedKeys.insert(field.key).inserted
+        }
+        item.concealedFields = Set(core.compactMap { slot, key in
+            fields.first(where: { $0.key == key })?.concealed == true ? slot : nil
+        })
         return item
     }
 
@@ -390,37 +510,53 @@ enum EntryMapping {
         func set(_ key: String, _ value: String?, keepEmpty: Bool = false) {
             setString(entry, key, value, document: document, keepEmpty: keepEmpty)
         }
-        let host = SharedVault.host(item.website)
-        set("Title", item.title.isEmpty && item.kind == .login && !host.isEmpty ? host : item.title, keepEmpty: true)
-        set("UserName", item.account, keepEmpty: true)
-        set("Password", item.secret, keepEmpty: true)
-        set("URL", item.website, keepEmpty: true)
-        set("Notes", item.notes, keepEmpty: true)
+        let mapping = fieldMapping(entry)
+        let mapped = mapping != nil || customData(entry, fieldMappingKey) != nil
+        if mapped {
+            if item.title != (string(entry, "Title") ?? "") { set("Title", item.title, keepEmpty: true) }
+            if item.notes != (string(entry, "Notes") ?? "") { set("Notes", item.notes, keepEmpty: true) }
+            if let mapping, mapping.kind != .keePassEntry, item.fieldMapping == mapping {
+                applyMappedFields(item, mapping: mapping, to: entry, document: document)
+            } else if item.kind == .keePassEntry {
+                for (key, value) in [("UserName", item.account), ("Password", item.secret), ("URL", item.website)] {
+                    if value != (string(entry, key) ?? "") { set(key, value, keepEmpty: true) }
+                }
+            }
+        } else {
+            let host = SharedVault.host(item.website)
+            set("Title", item.title.isEmpty && item.kind == .login && !host.isEmpty ? host : item.title, keepEmpty: true)
+            set("UserName", item.account, keepEmpty: true)
+            set("Password", item.secret, keepEmpty: true)
+            set("URL", item.website, keepEmpty: true)
+            set("Notes", item.notes, keepEmpty: true)
 
-        switch item.kind {
-        case .login: set(typeKey, nil)
-        case .creditCard: set(typeKey, "card")
-        case .secureNote: set(typeKey, "note")
-        case .keePassEntry: set(typeKey, "custom")
+            switch item.kind {
+            case .login: set(typeKey, nil)
+            case .creditCard: set(typeKey, "card")
+            case .secureNote: set(typeKey, "note")
+            case .keePassEntry: set(typeKey, "custom")
+            }
+            if item.kind == .creditCard {
+                set(cardExpiryKey, item.expiry)
+                set(cardSecurityCodeKey, item.securityCode)
+            }
         }
-        set(cardExpiryKey, item.kind == .creditCard ? item.expiry : nil)
-        // Only a card owns this string: a login or note may carry a custom field of the same name, which is left alone.
-        if item.kind == .creditCard { set(cardSecurityCodeKey, item.securityCode) }
 
         // Rewrite the TOTP field only when the secret or its parameters changed, so the issuer set elsewhere survives.
-        let secret = item.kind == .login ? TOTP.normalizedSecret(item.otpSecret) ?? "" : ""
+        let secret = TOTP.normalizedSecret(item.otpSecret) ?? ""
         let settings = secret.isEmpty ? TOTPSettings.standard : item.otpSettings
         let stored = otpSetup(entry)
-        if secret != stored.secret || (!secret.isEmpty && settings != stored.settings) {
-            for legacy in ["TimeOtp-Secret-Base32", "TOTP Seed", "TimeOtp-Length", "TimeOtp-Period", "TimeOtp-Algorithm"] { set(legacy, nil) }
+        if item.kind == .login && (secret != stored.secret || (!secret.isEmpty && settings != stored.settings)) {
+            for legacy in otpKeys.dropFirst() { set(legacy, nil) }
             set("otp", secret.isEmpty ? nil : TOTP.setupURL(secret: secret, issuer: item.displayTitle, account: item.account, settings: settings))
         }
 
         // A flag another app left off is put back on the strings Psss keeps protected, whether or not their values changed.
-        correctProtection(entry)
+        if !mapped { correctProtection(entry) }
 
         if let passkey = item.passkey, let key = try? P256.Signing.PrivateKey(rawRepresentation: passkey.privateKey) {
             let stored = Self.passkey(entry)
+            if mapped, stored == passkey { return }
             set(passkeyCredential, passkey.credentialID.base64URL)
             set(passkeyKey, key.pemRepresentation)
             set(passkeyRelyingParty, passkey.rpID)
@@ -431,6 +567,41 @@ enum EntryMapping {
             if stored == nil || stored?.credentialID != passkey.credentialID { set(passkeyCreated, KeePassTime.string(passkey.created)) }
         } else if item.passkey == nil, passkey(entry) != nil {
             for key in passkeyKeys + [passkeyCreated] { set(key, nil) }
+        }
+    }
+
+    private static func applyMappedFields(_ item: VaultItem, mapping: ItemFieldMapping, to entry: XNode, document: KDBXDocument) {
+        var updated = mapping
+        for role in FieldRole.mappingRoles(for: mapping.kind) {
+            let value = item.fillValue(for: role) ?? ""
+            if let key = mapping[role] {
+                let old = string(entry, key) ?? ""
+                let unchanged = role == .expiry ? CardExpiry.displayed(old) == CardExpiry.displayed(value) : old == value
+                if !unchanged {
+                    setString(entry, key, value, document: document, keepEmpty: true, preserveProtection: true)
+                }
+            } else if !value.isEmpty {
+                let base: String
+                switch role {
+                case .username, .cardholder: base = "UserName"
+                case .password, .cardNumber: base = "Password"
+                case .loginWebsite: base = "URL"
+                case .expiry: base = cardExpiryKey
+                case .securityCode: base = cardSecurityCodeKey
+                case .oneTimeCode: continue
+                }
+                var key = base
+                var suffix = 2
+                while entry.children(named: "String").contains(where: { $0.child("Key")?.text == key }) {
+                    key = "\(base) (\(suffix))"
+                    suffix += 1
+                }
+                setString(entry, key, value, document: document, keepEmpty: true, protectNew: role.sensitive)
+                updated[role] = key
+            }
+        }
+        if updated != mapping, let value = try? encodedMapping(updated) {
+            setCustomData(entry, fieldMappingKey, value, modified: KeePassTime.storedNow)
         }
     }
 
@@ -452,7 +623,8 @@ enum EntryMapping {
             item.passkey.map { [$0.credentialID, $0.userHandle, Data($0.rpID.utf8), $0.privateKey] }
         }
         return a.kind == b.kind && title(a) == title(b) && a.account == b.account && a.website == b.website && a.secret == b.secret
-            && a.notes == b.notes && (a.kind == .creditCard ? a.expiry == b.expiry && a.securityCode == b.securityCode : true)
+            && a.notes == b.notes
+            && (a.kind == .creditCard ? CardExpiry.displayed(a.expiry) == CardExpiry.displayed(b.expiry) && a.securityCode == b.securityCode : true)
             && code(a) == code(b) && passkey(a) == passkey(b)
     }
 

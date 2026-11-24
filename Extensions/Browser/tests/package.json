@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "test:playwright": "playwright test",
-    "unit": "node --test origin.test.js"
+    "unit": "../../../scripts/test-browser.sh"
   },
   "devDependencies": {
     "@playwright/test": "1.65.1"

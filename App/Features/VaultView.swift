@@ -7,7 +7,7 @@ extension ItemKind {
         switch self {
         case .login: "Login"
         case .creditCard: "Card"
-        case .secureNote: "Secure note"
+        case .secureNote: "Note"
         case .keePassEntry: "Custom item"
         }
     }
@@ -23,10 +23,11 @@ extension ItemKind {
 }
 
 extension ItemTrait {
-    var symbol: String {
+    /// The filled glyph a list row shows for what a login has (the notes glyph is not shown in rows).
+    var rowSymbol: String {
         switch self {
-        case .passkey: "person.badge.key"
-        case .code: "lock.badge.clock"
+        case .passkey: "person.badge.key.fill"
+        case .code: "lock.badge.clock.fill"
         case .notes: "note.text"
         }
     }
@@ -68,113 +69,38 @@ private enum VaultAlert: Hashable {
 /// The tabs of the iPhone (and of iPad at compact width): the three places, then the iOS 26 search tab at the trailing end.
 private enum PhoneTab: Hashable { case place(VaultPlace), search }
 
+/// While a page is edited in place the rest of the window is dimmed and does not react (owner, 2026-11-24).
+private struct DimsWhileEditing: ViewModifier {
+    let editing: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .disabled(editing)
+            .opacity(editing ? 0.4 : 1)
+            .animation(.default, value: editing)
+    }
+}
+
 /// Shows the search field only where the list owns it: Mac and iPad. On iPhone the search tab has it.
 private struct ListSearch: ViewModifier {
     let enabled: Bool
+    var disabled = false
     let text: Binding<String>
     let focus: FocusState<Bool>.Binding
 
     @ViewBuilder
     func body(content: Content) -> some View {
         if enabled {
-            content.searchable(text: text, prompt: "Search all items").searchFocused(focus)
+            // The field is attached to a view of its own beside the page, not to the page, so it can be disabled (and dimmed by the
+            // system) while a page is edited in place without disabling that page.
+            content.background {
+                Color.clear
+                    .searchable(text: text, prompt: "Search all items")
+                    .searchFocused(focus)
+                    .disabled(disabled)
+            }
         } else {
             content
-        }
-    }
-}
-
-private enum VaultCategory: Hashable {
-    case recent
-    case mostUsed
-    case allItems
-    /// Codes and Cards are places; the sidebar lists them as rows, and choosing one chooses the place. Never pills.
-    case codes
-    case cards
-    case kind(ItemKind)
-    case trait(ItemTrait)
-    /// Items that were deleted and wait for 30 days. Not a filter of live items: it lists `store.recentlyDeleted()`.
-    case recentlyDeleted
-
-    /// The sidebar's top section: usage views, All, the Codes and Cards places, the kinds, then Recently Deleted.
-    static var choices: [Self] { [.recent, .mostUsed, .allItems, .codes, .cards] + kindChoices + [.recentlyDeleted] }
-    /// Cards is a kind of its own place, so it is not a kind row; Codes is not a trait row.
-    private static var kindChoices: [Self] { ItemKind.allCases.filter { $0 != .creditCard }.map(Self.kind) }
-    /// What the item has. Codes is a place of its own, so the code trait has no filter.
-    static var traitChoices: [Self] { ItemTrait.allCases.filter { $0 != .code }.map(Self.trait) }
-    /// The pills: usage views and kinds, the filters, and Recently Deleted last. The same on every platform.
-    static var everyChoice: [Self] { [.recent, .mostUsed, .allItems] + kindChoices + traitChoices + [.recentlyDeleted] }
-
-    /// Usage views are scopes of "what I need now". Searching always looks across everything.
-    var isUsageView: Bool { self == .recent || self == .mostUsed }
-
-    var title: LocalizedStringKey {
-        switch self {
-        case .recent: "Recent"
-        case .mostUsed: "Most used"
-        case .allItems: "All"
-        case .codes: "Codes"
-        case .cards: "Cards"
-        case .kind(.login): "Logins"
-        case .kind(.creditCard): "Cards"
-        case .kind(.secureNote): "Secure notes"
-        case .kind(.keePassEntry): "Custom items"
-        case .trait(.passkey): "Passkeys"
-        case .trait(.code): "Codes"
-        case .trait(.notes): "With notes"
-        case .recentlyDeleted: "Recently Deleted"
-        }
-    }
-
-    var shortTitle: LocalizedStringKey {
-        switch self {
-        case .recent: "Recent"
-        case .mostUsed: "Most used"
-        case .allItems: "All"
-        case .codes: "Codes"
-        case .cards: "Cards"
-        case .kind(.login): "Logins"
-        case .kind(.creditCard): "Cards"
-        case .kind(.secureNote): "Notes"
-        case .kind(.keePassEntry): "Custom"
-        case .trait(.passkey): "Passkeys"
-        case .trait(.code): "Codes"
-        case .trait(.notes): "With notes"
-        case .recentlyDeleted: "Recently Deleted"
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .recent: "clock"
-        case .mostUsed: "star"
-        case .allItems: "square.stack"
-        case .codes: VaultPlace.codes.symbol
-        case .cards: VaultPlace.cards.symbol
-        case .kind(let kind): kind.symbol
-        case .trait(let trait): trait.symbol
-        case .recentlyDeleted: "trash"
-        }
-    }
-
-    /// How many items the filter lists. Recent and Most used show at most ten, so the count never promises more than the list holds.
-    func listedCount(in items: [VaultItem]) -> Int {
-        let count = items.count(where: includes)
-        return isUsageView ? min(count, Self.usageLimit) : count
-    }
-
-    static let usageLimit = 10
-
-    func includes(_ item: VaultItem) -> Bool {
-        switch self {
-        case .recent: item.lastUsed != nil
-        case .mostUsed: item.useCount > 0
-        case .allItems: true
-        case .codes: item.traits.contains(.code)
-        case .cards: item.kind == .creditCard
-        case .kind(let kind): item.kind == kind
-        case .trait(let trait): item.traits.contains(trait)
-        case .recentlyDeleted: false  // live items are never in it; its own list comes from the store
         }
     }
 }
@@ -186,7 +112,7 @@ struct VaultView: View {
     @State private var deletedEntries: [DeletedItem]
     /// The Undo capsule after a delete.
     @State private var undoBanner = UndoBannerModel()
-    /// The window's undo stack: Edit, Undo Delete Item (and the same on iPad with a hardware keyboard).
+    /// The window's undo stack: Edit, Undo Move to Recently Deleted (and the same on iPad with a hardware keyboard).
     @Environment(\.undoManager) private var undoManager
     @State private var undoToken = UndoToken()
     @AppStorage("vaultSource") private var vaultSource = ""
@@ -228,7 +154,7 @@ struct VaultView: View {
     @State private var codesPath: [VaultItem.ID] = []
     @State private var cardsPath: [VaultItem.ID] = []
     @State private var searchPath: [VaultItem.ID] = []
-    /// Bumped to bring the All list back to its very top, where the title and the pills are.
+    /// Bumped to bring the All list back to its very top, where the title is.
     @State private var scrollToTop = 0
     /// A new value re-creates the iPhone All tab's NavigationStack, which brings its large title back after a scroll.
     @State private var stackIdentity = 0
@@ -244,37 +170,64 @@ struct VaultView: View {
     @State private var deletionRequest: DeletionRequest?
     /// The code buttons of search results.
     @State private var codeCopy = CodeCopyState()
-    /// The height of the pill row inside the iPhone list, so an empty state starts below it and never covers the pills.
-    @State private var pillsHeight: CGFloat = 0
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var sizeClass
     #endif
-    @State private var category: VaultCategory? = .recent
-    private var categorySelection: Binding<VaultCategory?> {
-        Binding(get: { category }, set: { newCategory in
-            if category != newCategory { selection = nil }
-            category = newCategory
+    /// The order of the All list, results and filters, kept on this device (owner, 2026-11-24). Codes, Cards and Recently Deleted keep
+    /// their own orders.
+    @AppStorage(ItemSort.storageKey) private var sortRaw = ItemSort.standard.rawValue
+    private var sort: ItemSort { ItemSort(rawValue: sortRaw) ?? .standard }
+    private var sortBinding: Binding<ItemSort> { Binding(get: { sort }, set: { sortRaw = $0.rawValue }) }
+    /// The order the list was last laid out in. An item used or edited while the list is on screen keeps its place; the order is
+    /// taken again when a sort is chosen, the filter or place changes, the search text changes, or the list next appears.
+    @State private var sortRank: [VaultItem.ID: Int] = [:]
+    /// The "Recently used" group as it was when the list was laid out: held still like `sortRank`, taken again at the same moments.
+    /// Nil until then, when the group is taken from the list as it is.
+    @State private var recentIDs: [VaultItem.ID]?
+    /// Show and With, kept on this device (owner, 2026-11-24). Sort is separate (`sort`).
+    @AppStorage(ItemShow.storageKey) private var showRaw = ItemShow.all.rawValue
+    @AppStorage(ItemWith.storageKey) private var withRaw = 0
+    private var filter: ItemFilter { ItemFilter(show: ItemShow(rawValue: showRaw) ?? .all, with: ItemWith(rawValue: withRaw)) }
+    private var filterBinding: Binding<ItemFilter> {
+        Binding(get: { filter }, set: { new in
+            // Another kind is another list, and it is never Recently Deleted.
+            if new.show != filter.show { selection = nil; showsDeleted = false }
+            showRaw = new.show.rawValue
+            withRaw = new.with.rawValue
         })
     }
-    /// The sidebar's selection and the toolbar control are two views of one choice: Codes and Cards rows choose that place, any
-    /// other row chooses All with that filter.
-    private var sidebarSelection: Binding<VaultCategory?> {
-        Binding(get: {
-            switch place {
-            case .all: category
-            case .codes: .codes
-            case .cards: .cards
-            }
-        }, set: { new in
+    /// Recently Deleted is showing in the All place. Not remembered: the app never opens there.
+    @State private var showsDeleted = false
+    /// The row the sidebar (and the Show menu with the sidebar hidden) lights: a place, a kind, or Recently Deleted.
+    private var destination: VaultDestination {
+        switch place {
+        case .codes: .codes
+        case .cards: .cards
+        case .all: showsDeleted ? .recentlyDeleted : VaultDestination(show: filter.show)
+        }
+    }
+    private var destinationBinding: Binding<VaultDestination?> {
+        Binding(get: { destination }, set: { new in
+            guard let new, new != destination else { return }
             switch new {
             case .codes: placeBinding.wrappedValue = .codes
             case .cards: placeBinding.wrappedValue = .cards
-            case nil: break
+            case .recentlyDeleted:
+                placeBinding.wrappedValue = .all
+                selection = nil
+                showsDeleted = true
             default:
                 placeBinding.wrappedValue = .all
-                categorySelection.wrappedValue = new
+                var next = filter
+                next.show = new.show ?? .all
+                filterBinding.wrappedValue = next
             }
         })
+    }
+    /// The row the list selected, with its section (see `SectionedRowID`).
+    @State private var pickedRow: SectionedRowID?
+    private var allRowSelection: Binding<SectionedRowID?> {
+        SectionedRowID.binding(outer: selectionBinding, picked: $pickedRow, recent: Set(recentGroup.map(\.id)))
     }
     /// The selected item of each place, so leaving a place and coming back finds its list as it was (Mac and iPad).
     @State private var selections: [VaultPlace: VaultItem.ID] = [:]
@@ -282,15 +235,23 @@ struct VaultView: View {
         get { selections[place] }
         nonmutating set { selections[place] = newValue }
     }
-    private var selectionBinding: Binding<VaultItem.ID?> { Binding(get: { selection }, set: { selection = $0 }) }
+    /// The list's selection. At regular width the list cannot end up with rows and no selection: when the system clears it (a click on
+    /// empty space, ⌘-click on the selected row, Escape) the previous row stays, see `ensureSelection`. On iPhone nothing is selected.
+    private var selectionBinding: Binding<VaultItem.ID?> {
+        Binding(get: { selection }, set: { new in
+            if new == nil, !usesStack, regularVisibleItems.contains(where: { $0.id == selection }) { return }
+            selection = new
+        })
+    }
     @State private var search = ""
     @FocusState private var searchFocused: Bool
     @State private var didFocusOnLaunch = false
+    /// A new item being added, in a sheet. An existing item is edited on its own page, see `editingID`.
     @State private var editor: VaultItem?
-    /// The editor opens at the verification code step (Set Up Code… on a login's page).
-    @State private var editorStartsWithCode = false
-    /// The open editor's item was removed elsewhere. The alert waits for the sheet to finish closing.
-    @State private var editorItemRemoved = false
+    /// The item whose page is the editor right now (owner, 2026-11-24). While it is set, everything outside that page is dimmed and
+    /// does not react: Cancel or Save come first. The draft itself lives on the page (`ItemDetail`).
+    @State private var editingID: VaultItem.ID?
+    private var isEditingInPlace: Bool { editingID != nil }
     @State private var showsEditorRemoved = false
     @State private var showsSetup = false
     @State private var wantsPasswordChange = false
@@ -307,14 +268,20 @@ struct VaultView: View {
     private var placeBinding: Binding<VaultPlace> {
         Binding(get: { place }, set: { new in
             inSearchTab = false
+            // Choosing All, or another place, leaves Recently Deleted.
+            if new != place || new == .all { showsDeleted = false }
             place = new
         })
     }
 
-    /// A usage pill with nothing to show falls back to All, so a new vault never opens empty.
-    private var activeCategory: VaultCategory {
-        let chosen = category ?? .recent
-        return chosen.isUsageView && !items.contains(where: chosen.includes) ? .allItems : chosen
+    /// The Sort menu applies to the list that follows it: All and its filters, and search results, never Recently Deleted, Codes or
+    /// Cards (which keep their own orders).
+    private var showsSort: Bool { (isSearching || place == .all) && !isRecentlyDeleted }
+
+    /// Takes the order of the whole vault as the sort gives it now, so every filter and search shows its items in it.
+    private func resnapshotOrder() {
+        sortRank = sort.ranks(of: items)
+        recentIDs = RecentlyUsed.group(from: filter.listed(items)).map(\.id)
     }
 
     private var isSearching: Bool { !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -322,16 +289,13 @@ struct VaultView: View {
     /// The All list is showing: in the All place, and on iPhone also in the search tab, which is that list with a field.
     private var showsAllList: Bool { place == .all || inSearchTab }
 
-    /// The pill that is lit. While searching from a usage pill the results span everything, so All is the honest highlight.
-    private var shownCategory: VaultCategory { isSearching && searchesWholeVault ? .allItems : activeCategory }
-
-    /// Search is global on every platform (owner, 2026-11-23): typing always searches the whole vault, whichever view or pill is
-    /// open, and there is no scope bar, so a missing result never comes from a hidden scope.
-    private var searchesWholeVault: Bool { true }
+    /// Show and With narrow the list on screen, not search: typing always searches the whole vault (owner, 2026-11-24), and the
+    /// iPhone search tab lists the whole vault too, so a missing result never comes from a forgotten filter.
+    private var narrowsList: Bool { !isSearching && !inSearchTab }
 
     /// The Recently Deleted list is showing. Searching leaves it: results come from the live vault, deleted items never turn up in
     /// them.
-    private var isRecentlyDeleted: Bool { showsAllList && activeCategory == .recentlyDeleted && !isSearching }
+    private var isRecentlyDeleted: Bool { showsDeleted && place == .all && !inSearchTab && !isSearching }
 
     /// What the Recently Deleted list shows (kept for its empty-state branches; a search leaves the list).
     private var deletedResults: [DeletedItem] { ItemSearch.matching(deletedEntries, query: search) }
@@ -339,16 +303,21 @@ struct VaultView: View {
     private var results: [VaultItem] {
         if isRecentlyDeleted { return deletedResults.map(\.item) }
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        let scope: VaultCategory = query.isEmpty || !searchesWholeVault ? activeCategory : .allItems
-        let matches = items.filter { item in scope.includes(item) && ItemSearch.matches(item, query: query) }
-        switch scope {
-        case .recent:
-            return Array(matches.sorted { ($0.lastUsed ?? .distantPast) > ($1.lastUsed ?? .distantPast) }.prefix(VaultCategory.usageLimit))
-        case .mostUsed:
-            return Array(matches.sorted { $0.useCount > $1.useCount }.prefix(VaultCategory.usageLimit))
-        default:
-            return matches.sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
-        }
+        let matches = items.filter { item in (!narrowsList || filter.includes(item)) && ItemSearch.matches(item, query: query) }
+        return sort.ordered(matches, rank: sortRank)
+    }
+
+    /// The "Recently used" group at the top of the All list: only in the default order, never while searching, and only above a list
+    /// of more than five items (owner, 2026-11-24). Every one of its items is in `results` too, so the list below is complete.
+    private var recentGroup: [VaultItem] {
+        guard sort == .recentlyUsed, narrowsList, place == .all, !isRecentlyDeleted else { return [] }
+        return RecentlyUsed.visible(snapshot: recentIDs, in: results)
+    }
+
+    /// `list` once per item, in its order.
+    private func unique(_ list: [VaultItem]) -> [VaultItem] {
+        var seen = Set<VaultItem.ID>()
+        return list.filter { seen.insert($0.id).inserted }
     }
 
     private var usesStack: Bool {
@@ -360,22 +329,22 @@ struct VaultView: View {
     }
 
     var body: some View {
-        withSheets
-            .focusedSceneValue(\.newItem, { kind in editor = VaultItem(kind: kind) })
-            .focusedSceneValue(\.vaultPlace, placeBinding)
-            .focusedSceneValue(\.openSetup, { showsSetup = true })
+        withSceneValues
             #if os(macOS)
             // Edit, Delete (system item) and the Delete key act on the selected item while the list has focus. A text field
-            // that has focus handles both itself. ⌘⌫ is handled here too, since the system item shows no ⌘⌫ of its own.
+            // that has focus handles both itself. ⌘⌫ belongs to the labeled item under it, Move to Recently Deleted (`deleteCommand`).
             .onDeleteCommand { deleteSelectedAction?() }
-            .onKeyPress(.delete, phases: .down) { press in
-                guard press.modifiers.contains(.command), let action = deleteSelectedAction else { return .ignored }
-                action()
-                return .handled
-            }
             #endif
             // Another place starts with no search: the person asked for something else.
             .onChange(of: place) { search = "" }
+            // The list takes its order again when a sort is chosen, the filter or place changes or the search text changes (and when
+            // it next appears, see `itemResults`); in between it holds still.
+            .onChange(of: sortRaw) { resnapshotOrder() }
+            .onChange(of: filter) { resnapshotOrder() }
+            .onChange(of: showsDeleted) { resnapshotOrder() }
+            .onChange(of: place) { resnapshotOrder() }
+            .onChange(of: search) { resnapshotOrder() }
+            .onChange(of: inSearchTab) { resnapshotOrder() }
             .onChange(of: place) { hideSignal += 1 }
             .onChange(of: inSearchTab) { hideSignal += 1 }
             .onChange(of: selections) { hideSignal += 1 }
@@ -388,25 +357,39 @@ struct VaultView: View {
             }
     }
 
+    private var withSceneValues: some View {
+        withSheets
+            // Menu commands that would leave the page being edited are off until Save or Cancel.
+            .focusedSceneValue(\.newItem, isEditingInPlace ? nil : { kind in editor = VaultItem(kind: kind) })
+            .focusedSceneValue(\.vaultPlace, isEditingInPlace ? nil : placeBinding)
+            .focusedSceneValue(\.openSetup, isEditingInPlace ? nil : { showsSetup = true })
+            .focusedSceneValue(\.deleteSelection, deleteCommand)
+            .focusedSceneValue(\.itemSort, showsSort && !isEditingInPlace ? sortBinding : nil)
+            // Show and With describe the All list: off in Codes, Cards, Recently Deleted and search.
+            .focusedSceneValue(\.itemFilter, place == .all && !isRecentlyDeleted && narrowsList && !isEditingInPlace ? filterBinding : nil)
+    }
+
     /// Edit, Delete (⌘⌫) on Mac: moves the selected item to Recently Deleted (Undo follows), or asks before deleting one that is
     /// already in Recently Deleted for good. Off while the editor is open or the search field has focus (⌘⌫ edits its text there).
     private var deleteSelectedAction: (() -> Void)? {
-        guard !usesStack, editor == nil, !searchFocused, !sheetIsOpen,
+        guard !usesStack, editor == nil, !isEditingInPlace, !searchFocused, !sheetIsOpen,
               let id = regularVisibleItems.first(where: { $0.id == selection })?.id else { return nil }
         if items.contains(where: { $0.id == id }) { return { delete(id) } }
         if deletedEntries.contains(where: { $0.id == id }) { return { deletionRequest = .one(id) } }
         return nil
     }
 
+    /// The same for the Edit menu, with the words that say what happens: "Move to Recently Deleted" for an item of the vault,
+    /// "Delete Now…" for one that is already in Recently Deleted (it asks first).
+    private var deleteCommand: DeleteSelectionCommand? {
+        guard let action = deleteSelectedAction, let id = selection else { return nil }
+        return DeleteSelectionCommand(permanent: !items.contains(where: { $0.id == id }), run: action)
+    }
+
     private var withSheets: some View {
         base
-            .sheet(item: $editor, onDismiss: {
-                editorStartsWithCode = false
-                if editorItemRemoved { editorItemRemoved = false; showsEditorRemoved = true }
-            }) { item in
-                ItemEditor(item: item, onSave: save, onKeepDraft: keepDraft,
-                           onDelete: items.contains { $0.id == item.id } ? { delete(item.id) } : nil,
-                           startsWithCode: editorStartsWithCode)
+            .sheet(item: $editor) { item in
+                NewItemSheet(item: item, onSave: save, onKeepDraft: keepDraft)
                     .modifier(AlertSurfaceModifier(surface: .editor, owner: self))
             }
             .sheet(isPresented: $showsSetup, onDismiss: {
@@ -539,8 +522,9 @@ struct VaultView: View {
                 conflict = false; refusedWrite = nil; refusedFollowUp = nil; refusedSubject = nil
                 // The message says the change is discarded, so an editor holding it closes too. If the reloaded vault no longer has
                 // the item, the person is told it was removed.
-                reloadingEditedItem = editor?.id
+                reloadingEditedItem = editor?.id ?? editingID
                 editor = nil
+                editingID = nil
                 reloadFromDisk()
             }
             Button("Save My Change Anyway", role: .destructive) { conflict = false; overwrite() }
@@ -571,7 +555,7 @@ struct VaultView: View {
         case .conflict:
             Text("The vault file was changed by another app or device since Psss last read it. Reload shows that version and discards the change you just made. Save My Change Anyway writes the vault as Psss has it, with your change, over the file; the version it replaces is kept as a backup copy on this device.")
         case .editorRemoved:
-            Text("It was removed on another device or in another app, so the editor was closed. Changes you had not saved were not kept.")
+            Text("It was removed on another device or in another app, so editing stopped. Changes you had not saved were not kept.")
         case .storeProblem: Text(storeProblem ?? "")
         case .autoFillSettings: Text(AutoFillCopy(device: .current).settingsFailedMessage)
         case .importProblem: Text(importProblem ?? "")
@@ -598,7 +582,7 @@ struct VaultView: View {
                 VStack(spacing: 10) {
                     emptyChoice("Add a login", "plus", prominent: true) { editor = VaultItem(kind: .login) }
                     emptyChoice("Add a card", "creditcard") { editor = VaultItem(kind: .creditCard) }
-                    emptyChoice("Add a secure note", "note.text") { editor = VaultItem(kind: .secureNote) }
+                    emptyChoice("Add a note", "note.text") { editor = VaultItem(kind: .secureNote) }
                     emptyChoice("Import from Apple Passwords", "square.and.arrow.down") { importing = true }
                 }
                 // While the card shows, or AutoFill is on, the short line. Off with the card hidden, the line that says to turn it on.
@@ -651,14 +635,15 @@ struct VaultView: View {
     }
 
     /// Tapping the tab that is already showing returns to its list: out of an open item, and for All up to the very top, where the
-    /// title and the pills are.
+    /// title is.
     private var tabSelection: Binding<PhoneTab> {
         Binding(get: { inSearchTab ? .search : .place(place) }, set: { new in
             let current: PhoneTab = inSearchTab ? .search : .place(place)
             if new == current {
                 switch new {
                 case .place(.all):
-                    // One tap does both: closes an open login, then brings the list to its very top.
+                    // One tap does both: closes an open login, then brings the list to its very top. It also leaves Recently Deleted.
+                    showsDeleted = false
                     scrollAfterPop = !compactPath.isEmpty
                     compactPath = []
                     scrollToTop += 1
@@ -668,7 +653,7 @@ struct VaultView: View {
                 }
             }
             switch new {
-            case .place(let chosen): inSearchTab = false; place = chosen
+            case .place(let chosen): inSearchTab = false; place = chosen; if chosen != .all { showsDeleted = false }
             case .search: inSearchTab = true
             }
         })
@@ -680,8 +665,8 @@ struct VaultView: View {
             .onChange(of: scrollToTop) { _, _ in
                 // `scrollTo(edge: .top)` only moves the list to the top of its content under the bar as it is now: a bar that was
                 // collapsed (tab bar minimized, list scrolled) stays collapsed, because the large title expands only at the bar's
-                // own full inset. A new NavigationStack starts with a fresh bar: large title expanded, list at its resting top with
-                // the pills, tab bar not minimized. After a pop it waits for the bar to finish coming back.
+                // own full inset. A new NavigationStack starts with a fresh bar: large title expanded, list at its resting top,
+                // tab bar not minimized. After a pop it waits for the bar to finish coming back.
                 let afterPop = scrollAfterPop
                 Task { @MainActor in
                     if afterPop { try? await Task.sleep(for: .milliseconds(450)) } else { await Task.yield() }
@@ -692,16 +677,25 @@ struct VaultView: View {
 
     private var allStack: some View {
         NavigationStack(path: $compactPath) {
-            itemResults(results, pillsInList: true)
+            itemResults(results)
                 .navigationDestination(for: VaultItem.ID.self) { id in
                     detail(for: id)
                 }
                 .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
+                    ToolbarItem(placement: .topBarLeading) {
                         Button("Setup", systemImage: "gearshape") { showsSetup = true }
                             .labelStyle(.iconOnly)
                     }
+                    // Sort, Filter, then Add, as Apple's Passwords has Sort before Add. Filter stays in Recently Deleted: it is the
+                    // way back to All.
+                    if showsSort {
+                        ToolbarItem(placement: .topBarTrailing) { SortMenu(sort: sortBinding) }
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        FilterMenu(scope: .kinds, destination: destinationBinding, filter: filterBinding)
+                    }
                     if showsAddOrDeleteAll {
+                        // Sort and Filter share one capsule; Add (or Delete All…) stands in its own beside it (owner, 2026-11-24).
                         ToolbarSpacer(.fixed, placement: .topBarTrailing)
                         ToolbarItem(placement: .topBarTrailing) {
                             addOrDeleteAll
@@ -744,11 +738,11 @@ struct VaultView: View {
         }
     }
 
-    /// The search tab is the All screen with the TabView's field: the same list and pills, filtered in place as the person types. From Recent or
-    /// Most used it searches the whole vault; a type pill narrows it. A result with a code shows it live.
+    /// The search tab is the All screen with the TabView's field: the whole vault, filtered in place as the person types, in the
+    /// order the Sort menu chose. A result with a code shows it live.
     private var searchTab: some View {
         NavigationStack(path: $searchPath) {
-            itemResults(results, pillsInList: true)
+            itemResults(results)
                 .navigationDestination(for: VaultItem.ID.self) { id in
                     detail(for: id)
                 }
@@ -802,7 +796,8 @@ struct VaultView: View {
 
     /// Codes' empty state: the logins, which are where a code is added.
     private func showLogins() {
-        categorySelection.wrappedValue = .kind(.login)
+        filterBinding.wrappedValue = ItemFilter(show: .logins)
+        showsDeleted = false
         inSearchTab = false
         place = .all
         scrollAfterPop = false
@@ -818,11 +813,11 @@ struct VaultView: View {
         searchPath = []
     }
 
-    private func sidebarRow(_ scope: VaultCategory) -> some View {
-        NavigationLink(value: scope) {
-            Label(scope.title, systemImage: scope.symbol)
+    private func sidebarRow(_ row: VaultDestination) -> some View {
+        NavigationLink(value: row) {
+            Label(row.title, systemImage: row.symbol)
                 // Recently Deleted shows how many items wait in it, and nothing when it is empty.
-                .badge(scope == .recentlyDeleted ? deletedEntries.count : scope.listedCount(in: items))
+                .badge(row == .recentlyDeleted ? deletedEntries.count : items.count(where: row.includes))
         }
     }
 
@@ -830,8 +825,12 @@ struct VaultView: View {
     @ViewBuilder
     private func detail(for id: VaultItem.ID) -> some View {
         if let item = items.first(where: { $0.id == id }) {
-            ItemDetail(item: item, hideSignal: hideSignal, edit: { editor = item },
-                       setUpCode: { editorStartsWithCode = true; editor = item }, used: { markUsed(item.id) })
+            ItemDetail(item: item, hideSignal: hideSignal,
+                       vault: store.title, vaultLocation: session.reference.flatMap { $0.managed ? nil : $0.fileName },
+                       isEditing: Binding(get: { editingID == item.id }, set: { editingID = $0 ? item.id : nil }),
+                       save: saveEdited, keepDraft: keepDraft, mapFields: { mapping in
+                           try saveMapping(mapping, of: item.id)
+                       }, delete: { delete(item.id) }, used: { markUsed(item.id) })
                 .id(item.id)
         } else if let entry = deletedEntries.first(where: { $0.id == id }) {
             RecentlyDeletedDetail(entry: entry, hideSignal: hideSignal, restore: { restore(id) }, askDeleteNow: { deletionRequest = .one(id) })
@@ -851,24 +850,23 @@ struct VaultView: View {
         }
     }
 
-    /// What the list column shows at regular width, in the order it shows it: the place's own list, or the results of the whole vault
-    /// while a search is typed. Codes lists the recently copied first, then A to Z; Cards the live cards, then the expired ones.
+    /// What the list column shows at regular width, in the order it shows it, each item once: the place's own list, or the results of
+    /// the whole vault while a search is typed. A "Recently used" group comes first when there is one, so the first row is the first
+    /// of the group. Codes and Cards list the group, then every item A to Z (Cards: the expired ones last).
     private var regularVisibleItems: [VaultItem] {
-        if isSearching || place == .all { return results }
+        if isSearching || place == .all { return unique(recentGroup + results) }
         if place == .codes {
             let withCode = items.filter { $0.traits.contains(.code) }
-            let recent = CodeCopyLog.recent(among: Set(withCode.map(\.id)), limit: 3).compactMap { id in withCode.first { $0.id == id } }
-            let rest = withCode.filter { item in !recent.contains { $0.id == item.id } }
                 .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
-            return recent + rest
+            return unique(RecentlyUsed.visible(snapshot: nil, in: withCode) + withCode)
         }
         let cards = CardsOrder.ordered(items)
-        return cards.live + cards.expired
+        return unique(cards.recent + cards.live + cards.expired)
     }
 
     /// Mac and iPad: the detail pane is never empty while the list has a row. When nothing in the list is selected (a place or filter
     /// was opened, a search replaced the list, the selected item went away) the first row is selected. Choosing a row this way only
-    /// shows it: it is not a use, so Recent does not change, and focus stays where it is, so typing in the search field goes on.
+    /// shows it: it is not a use, so the order does not change, and focus stays where it is, so typing in the search field goes on.
     /// A selection the person made stays when its item is still listed.
     private func ensureSelection() {
         guard !usesStack else { return }
@@ -890,17 +888,18 @@ struct VaultView: View {
     /// in `VaultView`, like the chosen filter and each place's selected item.
     private var splitLayout: some View { allSplit }
 
-    /// The window toolbar: the All | Codes | Cards control in the middle, then Add and Setup. On Mac it is attached to the split view
-    /// itself, so it stays where it is when a row is selected or the columns change. iPadOS draws only the toolbars of the columns'
-    /// navigation bars (an outer one is dropped), so there it is attached to the detail column, which is always on screen, and
-    /// holds the control, Add and Setup beside the search field and the open item's Edit. The one search field is attached to the
-    /// split view, so typing on Codes or Cards swaps the list for results without losing the field.
+    /// The toolbar follows the columns, on Mac and iPad alike: Sort, Filter and Add are the list column's
+    /// (`listToolbar`), Edit and the one search field are the item column's, whether or not an item is open. The search field is
+    /// attached to the item column, so typing on Codes or Cards swaps the list for results without losing the field. The detail also
+    /// never stays empty while the list has a row (`ensureSelection`).
     private func regularChrome<Content: View>(_ content: Content) -> some View {
         content
             .navigationSplitViewStyle(.balanced)
             .onAppear { ensureSelection() }
             .onChange(of: place) { ensureSelection() }
             .onChange(of: regularVisibleItems.map(\.id)) { ensureSelection() }
+            // Any other way the selection is lost (a sidebar row that yields the same rows, a stored selection that is gone).
+            .onChange(of: selections) { ensureSelection() }
     }
 
     #if os(iOS)
@@ -908,10 +907,16 @@ struct VaultView: View {
         Button("Setup", systemImage: "gearshape") { showsSetup = true }
             .labelStyle(.iconOnly)
             .help("Setup")
+            .disabled(isEditingInPlace)
     }
     #endif
 
-    /// The list column's toolbar: the All | Codes | Cards control and a labeled Add (Delete All… in Recently Deleted).
+    /// The Filter button of the list column. With the sidebar visible it belongs to the All list only (Codes, Cards and Recently
+    /// Deleted have no Show or With). With the sidebar hidden it stays everywhere, since it is then the only way to change place.
+    private var showsRegularFilter: Bool { columns != .all || (place == .all && !isRecentlyDeleted) }
+
+    /// The list column's toolbar: Sort (where it applies), Filter and a labeled Add (Delete All… in Recently Deleted). The sidebar is
+    /// the one control that chooses a place, so there is no All | Codes | Cards control here.
     @ToolbarContentBuilder
     private var listToolbar: some ToolbarContent {
         #if os(iOS)
@@ -920,16 +925,24 @@ struct VaultView: View {
             ToolbarItem(placement: .topBarLeading) { setupButton }
         }
         #endif
-        ToolbarItem(placement: .principal) {
-            Picker("Place", selection: placeBinding) {
-                ForEach(VaultPlace.allCases) { Text($0.title).tag($0) }
+        // Sort applies to All, its filters and search results only.
+        if showsSort {
+            ToolbarItem(placement: .primaryAction) { SortMenu(sort: sortBinding).disabled(isEditingInPlace) }
+        }
+        if showsRegularFilter {
+            ToolbarItem(placement: .primaryAction) {
+                FilterMenu(scope: columns == .all ? .withOnly : .everyPlace, destination: destinationBinding, filter: filterBinding)
+                    // Typing searches the whole vault, so Show and With have nothing to do until the field is cleared.
+                    .disabled(isEditingInPlace || isSearching)
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .help("Choose All, Codes or Cards (⌘1, ⌘2, ⌘3)")
         }
         if showsAddOrDeleteAll {
-            ToolbarItem(placement: .primaryAction) { addOrDeleteAll }
+            #if os(iOS)
+            // Sort and Filter share one capsule; Add (or Delete All…) stands in its own beside it (owner, 2026-11-24). The Mac draws
+            // it that way by itself.
+            ToolbarSpacer(.fixed, placement: .primaryAction)
+            #endif
+            ToolbarItem(placement: .primaryAction) { addOrDeleteAll.disabled(isEditingInPlace) }
         }
     }
 
@@ -948,24 +961,30 @@ struct VaultView: View {
         }
         // On Mac and iPad the capsule sits at the bottom of the detail column.
         .undoBanner(undoBanner)
+        #if os(macOS)
+        // All column toolbars share the one window toolbar, and Mac only starts the item column's section at its own toolbar content:
+        // with none (no item open: no rows, or an empty vault) the list column's control and Add are laid out in the item column,
+        // beside the search field (confirmed by running it). A flexible spacer is that content, invisible. With an item open its Edit is.
+        .toolbar {
+            if visible.first(where: { $0.id == selection }) == nil { ToolbarSpacer(.flexible, placement: .primaryAction) }
+        }
+        #endif
         // The item column's toolbar is the open item's labeled Edit (it has its own, hidden when nothing is open) and the one
         // search field, "Search all items", which searches the whole vault from any place and swaps the list for results.
-        .modifier(ListSearch(enabled: true, text: $search, focus: $searchFocused))
+        .modifier(ListSearch(enabled: true, disabled: isEditingInPlace, text: $search, focus: $searchFocused))
         .onSubmit(of: .search) { openTopResult() }
     }
 
     private var allSplit: some View {
         regularChrome(
             NavigationSplitView(columnVisibility: $columns, preferredCompactColumn: $compactColumn) {
-                List(selection: sidebarSelection) {
+                List(selection: destinationBinding) {
                     Section(store.title) {
-                        ForEach(VaultCategory.choices, id: \.self, content: sidebarRow)
-                    }
-                    Section("Filters") {
-                        ForEach(VaultCategory.traitChoices, id: \.self, content: sidebarRow)
+                        ForEach(VaultDestination.sidebar, id: \.self, content: sidebarRow)
                     }
                 }
                 .listStyle(.sidebar)
+                .modifier(DimsWhileEditing(editing: isEditingInPlace))
                 .navigationTitle("Vault")
                 // Wide enough that "Recently Deleted" and its count stay on one line at the default text size on iPad (180 to 220 pt
                 // wrapped them), and the same on Mac.
@@ -981,13 +1000,14 @@ struct VaultView: View {
             } content: {
                 Group {
                     if isSearching || place == .all {
-                        itemResults(regularVisibleItems)
+                        itemResults(results)
                     } else if place == .codes {
                         codesView
                     } else {
                         cardsView
                     }
                 }
+                .modifier(DimsWhileEditing(editing: isEditingInPlace))
                 // Wide enough for the names, with the code button or the card's summary beside them.
                 .navigationSplitViewColumnWidth(min: 340, ideal: 400, max: 560)
                 .toolbar { listToolbar }
@@ -1082,7 +1102,7 @@ struct VaultView: View {
                 } message: {
                     Text(resetMessage)
                 }
-                .navigationTitle("Vault setup")
+                .navigationTitle("Setup")
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Done") { showsSetup = false }
@@ -1126,25 +1146,42 @@ struct VaultView: View {
         }
     }
 
+    /// The title of the list and the line under it: what else is in force (owner, 2026-11-24). `phoneLine(count:)` is iPhone's line
+    /// under the title: the title there is the name alone, so it is never cut, and the line always carries the count.
+    private var heading: (title: String, detail: String?) {
+        if isSearching { return (String(localized: "Results"), nil) }
+        if isRecentlyDeleted { return (VaultDestination.recentlyDeleted.title, nil) }
+        // The iPhone search tab lists the whole vault, whatever Show and With say.
+        if inSearchTab { return (ItemShow.all.title, nil) }
+        return (filter.show.title, filter.secondLine(sort: sort))
+    }
+
+    private func phoneLine(count: Int) -> String {
+        if isSearching || isRecentlyDeleted || inSearchTab { return RecentlyDeletedText.itemCount(count) }
+        return filter.countLine(count: count, sort: sort)
+    }
+
+    /// A row that opens its item: a link that pushes on iPhone, a row the list selects on Mac and iPad. The tag names the section too,
+    /// so an item in "Recently used" and in the complete list below it is selected once.
+    @ViewBuilder
+    private func link<Content: View>(_ id: VaultItem.ID, _ section: SectionedRowID.Section, @ViewBuilder _ content: () -> Content) -> some View {
+        if usesStack {
+            NavigationLink(value: id) { content() }
+        } else {
+            content().tag(SectionedRowID(section: section, id: id))
+        }
+    }
+
     /// The rows of the list: live items, or what waits in Recently Deleted, followed by the one sentence about other KeePass apps.
     @ViewBuilder
-    private func listRows(_ results: [VaultItem], pillsInList: Bool = false) -> some View {
-        // On iPhone the pills are the top of the list, under the large title: they scroll away with it and return at the top.
+    private func listRows(_ results: [VaultItem]) -> some View {
         if !usesStack {
             // Mac and iPad: the list's title and count are its first line (the bar carries the controls).
             // While a search is active the list shows results from the whole vault, whatever place is selected.
-            ListTitleLine(title: isSearching ? "Results" : (showsAllList ? shownCategory.title : place.title),
-                          count: RecentlyDeletedText.itemCount(results.count))
-        }
-        if pillsInList {
-            pills
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { pillsHeight = $0 }
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
+            ListTitleLine(title: heading.title, count: RecentlyDeletedText.itemCount(results.count), detail: heading.detail)
         }
         if isRecentlyDeleted {
-            ForEach(deletedResults) { deletedRow($0) }
+            ForEach(deletedResults) { deletedRow($0, first: $0.id == deletedResults.first?.id, last: $0.id == deletedResults.last?.id) }
             if !deletedResults.isEmpty {
                 RecentlyDeletedFooter()
                     .listRowSeparator(.hidden)
@@ -1155,7 +1192,13 @@ struct VaultView: View {
             }
         } else {
             autoFillRow(results)
-            ForEach(results) { row($0) }
+            let group = recentGroup
+            if group.isEmpty {
+                ForEach(results) { row($0, section: .all, in: results) }
+            } else {
+                Section { ForEach(group) { row($0, section: .recent, in: group) } } header: { Text("Recently used") }
+                Section { ForEach(results) { row($0, section: .all, in: results) } } header: { Text(verbatim: filter.show.allHeading) }
+            }
         }
     }
 
@@ -1180,6 +1223,18 @@ struct VaultView: View {
     }
 
 
+    /// What a combination of Show and With that matches nothing says, in words, with the one way forward.
+    private var filterEmpty: some View {
+        ContentUnavailableView {
+            Label(filter.emptySentence, systemImage: "line.3.horizontal.decrease.circle")
+        } description: {
+            Text("Items must match everything chosen in Filter. Nothing was removed from your vault.")
+        } actions: {
+            Button("Show All Items") { filterBinding.wrappedValue = ItemFilter() }
+                .buttonStyle(.borderedProminent)
+        }
+    }
+
     /// Return in the search field opens the top result.
     private func openTopResult() {
         guard let first = results.first else { return }
@@ -1192,16 +1247,18 @@ struct VaultView: View {
     }
 
     /// The All list. The search field is not here: the TabView owns it on iPhone and the split view on Mac and iPad.
-    private func itemResults(_ results: [VaultItem], pillsInList: Bool = false) -> some View {
+    private func itemResults(_ results: [VaultItem]) -> some View {
         Group {
             if usesStack {
                 // A stack pushes through its links, so the list must not also track a selection.
-                List { listRows(results, pillsInList: pillsInList) }
+                List { listRows(results) }
             } else {
-                List(selection: selectionBinding) { listRows(results) }
+                List(selection: allRowSelection) { listRows(results) }
             }
         }
-        // A new identity is a new list, which starts at its resting top: large title expanded, pills visible. Scrolling to the
+        // The list next appears (also coming back from an open item on iPhone): the order is taken again.
+        .onAppear { resnapshotOrder() }
+        // A new identity is a new list, which starts at its resting top: large title expanded. Scrolling to the
         // first row would only align that row under the collapsed bar, and the large title would stay collapsed.
         .id(listIdentity)
         .scrollPosition($listScroll)
@@ -1226,11 +1283,13 @@ struct VaultView: View {
                     if isSearching {
                         ContentUnavailableView.search(text: search)
                     } else {
-                        RecentlyDeletedEmpty { categorySelection.wrappedValue = .allItems }
+                        RecentlyDeletedEmpty { destinationBinding.wrappedValue = .all }
                     }
                 } else if search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     if items.isEmpty {
                         emptyVault
+                    } else if narrowsList, filter.isNarrowing {
+                        filterEmpty
                     } else {
                         ContentUnavailableView("No items", systemImage: "tray")
                     }
@@ -1239,8 +1298,6 @@ struct VaultView: View {
                 }
             }
             }
-        // Under the pills, which are the first row of the list on iPhone: the empty state must not cover or catch their taps.
-        .padding(.top, pillsInList ? pillsHeight : 0)
         }
         .overlay(alignment: .bottom) { AutoFillLaterNotice() }
         #if os(iOS)
@@ -1268,71 +1325,17 @@ struct VaultView: View {
             }
         }
         // In Codes or Cards a search keeps that place's title: the title and the bar do not change while typing.
-        .navigationTitle(showsAllList ? shownCategory.title : place.title)
+        // On iPhone the title is the name alone ("Custom items") and the navigation subtitle under it carries the count and what
+        // is in force ("30 items, with notes"), so neither is cut. On Mac and iPad the list shows both itself (`ListTitleLine`) and
+        // the bar carries none.
+        .navigationTitle(Text(verbatim: heading.title))
+        #if os(iOS)
+        .navigationSubtitle(usesStack ? phoneLine(count: results.count) : "")
+        #endif
         .columnTitleInList(!usesStack)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            // The sidebar already filters on Mac and iPad. With it hidden, pills fill in. iPhone has them in the list itself.
-            // Codes and Cards have no filters, so a search there shows none.
-            if !usesStack && columns != .all && place == .all { pills }
-        }
         #if os(iOS)
         .sensoryFeedback(.success, trigger: codeCopy.count)
         #endif
-    }
-
-    /// Filters are always on screen as pills, one tap each. Usage pills lead.
-    /// The row fades out at its trailing edge to show that it scrolls.
-    private var pills: some View {
-        HStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(VaultCategory.everyChoice, id: \.self) { scope in
-                        pill(scope)
-                    }
-                }
-                .padding(.leading)
-                .padding(.trailing, 12)
-                .padding(.vertical, 8)
-            }
-            .scrollClipDisabled()
-            .mask(fadeMask)
-        }
-    }
-
-    private var fadeMask: some View {
-        HStack(spacing: 0) {
-            Color.black
-            #if os(iOS)
-            LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
-                .frame(width: 24)
-            #endif
-        }
-    }
-
-    @ViewBuilder
-    private func pill(_ scope: VaultCategory) -> some View {
-        let selected = shownCategory == scope
-        let button = Button {
-            categorySelection.wrappedValue = scope
-        } label: {
-            if scope.isUsageView {
-                // A tight HStack: Label's default icon spacing is too wide inside a capsule.
-                HStack(spacing: 4) {
-                    Image(systemName: scope.symbol)
-                    Text(scope.shortTitle)
-                }
-            } else {
-                Text(scope.shortTitle)
-            }
-        }
-        .buttonBorderShape(.capsule)
-        .controlSize(.regular)
-        .accessibilityAddTraits(selected ? .isSelected : [])
-        if selected {
-            button.buttonStyle(.borderedProminent)
-        } else {
-            button.buttonStyle(.bordered)
-        }
     }
 
     /// The most common action stays visible and labeled. The type choice appears only after tapping it.
@@ -1359,8 +1362,8 @@ struct VaultView: View {
     }
 
     /// A row of Recently Deleted. Restore is also a shortcut here (swipe, right-click), never the only way: the detail has the button.
-    private func deletedRow(_ entry: DeletedItem) -> some View {
-        NavigationLink(value: entry.id) {
+    private func deletedRow(_ entry: DeletedItem, first: Bool, last: Bool) -> some View {
+        link(entry.id, .all) {
             DeletedRow(entry: entry)
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -1370,25 +1373,34 @@ struct VaultView: View {
         .contextMenu {
             Button("Restore") { restore(entry.id) }
         }
-        .itemRowInsets()
+        .itemRowInsets(first: first, last: last)
     }
 
-    /// A row of the All list, and of search results: the shared row, with the account (or the kind) as its second line. A result
-    /// with a code shows the live code as its accessory: tap it to copy, tap the rest to open.
+    /// A row of the All list, and of search results: the shared row, with the account (or the kind) as its second line, and what a
+    /// login has as glyphs at the trailing end. A card is drawn as in Cards. A result with a code shows the live code as its
+    /// accessory, in place of the code glyph: tap it to copy, tap the rest to open. `group` is the section the row stands in, for
+    /// the line between rows (none above its first row or below its last).
     @ViewBuilder
-    private func row(_ item: VaultItem) -> some View {
-        let subtitle = item.account.isEmpty ? Text(item.kind.label) : Text(verbatim: item.account)
-        if isSearching, item.makesCode {
-            ItemListRow(item: item, subtitle: subtitle, showsTraits: true, open: { openItem(item.id) }) {
-                CodeCopyButton(item: item, state: codeCopy, used: { markUsed(item.id) })
-            }
-            .tag(item.id)
-            .itemRowInsets()
+    private func row(_ item: VaultItem, section: SectionedRowID.Section, in group: [VaultItem]) -> some View {
+        let (first, last) = (group.first?.id == item.id, group.last?.id == item.id)
+        if item.kind == .creditCard {
+            link(item.id, section) { CardListRow(card: item) }
+                .itemRowInsets(first: first, last: last)
         } else {
-            NavigationLink(value: item.id) {
-                ItemListRow(item: item, subtitle: subtitle, showsTraits: true)
+            let subtitle = item.visibleAccount.isEmpty ? Text(item.kind.label) : Text(verbatim: item.visibleAccount)
+            if isSearching, item.makesCode {
+                ItemListRow(item: item, subtitle: subtitle, glyphs: item.traits.filter { $0 == .passkey },
+                            glyphColumns: [.passkey], open: { openItem(item.id) }) {
+                    CodeCopyButton(item: item, state: codeCopy, used: { markUsed(item.id) })
+                }
+                .tag(SectionedRowID(section: section, id: item.id))
+                .itemRowInsets(first: first, last: last)
+            } else {
+                link(item.id, section) {
+                    ItemListRow(item: item, subtitle: subtitle, glyphs: item.traits.filter(ItemTrait.glyphColumns.contains))
+                }
+                .itemRowInsets(first: first, last: last)
             }
-            .itemRowInsets()
         }
     }
 
@@ -1472,8 +1484,14 @@ struct VaultView: View {
         // A removed item that is open in detail just leaves the list (above). An open editor holds a draft, so say it is lost.
         if let open = editor, gone(open.id) {
             dropRefusedWrite()
-            editorItemRemoved = true
+            showsEditorRemoved = true
             editor = nil
+        }
+        // The same for a page being edited in place: it has just left the list, so the draft has nowhere to go.
+        if let open = editingID, gone(open) {
+            dropRefusedWrite()
+            showsEditorRemoved = true
+            editingID = nil
         }
         // Reload Vault closed the editor of an item the reloaded vault no longer has.
         if let edited = reloadingEditedItem {
@@ -1512,8 +1530,8 @@ struct VaultView: View {
         })
     }
 
-    /// Delete Item: moves the item to Recently Deleted with no question, then offers Undo for ten seconds (the capsule, and Edit,
-    /// Undo Delete Item). The system stops offering the item to AutoFill at once, because the identities are sent again without it.
+    /// Move to Recently Deleted: moves the item with no question, then offers Undo for ten seconds (the capsule, and Edit,
+    /// Undo Move to Recently Deleted). The system stops offering the item to AutoFill at once, because the identities are sent again without it.
     private func delete(_ id: VaultItem.ID) {
         guard let item = items.first(where: { $0.id == id }) else { return }
         let before = regularVisibleItems.map(\.id)
@@ -1525,6 +1543,7 @@ struct VaultView: View {
             selectNeighbor(of: id, in: before)
             closeOpenLogins()
             editor = nil
+            editingID = nil
             offerUndo(of: item)
         })
     }
@@ -1532,7 +1551,7 @@ struct VaultView: View {
     private func offerUndo(of item: VaultItem) {
         let undo = { restore(item.id, afterUndo: true) }
         undoBanner.show(message: RecentlyDeletedText.movedMessage(title: item.displayTitle), undo: { undoToken.clear(in: undoManager); undo() })
-        undoToken.register(in: undoManager, name: String(localized: "Delete Item")) {
+        undoToken.register(in: undoManager, name: RecentlyDeletedText.moveButton) {
             undoBanner.dismiss()
             undo()
         }
@@ -1546,8 +1565,11 @@ struct VaultView: View {
         attempt({ try store.restore(id) }, subject: id, then: {
             refresh()
             registerIdentities()
-            // Undo must not close the item the person is looking at; a plain Restore leaves the list.
-            if !afterUndo {
+            // Undo must not close the item the person is looking at, and on Mac and iPad the item that came back is the selected
+            // one again, when the list on screen has it. A plain Restore leaves the list.
+            if afterUndo {
+                if !usesStack, regularVisibleItems.contains(where: { $0.id == id }) { selection = id }
+            } else {
                 selections = [:]
                 selectNeighbor(of: id, in: before)
                 closeOpenLogins()
@@ -1583,24 +1605,52 @@ struct VaultView: View {
         })
     }
 
-    /// Stores an item as it is while its editor stays open.
+    /// Stores an item as it is while its editor (the sheet, or the page in edit mode) stays open.
     private func keepDraft(_ item: VaultItem) {
         attempt({ try store.save([item]) }, then: { showSaved(item) })
     }
 
+    /// Save on an item's own page: stays on the item, back in view mode with the saved values. A refused save leaves edit mode open
+    /// with the person's text (the conflict alert follows, as for every write).
+    private func saveEdited(_ item: VaultItem) {
+        attempt({ try store.save([item]) }, subject: item.id, then: {
+            refresh()
+            registerIdentities()
+            editingID = nil
+        })
+    }
+
+    private func saveMapping(_ mapping: ItemFieldMapping, of id: VaultItem.ID) throws {
+        guard let vault = store as? KeePassVaultStore else { throw VaultStoreError.itemUnavailable }
+        try vault.mapFields(mapping, of: id)
+        refresh()
+        registerIdentities()
+        editingID = nil
+        if let item = items.first(where: { $0.id == id }), place == .all, !inSearchTab {
+            let wider = filter.revealing(item)
+            if wider != filter { filterBinding.wrappedValue = wider }
+        }
+    }
+
+    /// Save of a new item from its sheet.
     private func save(_ item: VaultItem) {
         // A refused save leaves the editor open with the person's text, and the list as the file holds it.
         attempt({ try store.save([item]) }, then: {
             showSaved(item)
             search = ""
-            // Show the saved item where it is listed: a card in Cards, a code in Codes, anything else in All (under its kind
-            // when the chosen filter would hide it).
+            // Show the saved item where it is listed: a card in Cards, a code in Codes, anything else in All (with Show and With
+            // widened when they would hide it).
             inSearchTab = false
             if item.kind == .creditCard {
                 place = .cards
             } else {
                 if place == .cards || (place == .codes && !item.traits.contains(.code)) { place = .all }
-                if place == .all, !activeCategory.includes(item) { category = .kind(item.kind) }
+                // Show the saved item: the filter is widened as little as it takes (its kind, then no With), and never Recently Deleted.
+                if place == .all {
+                    showsDeleted = false
+                    let wider = filter.revealing(item)
+                    if wider != filter { filterBinding.wrappedValue = wider }
+                }
             }
             selection = item.id
             compactColumn = .detail
@@ -1712,107 +1762,123 @@ struct ItemIcon: View {
     }
 }
 
+/// A toolbar text button a little wider than the others (owner, 2026-11-24), by padding inside the label, so it still grows with the
+/// text size and other languages. Edit uses it as it is; Save, the one accent-filled button (it commits), adds the prominent glass
+/// style. Cancel stays a plain button.
+private struct WideToolbarButton: View {
+    let title: LocalizedStringKey
+    var prominent = false
+    let action: () -> Void
+
+    var body: some View {
+        let button = Button(action: action) { Text(title).padding(.horizontal, 6) }
+        if prominent { button.buttonStyle(.glassProminent) } else { button }
+    }
+}
+
 private struct ItemDetail: View {
     let item: VaultItem
     let hideSignal: Int
-    let edit: () -> Void
-    /// Opens the editor straight at the verification code step: the "Set Up Code…" row of a login that has none.
-    let setUpCode: () -> Void
+    let vault: String
+    let vaultLocation: String?
+    /// Edit turns this page into the editor in place (owner, 2026-11-24). The vault screen owns the flag, because it dims and
+    /// disables the rest of the window while it is set; the draft belongs to the page.
+    @Binding var isEditing: Bool
+    /// Stores the edited item. A refused save leaves `isEditing` set, so the person's text stays.
+    let save: (VaultItem) -> Void
+    /// Stores the draft while editing goes on, so a code survives leaving the app to type it into the site.
+    let keepDraft: (VaultItem) -> Void
+    let mapFields: (ItemFieldMapping) throws -> Void
+    let delete: () -> Void
     let used: () -> Void
+    @State private var draft: VaultItem
+    @State private var addingCode = false
+    @State private var confirmsDiscard = false
     @State private var revealed: Set<FieldID> = []
     /// The field whose copy icon is a checkmark, for about a second and a half.
     @State private var copied: FieldID?
     @State private var pill = CopiedPillModel()
     @State private var showsQR = false
+    @State private var showsFieldMapping = false
 
-    private enum FieldID: Hashable { case website, account, expiry, securityCode, secret, code, notes, totpSecret, totpLink }
-
-    private var secretLabel: LocalizedStringResource {
-        switch item.kind {
-        case .login: "Password"
-        case .creditCard: "Card number"
-        case .keePassEntry: "Value"
-        case .secureNote: "Secret"
-        }
+    init(item: VaultItem, hideSignal: Int, vault: String, vaultLocation: String?,
+         isEditing: Binding<Bool>, save: @escaping (VaultItem) -> Void,
+         keepDraft: @escaping (VaultItem) -> Void, mapFields: @escaping (ItemFieldMapping) throws -> Void,
+         delete: @escaping () -> Void, used: @escaping () -> Void) {
+        self.item = item
+        self.hideSignal = hideSignal
+        self.vault = vault
+        self.vaultLocation = vaultLocation
+        _isEditing = isEditing
+        self.save = save
+        self.keepDraft = keepDraft
+        self.mapFields = mapFields
+        self.delete = delete
+        self.used = used
+        _draft = State(initialValue: item)
     }
 
-    private var accountLabel: LocalizedStringResource { item.kind == .creditCard ? "Name on card" : "Username" }
+    private enum FieldID: Hashable { case value(ItemField), code, totpSecret, totpLink }
+
+    /// The groups of the page, each its own card, in this order (owner, 2026-11-24): what you copy to sign in or pay (website,
+    /// username, password; a card's number, expiry, security code and name); a login's verification code; the notes (a note's text);
+    /// the passkey. A group with nothing in it has no card. Edit mode has the same groups in the same order (`ItemFields`).
+    private enum Card: Int { case values, code, notes, passkey, otherFields }
+
+    private var groupsShown: [Card] {
+        var shown: [Card] = []
+        if !item.filledFirstCardFields.isEmpty { shown.append(.values) }
+        if item.kind == .login { shown.append(.code) }
+        if !item.notes.isEmpty { shown.append(.notes) }
+        if item.passkey != nil { shown.append(.passkey) }
+        if item.otherFields?.isEmpty == false { shown.append(.otherFields) }
+        return shown
+    }
+
+    private var canSave: Bool { draft.canSave }
+
+    private var canMap: Bool {
+        item.fieldMappingNeedsReview == true || item.fieldMapping != nil || item.sourceFields?.contains(where: { !$0.value.isEmpty }) == true
+    }
+
+    private var mappingLabel: LocalizedStringResource {
+        item.fieldMappingNeedsReview == true ? "Review field mapping…" : "Map fields…"
+    }
+
+    private func beginFieldMapping() {
+        revealed = []
+        showsFieldMapping = true
+    }
+
+    private var editFields: ItemFields {
+        let mappingAction: (() -> Void)? = canMap ? { beginFieldMapping() } : nil
+        return ItemFields(item: $draft, addingCode: $addingCode, mapFieldsLabel: mappingLabel,
+                          onMapFields: mappingAction, canMapFields: !draft.hasChanges(from: item), onDelete: delete)
+    }
 
     var body: some View {
-        page.modifier(HidesRevealedValues(signal: hideSignal) { revealed = [] })
+        page
+            .modifier(HidesRevealedValues(signal: hideSignal) { revealed = [] })
+            // Starting and ending edit mode hides what was shown, as leaving the item does.
+            .onChange(of: isEditing) { revealed = [] }
+            .onChange(of: showsFieldMapping) { revealed = [] }
     }
 
     private var page: some View {
         Form {
-            Section {
-                if !item.account.isEmpty {
-                    field(.account, accountLabel, item.account)
-                }
-                if !item.secret.isEmpty {
-                    field(.secret, secretLabel, item.secret, hidden: true)
-                }
-                // In the order the fields are used: username, password, then the code, all in one card.
-                if item.kind == .login { if item.otpSecret.isEmpty { noCodeRow } else if !item.makesCode { brokenCodeRow } else { codeRow } }
-                if !item.expiry.isEmpty { field(.expiry, "Expiry", CardExpiry.displayed(item.expiry)) }
-                if !item.securityCode.isEmpty { field(.securityCode, "Security code", item.securityCode, hidden: true) }
-                if !item.website.isEmpty { field(.website, "Website", item.website) }
-                if !item.notes.isEmpty {
-                    field(.notes, "Notes", item.notes)
-                }
-            } header: {
-                // Every platform leads with the icon and name, as Apple Passwords does.
-                VStack(spacing: 8) {
-                    ItemIcon(item: item, size: 64)
-                    Text(item.displayTitle)
-                        .font(.title.weight(.semibold))
-                        .foregroundStyle(Color.primary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
-                }
-                .frame(maxWidth: .infinity)
-                .textCase(nil)
-                .padding(.vertical, 8)
-            } footer: {
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text("Copied values leave the clipboard after 60 seconds.")
-                    InfoButton(topic: HelpTopics.clipboard)
-                }
-            }
-            if let url = item.totpSetupURL {
-                Section {
-                    field(.totpSecret, "Setup key", item.otpSecret, hidden: true)
-                    Button("Copy setup link", systemImage: "link") { copy(url, as: .totpLink, name: String(localized: "Setup link")) }
-                    Button("Show QR code", systemImage: "qrcode") { showsQR = true }
-                } header: {
-                    HStack(spacing: 4) {
-                        Text("Verification code setup")
-                        InfoButton(topic: HelpTopics.codeSetup)
-                    }
-                } footer: {
-                    Text("To move this verification code to another authenticator, use the setup key, the link or the QR code. Anyone who has one of them can make your codes, so treat them like a password.")
-                }
-            }
-            if let passkey = item.passkey {
-                Section {
-                    Label {
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 4) {
-                                Text("Passkey").foregroundStyle(.secondary)
-                                InfoButton(topic: HelpTopics.passkeys)
-                            }
-                            Text("Saved \(passkey.created.formatted(date: .abbreviated, time: .omitted)) for \(passkey.rpID)")
-                        }
-                    } icon: {
-                        Image(systemName: "person.badge.key")
-                    }
-                } footer: {
-                    Text("Sign in on \(passkey.rpID) with this passkey. It never leaves your vault.")
-                }
+            if isEditing {
+                editFields
+            } else {
+                viewGroups
             }
         }
         .formStyle(.grouped)
+        .codeSheet(item: $draft, adding: $addingCode, keepDraft: keepDraft)
         .sheet(isPresented: $showsQR) {
             if let url = item.totpSetupURL { TOTPQRSheet(url: url, title: item.displayTitle) }
+        }
+        .sheet(isPresented: $showsFieldMapping) {
+            ItemFieldMappingView(item: item, vault: vault, location: vaultLocation, hideSignal: hideSignal, save: mapFields)
         }
         #if os(macOS)
         .navigationTitle(item.displayTitle)
@@ -1820,25 +1886,162 @@ private struct ItemDetail: View {
         // The header already carries the name, so the bar stays quiet instead of repeating it.
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        // While editing, Cancel stands where Back was (hiding Back also turns off swipe-back) and the tab bar is hidden, so a
+        // half-edited item cannot be left by accident.
+        .navigationBarBackButtonHidden(isEditing)
+        .toolbarVisibility(isEditing ? .hidden : .automatic, for: .tabBar)
         #endif
-        // A labeled Edit in the toolbar of the detail column, as in Passwords (Mac) and Contacts (iOS).
-        .toolbar {
-            // Text, not a Label: iOS toolbars would reduce a Label to an icon-only circle. Only an open item has it.
-            Button(action: edit) { Text("Edit") }
-                .keyboardShortcut("e", modifiers: .command)
+        .toolbar { toolbar }
+        #if os(macOS)
+        // Return saves, too, from a single-line field. Out of sight and out of the toolbar, so it takes no place there.
+        .background {
+            if isEditing {
+                Button("Save", action: commit).keyboardShortcut(.defaultAction).disabled(!canSave)
+                    .frame(width: 0, height: 0).opacity(0).accessibilityHidden(true)
+            }
         }
+        #endif
         .copiedPill(pill)
+        .modifier(DiscardChanges(isPresented: $confirmsDiscard) { isEditing = false })
+    }
+
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
+        if isEditing {
+            #if os(iOS)
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                WideToolbarButton(title: "Save", prominent: true, action: commit).keyboardShortcut("s", modifiers: .command).disabled(!canSave)
+            }
+            #else
+            // Where Edit was, in the item column's toolbar. Escape cancels, ⌘S saves (Return too, see `page`).
+            ToolbarItemGroup {
+                Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
+                WideToolbarButton(title: "Save", prominent: true, action: commit).keyboardShortcut("s", modifiers: .command).disabled(!canSave)
+            }
+            #endif
+        } else {
+            // Text, not a Label: iOS toolbars would reduce a Label to an icon-only circle. Only an open item has it.
+            ToolbarItem {
+                WideToolbarButton(title: "Edit") { beginEditing() }
+                    .keyboardShortcut("e", modifiers: .command)
+            }
+        }
+    }
+
+    private func beginEditing(atCode: Bool = false) {
+        draft = item
+        revealed = []
+        isEditing = true
+        if atCode { addingCode = true }
+    }
+
+    /// Cancel with something changed asks first; with nothing changed it just leaves edit mode.
+    private func cancel() {
+        if draft.hasChanges(from: item) { confirmsDiscard = true } else { isEditing = false }
+    }
+
+    private func commit() { if canSave { save(draft.savedForm) } }
+
+    // MARK: View mode
+
+    /// The `Section` header: the icon and name above whichever card is first, then that card's own heading if it has one.
+    @ViewBuilder
+    private func header(for group: Card, heading: (() -> AnyView)? = nil) -> some View {
+        let leads = groupsShown.first == group
+        if leads || heading != nil {
+            VStack(alignment: .leading, spacing: 0) {
+                if leads { ItemIdentity(item: item) }
+                if let heading { heading() }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var viewGroups: some View {
+        if groupsShown.isEmpty {
+            Section {} header: { ItemIdentity(item: item) }
+        }
+        if groupsShown.contains(.values) {
+            Section {
+                ForEach(item.filledFirstCardFields, id: \.self) { field($0) }
+            } header: {
+                header(for: .values)
+            } footer: {
+                // Directly under the first card.
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text("Copied values leave the clipboard after 60 seconds.")
+                    InfoButton(topic: HelpTopics.clipboard)
+                }
+            }
+        }
+        if item.kind == .login {
+            Section {
+                if item.otpSecret.isEmpty { noCodeRow } else if !item.makesCode { brokenCodeRow } else { codeRow }
+                if !item.otpSecret.isEmpty {
+                    row(.totpSecret, "Setup key", item.otpSecret, hidden: true)
+                }
+                if let url = item.totpSetupURL {
+                    Button("Copy setup link", systemImage: "link") { copy(url, as: .totpLink, name: String(localized: "Setup link")) }
+                    Button("Show QR code", systemImage: "qrcode") { showsQR = true }
+                }
+            } header: {
+                header(for: .code) {
+                    AnyView(HStack(spacing: 4) {
+                        Text("Verification code")
+                        InfoButton(topic: HelpTopics.codeSetup)
+                    })
+                }
+            } footer: {
+                if !item.otpSecret.isEmpty {
+                    Text("To move this verification code to another authenticator, use the setup key, the link or the QR code. Anyone who has one of them can make your codes, so treat them like a password.")
+                }
+            }
+        }
+        if groupsShown.contains(.notes) {
+            Section {
+                field(.notes)
+            } header: {
+                header(for: .notes)
+            }
+        }
+        if let passkey = item.passkey {
+            Section {
+                PasskeyCard.row(passkey)
+            } header: {
+                header(for: .passkey) { AnyView(PasskeyCard.heading) }
+            } footer: {
+                PasskeyCard.footer(passkey)
+            }
+        }
+        if let fields = item.otherFields, !fields.isEmpty {
+            Section {
+                OtherStoredFields(fields: fields, hideSignal: hideSignal &* 2 &+ (showsFieldMapping ? 1 : 0), pill: pill, used: used)
+            } header: {
+                header(for: .otherFields) { AnyView(Text("Other fields").font(.body)) }
+            }
+        }
+        if canMap && (item.kind == .keePassEntry || item.otherFields?.isEmpty == false || item.fieldMappingNeedsReview == true) {
+            Section {
+                if item.fieldMappingNeedsReview == true {
+                    Text("One or more mapped fields changed. Choose the fields again.").foregroundStyle(.secondary)
+                }
+                Button(mappingLabel, action: beginFieldMapping)
+            }
+        }
     }
 
     /// A login with no code: the row says so and offers Set Up Code…, where the code would be. Nothing to copy, so no copy icon.
     private var noCodeRow: some View {
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Verification code").foregroundStyle(.secondary)
+                Text("Code").foregroundStyle(.secondary)
                 Text("None")
             }
             Spacer(minLength: 8)
-            Button("Set Up Code…", action: setUpCode)
+            Button("Set Up Code…") { beginEditing(atCode: true) }
                 .buttonStyle(.bordered)
         }
     }
@@ -1848,24 +2051,31 @@ private struct ItemDetail: View {
     private var brokenCodeRow: some View {
         VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Verification code").foregroundStyle(.secondary)
+                Text("Code").foregroundStyle(.secondary)
                 Text("Psss can't make a code from this setup key. Replace it with a new key from the website.")
             }
-            Button("Replace Code…", action: setUpCode)
+            Button("Replace Code…") { beginEditing(atCode: true) }
                 .buttonStyle(.bordered)
         }
     }
 
     private var codeRow: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
+        // Read outside the TimelineView, and its identity follows it: a TimelineView redraws on its own schedule, so the checkmark
+        // would otherwise wait for the next tick.
+        let codeCopied = copied == .code
+        return TimelineView(.periodic(from: .now, by: 1)) { context in
             let remaining = TOTP.secondsRemaining(period: item.otpSettings.period, at: context.date)
-            let code = TOTP.code(secret: item.otpSecret, settings: item.otpSettings, at: context.date) ?? "------"
+            let made = TOTP.code(secret: item.otpSecret, settings: item.otpSettings, at: context.date)
+            let code = made ?? "------"
+            let canCopy = made != nil
+            let copyCode = { copy(code, as: .code, name: String(localized: "Verification code")) }
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Verification code").foregroundStyle(.secondary)
-                    Text(TOTP.grouped(code))
-                        .font(.system(.largeTitle, design: .monospaced).weight(.medium))
-                        .contentTransition(.numericText())
+                    Text("Code").foregroundStyle(.secondary)
+                    // The code is written as it is in the Codes list (`CodeDigits`), in the primary colour at the size of the item's
+                    // name (title), so this screen has no third text size.
+                    CodeDigits(code: code, style: .title).foregroundStyle(Color.primary)
+                        .allowsHitTesting(false)
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Verification code")
@@ -1882,25 +2092,33 @@ private struct ItemDetail: View {
                 .scaleEffect(0.7)
                 .frame(width: 40, height: 40)
                 .accessibilityHidden(true)
-                if TOTP.code(secret: item.otpSecret, settings: item.otpSettings, at: context.date) != nil {
-                    CopyIconButton(name: String(localized: "verification code"), copied: copied == .code) {
-                        copy(code, as: .code, name: String(localized: "Verification code"))
-                    }
+                if canCopy {
+                    CopyIconButton(name: String(localized: "verification code"), copied: codeCopied, action: copyCode)
                 }
             }
+            // Like every field with a copy icon, a tap anywhere on the row copies the code that is valid now.
+            .modifier(CopiesWhen(enabled: canCopy, action: copyCode))
         }
+        .id(codeCopied)
     }
 
-    private func shown(_ id: FieldID, _ value: String) -> String { id == .secret ? item.spacedSecret : value }
+    /// One of the item's own values, under the name its kind gives it. A card's expiry is shown as MM/YY; protected values are hidden.
+    private func field(_ field: ItemField) -> some View {
+        let value = field == .expiry ? CardExpiry.displayed(item.expiry) : item[field]
+        return row(.value(field), field.label(for: item.kind), value,
+                   hidden: field == .secret || field == .securityCode || item.concealedFields?.contains(field.rawValue) == true)
+    }
 
     /// A field is one row with a copy icon at its end. Protected values stay hidden until a deliberate reveal.
-    private func field(_ id: FieldID, _ label: LocalizedStringResource, _ value: String, hidden: Bool = false) -> some View {
-        FieldRow(label: label, value: value, shown: shown(id, value), masked: id == .secret ? item.maskedSecret : VaultItem.hiddenMask,
-                 hidden: hidden,
-                 revealed: Binding(get: { revealed.contains(id) },
-                                   set: { if $0 { revealed.insert(id) } else { revealed.remove(id) } }),
-                 copied: copied == id,
-                 copy: { copy(value, as: id, name: String(localized: label)) })
+    private func row(_ id: FieldID, _ label: LocalizedStringResource, _ value: String, hidden: Bool = false) -> some View {
+        let isSecret = id == .value(.secret)
+        return FieldRow(label: label, value: value, shown: isSecret ? item.spacedSecret : value,
+                        masked: isSecret ? item.maskedSecret : VaultItem.hiddenMask,
+                        hidden: hidden,
+                        revealed: Binding(get: { revealed.contains(id) },
+                                          set: { if $0 { revealed.insert(id) } else { revealed.remove(id) } }),
+                        copied: copied == id,
+                        copy: { copy(value, as: id, name: String(localized: label)) })
     }
 
     private func copy(_ value: String, as id: FieldID, name: String) {
@@ -1915,200 +2133,21 @@ private struct ItemDetail: View {
     }
 }
 
-private struct ItemEditor: View {
-    @State var item: VaultItem
-    let onSave: (VaultItem) -> Void
-    /// Stores the login without closing the editor, so a code survives leaving the app to type it into the site.
-    let onKeepDraft: (VaultItem) -> Void
-    /// Set only when editing an existing item.
-    var onDelete: (() -> Void)?
-    /// Opens the verification code step as soon as the editor is on screen.
-    var startsWithCode = false
-    @Environment(\.dismiss) private var dismiss
-    @FocusState private var titleFocused: Bool
-    @State private var addingCode = false
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                if item.kind != .login {
-                    labeled("Title") {
-                        TextField("Title", text: $item.title, prompt: Text(verbatim: ""))
-                            .focused($titleFocused)
-                            .task { titleFocused = true }
-                    }
-                }
-                switch item.kind {
-                case .login:
-                    labeled("Website") {
-                        TextField("Website", text: $item.website, prompt: Text("example.com"))
-                            .focused($titleFocused)
-                            .task { titleFocused = item.website.isEmpty }
-                            #if os(iOS)
-                            .keyboardType(.URL)
-                            .textInputAutocapitalization(.never)
-                            #endif
-                            .autocorrectionDisabled()
-                    }
-                    labeled("Username") {
-                        TextField("Username", text: $item.account, prompt: Text(verbatim: ""))
-                            #if os(iOS)
-                            .textInputAutocapitalization(.never)
-                            #endif
-                            .autocorrectionDisabled()
-                    }
-                    labeled("Password") { SecureField("Password", text: $item.secret, prompt: Text(verbatim: "")) }
-                    labeled("Verification code (optional)", info: HelpTopics.setupKey) {
-                        // The field's action sits on its right, on the same line; Remove code, being destructive, has its own row.
-                        HStack(spacing: 8) {
-                            SecureField("Setup key", text: $item.otpSecret, prompt: Text("Setup key or otpauth:// link"))
-                                .autocorrectionDisabled()
-                                #if os(iOS)
-                                .textInputAutocapitalization(.never)
-                                #endif
-                            Button(item.otpSecret.isEmpty ? "Add code" : "Replace code") { addingCode = true }
-                                .buttonStyle(.bordered)
-                                .fixedSize()
-                        }
-                        if totpInvalid {
-                            Label("That is not a valid setup key.", systemImage: "exclamationmark.triangle")
-                        }
-                        if !item.otpSecret.isEmpty {
-                            Button("Remove code", role: .destructive) {
-                                item.otpSecret = ""
-                                item.otpSettings = .standard
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                    }
-                    labeled("Name (optional)") {
-                        TextField("Name", text: $item.title, prompt: Text(verbatim: namePlaceholder))
-                    }
-                case .creditCard:
-                    labeled("Name on card") { TextField("Name on card", text: $item.account, prompt: Text(verbatim: "")) }
-                    labeled("Card number") { SecureField("Card number", text: $item.secret, prompt: Text(verbatim: "")) }
-                    labeled("Expiry") {
-                        TextField("Expiry", text: $item.expiry, prompt: Text("MM/YY"))
-                            #if os(iOS)
-                            .keyboardType(.numberPad)
-                            #endif
-                            .onAppear { item.expiry = CardExpiry.displayed(item.expiry) }
-                            .onChange(of: item.expiry) { _, text in
-                                let clean = CardExpiry.normalizedInput(text)
-                                if clean != text { item.expiry = clean }
-                            }
-                    }
-                    labeled("Security code (optional)", info: HelpTopics.securityCode) {
-                        SecureField("Security code", text: $item.securityCode, prompt: Text(verbatim: ""))
-                            #if os(iOS)
-                            .keyboardType(.numberPad)
-                            #endif
-                    }
-                case .secureNote:
-                    EmptyView()
-                case .keePassEntry:
-                    labeled("Protected value") { SecureField("Protected value", text: $item.secret, prompt: Text(verbatim: "")) }
-                }
-                labeled("Notes") {
-                    TextField("Notes", text: $item.notes, prompt: Text(verbatim: ""), axis: .vertical)
-                        .lineLimit(3...8)
-                }
-                if let onDelete {
-                    // Nothing more is asked: the item goes to Recently Deleted and Undo follows. The line says where it goes.
-                    Section {
-                        Button("Delete Item", role: .destructive, action: onDelete)
-                            // Explicit: a macOS Form draws a destructive button in the default text colour.
-                            .foregroundStyle(.red)
-                    } footer: {
-                        Text(verbatim: RecentlyDeletedText.editorDeleteLine).font(.body)
-                    }
-                }
-            }
-            .formStyle(.grouped)
-            // Delete Item is the form's last row: the form always scrolls, shows its scroll bar while it moves, and dragging it
-            // lowers the keyboard, which otherwise covers the lower rows on iPad.
-            .scrollDisabled(false)
-            #if os(iOS)
-            .scrollDismissesKeyboard(.interactively)
-            #endif
-            .navigationTitle(item.kind.label)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { onSave(saved) }
-                        .disabled(item.displayTitle == String(localized: "Untitled") || totpInvalid)
-                }
-            }
-        }
-        .modifier(SheetSize())
-        .task {
-            // A sheet cannot present another while it is still coming up.
-            guard startsWithCode else { return }
-            try? await Task.sleep(for: .milliseconds(450))
-            addingCode = true
-        }
-        .sheet(isPresented: $addingCode) {
-            VerificationCodeSheet(loginName: item.displayTitle, hasExistingCode: totpUsable) { setup in
-                item.otpSecret = setup.secret
-                item.otpSettings = setup.settings
-                // A login with no name or website cannot be stored yet; it is kept when the person taps Save.
-                if item.displayTitle != String(localized: "Untitled") { onKeepDraft(saved) }
-            }
-        }
-    }
+/// What Edit, Move to Recently Deleted (⌘⌫) does in the focused window. `permanent`: the selected item is already in Recently
+/// Deleted, so the item reads "Delete Now…" and asks first.
+struct DeleteSelectionCommand {
+    let permanent: Bool
+    let run: () -> Void
 }
 
-extension ItemEditor {
-    /// A visible caption above each field, like the detail page, so a filled field never loses its name.
-    fileprivate func labeled<Content: View>(_ label: LocalizedStringKey, info: HelpTopic? = nil,
-                                            @ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 4) {
-                Text(label).foregroundStyle(.secondary)
-                if let info { InfoButton(topic: info) }
-            }
-            content().labelsHidden()
-        }
-    }
-
-    fileprivate var totpUsable: Bool {
-        if case .setup = TOTP.parse(item.otpSecret) { return true }
-        return false
-    }
-
-    fileprivate var totpInvalid: Bool { !item.otpSecret.isEmpty && !totpUsable }
-
-    /// The item with its code reduced to the clean Base32 secret and its parameters, whatever was typed or pasted.
-    /// A bare key keeps the parameters the login already has; a link brings its own.
-    fileprivate var saved: VaultItem {
-        var clean = item
-        if clean.kind == .creditCard { clean.expiry = CardExpiry.displayed(clean.expiry) }
-        if case .setup(let setup) = TOTP.parse(item.otpSecret) {
-            clean.otpSecret = setup.secret
-            if item.otpSecret.lowercased().contains("otpauth://") { clean.otpSettings = setup.settings }
-        } else {
-            clean.otpSecret = ""
-            clean.otpSettings = .standard
-        }
-        return clean
-    }
-
-    fileprivate var namePlaceholder: String {
-        item.displayTitle == String(localized: "Untitled") ? String(localized: "Same as the website") : item.displayTitle
-    }
+private struct DeleteSelectionKey: FocusedValueKey {
+    typealias Value = DeleteSelectionCommand
 }
 
-private struct SheetSize: ViewModifier {
-    func body(content: Content) -> some View {
-        #if os(macOS)
-        content.frame(minWidth: 450, minHeight: 360).frame(idealHeight: 560)
-        #else
-        // iPad: the tallest sheet the screen allows, so the fields and Delete Item at the bottom show with little scrolling; the
-        // default form sheet is a short card.
-        content.presentationSizing(.page)
-        #endif
+extension FocusedValues {
+    var deleteSelection: DeleteSelectionCommand? {
+        get { self[DeleteSelectionKey.self] }
+        set { self[DeleteSelectionKey.self] = newValue }
     }
 }
 

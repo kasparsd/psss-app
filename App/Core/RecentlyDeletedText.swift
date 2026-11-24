@@ -16,14 +16,7 @@ struct DeletedItem: Identifiable, Sendable {
 
 extension ItemKind {
     /// The kind in words, for places that cannot take a `LocalizedStringKey` (VoiceOver labels).
-    var name: String {
-        switch self {
-        case .login: String(localized: "Login")
-        case .creditCard: String(localized: "Card")
-        case .secureNote: String(localized: "Secure note")
-        case .keePassEntry: String(localized: "Custom item")
-        }
-    }
+    var name: String { unnamedTitle }
 }
 
 /// The words and dates of Recently Deleted, in one place so every platform says the same thing and the tests can check them.
@@ -124,19 +117,24 @@ enum RecentlyDeletedText {
         String(localized: "Items you delete stay here for 30 days, so you can bring them back. Other KeePass apps show them in their Recycle Bin and do not remove them.")
     }
     static var detailFooter: String { String(localized: "To change this item, restore it first.") }
-    static var editorDeleteLine: String { String(localized: "Moves this item to Recently Deleted. You can bring it back for 30 days.") }
+    /// The button at the bottom of edit mode, the Mac's Edit menu item and the name of its Undo (owner, 2026-11-24): the item is not
+    /// gone, so the words say where it goes and nothing is red.
+    static var moveButton: String { String(localized: "Move to Recently Deleted") }
+    /// The line under that button.
+    static var editorDeleteLine: String { String(localized: "You can bring it back for 30 days.") }
 
     /// The Undo capsule's sentence, also read by VoiceOver.
     static func movedMessage(title: String) -> String { String(localized: "“\(title)” moved to Recently Deleted") }
 }
 
-/// Which items a search finds: the title, website, username or the name shown for the item. The vault list and Recently Deleted
+/// Which items a search finds: the title, website, username or the name shown for the item (also a name made from what the
+/// item holds, such as “Visa •• 4417” or the first line of a note). The vault list and Recently Deleted
 /// use the same rule, so typing in Recently Deleted finds exactly what it would find among live items.
 enum ItemSearch {
     static func matches(_ item: VaultItem, query: String) -> Bool {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if query.isEmpty { return true }
-        return [item.title, item.website, item.account, item.displayTitle].contains { $0.localizedStandardContains(query) }
+        return [item.visibleTitle, item.visibleWebsite, item.visibleAccount, item.displayTitle].contains { $0.localizedStandardContains(query) }
     }
 
     /// The entries of Recently Deleted that match, in the order given (newest deletion first).

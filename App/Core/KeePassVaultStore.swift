@@ -365,7 +365,14 @@ final class KeePassVaultStore: VaultStore {
     #endif
 
     func save(_ items: [VaultItem]) throws {
-        try transact { if document.upsert(items) { try commit() } }
+        try transact {
+            try document.validateOtherFieldEdits(items)
+            if document.upsert(items) { try commit() }
+        }
+    }
+
+    func mapFields(_ mapping: ItemFieldMapping, of id: UUID) throws {
+        try transact { if try document.mapFields(mapping, of: id) { try commit() } }
     }
 
     // MARK: Recently Deleted
@@ -802,6 +809,9 @@ extension VaultStoreError {
         case .fileMissing: String(localized: "Psss cannot find the vault file. It may have moved or be unavailable, so nothing was changed. Check where the file is, then try again.")
         case .writeFailed(let reason): String(localized: "The vault could not be saved, so nothing was changed. \(reason) Check that the file can be written and the disk has room, then try again.")
         case .unreadable: String(localized: "Psss cannot read the vault file right now, so nothing was saved. It may still be downloading from iCloud. Try again in a moment.")
+        case .itemUnavailable: String(localized: "This item is no longer available. Close the mapping and open the item again.")
+        case .invalidFieldMapping(let message): message
+        case .editedFieldsChanged: String(localized: "One or more fields changed since you started editing. Cancel and open Edit again to see their latest values.")
         }
     }
 }

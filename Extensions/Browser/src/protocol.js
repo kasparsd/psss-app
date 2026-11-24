@@ -5,7 +5,9 @@ var PROTOCOL = Object.freeze({
   version: 1,
   host: 'app.psss.passwords',
   // Requests: ping, candidates { origin }, search { origin, query }, credential { ref, origin, manual? },
+  // card-candidates { origin }, card { ref, origin } (sample cards in the prototype host).
   // generate, save { origin, account, secret } -> { result: 'created' | 'updated' }.
+  // credential and card replies include a fields object keyed by canonical fill role.
   // `manual` marks a login the person chose for a site it was not saved for, after a warning.
   // Responses: { v, id, ok: true, ... } or { v, id, ok: false, error }.
   errors: Object.freeze({

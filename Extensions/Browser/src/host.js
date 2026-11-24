@@ -22,6 +22,8 @@ var Host = (function () {
   return {
     ping: () => send('ping'),
     candidates: (origin) => send('candidates', { origin }),
+    cardCandidates: (origin) => send('card-candidates', { origin }),
+    card: (ref, origin) => send('card', { ref, origin }),
     generate: () => send('generate'),
     save: (origin, account, secret) => send('save', { origin, account, secret }),
     search: (origin, query) => send('search', { origin, query }),

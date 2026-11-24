@@ -127,9 +127,7 @@ struct VerificationCodeSheet: View {
                 let code = TOTP.code(secret: setup.secret, settings: setup.settings, at: context.date) ?? "------"
                 let remaining = TOTP.secondsRemaining(period: setup.settings.period, at: context.date)
                 VStack(spacing: 4) {
-                    Text(TOTP.grouped(code))
-                        .font(.system(.title2, design: .monospaced).weight(.semibold))
-                        .contentTransition(.numericText())
+                    CodeDigits(code: code, style: .title2)
                     ProgressView(value: Double(remaining), total: Double(setup.settings.period))
                         .frame(maxWidth: 200)
                         .accessibilityHidden(true)

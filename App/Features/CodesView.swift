@@ -1,31 +1,5 @@
 import SwiftUI
 
-/// When each verification code was last copied, kept on this device only (not in the vault file, like the usage counts). It holds
-/// item identifiers and dates, no codes. Recently copied on the Codes list reads it.
-enum CodeCopyLog {
-    private static let key = "codeCopyDates"
-    private static let keep = 50
-
-    private static func load() -> [String: Double] {
-        UserDefaults.standard.dictionary(forKey: key) as? [String: Double] ?? [:]
-    }
-
-    static func record(_ id: UUID, at date: Date = .now) {
-        var all = load()
-        all[id.uuidString] = date.timeIntervalSince1970
-        if all.count > keep {
-            let newest = all.sorted { $0.value > $1.value }.prefix(keep)
-            all = Dictionary(uniqueKeysWithValues: newest.map { ($0.key, $0.value) })
-        }
-        UserDefaults.standard.set(all, forKey: key)
-    }
-
-    /// The most recently copied items first, among `ids`.
-    static func recent(among ids: Set<UUID>, limit: Int) -> [UUID] {
-        load().sorted { $0.value > $1.value }.compactMap { UUID(uuidString: $0.key) }.filter(ids.contains).prefix(limit).map { $0 }
-    }
-}
-
 /// What the code buttons of one list share: which button says "Copied", and the haptic.
 @MainActor
 @Observable
@@ -39,7 +13,6 @@ final class CodeCopyState {
     func copy(_ item: VaultItem, used: () -> Void) {
         guard let code = TOTP.code(secret: item.otpSecret, settings: item.otpSettings) else { return }
         Clipboard.copy(code)
-        CodeCopyLog.record(item.id)
         used()
         copiedID = item.id
         count += 1
@@ -68,17 +41,19 @@ struct CodeCopyButton: View {
 
     var body: some View {
         let onSelection = prominence == .increased
+        // Read here, in the button's own body, not inside the TimelineView's closure: a change of an @Observable read only in that
+        // closure did not redraw it, so the button never said "Copied" although the copy had happened.
+        let copied = state.copiedID == item.id
         return TimelineView(.periodic(from: Date(timeIntervalSince1970: 0), by: 1)) { context in
-            let code = TOTP.grouped(TOTP.code(secret: item.otpSecret, settings: item.otpSettings, at: context.date) ?? "")
-            let copied = state.copiedID == item.id
+            let code = TOTP.code(secret: item.otpSecret, settings: item.otpSettings, at: context.date) ?? ""
             Button {
                 state.copy(item, used: used)
             } label: {
                 // Both texts are laid out, so the button keeps its width while it says "Copied". Body size like the rest of the row,
-                // digits of equal width, and a minimum width so every six-digit code is the same size and shape.
+                // the code written the one way a code is written everywhere (`CodeDigits`), and a minimum width so every six-digit
+                // code is the same size and shape.
                 ZStack {
-                    Text(verbatim: code).font(.body.monospacedDigit()).opacity(copied ? 0 : 1)
-                        .contentTransition(.numericText())
+                    CodeDigits(code: code).opacity(copied ? 0 : 1)
                     Text("Copied").opacity(copied ? 1 : 0)
                 }
                 .lineLimit(1)
@@ -100,18 +75,13 @@ struct CodeCopyButton: View {
             // the login's id in the shared `CodeCopyState`, so a change of selection never resets it.
             .buttonStyle(.borderless)
             .accessibilityLabel("Copy code for \(item.displayTitle)")
-            .accessibilityValue(copied ? Text("Copied") : Text(verbatim: code))
+            .accessibilityValue(copied ? Text("Copied") : Text(verbatim: code).speechSpellsOutCharacters())
             .help("Copy code")
         }
+        // A TimelineView redraws on its own schedule, not when its parent changes, so without a new identity "Copied" waited for the
+        // next tick (up to a second) and was gone again within the two seconds.
+        .id(copied)
     }
-}
-
-/// A row of the Codes list. A login can be in both sections, so a row is named by its section too: List selection never sees two
-/// rows with one tag.
-private struct CodesRowID: Hashable {
-    enum Section { case recent, all }
-    let section: Section
-    let id: VaultItem.ID
 }
 
 /// Every login with a verification code, live. The code is the button; the rest of a row opens the login.
@@ -126,10 +96,11 @@ struct CodesView: View {
     let used: (VaultItem.ID) -> Void
     let showLogins: () -> Void
 
-    /// The recently copied logins, fixed when the list appears so rows never move under a finger.
-    @State private var recent: [UUID]
+    /// The "Recently used" group, fixed when the list appears so rows never move under a finger. Nil until then: the group is taken
+    /// from the list as it is.
+    @State private var recent: [VaultItem.ID]?
     /// The selected row, with its section, so the same login in two sections is selected once.
-    @State private var picked: CodesRowID?
+    @State private var picked: SectionedRowID?
 
     init(items: [VaultItem], copy: CodeCopyState, selection: Binding<VaultItem.ID?>? = nil, open: @escaping (VaultItem.ID) -> Void,
          used: @escaping (VaultItem.ID) -> Void, showLogins: @escaping () -> Void) {
@@ -139,29 +110,23 @@ struct CodesView: View {
         self.open = open
         self.used = used
         self.showLogins = showLogins
-        let withCode = Set(items.filter { $0.traits.contains(.code) }.map(\.id))
-        _recent = State(initialValue: CodeCopyLog.recent(among: withCode, limit: 3))
     }
 
     /// The outer selection is a login id; the list selects rows. Maps one to the other for the detail pane and Command-C.
-    private var rowSelection: Binding<CodesRowID?>? {
-        guard let outer = selection else { return nil }
-        return Binding(get: {
-            guard let id = outer.wrappedValue else { return nil }
-            return picked?.id == id ? picked : CodesRowID(section: .all, id: id)
-        }, set: {
-            picked = $0
-            outer.wrappedValue = $0?.id
-        })
+    private var rowSelection: Binding<SectionedRowID?>? {
+        selection.map { SectionedRowID.binding(outer: $0, picked: $picked, recent: Set(recentItems.map(\.id))) }
     }
 
     private var codeItems: [VaultItem] { items.filter { $0.traits.contains(.code) } }
+
+    private var countText: String { codeItems.count == 1 ? String(localized: "1 code") : String(localized: "\(codeItems.count) codes") }
 
     private var allCodes: [VaultItem] {
         codeItems.sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
     }
 
-    private var recentItems: [VaultItem] { recent.compactMap { id in codeItems.first { $0.id == id } } }
+    /// Up to five logins used in the last 30 days (copying a code is a use), above a list of more than five.
+    private var recentItems: [VaultItem] { RecentlyUsed.visible(snapshot: recent, in: allCodes) }
 
     var body: some View {
         Group {
@@ -191,6 +156,10 @@ struct CodesView: View {
             }
         }
         .navigationTitle("Codes")
+        #if os(iOS)
+        // iPhone: the title is the name alone and the line under it carries the count, so neither is ever cut.
+        .navigationSubtitle(selection == nil ? countText : "")
+        #endif
         .columnTitleInList(selection != nil)
         #if os(macOS)
         .onCopyCommand {
@@ -202,31 +171,28 @@ struct CodesView: View {
             return []
         }
         #endif
-        .onAppear {
-            recent = CodeCopyLog.recent(among: Set(codeItems.map(\.id)), limit: 3)
-        }
+        .onAppear { recent = RecentlyUsed.group(from: codeItems).map(\.id) }
     }
 
     @ViewBuilder
     private var rows: some View {
         if selection != nil {
-            ListTitleLine(title: "Codes", count: codeItems.count == 1 ? String(localized: "1 code") : String(localized: "\(codeItems.count) codes"))
+            ListTitleLine(title: "Codes", count: countText)
         }
         if !codeItems.isEmpty {
-            if !recentItems.isEmpty {
-                Section("Recently copied") { ForEach(recentItems) { row($0, in: .recent) } }
-            }
-            // The header only tells the two sections apart; without "Recently copied" the title already says Codes.
-            if recentItems.isEmpty {
-                Section { ForEach(allCodes) { row($0, in: .all) } }
+            // The headings only tell the two sections apart; without a group the title already says Codes.
+            let group = recentItems
+            if group.isEmpty {
+                Section { ForEach(allCodes) { row($0, in: .all, group: allCodes) } }
             } else {
-                Section("All codes") { ForEach(allCodes) { row($0, in: .all) } }
+                Section("Recently used") { ForEach(group) { row($0, in: .recent, group: group) } }
+                Section("All codes") { ForEach(allCodes) { row($0, in: .all, group: allCodes) } }
             }
             Text(helpText)
                 .foregroundStyle(.secondary)
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
-                .itemRowInsets()
+                .itemRowInsets(first: true, last: true)
         }
     }
 
@@ -238,10 +204,10 @@ struct CodesView: View {
         #endif
     }
 
-    private func row(_ item: VaultItem, in section: CodesRowID.Section) -> some View {
+    private func row(_ item: VaultItem, in section: SectionedRowID.Section, group: [VaultItem]) -> some View {
         CodeRow(item: item, state: copy, open: { open(item.id) }, used: { used(item.id) })
-            .tag(CodesRowID(section: section, id: item.id))
-            .itemRowInsets()
+            .tag(SectionedRowID(section: section, id: item.id))
+            .itemRowInsets(first: group.first?.id == item.id, last: group.last?.id == item.id)
     }
 }
 

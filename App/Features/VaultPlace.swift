@@ -1,8 +1,7 @@
 import SwiftUI
 
-/// The three places of the vault, the same on every device: All (everything, with the filters), Codes and Cards. Only the control
-/// differs: the tab bar at the bottom of an iPhone (and of a compact iPad), the system tab bar at the top of a regular iPad, a
-/// segmented control in the toolbar on Mac.
+/// The three places of the vault, the same on every device: All (everything, narrowed by Show and With), Codes and Cards. Only the
+/// control differs: the tab bar at the bottom of an iPhone (and of a compact iPad), the sidebar on Mac and a regular iPad.
 enum VaultPlace: Int, CaseIterable, Identifiable, Hashable {
     case all, codes, cards
 

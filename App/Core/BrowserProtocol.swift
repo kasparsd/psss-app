@@ -30,6 +30,9 @@ enum BrowserProtocol {
         SHA256.hash(data: Data("\(item.website)|\(item.account)".utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
     }
 
+    /// Sample cards have a fixed order across native-host invocations. The connected vault uses record IDs.
+    private static func sampleCardReference(_ index: Int) -> String { "sample-card-\(index)" }
+
     static func handle(_ request: [String: Any]) -> [String: Any] {
         let id = request["id"] as? String ?? ""
         func fail(_ error: String) -> [String: Any] { ["v": version, "id": id, "ok": false, "error": error] }
@@ -41,7 +44,8 @@ enum BrowserProtocol {
 
         let type = request["type"] as? String
         // No credential is served or stored unless the native host enabled the prototype file.
-        if ["candidates", "search", "save", "credential"].contains(type), !BrowserPrototypeStore.isAvailable { return fail("unsupported") }
+        if ["candidates", "search", "save", "credential", "card-candidates", "card"].contains(type),
+           !BrowserPrototypeStore.isAvailable { return fail("unsupported") }
 
         switch type {
         case "ping":
@@ -50,8 +54,10 @@ enum BrowserProtocol {
         case "candidates":
             guard let origin = request["origin"] as? String, let host = fillableHost(origin) else { return fail("forbidden") }
             let requested = SharedVault.host(host)
-            let matches = BrowserPrototypeStore.allItems.filter { SharedVault.matches($0, host: requested) }
-            return ok(["candidates": matches.map { ["ref": reference($0), "title": $0.displayTitle, "account": $0.account] }])
+            let matches = BrowserPrototypeStore.allItems.filter {
+                $0.fillValue(for: .password) != nil && SharedVault.matches($0, host: requested)
+            }
+            return ok(["candidates": matches.map { ["ref": reference($0), "title": $0.displayTitle, "account": $0.visibleAccount] }])
 
         case "search":
             // Metadata only. `matches` tells the popup which results belong to this page.
@@ -61,10 +67,10 @@ enum BrowserProtocol {
             let requested = SharedVault.host(host)
             let hits = BrowserPrototypeStore.allItems
                 .filter { $0.kind == .login && !$0.secret.isEmpty
-                    && [$0.displayTitle, $0.account, $0.website].contains { $0.lowercased().contains(query) } }
+                    && [$0.displayTitle, $0.visibleAccount, $0.visibleWebsite].contains { $0.lowercased().contains(query) } }
                 .prefix(20)
             return ok(["results": hits.map {
-                ["ref": reference($0), "title": $0.displayTitle, "account": $0.account, "website": $0.website,
+                ["ref": reference($0), "title": $0.displayTitle, "account": $0.visibleAccount, "website": $0.visibleWebsite,
                  "matches": SharedVault.matches($0, host: requested)] as [String: Any]
             }])
 
@@ -91,13 +97,39 @@ enum BrowserProtocol {
         case "credential":
             guard let origin = request["origin"] as? String, let host = fillableHost(origin),
                   let ref = request["ref"] as? String else { return fail("forbidden") }
-            guard let item = BrowserPrototypeStore.allItems.first(where: { reference($0) == ref }) else { return fail("not-found") }
+            guard let item = BrowserPrototypeStore.allItems.first(where: { $0.kind == .login && reference($0) == ref }),
+                  let password = item.fillValue(for: .password) else { return fail("not-found") }
             // Recheck the origin here. A reference alone never releases a secret. `manual` is the
             // person's explicit choice of a login saved for another site, confirmed in the popup.
             // The shipping app asks for approval itself instead of trusting this flag.
             let manual = request["manual"] as? Bool == true
             guard manual || SharedVault.matches(item, host: SharedVault.host(host)) else { return fail("forbidden") }
-            return ok(["account": item.account, "secret": item.secret])
+            let username = item.fillValue(for: .username) ?? ""
+            let fields = [FieldRole.username.rawValue: username, FieldRole.password.rawValue: password]
+            return ok(["account": username, "secret": password, "fields": fields])
+
+        case "card-candidates":
+            guard let origin = request["origin"] as? String, fillableHost(origin) != nil else { return fail("forbidden") }
+            let cards = SampleVault.items.enumerated().compactMap { index, item -> [String: String]? in
+                guard let raw = item.fillValue(for: .cardNumber) else { return nil }
+                let lastFour = String(CardNumber.normalized(raw).suffix(4))
+                return ["ref": sampleCardReference(index), "title": item.displayTitle, "account": "•• \(lastFour)"]
+            }
+            return ok(["candidates": cards])
+
+        case "card":
+            guard let origin = request["origin"] as? String, fillableHost(origin) != nil,
+                  let ref = request["ref"] as? String else { return fail("forbidden") }
+            guard let card = SampleVault.items.enumerated().first(where: { sampleCardReference($0.offset) == ref })?.element,
+                  let raw = card.fillValue(for: .cardNumber) else { return fail("not-found") }
+            let number = CardNumber.normalized(raw)
+            guard (12...19).contains(number.count) else { return fail("not-found") }
+            var fields = [FieldRole.cardNumber.rawValue: number]
+            fields[FieldRole.cardholder.rawValue] = card.fillValue(for: .cardholder)
+            if let expiry = card.fillValue(for: .expiry).flatMap(CardExpiry.parse) {
+                fields[FieldRole.expiry.rawValue] = String(format: "%04d-%02d", expiry.year, expiry.month)
+            }
+            return ok(["fields": fields])
 
         default:
             return fail("unsupported")

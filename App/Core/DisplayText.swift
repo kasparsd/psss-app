@@ -40,8 +40,8 @@ enum DisplayText {
         "Kannada", "Malayalam", "Sinhala", "Thai", "Lao", "Tibetan", "Myanmar", "Khmer"
     ]
 
-    /// `text` as one safe line. When nothing is left, `empty`, which is the "Untitled" placeholder unless you pass another.
-    static func safe(_ text: String, empty: String = String(localized: "Untitled")) -> String {
+    /// `text` as one safe line. When nothing is left, `empty`: nothing, unless you pass a placeholder.
+    static func safe(_ text: String, empty: String = "") -> String {
         var builder = Builder()
         builder.run(Array(text.unicodeScalars))
         var kept = builder.kept
@@ -69,12 +69,16 @@ enum DisplayText {
     /// CJK quotation marks and fullwidth.
     private static let quoteMarks: Set<UInt32> = [0x22, 0xAB, 0xBB, 0x201C, 0x201D, 0x201E, 0x201F, 0x2033, 0x2036, 0x301D, 0x301E, 0x301F, 0xFF02]
 
-    /// The name of a login as shown: its safe title, else the safe form of its site, else the "Untitled" placeholder.
+    /// The name of an item as shown: its safe title, else the name made from what it holds (`VaultItem.derivedTitle`), with a
+    /// website in its readable, lookalike-safe form. Never empty: the kind ("Login") stands in last.
     static func title(of item: VaultItem) -> String {
-        let name = safe(item.title, empty: "")
+        let name = safe(item.title)
         if !name.isEmpty { return name }
-        let site = HostDisplay.shown(SharedVault.host(item.website))
-        return site.isEmpty ? String(localized: "Untitled") : site
+        if item.kind == .login || item.kind == .keePassEntry {
+            let site = HostDisplay.shown(SharedVault.host(item.website))
+            if !site.isEmpty { return site }
+        }
+        return safe(item.derivedTitle, empty: item.kind.unnamedTitle)
     }
 
     // MARK: Scanning

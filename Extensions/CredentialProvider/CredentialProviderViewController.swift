@@ -312,8 +312,9 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     }
 
     private func complete(with item: VaultItem) {
+        guard let password = item.fillValue(for: .password) else { return cancel(.credentialIdentityNotFound) }
         vault?.markUsed(item.id)
-        extensionContext.completeRequest(withSelectedCredential: ASPasswordCredential(user: item.account, password: item.secret))
+        extensionContext.completeRequest(withSelectedCredential: ASPasswordCredential(user: item.fillValue(for: .username) ?? "", password: password))
     }
 
     private func cancel(_ code: ASExtensionError.Code) {

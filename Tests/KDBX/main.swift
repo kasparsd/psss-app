@@ -109,27 +109,177 @@ do {
     expect("clearing the security code removes the string", EntryMapping.strings(freshEntry)["Security code"] == nil)
 }
 do {
-    // The Cards place: last used first, expired last, an unreadable expiry is not expired, and a snapshot keeps its order.
+    // The Cards place: A to Z, expired last, an unreadable expiry is not expired, and a snapshot keeps its order.
     let now = Date(timeIntervalSince1970: 1_800_000_000)  // January 2027
     var old = VaultItem(kind: .creditCard, title: "Old", secret: "4111111111111111", expiry: "03/25", lastUsed: now)
     var recent = VaultItem(kind: .creditCard, title: "Recent", secret: "4242424242424242", expiry: "08/30", lastUsed: now.addingTimeInterval(-10))
     let older = VaultItem(kind: .creditCard, title: "Older", secret: "5555555555554444", expiry: "garbled", lastUsed: now.addingTimeInterval(-9999))
     let order = CardsOrder.ordered([old, older, recent], now: now)
-    check("cards: live ones by last use, expired last", (order.live + order.expired).map(\.title).joined(separator: ","), "Recent,Older,Old")
+    check("cards: live ones A to Z, expired last", (order.live + order.expired).map(\.title).joined(separator: ","), "Older,Recent,Old")
+    expect("cards: no group above five or fewer", order.recent.isEmpty)
     check("cards: only the past expiry is expired", order.expired.map(\.title).joined(separator: ","), "Old")
-    check("cards: live summary", recent.cardSummary(now: now), "Visa \u{2022}\u{2022} 4242 \u{00B7} 08/30")
-    check("cards: expired summary", old.cardSummary(now: now), "Expired 03/25")
+    check("cards: second line is the short brand", recent.cardSecondLine(now: now) ?? "nil", "Visa")
+    check("cards: expired card says so beside its brand", old.cardSecondLine(now: now) ?? "nil", "Visa \u{00B7} Expired")
+    check("cards: number line is bullets and the last four", recent.cardNumberLine ?? "nil", "\u{2022}\u{2022} 4242")
+    check("cards: expiry line is MM/YY", recent.cardExpiryLine ?? "nil", "08/30")
+    check("cards: an expired card keeps its expiry line", old.cardExpiryLine ?? "nil", "03/25")
+    check("cards: an unreadable expiry has no line", older.cardExpiryLine ?? "nil", "nil")
     check("cards: short brand names", CardBrand.americanExpress.shortName + "/" + CardBrand.dinersClub.shortName + "/" + CardBrand.mastercard.shortName, "Amex/Diners/Mastercard")
     check("cards: spoken summary", recent.cardSummarySpoken(now: now), "Visa ending 4242, expires 08/30")
     var bare = recent; bare.expiry = ""
-    check("cards: no expiry drops the separator", bare.cardSummary(now: now), "Visa \u{2022}\u{2022} 4242")
+    check("cards: no expiry drops the second trailing line", bare.cardExpiryLine ?? "nil", "nil")
     bare.secret = "1234"
-    check("cards: no brand keeps the last four", bare.cardSummary(now: now), "\u{2022}\u{2022} 1234")
+    check("cards: no brand reads Card", bare.cardSecondLine(now: now) ?? "nil", "Card")
+    check("cards: no brand keeps the last four", bare.cardNumberLine ?? "nil", "\u{2022}\u{2022} 1234")
+    bare.secret = "12"
+    check("cards: no number has no first trailing line", bare.cardNumberLine ?? "nil", "nil")
+    var expiredUnknown = old; expiredUnknown.secret = "1234"
+    check("cards: expired with no brand", expiredUnknown.cardSecondLine(now: now) ?? "nil", "Card \u{00B7} Expired")
+    // A card without a name of its own is called by its brand and digits, so its second line is the name on the card.
+    var nameless = VaultItem(kind: .creditCard, account: " Sam Rivera ", secret: "4242424242424417", expiry: "08/30")
+    check("cards: a nameless card is called by brand and digits", nameless.displayTitle, "Visa \u{2022}\u{2022} 4417")
+    check("cards: a nameless card's second line is the name on the card", nameless.cardSecondLine(now: now) ?? "nil", "Sam Rivera")
+    nameless.expiry = "03/25"
+    check("cards: a nameless expired card", nameless.cardSecondLine(now: now) ?? "nil", "Sam Rivera \u{00B7} Expired")
+    nameless.account = ""
+    check("cards: a nameless expired card with no name on it", nameless.cardSecondLine(now: now) ?? "nil", "Expired")
+    nameless.expiry = "08/30"
+    check("cards: a nameless card with no name on it has no second line", nameless.cardSecondLine(now: now) ?? "nil", "nil")
+    nameless.title = "  "
+    check("cards: a name of spaces is no name", nameless.cardSecondLine(now: now) ?? "nil", "nil")
     expect("cards: expiry month and year in words, in the person's language", (old.cardExpiryMonthYear ?? "").contains("2025") && old.cardExpiryMonthYear != "03/25")
     recent.lastUsed = now.addingTimeInterval(-99999)
     old.lastUsed = nil
     let kept = CardsOrder.ordered([old, older, recent], rank: [recent.id: 0, older.id: 1], now: now)
     check("cards: a snapshot order holds while use changes, and a new card leads", (kept.live + kept.expired).map(\.title).joined(separator: ","), "Recent,Older,Old")
+}
+do {
+    // The item form's draft logic: what counts as a change, and what Save stores.
+    let stored = VaultItem(kind: .login, title: "Mail", account: "me", website: "mail.example", secret: "pw", otpSecret: "JBSWY3DPEHPK3PXP")
+    var draft = stored
+    expect("draft: untouched is no change", !draft.hasChanges(from: stored))
+    draft.otpSecret = "jbsw y3dp ehpk 3pxp"
+    expect("draft: the same key written with spaces is no change", !draft.hasChanges(from: stored))
+    draft.account = "you"
+    expect("draft: a changed field is a change", draft.hasChanges(from: stored))
+    var removed = stored; removed.otpSecret = ""
+    expect("draft: removing the code is a change", removed.hasChanges(from: stored))
+    var bad = stored; bad.otpSecret = "not a key!"
+    expect("draft: a bad setup key is invalid", bad.totpInvalid && !bad.totpUsable)
+    check("draft: Save drops a code that cannot be made", bad.savedForm.otpSecret, "")
+    expect("draft: a good key is usable", stored.totpUsable && !stored.totpInvalid)
+    var card = VaultItem(kind: .creditCard, title: "Visa", secret: "4242424242424242", expiry: "0830")
+    let cardStored = card
+    card.expiry = CardExpiry.displayed("0830")
+    expect("draft: an expiry written another way is no change", !card.hasChanges(from: cardStored))
+}
+do {
+    // The All list's sort orders (View setting): each key, what it does with items that lack the key, and a held snapshot.
+    let t = Date(timeIntervalSince1970: 1_800_000_000)
+    let a = VaultItem(kind: .login, title: "Apple", lastUsed: t.addingTimeInterval(-10), useCount: 2, modified: t.addingTimeInterval(-500))
+    let b = VaultItem(kind: .login, title: "banana", lastUsed: t.addingTimeInterval(-5), useCount: 9, modified: t.addingTimeInterval(-900))
+    let c = VaultItem(kind: .login, title: "Cherry", useCount: 9)
+    let d = VaultItem(kind: .login, title: "date")
+    let all = [d, c, b, a]
+    func names(_ list: [VaultItem]) -> String { list.map(\.title).joined(separator: ",") }
+    check("sort: recently used, as a whole list, is the name order (the group is added by the list)", names(ItemSort.recentlyUsed.ordered(all)), "Apple,banana,Cherry,date")
+    check("sort: most used by count, ties by name", names(ItemSort.mostUsed.ordered(all)), "banana,Cherry,Apple,date")
+    check("sort: recently changed, undated by name", names(ItemSort.recentlyChanged.ordered(all)), "Apple,banana,Cherry,date")
+    check("sort: name ignores case", names(ItemSort.name.ordered(all)), "Apple,banana,Cherry,date")
+    check("sort: standard is recently used", ItemSort.standard.rawValue, "recentlyUsed")
+    check("sort: the choice survives its stored name", ItemSort(rawValue: ItemSort.mostUsed.rawValue).map { "\($0)" } ?? "nil", "mostUsed")
+    let ranks = ItemSort.mostUsed.ranks(of: all)
+    var used = a; used.useCount = 20
+    check("sort: a held snapshot keeps the order after a use", names(ItemSort.mostUsed.ordered([d, c, b, used], rank: ranks)), "banana,Cherry,Apple,date")
+    check("sort: without the snapshot the use moves the item", names(ItemSort.mostUsed.ordered([d, c, b, used])), "Apple,banana,Cherry,date")
+    let fresh = VaultItem(kind: .login, title: "Zed")
+    check("sort: an item the snapshot does not know leads", names(ItemSort.mostUsed.ordered([d, c, b, a, fresh], rank: ranks)), "Zed,banana,Cherry,Apple,date")
+    check("sort: the default order is not named under a title", ItemSort.recentlyUsed.orderPhrase ?? "nil", "nil")
+}
+do {
+    // Show, With and Sort: which items the All list lists, and the words that say so (owner, 2026-11-24).
+    let login = VaultItem(kind: .login, title: "Plain login")
+    var passkeyLogin = VaultItem(kind: .login, title: "Passkey login")
+    passkeyLogin.passkey = PasskeyRecord(credentialID: Data([1]), userHandle: Data([2]), rpID: "a.example", privateKey: Data([3]), created: .now)
+    let notedLogin = VaultItem(kind: .login, title: "Noted login", notes: "hello")
+    let note = VaultItem(kind: .secureNote, title: "A note", notes: "text")
+    let custom = VaultItem(kind: .keePassEntry, title: "Custom", notes: "x")
+    let bareCustom = VaultItem(kind: .keePassEntry, title: "Bare custom")
+    let card = VaultItem(kind: .creditCard, title: "Visa")
+    let all = [login, passkeyLogin, notedLogin, note, custom, bareCustom, card]
+    func titles(_ f: ItemFilter) -> String { f.listed(all).map(\.title).sorted().joined(separator: ",") }
+    check("filter: nothing chosen lists everything, cards too", "\(ItemFilter().listed(all).count)", "7")
+    check("filter: logins", titles(ItemFilter(show: .logins)), "Noted login,Passkey login,Plain login")
+    check("filter: notes", titles(ItemFilter(show: .notes)), "A note")
+    check("filter: custom", titles(ItemFilter(show: .custom)), "Bare custom,Custom")
+    check("filter: with passkey in All", titles(ItemFilter(with: .passkey)), "Passkey login")
+    check("filter: with notes in All counts a note", titles(ItemFilter(with: .notes)), "A note,Custom,Noted login")
+    check("filter: with is all of what is ticked", titles(ItemFilter(show: .logins, with: [.passkey, .notes])), "")
+    check("filter: custom ignores passkey but keeps the tick", titles(ItemFilter(show: .custom, with: [.passkey, .notes])), "Custom")
+    check("filter: notes ignores both", titles(ItemFilter(show: .notes, with: [.passkey, .notes])), "A note")
+    expect("filter: passkey does not apply to custom items", !ItemFilter(show: .custom).applies(.passkey) && ItemFilter(show: .custom).applies(.notes))
+    expect("filter: nothing applies to notes", !ItemFilter(show: .notes).applies(.notes) && !ItemFilter(show: .notes).applies(.passkey))
+    expect("filter: not narrowing when nothing is chosen", !ItemFilter().isNarrowing)
+    expect("filter: a kind narrows", ItemFilter(show: .logins).isNarrowing)
+    expect("filter: an entry that applies narrows", ItemFilter(with: .passkey).isNarrowing)
+    expect("filter: an entry that does not apply is not in force", ItemFilter(show: .notes, with: .passkey).applied.isEmpty)
+    expect("filter: sorting alone never narrows", !ItemFilter().isNarrowing)
+    check("filter: title second line is empty when nothing is in force", ItemFilter().secondLine(sort: .recentlyUsed) ?? "nil", "nil")
+    check("filter: second line, passkey", ItemFilter(with: .passkey).secondLine(sort: .recentlyUsed) ?? "nil", "With passkey")
+    check("filter: second line, passkey and notes", ItemFilter(with: [.passkey, .notes]).secondLine(sort: .recentlyUsed) ?? "nil", "With passkey and notes")
+    check("filter: second line with an order", ItemFilter(with: .passkey).secondLine(sort: .mostUsed) ?? "nil", "With passkey, most used first")
+    check("filter: second line, order only (changed)", ItemFilter().secondLine(sort: .recentlyChanged) ?? "nil", "Recently changed first")
+    check("filter: second line, order only (name)", ItemFilter().secondLine(sort: .name) ?? "nil", "By name")
+    check("filter: iPhone line, the count alone", ItemFilter().countLine(count: 367, sort: .recentlyUsed), "367 items")
+    check("filter: iPhone line, one item with an entry", ItemFilter(with: .passkey).countLine(count: 1, sort: .recentlyUsed), "1 item, with passkey")
+    check("filter: iPhone line, entry and order", ItemFilter(with: .passkey).countLine(count: 8, sort: .mostUsed), "8 items, with passkey, most used first")
+    check("filter: iPhone line, order only", ItemFilter(show: .custom).countLine(count: 30, sort: .name), "30 items, by name")
+    check("filter: iPhone line leaves out an entry that does not apply", ItemFilter(show: .custom, with: [.passkey, .notes]).countLine(count: 0, sort: .recentlyUsed), "0 items, with notes")
+    check("filter: second line leaves out an entry that does not apply", ItemFilter(show: .custom, with: [.passkey, .notes]).secondLine(sort: .recentlyUsed) ?? "nil", "With notes")
+    check("filter: empty sentence", ItemFilter(show: .custom, with: .notes).emptySentence, "No custom items with notes")
+    check("filter: empty sentence, all", ItemFilter(with: [.passkey, .notes]).emptySentence, "No items with passkey and notes")
+    check("filter: empty sentence, kind only", ItemFilter(show: .logins).emptySentence, "No logins")
+    check("filter: titles", ItemShow.allCases.map(\.title).joined(separator: "/"), "All/Logins/Notes/Custom items")
+    check("filter: headings of the complete list", ItemShow.allCases.map(\.allHeading).joined(separator: "/"), "All items/All logins/All notes/All custom items")
+    expect("filter: cleared", ItemFilter(show: .custom, with: .notes).cleared == ItemFilter())
+    check("filter: saving an item the filter would hide widens it to its kind", ItemFilter(show: .logins).revealing(note).show.rawValue, "notes")
+    expect("filter: and clears With when the kind is not enough", ItemFilter(show: .logins, with: .passkey).revealing(login) == ItemFilter(show: .logins))
+    expect("filter: an item that is listed leaves the filter alone", ItemFilter(show: .logins, with: .notes).revealing(notedLogin) == ItemFilter(show: .logins, with: .notes))
+    expect("filter: the With ticks survive their stored number", ItemWith(rawValue: ItemWith([.passkey, .notes]).rawValue) == [ItemWith.passkey, .notes])
+    check("destination: sidebar rows", "\(VaultDestination.sidebar.count)", "7")
+    check("destination: kinds are Show choices", VaultDestination.allCases.compactMap(\.show).map(\.rawValue).joined(separator: ","), "all,logins,notes,custom")
+}
+do {
+    // The Recently used group: five at most, the last 30 days, newest use first, only above a list of more than five, held still.
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    func item(_ name: String, daysAgo: Double?) -> VaultItem {
+        VaultItem(kind: .login, title: name, lastUsed: daysAgo.map { now.addingTimeInterval(-$0 * 86_400) })
+    }
+    let a = item("a", daysAgo: 0.1), b = item("b", daysAgo: 1), c = item("c", daysAgo: 2), d = item("d", daysAgo: 3)
+    let e = item("e", daysAgo: 4), f = item("f", daysAgo: 5), old = item("old", daysAgo: 31), never = item("never", daysAgo: nil)
+    func names(_ list: [VaultItem]) -> String { list.map(\.title).joined(separator: ",") }
+    let everything = [never, old, f, e, d, c, b, a]
+    check("recent: five, newest use first", names(RecentlyUsed.group(from: everything, now: now)), "a,b,c,d,e")
+    check("recent: nothing older than 30 days or never used", names(RecentlyUsed.group(from: [never, old, a], now: now)), "a")
+    expect("recent: the cutoff is 30 days", RecentlyUsed.cutoff(now: now) == now.addingTimeInterval(-30 * 86_400))
+    expect("recent: exactly 30 days still counts", RecentlyUsed.group(from: [item("edge", daysAgo: 30)], now: now).count == 1)
+    check("recent: the group follows the list it is given", names(RecentlyUsed.group(from: [f, e, never], now: now)), "e,f")
+    check("recent: a list of six has the group", names(RecentlyUsed.visible(snapshot: nil, in: everything, now: now)), "a,b,c,d,e")
+    check("recent: a list of five has none", names(RecentlyUsed.visible(snapshot: nil, in: [a, b, c, d, e], now: now)), "")
+    let held = RecentlyUsed.group(from: everything, now: now).map(\.id)
+    var used = f; used.lastUsed = now
+    check("recent: a held group does not move or take newcomers", names(RecentlyUsed.visible(snapshot: held, in: [never, old, used, e, d, c, b, a], now: now)), "a,b,c,d,e")
+    check("recent: an item that left the list leaves the group", names(RecentlyUsed.visible(snapshot: held, in: [never, old, f, e, d, c, a], now: now)), "a,c,d,e")
+    // Cards: the group, then the live cards A to Z, then the expired ones.
+    func card(_ name: String, daysAgo: Double?, expiry: String = "08/30") -> VaultItem {
+        VaultItem(kind: .creditCard, title: name, secret: "4242424242424242", expiry: expiry, lastUsed: daysAgo.map { now.addingTimeInterval(-$0 * 86_400) })
+    }
+    let cards = [card("G", daysAgo: nil), card("F", daysAgo: 5), card("E", daysAgo: 4), card("D", daysAgo: 3), card("C", daysAgo: 2), card("B", daysAgo: 1),
+                 card("A", daysAgo: 0.1), card("Z old", daysAgo: 0.05, expiry: "03/25")]
+    let order = CardsOrder.ordered(cards, now: now)
+    check("cards: the group holds live cards only", names(order.recent), "A,B,C,D,E")
+    check("cards: all cards A to Z", names(order.live), "A,B,C,D,E,F,G")
+    check("cards: expired last", names(order.expired), "Z old")
 }
 check("note kind", "\(items.first { $0.id == note.id }!.kind)", "secureNote")
 check("custom kind", "\(items.first { $0.id == custom.id }!.kind)", "keePassEntry")
@@ -367,8 +517,9 @@ do {
     check("RFC 6238 SHA-512", vector(.sha512, "1234567890123456789012345678901234567890123456789012345678901234") ?? "", "90693936")
     check("60-second period changes the counter", TOTP.code(secret: "JBSWY3DPEHPK3PXP", settings: TOTPSettings(digits: 6, period: 60, algorithm: .sha1), at: Date(timeIntervalSince1970: 59)) ?? "",
           TOTP.code(secret: "JBSWY3DPEHPK3PXP", settings: TOTPSettings(digits: 6, period: 60, algorithm: .sha1), at: Date(timeIntervalSince1970: 0)) ?? "x")
-    check("grouped 6", TOTP.grouped("482913"), "482 913")
-    check("grouped 8", TOTP.grouped("12345678"), "1234 5678")
+    check("halves 6", TOTP.halves("482913").map { "\($0.first)|\($0.second)" } ?? "nil", "482|913")
+    check("halves 8", TOTP.halves("12345678").map { "\($0.first)|\($0.second)" } ?? "nil", "1234|5678")
+    check("halves of any other length", TOTP.halves("1234567").map { "\($0.first)|\($0.second)" } ?? "nil", "nil")
 
     func parsed(_ text: String) -> TOTPSetup? { if case .setup(let s) = TOTP.parse(text) { s } else { nil } }
     check("bare key with spaces", parsed("jbsw y3dp ehpk 3pxp")?.secret ?? "", "JBSWY3DPEHPK3PXP")
@@ -2974,8 +3125,8 @@ do {  // Provider follow-ups: several identifiers, loopback as written, readable
     let long = DisplayText.safe(String(repeating: "x", count: 5000))
     check("text: 5,000 characters are cut to 80", "\(long.count) \(long.last!)", "80 \u{2026}")
     check("text: a title that fits is not cut", DisplayText.safe(String(repeating: "x", count: 80)).count == 80 ? "ok" : "cut", "ok")
-    check("text: only invisible characters falls back to the placeholder", DisplayText.safe("\u{200B}\u{202E}\u{2060} \u{A0}"), "Untitled")
-    check("text: the fallback can be changed", DisplayText.safe("\u{200B}", empty: ""), "")
+    check("text: only invisible characters leave nothing", DisplayText.safe("\u{200B}\u{202E}\u{2060} \u{A0}"), "")
+    check("text: a placeholder can be given", DisplayText.safe("\u{200B}", empty: "Login"), "Login")
     let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}"
     check("emoji: a ZWJ family survives", DisplayText.safe("a " + family + " b"), "a " + family + " b")
     check("emoji: a ZWJ between letters goes", DisplayText.safe("a\u{200D}b"), "ab")
@@ -2997,7 +3148,70 @@ do {  // Provider follow-ups: several identifiers, loopback as written, readable
     check("title: a safe title", DisplayText.title(of: VaultItem(kind: .login, title: "Mail\u{202E}", website: "x.example")), "Mail")
     check("title: no title uses the readable site", DisplayText.title(of: VaultItem(kind: .login, website: "https://xn--bcher-kva.example")), "b\u{FC}cher.example")
     check("title: an invisible title uses the site", DisplayText.title(of: VaultItem(kind: .login, title: "\u{200B}", website: "example.com")), "example.com")
-    check("title: nothing at all is untitled", DisplayText.title(of: VaultItem(kind: .login)), "Untitled")
+    check("title: nothing at all is the kind", DisplayText.title(of: VaultItem(kind: .login)), "Login")
+    check("title: no title and no site uses the username", DisplayText.title(of: VaultItem(kind: .login, account: "alex\u{202E}@example.net")), "alex@example.net")
+    check("title: a nameless card", DisplayText.title(of: VaultItem(kind: .creditCard, secret: "4242 4242 4242 4417")), "Visa \u{2022}\u{2022} 4417")
+    check("title: a nameless note with only invisible text is the kind", DisplayText.title(of: VaultItem(kind: .secureNote, notes: "\u{200B}")), "Note")
+
+    // Names are optional for every kind (owner, 2026-11-24): `displayTitle` is the name, or one made from what the item holds.
+    func named(_ item: VaultItem) -> String { item.displayTitle }
+    check("name: a typed name wins, trimmed", named(VaultItem(kind: .login, title: "  Mail \n", account: "a", website: "example.com")), "Mail")
+    check("name: a name of spaces is no name", named(VaultItem(kind: .login, title: "   ", website: "https://www.example.com/login")), "example.com")
+    check("name: login, the website's host", named(VaultItem(kind: .login, account: "alex", website: "https://www.example.com/login")), "example.com")
+    check("name: login, else the username", named(VaultItem(kind: .login, account: " alex@example.net ", secret: "x")), "alex@example.net")
+    check("name: login, else the kind", named(VaultItem(kind: .login, secret: "x")), "Login")
+    check("name: custom item, the website's host", named(VaultItem(kind: .keePassEntry, account: "alex", website: "router.example", secret: "x")), "router.example")
+    check("name: custom item, else the username", named(VaultItem(kind: .keePassEntry, account: "admin", secret: "x")), "admin")
+    check("name: custom item, else the kind", named(VaultItem(kind: .keePassEntry, secret: "KEY-1")), "Custom item")
+    check("name: card, brand and last four", named(VaultItem(kind: .creditCard, account: "Alex Example", secret: "4242 4242 4242 4417")), "Visa \u{2022}\u{2022} 4417")
+    check("name: card, the short brand name", named(VaultItem(kind: .creditCard, secret: "378282246310005")), "Amex \u{2022}\u{2022} 0005")
+    check("name: card, the brand alone while the number is short", named(VaultItem(kind: .creditCard, secret: "42")), "Visa")
+    check("name: card, the last four alone when the network is not known", named(VaultItem(kind: .creditCard, secret: "9999 0000 1234")), "\u{2022}\u{2022} 1234")
+    check("name: card, else the kind (the name on the card is not its name)", named(VaultItem(kind: .creditCard, account: "Alex Example")), "Card")
+    check("name: note, its first line", named(VaultItem(kind: .secureNote, notes: "Wi-Fi at home\nnetwork: acorn")), "Wi-Fi at home")
+    check("name: note, empty lines and spaces before the first line are skipped", named(VaultItem(kind: .secureNote, notes: "\n   \n  Door code  \n1234")), "Door code")
+    check("name: note, no punctuation left at the end", named(VaultItem(kind: .secureNote, notes: "Things to remember:\nmilk")), "Things to remember")
+    check("name: note, a long line is cut at a word", named(VaultItem(kind: .secureNote, notes: "The alarm code for the summer house is 4417, and the key is under the pot")), "The alarm code for the summer house is")
+    check("name: note, the cut leaves no comma", named(VaultItem(kind: .secureNote, notes: "Remember the alarm code of the house, then the key")), "Remember the alarm code of the house")
+    expect("name: note, never longer than the limit", named(VaultItem(kind: .secureNote, notes: String(repeating: "word ", count: 40))).count <= VaultItem.noteTitleLength)
+    check("name: note, one long word is cut at the limit", named(VaultItem(kind: .secureNote, notes: String(repeating: "x", count: 90))), String(repeating: "x", count: 40))
+    check("name: note, exactly the limit is kept whole", named(VaultItem(kind: .secureNote, notes: String(repeating: "x", count: 40))), String(repeating: "x", count: 40))
+    check("name: note, else the kind", named(VaultItem(kind: .secureNote, notes: " \n ")), "Note")
+    check("name: note, only punctuation is no name", named(VaultItem(kind: .secureNote, notes: "...")), "Note")
+    check("name: the derived name ignores a typed one (it is the name field's placeholder)", VaultItem(kind: .login, title: "Mail", website: "example.com").derivedTitle, "example.com")
+    for kind in ItemKind.allCases { expect("name: \(kind) is never empty or Untitled", !named(VaultItem(kind: kind)).isEmpty && named(VaultItem(kind: kind)) != "Untitled") }
+    // Search finds an item by what it is called, sort by name orders by it.
+    let namelessCard = VaultItem(kind: .creditCard, secret: "4242424242424417"), namelessNote = VaultItem(kind: .secureNote, notes: "Door code\n1234")
+    expect("name: search finds a nameless card by its brand", ItemSearch.matches(namelessCard, query: "visa"))
+    expect("name: search finds a nameless card by its last four", ItemSearch.matches(namelessCard, query: "4417"))
+    expect("name: search finds a nameless note by its first line", ItemSearch.matches(namelessNote, query: "door"))
+    expect("name: search does not read the rest of a note", !ItemSearch.matches(namelessNote, query: "1234"))
+    check("name: sort by name uses the derived names", ItemSort.name.ordered([namelessCard, namelessNote, VaultItem(kind: .login, website: "acorn.example")]).map(\.displayTitle).joined(separator: "|"), "acorn.example|Door code|Visa \u{2022}\u{2022} 4417")
+    // Save: any content, and a setup key that works if one is typed.
+    for kind in ItemKind.allCases { expect("save: an entirely empty \(kind) cannot be saved", !VaultItem(kind: kind).canSave) }
+    expect("save: spaces are not content", !VaultItem(kind: .login, title: "  ", notes: "\n").canSave)
+    expect("save: a login with only a password", VaultItem(kind: .login, secret: "x").canSave)
+    expect("save: a login with only a username", VaultItem(kind: .login, account: "alex").canSave)
+    expect("save: a card with only a number", VaultItem(kind: .creditCard, secret: "4242").canSave)
+    expect("save: a note with only text", VaultItem(kind: .secureNote, notes: "text").canSave)
+    expect("save: a custom item with only a value", VaultItem(kind: .keePassEntry, secret: "KEY").canSave)
+    expect("save: a name alone is content", VaultItem(kind: .secureNote, title: "Later").canSave)
+    expect("save: a setup key that is not one blocks Save", !VaultItem(kind: .login, website: "example.com", otpSecret: "not a key!").canSave)
+    expect("save: a working setup key alone is content", VaultItem(kind: .login, otpSecret: "JBSWY3DPEHPK3PXP").canSave)
+    // One field order for the item page, edit in place and the new-item sheet.
+    func order(_ kind: ItemKind) -> String { VaultItem.firstCardFields(for: kind).map { "\($0)" }.joined(separator: ",") }
+    check("order: login", order(.login), "website,account,secret")
+    check("order: card", order(.creditCard), "secret,expiry,securityCode,account")
+    check("order: custom item", order(.keePassEntry), "website,account,secret")
+    check("order: a note's text is its only card", order(.secureNote), "")
+    check("order: the page shows only what is filled, in that order",
+          VaultItem(kind: .creditCard, account: "Alex", secret: "4242", securityCode: "123").filledFirstCardFields.map { "\($0)" }.joined(separator: ","), "secret,securityCode,account")
+    check("order: a field the kind does not edit is still shown, last",
+          VaultItem(kind: .creditCard, website: "bank.example", secret: "4242").filledFirstCardFields.map { "\($0)" }.joined(separator: ","), "secret,website")
+    expect("optional: the content of each kind is not marked optional", !VaultItem.isOptional(.secret, for: .login) && !VaultItem.isOptional(.secret, for: .creditCard)
+           && !VaultItem.isOptional(.secret, for: .keePassEntry) && !VaultItem.isOptional(.notes, for: .secureNote))
+    expect("optional: everything else is", VaultItem.isOptional(.website, for: .login) && VaultItem.isOptional(.account, for: .login) && VaultItem.isOptional(.notes, for: .login)
+           && VaultItem.isOptional(.expiry, for: .creditCard) && VaultItem.isOptional(.securityCode, for: .creditCard) && VaultItem.isOptional(.account, for: .creditCard))
 
     // The Mac App Group comes from the entitlement only when it carries a team identifier
     check("group: team-prefixed", SharedVault.teamPrefixedGroup(in: ["ABCDE12345.app.psss"]) ?? "nil", "ABCDE12345.app.psss")
@@ -3360,7 +3574,8 @@ do {  // The words and dates of Recently Deleted
     check("delete one, sheet message", RecentlyDeletedText.deleteOneSheetMessage(name: "Acorn Fitness"),
           "Delete “Acorn Fitness” for good? It is removed from this vault and cannot be recovered. Backup copies of the vault may still hold it.")
     check("undo sentence", RecentlyDeletedText.movedMessage(title: "Acorn Fitness"), "“Acorn Fitness” moved to Recently Deleted")
-    check("editor line", RecentlyDeletedText.editorDeleteLine, "Moves this item to Recently Deleted. You can bring it back for 30 days.")
+    check("editor button", RecentlyDeletedText.moveButton, "Move to Recently Deleted")
+    check("editor line", RecentlyDeletedText.editorDeleteLine, "You can bring it back for 30 days.")
     check("detail footer", RecentlyDeletedText.detailFooter, "To change this item, restore it first.")
     check("empty title", RecentlyDeletedText.emptyTitle, "Nothing deleted recently")
 
@@ -3505,6 +3720,126 @@ do {  // Setup says whether a key file is part of the vault's key
     try await keyed.unlock(credentials: .init(password: "pw2"))
     check("the next unlock still says password only", keyed.store!.reference.encryptionDescription, "A KeePass file, encrypted with your vault password.")
     keyed.forget()
+}
+
+// KeePass fields display before any mapping and survive mapping, editing and reopening.
+do {
+    let credentials = KDBXCredentials(password: "mapping fixture")
+    let document = try KDBX.create(name: "Field mapping", credentials: credentials, kdf: light)
+    let card = VaultItem(kind: .keePassEntry, title: "Company Visa")
+    let login = VaultItem(kind: .keePassEntry, title: "Support account", secret: "other saved value")
+    document.upsert([card, login])
+
+    func node(_ id: UUID, in document: KDBXDocument) -> XNode {
+        document.rootGroup!.children(named: "Entry").first { EntryMapping.uuid(of: $0) == id }!
+    }
+
+    func add(_ name: String, _ text: String, concealed: Bool = false, to entry: XNode) {
+        let value = XNode("Value", text: text)
+        if concealed { value.setAttribute("Protected", "True") }
+        entry.children.append(XNode("String", children: [XNode("Key", text: name), value]))
+    }
+
+    let cardNode = node(card.id, in: document)
+    add("Card No.", "4242 4242 4242 4242", to: cardNode)
+    add("Valid Thru", "08/2030", to: cardNode)
+    add("CVV", "007", concealed: true, to: cardNode)
+    add("Expiry", "issuer membership expiry", to: cardNode)
+    add("Issuer phone", "", to: cardNode)
+    add("KPXC_PASSKEY_PRIVATE_KEY_PEM", "foreign passkey data", to: cardNode)
+    var projected = document.items().first { $0.id == card.id }!
+    expect("custom strings show in file order, excluding internal passkey fields",
+           projected.otherFields?.map(\.key) == ["Card No.", "Valid Thru", "CVV", "Expiry", "Issuer phone"])
+    expect("both the flag and card number label conceal values",
+           projected.otherFields?.filter(\.concealed).map(\.key) == ["Card No.", "CVV"])
+    let codeField = projected.otherFields!.first { $0.key == "CVV" }!
+    let blankField = projected.otherFields!.first { $0.key == "Issuer phone" }!
+    var fieldDraft = projected
+    fieldDraft.editOtherField(codeField, value: "012")
+    fieldDraft.editOtherField(blankField, value: "First line\nSecond line")
+    expect("editing only Other fields marks the draft as changed", fieldDraft.hasChanges(from: projected))
+    try document.validateOtherFieldEdits([fieldDraft])
+    expect("editing only Other fields writes the entry", document.upsert(fieldDraft.savedForm))
+    expect("the raw protection flag survives an edit to the value",
+           EntryMapping.strings(cardNode)["CVV"]?.isProtected == true)
+    check("an empty custom field can take a multiline value", EntryMapping.string(cardNode, "Issuer phone") ?? "", "First line\nSecond line")
+    do {
+        try document.validateOtherFieldEdits([fieldDraft])
+        expect("an old custom field draft is rejected", false)
+    } catch VaultStoreError.editedFieldsChanged {
+        check("an old draft cannot overwrite the updated value", EntryMapping.string(cardNode, "CVV") ?? "", "012")
+    }
+    projected = document.items().first { $0.id == card.id }!
+    projected.notes = "ordinary edit"
+    document.upsert(projected)
+    check("a non-card edit keeps custom Expiry", EntryMapping.string(cardNode, "Expiry") ?? "", "issuer membership expiry")
+
+    var mapping = ItemFieldMapping.suggested(for: .creditCard, fields: projected.sourceFields ?? [], defaults: nil)
+    check("unique role alias supplies the card number", mapping[.cardNumber] ?? "", "Card No.")
+    expect("overlapping expiry aliases are left unassigned", mapping[.expiry] == nil)
+    mapping[.expiry] = "Valid Thru"
+    let raw = XMLTree.serialize(XNode("Strings", children: cardNode.children(named: "String")))
+    let historyCount = cardNode.child("History")?.children.count ?? 0
+    var invalid = mapping
+    invalid[.securityCode] = "Card No."
+    do {
+        _ = try document.mapFields(invalid, of: card.id)
+        expect("duplicate source field is rejected", false)
+    } catch VaultStoreError.invalidFieldMapping {
+        expect("invalid mapping wrote no metadata", EntryMapping.fieldMapping(cardNode) == nil)
+    }
+    let mapped = try document.mapFields(mapping, of: card.id)
+    expect("card mapping is written exactly once", mapped && EntryMapping.fieldMapping(cardNode) == mapping)
+    expect("mapping keeps all KeePass strings and protection flags byte-for-byte",
+           raw == XMLTree.serialize(XNode("Strings", children: cardNode.children(named: "String"))))
+    expect("the earlier version is preserved", (cardNode.child("History")?.children.count ?? 0) == historyCount + 1)
+
+    let loginNode = node(login.id, in: document)
+    add("Account name", "sam@example.test", to: loginNode)
+    add("Login password", "login password", concealed: true, to: loginNode)
+    add("Login URL", "https://example.test", to: loginNode)
+    let loginMap = ItemFieldMapping.suggested(for: .login, fields: EntryMapping.mappingFields(loginNode), defaults: nil)
+    expect("competing password aliases need a choice", loginMap[.password] == nil)
+    var confirmedLogin = loginMap
+    confirmedLogin[.password] = "Login password"
+    try document.mapFields(confirmedLogin, of: login.id)
+
+    let bytes = try KDBX.save(document)
+    let reopened = try KDBX.open(bytes, credentials: credentials)
+    projected = reopened.items().first { $0.id == card.id }!
+    expect("mapped card survives reopen and retains its original expiry text",
+           projected.kind == .creditCard && projected.fieldMapping == mapping && projected.expiry == "08/2030")
+    expect("unassigned fields stay visible as stored",
+           projected.otherFields?.contains { $0.key == "Expiry" && $0.value == "issuer membership expiry" } == true)
+    projected.securityCode = "001"
+    reopened.upsert(projected.savedForm)
+    let reopenedCard = node(card.id, in: reopened)
+    check("editing writes the original custom security-code key", EntryMapping.string(reopenedCard, "CVV") ?? "", "001")
+    check("editing another field leaves source expiry formatting alone", EntryMapping.string(reopenedCard, "Valid Thru") ?? "", "08/2030")
+
+    var projectedLogin = reopened.items().first { $0.id == login.id }!
+    expect("native fill uses the confirmed custom login and site roles",
+           projectedLogin.fillValue(for: .password) == "login password" &&
+           projectedLogin.fillValue(for: .username) == "sam@example.test" &&
+           ReleaseCheck.password(item: projectedLogin, serviceIdentifier: "example.test") &&
+           !ReleaseCheck.password(item: projectedLogin, serviceIdentifier: "other.test"))
+    projectedLogin.secret = "replacement password"
+    reopened.upsert(projectedLogin)
+    let reopenedLogin = node(login.id, in: reopened)
+    check("mapped login writes to the selected source", EntryMapping.string(reopenedLogin, "Login password") ?? "", "replacement password")
+    check("mapped login keeps the original standard Password field", EntryMapping.string(reopenedLogin, "Password") ?? "", "other saved value")
+    expect("password history uses the mapped source", reopened.previousPasswords(of: login.id).contains { $0.password == "login password" })
+    let missing = reopenedLogin.children(named: "String").first { $0.child("Key")?.text == "Login password" }!
+    reopenedLogin.children.removeAll { $0 === missing }
+    projectedLogin = reopened.items().first { $0.id == login.id }!
+    expect("external removal disables the incomplete login mapping",
+           projectedLogin.fieldMappingNeedsReview == true && projectedLogin.kind == .keePassEntry &&
+           !ReleaseCheck.password(item: projectedLogin, serviceIdentifier: "example.test"))
+
+    try reopened.mapFields(.init(kind: .keePassEntry), of: card.id)
+    projected = reopened.items().first { $0.id == card.id }!
+    expect("clearing restores the source names and keeps the value",
+           projected.kind == .keePassEntry && projected.otherFields?.contains { $0.key == "CVV" && $0.value == "001" } == true)
 }
 
 print(failures == 0 ? "all passed" : "\(failures) failed")

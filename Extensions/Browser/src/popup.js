@@ -25,6 +25,16 @@
   const pageHost = new URL(origin).host;
   siteEl.textContent = pageHost;
 
+  let checkout = false;
+  try {
+    const [{ result } = {}] = await api.scripting.executeScript({
+      target: { tabId: tab.id, frameIds: [0] }, func: psssFillPage, args: [{}, 'probe-card', origin]
+    });
+    checkout = result?.checkout === true;
+  } catch {
+    // The login picker can still open when access to the page has not been granted.
+  }
+
   const reply = await Host.candidates(origin);
   if (!reply.ok) {
     say({
@@ -34,9 +44,19 @@
     return;
   }
 
-  render(listEl, reply.candidates.map((c) => ({ ...c, matches: true })));
+  const logins = reply.candidates.map((c) => ({ ...c, matches: true }));
+  let sampleCards = [];
+  if (checkout) {
+    const cards = await Host.cardCandidates(origin);
+    if (cards.ok && cards.candidates.length) {
+      sampleCards = cards.candidates.map((c) => ({ ...c, card: true, matches: true }));
+    }
+  }
+  render(listEl, [...logins, ...sampleCards]);
   searchEl.hidden = false;
-  if (!reply.candidates.length) {
+  if (sampleCards.length) {
+    say('Sample cards are available for this checkout.');
+  } else if (!logins.length) {
     say('No saved logins for this site. Search all logins below.');
     queryEl.focus();
   }
@@ -125,9 +145,9 @@
     }
     const button = document.createElement('button');
     button.type = 'button';
-    button.textContent = c.matches ? 'Fill' : 'Fill…';
-    button.setAttribute('aria-label', `${c.matches ? 'Fill' : 'Fill, saved for another site:'} ${c.account} on ${pageHost}`);
-    button.addEventListener('click', () => (c.matches ? fill(c.ref, button, false) : confirmFill(li, c)));
+    button.textContent = c.card ? 'Fill card' : c.matches ? 'Fill' : 'Fill…';
+    button.setAttribute('aria-label', `${c.matches ? 'Fill' : 'Fill, saved for another site:'} ${c.card ? c.title : c.account} on ${pageHost}`);
+    button.addEventListener('click', () => (c.matches ? fill(c.ref, button, false, c.card) : confirmFill(li, c)));
     li.append(text, button);
     return li;
   }
@@ -156,7 +176,7 @@
     cancel.focus();
   }
 
-  async function fill(ref, button, manual) {
+  async function fill(ref, button, manual, card = false) {
     button.disabled = true;
     // Revalidate: the tab may have navigated while the popup was open.
     const [current] = await api.tabs.query({ active: true, currentWindow: true });
@@ -164,14 +184,15 @@
       say('The page changed. Open Psss again.');
       return;
     }
-    const cred = await Host.credential(ref, origin, manual);
-    if (!cred.ok) { say('Psss could not release that login.'); button.disabled = false; return; }
+    const cred = card ? await Host.card(ref, origin) : await Host.credential(ref, origin, manual);
+    if (!cred.ok) { say(card ? 'Psss could not release that card.' : 'Psss could not release that login.'); button.disabled = false; return; }
+    const fields = cred.fields ?? { username: cred.account, 'current-password': cred.secret };
     const [{ result } = {}] = await api.scripting.executeScript({
       target: { tabId: tab.id, frameIds: [0] },
       func: psssFillPage,
-      args: [cred.account, cred.secret]
+      args: [fields, card ? 'card' : 'login', origin]
     });
     if (result?.filled?.length) window.close();
-    else { say('No sign-in fields found on this page.'); button.disabled = false; }
+    else { say(card ? 'No matching checkout fields found on this page.' : 'No sign-in fields found on this page.'); button.disabled = false; }
   }
 })();

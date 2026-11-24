@@ -47,6 +47,9 @@ enum VaultStoreError: Error, Equatable {
     case changedOnDisk
     case fileMissing
     case writeFailed(String)
+    case itemUnavailable
+    case invalidFieldMapping(String)
+    case editedFieldsChanged
     /// The vault file exists but could not be read, so the check for changes cannot be made and nothing was written.
     case unreadable
 }

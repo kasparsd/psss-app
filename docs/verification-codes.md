@@ -31,7 +31,7 @@ Everything is decoded on the device. Nothing is uploaded and the image is never 
 
 ## Copy
 
-- Row: “Verification code (optional)”, button “Add code”, then “Replace code” and “Remove code”.
+- Row: “Setup key (optional)” under the “Verification code” heading, button “Add code”, then “Replace code” and “Remove code”.
 - Sheet title “Add verification code”. Text: “Copy the setup key or QR code from the site. Psss reads it on this device. Nothing is uploaded.”
 - Same-device hint: “On this phone? On the site, tap “Can’t scan?”, copy the key, then tap Paste. Or take a screenshot, tap it, choose Copy and Delete, then tap Paste.”
 - Confirm: “Type this code into the site to finish turning on two-step verification.” Buttons “Save code”, “Cancel”.
@@ -43,7 +43,7 @@ Approved 2026-11-23. Codes, one of the three places (a tab on iPhone and iPad, t
 
 There is no countdown on the list (removed at the owner's request, 2026-11-23: a distraction). The code button changes by itself every second; the login's page keeps the countdown ring.
 
-A login whose setup key cannot make a code (a bad secret, an `otpauth://` link that does not parse) stays in the list like any other but its row has no code button and no message, warning or icon (owner, 2026-11-23): the list stays quiet. Tapping the row opens the login, and only there does the code row explain it, in plain words: “Psss can't make a code from this setup key. Replace it with a new key from the website.” with a labeled “Replace Code…” button that opens the editor at the code step. Same on iPhone, iPad and Mac.
+A login whose setup key cannot make a code (a bad secret, an `otpauth://` link that does not parse) stays in the list like any other but its row has no code button and no message, warning or icon (owner, 2026-11-23): the list stays quiet. Tapping the row opens the login, and only there does the code row explain it, in plain words: “Psss can't make a code from this setup key. Replace it with a new key from the website.” with a labeled “Replace Code…” button that turns the page into the editor at the code step. Same on iPhone, iPad and Mac.
 
 ## Deferred, in order
 
@@ -56,4 +56,4 @@ A login whose setup key cannot make a code (a bad secret, an `otpauth://` link t
 ## Known gaps
 
 - Typing a different bare setup key over a login that has non-default digits or period keeps the old parameters. Paste the full link to change them.
-- Cancelling the editor after “Save code” keeps a new login that was stored early.
+- Cancelling the editor (the new-item sheet, or an item's page in edit mode) after “Save code” keeps the code that was stored early.

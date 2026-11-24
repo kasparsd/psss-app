@@ -187,17 +187,17 @@ struct RecentlyDeletedDetail: View {
     @State private var copied: FieldKey?
     @State private var pill = CopiedPillModel()
 
-    private enum FieldKey: Hashable { case account, secret, expiry, securityCode, website, notes }
+    private typealias FieldKey = ItemField
 
     private var item: VaultItem { entry.item }
 
-    private var secretLabel: LocalizedStringResource {
-        switch item.kind {
-        case .login: "Password"
-        case .creditCard: "Card number"
-        case .keePassEntry: "Value"
-        case .secureNote: "Secret"
-        }
+    private var hasNotes: Bool { !item.notes.isEmpty }
+    private var hasOtherFields: Bool { item.otherFields?.isEmpty == false }
+
+    private var footer: some View {
+        Text(verbatim: RecentlyDeletedText.detailFooter)
+            .font(.body)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     var body: some View {
@@ -228,17 +228,30 @@ struct RecentlyDeletedDetail: View {
                 .textCase(nil)
                 .padding(.vertical, 8)
             }
-            Section {
-                if !item.account.isEmpty { field(.account, item.kind == .creditCard ? "Name on card" : "Username", item.account) }
-                if !item.secret.isEmpty { field(.secret, secretLabel, item.secret, hidden: true) }
-                if !item.expiry.isEmpty { field(.expiry, "Expiry", item.expiry) }
-                if !item.securityCode.isEmpty { field(.securityCode, "Security code", item.securityCode, hidden: true) }
-                if !item.website.isEmpty { field(.website, "Website", item.website) }
-                if !item.notes.isEmpty { field(.notes, "Notes", item.notes) }
-            } footer: {
-                Text(verbatim: RecentlyDeletedText.detailFooter)
-                    .font(.body)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            // The same groups and order as the vault's own page (owner, 2026-11-24): what you copy to sign in or pay, then the notes.
+            // The line about the 30 days sits under the last card.
+            if !item.filledFirstCardFields.isEmpty {
+                Section {
+                    ForEach(item.filledFirstCardFields, id: \.self) { field($0) }
+                } footer: {
+                    if !hasNotes && !hasOtherFields { footer }
+                }
+            }
+            if hasNotes {
+                Section {
+                    field(.notes)
+                } footer: {
+                    if !hasOtherFields { footer }
+                }
+            }
+            if let fields = item.otherFields, !fields.isEmpty {
+                Section {
+                    OtherStoredFields(fields: fields, hideSignal: hideSignal, pill: pill)
+                } header: {
+                    Text("Other fields")
+                } footer: {
+                    footer
+                }
             }
         }
         .formStyle(.grouped)
@@ -275,15 +288,17 @@ struct RecentlyDeletedDetail: View {
         .padding(.vertical, 4)
     }
 
-    private func field(_ key: FieldKey, _ label: LocalizedStringResource, _ value: String, hidden: Bool = false) -> some View {
-        FieldRow(label: label, value: value,
-                 shown: key == .secret ? item.spacedSecret : value,
-                 masked: key == .secret ? item.maskedSecret : VaultItem.hiddenMask,
-                 hidden: hidden,
-                 revealed: Binding(get: { revealed.contains(key) },
-                                   set: { if $0 { revealed.insert(key) } else { revealed.remove(key) } }),
-                 copied: copied == key,
-                 copy: { copy(value, as: key, name: String(localized: label)) })
+    private func field(_ key: FieldKey) -> some View {
+        let label = key.label(for: item.kind)
+        let value = key == .expiry ? CardExpiry.displayed(item.expiry) : item[key]
+        return FieldRow(label: label, value: value,
+                        shown: key == .secret ? item.spacedSecret : value,
+                        masked: key == .secret ? item.maskedSecret : VaultItem.hiddenMask,
+                        hidden: key == .secret || key == .securityCode || item.concealedFields?.contains(key.rawValue) == true,
+                        revealed: Binding(get: { revealed.contains(key) },
+                                          set: { if $0 { revealed.insert(key) } else { revealed.remove(key) } }),
+                        copied: copied == key,
+                        copy: { copy(value, as: key, name: String(localized: label)) })
     }
 
     private func copy(_ value: String, as key: FieldKey, name: String) {

@@ -94,10 +94,11 @@ extension KDBXDocument {
     /// Every version of the entry's password, oldest first, ending with the current one. A version's time is when that version
     /// was last modified.
     private func passwordVersions(of entry: XNode) -> [(password: String, time: Date?)] {
+        let key = EntryMapping.fieldMapping(entry)?[.password] ?? "Password"
         var versions = Self.ordered(entry.child("History")?.children ?? []).map {
-            (password: EntryMapping.string($0, "Password") ?? "", time: Self.modificationTime(of: $0))
+            (password: EntryMapping.string($0, key) ?? "", time: Self.modificationTime(of: $0))
         }
-        versions.append((EntryMapping.string(entry, "Password") ?? "", Self.modificationTime(of: entry)))
+        versions.append((EntryMapping.string(entry, key) ?? "", Self.modificationTime(of: entry)))
         return versions
     }
 

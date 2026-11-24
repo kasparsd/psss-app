@@ -64,7 +64,7 @@ enum SharedVault {
     /// A login is offered on its own host and on subdomains of it, never on its parent and never under a public suffix
     /// (see `SiteMatch`).
     static func matches(_ item: VaultItem, host requested: String) -> Bool {
-        guard item.kind == .login, !item.website.isEmpty else { return false }
+        guard item.fillValue(for: .loginWebsite) != nil else { return false }
         return SiteMatch.matches(stored: item.website, requested: requested)
     }
 
@@ -114,24 +114,24 @@ enum SharedVault {
 
     /// True for a login with a one-time code setup that makes a code now. The provider offers a code only for such a login.
     static func hasReadableCode(_ item: VaultItem) -> Bool {
-        item.kind == .login && !item.otpSecret.isEmpty && TOTP.code(secret: item.otpSecret, settings: item.otpSettings) != nil
+        item.fillValue(for: .oneTimeCode) != nil
     }
 
     private static func identities(for items: [VaultItem]) -> [any ASCredentialIdentity] {
         var identities: [any ASCredentialIdentity] = items.compactMap { item in
-            guard item.kind == .login, !item.website.isEmpty, !item.account.isEmpty, !item.secret.isEmpty else { return nil }
-            let site = host(item.website)
+            guard item.fillValue(for: .password) != nil, !item.visibleWebsite.isEmpty, !item.visibleAccount.isEmpty else { return nil }
+            let site = host(item.visibleWebsite)
             guard !site.isEmpty else { return nil }  // malformed website: nothing to register
             return ASPasswordCredentialIdentity(
                 serviceIdentifier: ASCredentialServiceIdentifier(identifier: site, type: .domain),
-                user: item.account,
+                user: item.visibleAccount,
                 recordIdentifier: item.id.uuidString)
         }
         identities += items.compactMap { item in
             guard let passkey = item.passkey else { return nil }
             return ASPasskeyCredentialIdentity(
                 relyingPartyIdentifier: passkey.rpID,
-                userName: item.account.isEmpty ? item.displayTitle : item.account,
+                userName: item.visibleAccount.isEmpty ? item.displayTitle : item.visibleAccount,
                 credentialID: passkey.credentialID,
                 userHandle: passkey.userHandle,
                 recordIdentifier: item.id.uuidString)
@@ -141,11 +141,11 @@ enum SharedVault {
         if #available(iOS 18.0, macOS 15.0, *) {
             identities += items.compactMap { item in
                 guard hasReadableCode(item) else { return nil }
-                let site = host(item.website)
+                let site = host(item.visibleWebsite)
                 guard !site.isEmpty else { return nil }
                 return ASOneTimeCodeCredentialIdentity(
                     serviceIdentifier: ASCredentialServiceIdentifier(identifier: site, type: .domain),
-                    label: item.account.isEmpty ? item.displayTitle : item.account,
+                    label: item.visibleAccount.isEmpty ? item.displayTitle : item.visibleAccount,
                     recordIdentifier: item.id.uuidString)
             }
         }
