@@ -17,7 +17,7 @@ const code: Command = {
     'Prints the six-digit (or longer) code and a line break on standard output, and nothing else. The setup key behind it is never printed.',
     'In a terminal, standard error says how many seconds the code is still valid. --json gives { code, period, remaining } and the item.',
     'Takes the item, "psss://Example Bank", or its code field, "psss://Example Bank/code".',
-    'An item with no verification code exits 3. A title matches exactly, ignoring case; a name that matches two items lists them and exits 3.',
+    'An item with no verification code exits 3; a stored field that is only called "code" is not one. A title matches exactly, ignoring case; a name that matches two items lists them and exits 3.',
   ],
   async run(ctx) {
     const typed = ctx.positionals[0];
@@ -31,7 +31,7 @@ const code: Command = {
     const svc = await ctx.service();
     let selector: ItemSelector;
     if (resolved === undefined) {
-      const items = ctx.unwrap(await svc.list({})).filter((i) => i.fields.includes('code'));
+      const items = ctx.unwrap(await svc.list({})).filter((i) => i.hasCode === true);
       const item = await chooseItem(ctx, vault.name, items, `No item in ${vault.name} has a verification code.`);
       selector = { id: item.id };
     } else {
@@ -40,7 +40,12 @@ const code: Command = {
     const got = await svc.code(selector);
     if (!got.ok && got.kind === 'notFound' && got.what === 'field') {
       const has = got.fields && got.fields.length > 0 ? `\nIt has: ${got.fields.map((f) => printable(f)).join(', ')}.` : '';
-      throw new CliError(`"${got.item === undefined ? 'That item' : printable(got.item)}" has no verification code.${has}`, EXIT_NOT_FOUND);
+      const name = got.item === undefined ? 'That item' : printable(got.item);
+      // a stored field called "code" is a value; there is no command that turns it into a code, the app adds a setup key
+      const plain = (got.fields ?? []).some((f) => f.toLowerCase() === 'code')
+        ? `\nIts field called "code" is a stored value, not a verification code, and the item has no setup key. To make one, add a verification code to the item in the Psss app.`
+        : '';
+      throw new CliError(`"${name}" has no verification code.${plain}${has}`, EXIT_NOT_FOUND);
     }
     if (!got.ok) throw failureError(ctx.io, got, { field: 'code' });
     const { item, code: value, period, remaining } = got.value;

@@ -43,8 +43,10 @@ const history: Command = {
   details: [
     'psss history "psss://Example Bank" lists what changed and when, newest first: the fields, never their values.',
     'psss history "psss://Example Bank/password" lists when each earlier value was replaced; --show prints the values too, one per line.',
-    'Dates are UTC. Only what this computer still holds is listed: a vault that was compacted keeps the current value of each field and the',
-    'earlier passwords, not every earlier value of the other fields.',
+    'Dates are UTC. An item that was imported is dated by when it was imported; its earlier passwords keep the dates the file gave them.',
+    'Only what this computer still holds is listed: a vault that was compacted keeps the current value of each field and the earlier passwords,',
+    'so a row may name only some of the fields of a write, and an older write that a later one replaced is gone.',
+    'The verification code is made fresh each time and has no earlier values.',
     'An item in Recently Deleted has a history too. A title matches exactly, ignoring case; a name that matches two items lists them and exits 3.',
   ],
   async run(ctx) {
@@ -89,12 +91,17 @@ const history: Command = {
       ctx.json({ item: itemJson, field: jsonName(outcome.field), earlier: outcome.earlier.map((e) => ({ replaced: isoOf(e.replaced), ...(show && e.value !== undefined ? { value: e.value } : {}) })) });
       return 0;
     }
+    if (outcome.computed) {
+      ctx.err('The verification code is made fresh each time; it has no earlier values.\n');
+      return 0;
+    }
     if (outcome.earlier.length === 0) {
       ctx.err(`"${printable(item.title)}" has no earlier value of "${printable(outcome.field)}".\n`);
       return 0;
     }
     // A value is shown on one line: a line break or a direction character in it is written as \u{a}, never sent to the terminal (--json has it exactly).
-    ctx.out(outcome.earlier.map((e) => `Replaced ${whenOf(e.replaced)}${show && e.value !== undefined ? `  ${printable(e.value, Infinity)}` : ''}\n`).join(''));
+    // a date that cannot be shown is padded to the width of a real one, which only lines up a value that follows it: a line with no value has no trailing spaces
+    ctx.out(outcome.earlier.map((e) => (show && e.value !== undefined ? `Replaced ${whenOf(e.replaced)}  ${printable(e.value, Infinity)}` : `Replaced ${whenOf(e.replaced).trimEnd()}`) + '\n').join(''));
     if (!show && ctx.io.isTTY.stdout) ctx.err(`The values are hidden. Print them with: psss history ${shellQuote(typed ?? '')} --show\n`);
     return 0;
   },

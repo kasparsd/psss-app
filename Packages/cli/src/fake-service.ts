@@ -3,7 +3,8 @@
 
 import path from 'node:path';
 import { nearTitles } from './near.ts';
-import { matchesSearch, searchTerm } from './search.ts';
+import { matchesSearch, searchTerm, swiftTrim } from './search.ts';
+import type { SearchableItem } from './search.ts';
 import { printable } from './text.ts';
 import type {
   Candidate,
@@ -50,6 +51,10 @@ export interface FakeItem {
   /** Field name to value. `username` and `url` are separate properties and are also readable as fields. */
   fields?: Record<string, string>;
   deleted?: boolean;
+  /** The item type of the format: 1 login (default), 2 card (its number is the field `card`), 3 secure note (its text is the field `notes`), 4 custom item. */
+  kind?: number;
+  /** The field called `code` is an ordinary stored value, not a verification code. Default: it is a verification code. */
+  plainCode?: boolean;
   /** Changes of the item, newest first. Default: one `added` change. */
   changes?: ChangeEvent[];
   /** Earlier values per field, newest first. A `set` adds to it. */
@@ -116,6 +121,8 @@ interface Row {
   group: string;
   fields: Record<string, string>;
   deleted: boolean;
+  kind: number;
+  plainCode: boolean;
   previous: Record<string, string[]>;
   changes: ChangeEvent[];
   earlier: Record<string, Array<{ replaced: number; value: string }>>;
@@ -145,6 +152,8 @@ export class FakeVaultService implements VaultService {
       group: i.group ?? this.groups()[0],
       fields: { ...(i.fields ?? {}) },
       deleted: i.deleted ?? false,
+      kind: i.kind ?? 1,
+      plainCode: i.plainCode ?? false,
       previous: {},
       changes: i.changes ? i.changes.map((c) => ({ ...c, fields: [...c.fields] })) : [{ at: Date.UTC(2026, 9, 2, 8, 0), kind: 'added' as const, fields: [] }],
       earlier: Object.fromEntries(Object.entries(i.earlier ?? {}).map(([k, v]) => [k, v.map((e) => ({ ...e }))])),
@@ -171,10 +180,14 @@ export class FakeVaultService implements VaultService {
   }
 
   private summary(i: Row): ItemSummary {
-    const out: ItemSummary = { id: i.id, title: i.title, group: i.group, fields: Object.keys(i.fields), deleted: i.deleted };
+    const out: ItemSummary = { id: i.id, title: i.title, group: i.group, fields: Object.keys(i.fields), hasCode: this.hasCode(i), deleted: i.deleted };
     if (i.username !== undefined) out.username = i.username;
     if (i.url !== undefined) out.url = i.url;
     return out;
+  }
+
+  private hasCode(i: Row): boolean {
+    return Object.hasOwn(i.fields, 'code') && !i.plainCode;
   }
 
   private candidate(i: Row): Candidate {
@@ -344,6 +357,10 @@ export class FakeVaultService implements VaultService {
     return { ok: true, value: { item: this.summary(item), field, value } };
   }
 
+  private searchable(i: Row): SearchableItem {
+    return { title: i.title, kind: i.kind, ...(i.username !== undefined ? { username: i.username } : {}), ...(i.url !== undefined ? { url: i.url } : {}), ...(i.fields.notes !== undefined ? { notes: i.fields.notes } : {}), ...(i.fields.card !== undefined ? { cardNumber: i.fields.card } : {}) };
+  }
+
   private clock(): number {
     return this.scenario.now ?? Date.UTC(2026, 10, 24, 12, 0);
   }
@@ -359,10 +376,10 @@ export class FakeVaultService implements VaultService {
     const term = searchTerm(query.text);
     const scoped = this.rows().filter((i) => i.deleted === (query.deleted ?? false) && (group === undefined || i.group === group));
     const items = scoped
-      .filter((i) => matchesSearch(i, term))
+      .filter((i) => matchesSearch(this.searchable(i), term))
       .map((i) => this.summary(i))
       .sort((a, b) => a.title.localeCompare(b.title, 'en') || a.id.localeCompare(b.id));
-    const hints = items.length === 0 ? nearTitles(query.text.trim(), scoped.map((i) => i.title)) : [];
+    const hints = items.length === 0 ? nearTitles(swiftTrim(query.text), scoped.map((i) => i.title)) : [];
     return { ok: true, value: { items, hints } };
   }
 
@@ -382,6 +399,7 @@ export class FakeVaultService implements VaultService {
     const key = Object.keys(item.fields).find((k) => k.toLowerCase() === request.field!.toLowerCase());
     const named = ['username', 'url'].includes(request.field.toLowerCase()) ? request.field.toLowerCase() : key;
     if (named === undefined) return { ok: false, kind: 'notFound', what: 'field', name: request.field, vault: this.vaultName, item: item.title, fields: Object.keys(item.fields) };
+    if (named.toLowerCase() === 'code' && this.hasCode(item)) return { ok: true, value: { mode: 'field', item: this.summary(item), field: 'code', earlier: [], computed: true } };
     const earlier: EarlierValue[] = (item.earlier[named] ?? []).map((e) => ({ replaced: e.replaced, ...(request.show === true ? { value: e.value } : {}) }));
     return { ok: true, value: { mode: 'field', item: this.summary(item), field: named, earlier } };
   }
@@ -394,10 +412,10 @@ export class FakeVaultService implements VaultService {
     if (!r.ok) return r;
     if (r.value === null) return this.missing('title' in selector ? selector.title : selector.id, 'title' in selector ? 'title' : 'id');
     const item = r.value;
-    if (Object.hasOwn(item.fields, 'code') && (this.scenario.codeUnsupported ?? []).includes(item.title)) {
+    if (this.hasCode(item) && (this.scenario.codeUnsupported ?? []).includes(item.title)) {
       return { ok: false, kind: 'failed', message: `The verification code of "${printable(item.title)}" cannot be made: its setup key asks for an algorithm Psss does not support (7).` };
     }
-    if (!Object.hasOwn(item.fields, 'code')) return { ok: false, kind: 'notFound', what: 'field', name: 'code', vault: this.vaultName, item: item.title, fields: Object.keys(item.fields) };
+    if (!this.hasCode(item)) return { ok: false, kind: 'notFound', what: 'field', name: 'code', vault: this.vaultName, item: item.title, fields: Object.keys(item.fields) };
     return { ok: true, value: { item: this.summary(item), code: item.fields.code, period: 30, remaining: this.scenario.codeRemaining ?? 21 } };
   }
 
@@ -414,9 +432,11 @@ export class FakeVaultService implements VaultService {
       if (!options.create) return this.missing(selector.title);
       itemCreated = true;
       const group = r.group ?? this.groups()[0];
-      item = { id: this.newId(), title: selector.title, group, fields: {}, deleted: false, previous: {}, changes: [{ at: this.clock(), kind: 'added', fields: [field] }], earlier: {} };
+      item = { id: this.newId(), title: selector.title, group, fields: {}, deleted: false, kind: 1, plainCode: false, previous: {}, changes: [{ at: this.clock(), kind: 'added', fields: [field] }], earlier: {} };
       this.rows().push(item);
     }
+    // the item already holds this value: nothing is written
+    if (!itemCreated && Object.hasOwn(item.fields, field) && item.fields[field] === value) return { ok: true, value: { item: this.summary(item), field, itemCreated: false, previousKept: false, unchanged: true } };
     const previousKept = Object.hasOwn(item.fields, field);
     if (previousKept) {
       (item.previous[field] ??= []).push(item.fields[field]);

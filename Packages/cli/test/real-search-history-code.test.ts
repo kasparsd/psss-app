@@ -9,6 +9,7 @@ import test from 'node:test';
 import type { TestContext } from 'node:test';
 import { newDatabase, newEntry, writeKdbx } from '../../kdbx/src/index.ts';
 import { totp } from '../../vault/src/index.ts';
+import { createVaultService } from '../src/vault-service.ts';
 import { device, segments, SECRET } from './real-helpers.ts';
 import type { Device } from './real-helpers.ts';
 
@@ -317,4 +318,165 @@ test('no value leaves the real binary except where documented', (t) => {
   const shown = d.psss(['history', 'psss://Example API/token', '--show']);
   assert.ok(shown.stdout.includes(SECRET) && !shown.stdout.includes(`${SECRET}-2`), '--show prints the earlier value, and not the current one');
   assert.equal(shown.stderr, '');
+});
+
+// ------------------------------------------------------------------ fixes of 2026-11-24 (validation findings)
+
+test('code: only a real verification code counts: hasCode is the computed field, so the picker never offers an item that merely has a field called "code"', async (t) => {
+  const d = vault(t);
+  const lib = d.library('Personal');
+  const otp = { secret: seed(20), digits: 6, period: 30, algorithm: 1 as const };
+  lib.addItem({ title: 'Real', password: 'p', otp });
+  lib.addItem({ title: 'Plain', password: 'p', custom: { code: { value: '999999', concealed: false } } });
+  lib.addItem({ title: 'Both', password: 'p', otp, custom: { Note: 'x' } });
+  lib.addItem({ title: 'Neither', password: 'p' });
+  const svc = createVaultService({ cwd: d.cwd, home: d.home, platform: process.platform, configDir: path.join(d.config, 'psss'), stateDir: path.join(d.state, 'psss'), vault: d.vaultPath('Personal') });
+  assert.equal((await svc.open()).ok, true);
+  const listed = await svc.list({});
+  assert.ok(listed.ok);
+  if (!listed.ok) return;
+  assert.deepEqual(listed.value.map((i) => [i.title, i.hasCode, i.fields.includes('code')]), [['Both', true, true], ['Neither', false, false], ['Plain', false, true], ['Real', true, true]], 'Plain has a field called code and no verification code');
+  const stored = d.psss(['code', 'psss://Plain']);
+  assert.equal(stored.code, 3);
+  assert.equal(
+    stored.stderr,
+    '"Plain" has no verification code.\nIts field called "code" is a stored value, not a verification code, and the item has no setup key. To make one, add a verification code to the item in the Psss app.\nIt has: password, code.\n',
+  );
+  assert.equal(stored.stdout, '');
+  assert.equal(d.psss(['code', 'psss://Plain/code']).stderr, stored.stderr);
+  assert.equal(d.psss(['code', 'psss://Neither']).stderr, '"Neither" has no verification code.\nIt has: password.\n', 'with no field called code the words stay short');
+  assert.equal(d.psss(['code', 'psss://Both']).code, 0);
+});
+
+test('history: the verification code has no earlier values, said in words, exit 0; a stored field called "code" has its own history', (t) => {
+  const d = vault(t);
+  const lib = d.library('Personal');
+  lib.addItem({ title: 'Bank', password: 'p', otp: { secret: seed(20), digits: 6, period: 30, algorithm: 1 } });
+  lib.addItem({ title: 'Plain', password: 'p', custom: { code: { value: '111111', concealed: false } } });
+  set(d, 'psss://Plain/code', '222222', false);
+  for (const extra of [[], ['--show'], ['--json'], ['--json', '--show']]) {
+    const r = d.psss(['history', 'psss://Bank/code', ...extra]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.ok(!/has no field called/.test(r.stderr), 'it is not said to be missing');
+    if (extra.includes('--json')) assert.deepEqual((JSON.parse(r.stdout) as { field: string; earlier: unknown[] }).earlier, []);
+    else {
+      assert.equal(r.stdout, '');
+      assert.equal(r.stderr, 'The verification code is made fresh each time; it has no earlier values.\n');
+    }
+  }
+  assert.equal(d.psss(['history', 'psss://Bank/Code']).stderr, 'The verification code is made fresh each time; it has no earlier values.\n', 'a reference ignores case');
+  const stored = d.psss(['history', 'psss://Plain/code', '--show']);
+  assert.match(stored.stdout, /^Replaced \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC {2}111111\n$/, 'a stored field named code keeps its earlier value');
+  assert.equal(d.psss(['history', 'psss://Bank/nothing']).stderr, '"Bank" has no field called "nothing".\nIt has: password, code.\n');
+});
+
+test('set of the value a field already holds writes nothing: "Nothing changed.", exit 0, no record, no history row, no previous value', (t) => {
+  const d = vault(t);
+  set(d, 'psss://Bank/password', 'pw-one-4f9c');
+  set(d, 'psss://Bank/username', 'robin', false);
+  set(d, 'psss://Bank/Branch', 'north', false);
+  const files = () => segments(d.vaultPath('Personal')).length;
+  const rows = () => d.psss(['history', 'psss://Bank']).stdout.trimEnd().split('\n').length;
+  const [f0, r0] = [files(), rows()];
+  for (const [field, value] of [['password', 'pw-one-4f9c'], ['username', 'robin'], ['Branch', 'north'], ['url', '']] as const) {
+    if (field === 'url') continue;
+    const r = d.psss(['set', `psss://Bank/${field}`], { stdin: value });
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(r.stdout, 'Nothing changed.\n', `${field}: standard output`);
+    assert.equal(r.stderr, '', 'nothing on standard error');
+  }
+  const json = JSON.parse(d.psss(['set', 'psss://Bank/password', '--json'], { stdin: 'pw-one-4f9c\n' }).stdout) as Record<string, unknown>;
+  assert.deepEqual([json.unchanged, json.previousKept, json.itemCreated], [true, false, false]);
+  assert.equal(files(), f0, 'no record file was written');
+  assert.equal(rows(), r0, 'no history row');
+  assert.equal(d.psss(['history', 'psss://Bank/password']).stderr, '"Bank" has no earlier value of "password".\n', 'the unchanged password is not an earlier password');
+  assert.equal(d.psss(['status']).code, 0);
+  // a real change is written and keeps the earlier value, and writing it again is again nothing
+  const changed = d.psss(['set', 'psss://Bank/password'], { stdin: 'pw-two-77aa' });
+  assert.equal(changed.stdout, 'Saved "password" in Bank (Personal).\nThe earlier value is kept under previous values.\n');
+  assert.equal(files(), f0 + 1);
+  assert.equal(d.psss(['set', 'psss://Bank/password'], { stdin: 'pw-two-77aa' }).stdout, 'Nothing changed.\n');
+  assert.equal(files(), f0 + 1, 'still one new record');
+  assert.equal(d.psss(['history', 'psss://Bank/password', '--show']).stdout.replace(/^Replaced .* UTC {2}/, ''), 'pw-one-4f9c\n');
+  assert.equal(d.psss(['get', 'psss://Bank/password']).stdout, 'pw-two-77aa');
+});
+
+test('search: accents, width, ligatures and ø ß æ œ đ ł fold as in the apps; a nameless note, card or custom item is found by the name the apps show', (t) => {
+  const d = vault(t);
+  const lib = d.library('Personal');
+  lib.addItem({ title: 'Caf\u00e9 Noir', password: 'p' });
+  lib.addItem({ title: 'Stra\u00dfenbahn', password: 'p' });
+  lib.addItem({ title: '\u00d8resund', username: '\u0141ukasz', password: 'p' });
+  lib.addItem({ title: 'Plain', url: 'https://\u00c6on.example', password: 'p' });
+  lib.addItem({ type: 2, card: { number: '4111111111114417' } });
+  lib.addItem({ type: 3, notes: 'Door code for the shed\nsecond line text' });
+  lib.addItem({ type: 3, notes: '' });
+  lib.addItem({ type: 4, username: 'admin-user', password: 'p' });
+  lib.addItem({ title: 'Named note', type: 3, notes: 'first line words' });
+  const found = (text: string) => d.psss(['search', text, '--json']);
+  const titles = (text: string) => ((JSON.parse(found(text).stdout || '{"items":[]}') as { items: Array<{ title: string; id: string }> }).items).map((i) => i.title).sort();
+  assert.deepEqual(titles('CAFE'), ['Caf\u00e9 Noir']);
+  assert.deepEqual(titles('\uff43\uff41\uff46\uff45'), ['Caf\u00e9 Noir'], 'fullwidth letters');
+  assert.deepEqual(titles('strasse'), ['Stra\u00dfenbahn']);
+  assert.deepEqual(titles('oresund'), ['\u00d8resund']);
+  assert.deepEqual(titles('lukasz'), ['\u00d8resund']);
+  assert.deepEqual(titles('aeon'), ['Plain']);
+  assert.deepEqual(titles('\ufb01'), [], 'a ligature in the text is its letters: "fi" is in none of these');
+  assert.deepEqual(titles('named'), ['Named note']);
+  assert.deepEqual(titles('visa'), [''], 'a card without a name is found as "Visa \u2022\u2022 4417"');
+  assert.deepEqual(titles('\u2022\u2022 4417'), ['']);
+  assert.deepEqual(titles('door code for'), [''], 'a note without a name, by the start of its first line');
+  assert.deepEqual(titles('second line'), [], 'not by the rest of its text');
+  assert.deepEqual(titles('first line words'), [], 'a named note is found by its name only');
+  assert.deepEqual(titles('note'), ['', 'Named note'].sort(), 'an empty note is "Note", and "Named note" has note in its name');
+  assert.deepEqual(titles('admin-user'), ['']);
+  assert.deepEqual(titles('custom item'), [], 'a custom item with a username is shown by it, not as "Custom item"');
+  assert.deepEqual(titles('login'), [], 'no login is nameless here');
+  const bom = d.psss(['search', '\ufeffcafe']);
+  assert.equal(bom.code, 3, 'U+FEFF is not trimmed, as in Swift, so it is part of the text');
+  assert.equal(d.psss(['search', ' \u3000cafe\u00a0\n']).code, 0, 'the spaces of Swift are trimmed');
+  assert.equal(d.psss(['search', '\u00a0 \u2003']).code, 2, 'only spaces is no text at all');
+});
+
+test('did you mean: one character or mostly punctuation suggests nothing, and a 20,000-character name is answered at once', (t) => {
+  const d = vault(t);
+  const lib = d.library('Personal');
+  for (const title of ['Alpha', 'Beta', 'Gamma', 'Delta', 'a1', 'b2']) lib.addItem({ title, password: 'p' });
+  for (const text of ['z', 'q', '!?', '...', '!!!a', '.-.']) {
+    const r = d.psss(['search', text]);
+    assert.equal(r.code, 3);
+    assert.equal(r.stderr, `No items match "${text}".\n`, `"${text}" is no near miss of anything`);
+  }
+  assert.equal(d.psss(['search', 'alphx']).stderr, 'No items match "alphx".\nDid you mean: Alpha?\n', 'a real near miss still has its hint');
+  const t0 = Date.now();
+  const long = d.psss(['search', 'x'.repeat(20_000)]);
+  const ms = Date.now() - t0;
+  assert.equal(long.code, 3);
+  assert.match(long.stderr, /^No items match "x{59}\u2026"\.\n$/, 'the message cuts the name as every message does, with no hint');
+  assert.ok(ms < 8000, `a 20,000-character name took ${ms} ms`);
+  const t1 = Date.now();
+  d.psss(['search', 'zz']);
+  assert.ok(ms < (Date.now() - t1) * 3 + 3000, 'about as fast as a short one');
+});
+
+test('a code of 9 digits (the record allows 4 to 10) is refused in plain words, code and get alike, and nothing else in the vault breaks; 6, 7 and 8 work', (t) => {
+  const d = vault(t);
+  const lib = d.library('Personal');
+  for (const digits of [5, 6, 7, 8, 9, 10]) lib.addItem({ title: `Digits${digits}`, username: 'u', password: 'p', otp: { secret: seed(20), digits, period: 30, algorithm: 1 } });
+  for (const digits of [6, 7, 8]) assert.match(d.psss(['code', `psss://Digits${digits}`]).stdout, new RegExp(`^\\d{${digits}}\\n$`));
+  for (const digits of [5, 9, 10]) {
+    const words = `The verification code of "Digits${digits}" cannot be made: its setup key asks for ${digits} digits, and Psss makes codes of 6 to 8.\n`;
+    for (const argv of [['code', `psss://Digits${digits}`], ['code', `psss://Digits${digits}/code`], ['get', `psss://Digits${digits}/code`]]) {
+      const r = d.psss(argv);
+      assert.equal(r.code, 1, `psss ${argv.join(' ')}`);
+      assert.equal(r.stdout, '', 'prints nothing');
+      assert.equal(r.stderr, words);
+    }
+  }
+  const list = d.psss(['list']);
+  assert.equal(list.code, 0, 'a list still works');
+  assert.equal(list.stdout.trimEnd().split('\n').length, 6);
+  assert.equal(d.psss(['search', 'digits9']).code, 0, 'and search');
+  assert.equal(d.psss(['history', 'psss://Digits9/password']).code, 0, 'and history');
+  assert.equal(d.psss(['get', 'psss://Digits9/username']).stdout, 'u', 'and the other fields');
 });

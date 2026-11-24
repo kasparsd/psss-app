@@ -453,7 +453,7 @@ Did you mean: Example, Example API, Example Bank?
     }
   ]
 }</div>
-<figcaption><strong>As built, awaiting the owner’s approval of the words; not approved.</strong> One line per item, drawn as <code>list</code> draws it, in name order, with an id only for names that repeat. It reads the name, the username and the website (as the apps do), ignoring case and accents, and never a password, a note, a tag, a custom field or a field name. Nothing found is an error like a wrong name: standard error, exit 3, with a hint that is never used as a result. <code>--json</code> has the same item shape as <code>list --json</code>; an empty result is the error above and standard output stays empty. <code>--deleted</code> searches Recently Deleted.</figcaption></figure>
+<figcaption><strong>As built, awaiting the owner’s approval of the words; not approved.</strong> One line per item, drawn as <code>list</code> draws it, in name order, with an id only for names that repeat. It reads the name, the username and the website (as the apps do), ignoring case, accents, letter width and ligatures (<code>ß</code> is <code>ss</code>, <code>ø</code> is <code>o</code>, and so on), and never a password, a note, a tag, a custom field or a field name. An item without a name is found by the name the apps show for it (a card as “Visa •• 4417”, a note by the start of its first line). A name that is one character or mostly punctuation gets no hint. Nothing found is an error like a wrong name: standard error, exit 3, with a hint that is never used as a result. <code>--json</code> has the same item shape as <code>list --json</code>; an empty result is the error above and standard output stays empty. <code>--deleted</code> searches Recently Deleted.</figcaption></figure>
 
 <figure class="fig kmsh"><div class="lbl">A14 · What changed, and what a field used to be</div>
 <div class="term"><span class="d">$</span> psss history "psss://Example Bank"
@@ -470,12 +470,15 @@ Replaced 2026-11-03 14:07 UTC
 Replaced 2026-11-20 09:12 UTC  bank-pw-2
 Replaced 2026-11-03 14:07 UTC  bank-pw-1
 
+<span class="d">$</span> psss history "psss://Example Bank/code"
+<span class="d">The verification code is made fresh each time; it has no earlier values.</span>
+
 <span class="d">$</span> psss history "psss://Example Bank/token"
 "Example Bank" has no field called "token".
 It has: password, code.
 <span class="d">$</span> echo $?
 3</div>
-<figcaption><strong>As built, awaiting the owner’s approval of the words; not approved.</strong> An item lists its changes newest first with the fields each touched and never a value. A field lists when each earlier value was replaced; the values come only with <code>--show</code>, one per line, newest first, never the current one, with line breaks and direction marks written as <code>\u{a}</code>; <code>--json</code> has them exactly, and only with <code>--show</code>. The hint is on standard error, and only at a terminal. Dates are UTC. Every write is its own row (nothing is folded, the vault keeps no ten-minute rule), and only what this computer still holds is listed. An item in Recently Deleted has a history too.</figcaption></figure>
+<figcaption><strong>As built, awaiting the owner’s approval of the words; not approved.</strong> An item lists its changes newest first with the fields each touched and never a value. A field lists when each earlier value was replaced; the values come only with <code>--show</code>, one per line, newest first, never the current one, with line breaks and direction marks written as <code>\u{a}</code>; <code>--json</code> has them exactly, and only with <code>--show</code>. The hint is on standard error, and only at a terminal. Dates are UTC. Every write is its own row (nothing is folded, the vault keeps no ten-minute rule), and only what this computer still holds is listed: after a checkpoint a row can name only some of the fields of its write and an older write that a later one replaced is gone (the library cannot write a checkpoint yet, so this is not visible today). An imported item is dated by when it was imported, so its <code>Added</code> row can be newer than its earlier passwords, which keep the dates the KeePass file gave them. The verification code is computed, so it has no earlier values. An item in Recently Deleted has a history too.</figcaption></figure>
 
 <figure class="fig kmsh"><div class="lbl">A15 · A verification code</div>
 <div class="term"><span class="d">$</span> psss code "psss://Example Bank"
@@ -485,6 +488,13 @@ It has: password, code.
 <span class="d">$</span> psss code "psss://Example API"
 "Example API" has no verification code.
 It has: token.
+<span class="d">$</span> echo $?
+3
+
+<span class="d">$</span> psss code "psss://Example Notes"
+"Example Notes" has no verification code.
+Its field called "code" is a stored value, not a verification code, and the item has no setup key. To make one, add a verification code to the item in the Psss app.
+It has: password, code.
 <span class="d">$</span> echo $?
 3
 
@@ -500,7 +510,7 @@ It has: token.
   "period": 30,
   "remaining": 21
 }</div>
-<figcaption><strong>As built, awaiting the owner’s approval of the words; not approved.</strong> The code and a line break on standard output, nothing else. The seconds left are on standard error and only when standard error is a terminal, so <code>psss code … | pbcopy</code> at a keyboard still says how long it lasts and a script sees nothing. <code>psss://Example Bank/code</code> names the same thing. The setup key is never printed, and a stored field that is only called “code” is not a verification code. No code is exit 3, a locked vault exit 4, and a code that cannot be made (an algorithm Psss does not support) says why and exits 1.</figcaption></figure>
+<figcaption><strong>As built, awaiting the owner’s approval of the words; not approved.</strong> The code and a line break on standard output, nothing else. The seconds left are on standard error and only when standard error is a terminal, so <code>psss code … | pbcopy</code> at a keyboard still says how long it lasts and a script sees nothing. <code>psss://Example Bank/code</code> names the same thing. The setup key is never printed, and a stored field that is only called “code” is not a verification code: it is not offered by the picker and the words say so (no command sets up a code yet, so they point to the app). No code is exit 3, a locked vault exit 4, and a code that cannot be made (an algorithm Psss does not support, or a setup key with fewer than 6 or more than 8 digits) says why and exits 1.</figcaption></figure>
 </div>
 
 <div class="prose">
@@ -787,6 +797,7 @@ Example API  robin@example.com  api.example.com
 <h3>History</h3>
 <ul>
 <li><strong>2026-11-24 (search, history, code):</strong> Added A13 (<code>search</code>), A14 (<code>history</code>) and A15 (<code>code</code>) and decision 14 for the three commands as built; the words are awaiting the owner’s approval and are not approved. Nothing approved was replaced.</li>
+<li><strong>2026-11-24 (search, history, code, after validation):</strong> A13: search now folds width, ligatures and ø ß æ œ đ ł like the apps, finds a nameless card or note by its shown name, and gives no hint for a one-character or mostly punctuation name. A14: added the computed-code line (replaces the contradictory “has no field called code”) and said that an import is dated by when it was imported and what a checkpoint would drop. A15: added the stored “code” field wording (replaces “has no verification code. It has: password, code.”) and the 6 to 8 digit rule. <code>psss set</code> of the value a field already holds now says “Nothing changed.” and writes nothing. The words are still awaiting approval.</li>
 <li><strong>2026-11-24 (delivery):</strong> Added A12 and decision 13 for the behaviour as built when a write could not be delivered to a location (warning on standard error, exit 0, <code>status</code> Behind with a count, <code>sync</code>, the <code>delivery</code> JSON field), with the words from <code>docs/cli.md</code>, “A write that was not delivered”. Why: a validation run found that such a write said nothing. The words are awaiting the owner’s approval; nothing approved was replaced.</li>
 <li><strong>2026-11-24 (after validation):</strong> An independent run of the first build found that <code>get</code> and <code>set</code> said nothing when <code>verify</code> would fail. Added A11 (the warnings) and its decision, and a missing-record line to A8. Nothing approved was replaced.</li>
 <li><strong>2026-11-24 (after the first build):</strong> Owner decisions from the first implementation: exact title matching with hints (A6 now shows two items titled “Example” and a near miss), one key file per vault under <code>~/.config/psss/keys/</code> (A1, A2, A7), <code>init</code> lists only the ways back that exist (A1 offers a vault password and “Not now” until the recovery kit is built and mocked), <code>set --create</code>, and <code>rm</code> without a question. Replaced: A6’s prefix match, A1’s three choices and its <code>device.key</code> path.</li>

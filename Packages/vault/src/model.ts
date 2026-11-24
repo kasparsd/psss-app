@@ -121,7 +121,12 @@ export function detail(e: ItemEntry, nowMs: number): ItemDetail {
   add('username', v.username);
   add('password', v.password, true);
   v.websites.forEach((w, i) => add(i === 0 ? 'url' : `url ${i + 1}`, w.address));
-  if (v.otp) fields.push({ name: 'code', value: totp(v.otp, nowMs).code, secret: true, computed: true });
+  if (v.otp) {
+    // a setup key a code cannot be made from (digits outside 6 to 8) still marks the item as having a code; `Vault.get` says why it cannot be made
+    let code = '';
+    try { code = totp(v.otp, nowMs).code; } catch { /* unsupported settings: no value */ }
+    fields.push({ name: 'code', value: code, secret: true, computed: true });
+  }
   add('cardholder', v.cardholder);
   if (v.card) add('card', v.card.number, true);
   add('card_code', v.cardCode, true);

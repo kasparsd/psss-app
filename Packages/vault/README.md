@@ -34,12 +34,12 @@ vault.list({group?, scope?}): ItemSummary[]            // scope: 'live' | 'delet
 vault.search(text, {group?, scope?}): ItemSummary[]    // title, username, urls, tags, custom labels; never values
 vault.find(ref): FindResult                            // found | ambiguous (with candidates) | missing
 vault.show(ref): ShowResult                            // the item, concealed values left out
-vault.get(ref): GetResult                              // one field's value, or a TOTP code (with `expiresInSeconds` and `period`)
+vault.get(ref): GetResult                              // one field's value, or a TOTP code (with `expiresInSeconds` and `period`; digits other than 6 to 8 throw `unsupported digits N`, though the record may hold 4 to 10)
 vault.history(ref): HistoryResult                      // earlier values, newest first
 vault.changes(ref): ChangesResult                      // what happened to an item, newest first: when, kind, which fields; never a value
-vault.setField(ref, value, {concealed?}): WriteResult
+vault.setField(ref, value, {concealed?}): WriteResult    // `unchanged: true` and no record when the item already holds that value
 vault.addItem(spec): { id; item; write }
-vault.editItem(ref, edits): WriteResult
+vault.editItem(ref, edits): WriteResult                  // the same: nothing is written when every value is the current one
 vault.deleteItem(ref) / restoreItem(ref) / purgeItem(ref): WriteResult
 vault.sync(): SyncReport                               // each location: upToDate | behind, with a reason
 vault.verify(): { ok; checked; locations; problems: { code; location; detail; plain }[] }

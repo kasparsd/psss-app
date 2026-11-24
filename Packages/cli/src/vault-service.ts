@@ -26,7 +26,8 @@ import { ImportInterrupted, VaultError, createVault, openVault, parseKeyFile } f
 import type { Unlock, Vault } from '../../vault/src/index.ts';
 import { ValidationError } from './errors.ts';
 import { nearTitles } from './near.ts';
-import { matchesSearch, searchTerm } from './search.ts';
+import { matchesSearch, needsDerivedName, searchTerm, swiftTrim } from './search.ts';
+import type { SearchableItem } from './search.ts';
 import type {
   Candidate,
   CreateRequest,
@@ -472,17 +473,29 @@ class RealVaultService implements VaultService {
   // ------------------------------------------------------------------ reading
 
   private summary(v: Vault, s: LibSummary, scope: Scope): ItemSummary {
-    const out: ItemSummary = { id: s.id, title: s.title, group: s.group, fields: this.fieldNames(v, s.id, scope), deleted: s.deleted };
+    const named = this.fieldNames(v, s.id, scope);
+    const out: ItemSummary = { id: s.id, title: s.title, group: s.group, fields: named.names, hasCode: named.hasCode, deleted: s.deleted };
     if (s.username !== undefined) out.username = s.username;
     if (s.url !== undefined) out.url = s.url;
     return out;
   }
 
   /** Names of the fields an item has, besides the account and the address, which the list shows in their own columns. Never values. */
-  private fieldNames(v: Vault, id: string, scope: Scope): string[] {
+  private fieldNames(v: Vault, id: string, scope: Scope): { names: string[]; hasCode: boolean } {
     const r = v.show({ item: { id }, field: 'password' }, { scope });
-    if (r.kind !== 'found') return [];
-    return r.item.fields.map((f) => f.name).filter((n) => n !== 'username' && !/^url( \d+)?$/.test(n));
+    if (r.kind !== 'found') return { names: [], hasCode: false };
+    // only the computed field is a verification code; a stored field that is called "code" is a value
+    return { names: r.item.fields.map((f) => f.name).filter((n) => n !== 'username' && !/^url( \d+)?$/.test(n)), hasCode: r.item.fields.some((f) => f.computed === true) };
+  }
+
+  /** Why a verification code cannot be made, in the library's own words (`unknown algorithm 7`, `unsupported digits 9`; the setup key is never in them). */
+  private codeFailure(title: string, e: unknown): Failure | undefined {
+    const text = e instanceof Error ? e.message : '';
+    const algorithm = /unknown algorithm (\d+)/.exec(text);
+    const digits = /unsupported digits (\d+)/.exec(text);
+    if (!algorithm && !digits) return undefined;
+    const why = algorithm ? `its setup key asks for an algorithm Psss does not support (${algorithm[1]})` : `its setup key asks for ${digits![1]} digits, and Psss makes codes of 6 to 8`;
+    return failed(`The verification code of "${printable(title)}" cannot be made: ${why}.`);
   }
 
   private candidate(s: LibSummary): Candidate {
@@ -605,7 +618,14 @@ class RealVaultService implements VaultService {
         const n = this.nameOfSelector(selector);
         return this.missing(v, n.name, n.by, 'live');
       }
-      const got = v.get({ item: { id: r.item.id }, field });
+      let got: ReturnType<Vault['get']>;
+      try {
+        got = v.get({ item: { id: r.item.id }, field });
+      } catch (e) {
+        const why = this.codeFailure(r.item.title, e);
+        if (why) return why;
+        throw e;
+      }
       const item = this.summary(v, r.item, 'live');
       if (got.kind === 'value') return { ok: true as const, value: { item, field: got.field, value: got.value } };
       return { ok: false, kind: 'notFound', what: 'field', name: field, vault: this.name, item: item.title, fields: item.fields } as Failure;
@@ -625,9 +645,20 @@ class RealVaultService implements VaultService {
       const scope: Scope = query.deleted ? 'deleted' : 'live';
       const all = v.list({ scope, ...(group ? { group: `id:${group.id}` } : {}) });
       const term = searchTerm(query.text);
-      const hits = all.filter((i) => matchesSearch(i, term)).sort(byTitle);
+      // an item without a name is searched by the name the apps make for it, which needs its notes or card number
+      const searchable = (i: LibSummary): SearchableItem => {
+        const text: SearchableItem = { title: i.title, kind: i.type, ...(i.username !== undefined ? { username: i.username } : {}), ...(i.url !== undefined ? { url: i.url } : {}) };
+        if (!needsDerivedName(text)) return text;
+        const shown = v.show({ item: { id: i.id }, field: 'password' }, { scope });
+        if (shown.kind === 'found') {
+          if (shown.item.view.notes !== undefined) text.notes = shown.item.view.notes;
+          if (shown.item.view.card !== undefined) text.cardNumber = shown.item.view.card.number;
+        }
+        return text;
+      };
+      const hits = all.filter((i) => matchesSearch(searchable(i), term)).sort(byTitle);
       const items = hits.map((s) => this.summary(v, s, scope));
-      const hints = hits.length === 0 ? nearTitles(query.text.trim(), all.map((i) => i.title)) : [];
+      const hints = hits.length === 0 ? nearTitles(swiftTrim(query.text), all.map((i) => i.title)) : [];
       return { ok: true as const, value: { items, hints } };
     })) as Result<SearchResult>;
   }
@@ -656,6 +687,10 @@ class RealVaultService implements VaultService {
         if (got.kind !== 'changes') return failed('Psss could not read the history of that item.');
         return { ok: true as const, value: { mode: 'item' as const, item, changes: got.entries.map((c) => ({ at: c.at, kind: c.kind, fields: [...c.fields] })) } };
       }
+      // the verification code is computed: it has no earlier values (a stored field that is only called "code" is an ordinary field)
+      if (request.field.toLowerCase() === 'code' && item.hasCode === true) {
+        return { ok: true as const, value: { mode: 'field' as const, item, field: 'code', earlier: [], computed: true as const } };
+      }
       const got = v.history(ref);
       if (got.kind === 'history') {
         const earlier = got.entries.map((h) => ({ replaced: h.replaced, ...(request.show === true ? { value: h.value } : {}) }));
@@ -680,9 +715,7 @@ class RealVaultService implements VaultService {
       try {
         got = v.get({ item: { id: r.item.id }, field: 'code' });
       } catch (e) {
-        // the library says why in its own words (`unknown algorithm 7`); the setup key is never in them
-        const why = /unknown algorithm (\d+)/.exec(e instanceof Error ? e.message : '');
-        return failed(`The verification code of "${printable(item.title)}" cannot be made${why ? `: its setup key asks for an algorithm Psss does not support (${why[1]})` : ''}.`);
+        return this.codeFailure(item.title, e) ?? failed(`The verification code of "${printable(item.title)}" cannot be made.`);
       }
       // a stored field that happens to be called "code" is a value, not a verification code: only a computed one has seconds left
       if (got.kind === 'value' && got.expiresInSeconds !== undefined && got.period !== undefined) {
@@ -721,9 +754,11 @@ class RealVaultService implements VaultService {
         return { ok: true as const, value: { item: this.summary(v, added.item, 'live'), field, itemCreated: true, previousKept: false } };
       }
       const had = v.get({ item: { id: r.item.id }, field }).kind === 'value';
-      v.setField({ item: { id: r.item.id }, field }, value);
+      const written = v.setField({ item: { id: r.item.id }, field }, value);
       const after = v.find({ item: { id: r.item.id }, field }) ;
       const item = after.kind === 'found' ? this.summary(v, after.item, 'live') : this.summary(v, r.item, 'live');
+      // the item already held this value: nothing was written, so nothing is kept under previous values either
+      if (written.unchanged) return { ok: true as const, value: { item, field, itemCreated: false, previousKept: false, unchanged: true } };
       return { ok: true as const, value: { item, field, itemCreated: false, previousKept: had } };
     })) as Result<SetOutcome>;
   }

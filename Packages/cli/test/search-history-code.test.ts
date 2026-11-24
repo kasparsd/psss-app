@@ -7,6 +7,8 @@ import test from 'node:test';
 import { FakeVaultService } from '../src/fake-service.ts';
 import type { FakeItem } from '../src/fake-service.ts';
 import type { VaultIssue } from '../src/service.ts';
+import { nearTitles } from '../src/near.ts';
+import { cardBrandShortName, noteTitle, searchFold, shownName, swiftTrim } from '../src/search.ts';
 import { norm, runCli, sandbox, scenarioFor, SECRET } from './helpers.ts';
 
 const at = (y: number, mo: number, d: number, h: number, mi: number) => Date.UTC(y, mo - 1, d, h, mi);
@@ -406,6 +408,225 @@ test('help for the three commands says what they print, and norm of the frames n
       assert.match(r.stdout, new RegExp(`^Usage: psss ${name} `), 'usage line');
     }
     assert.equal(norm('a  \nb'), 'a\nb');
+  } finally {
+    box.cleanup();
+  }
+});
+
+// ------------------------------------------------------------------ fixes of 2026-11-24 (validation findings)
+
+test('code: a stored field that is only called "code" is not a verification code: not offered by the picker, and refused in words that say so', async () => {
+  const box = sandbox();
+  try {
+    const plain: FakeItem = { id: 'eeeeeeee', title: 'Plain', fields: { password: 'p', code: '999999' }, plainCode: true };
+    const fake = new FakeVaultService(scenarioFor(box, { items: [plain, ITEMS[2]!, ITEMS[3]!] }));
+    const pick = await runCli(['code'], { box, fake, typed: '1\n', stdoutTty: true });
+    assert.equal(pick.code, 0, pick.stderr);
+    assert.match(pick.stderr, /Which item in Personal\?\n +1 +Example Bank/, 'the item with a real code is the first and only choice');
+    assert.ok(!/Plain/.test(pick.stderr), 'an item that only has a field called code is not offered');
+    assert.equal(pick.stdout, '123456\n');
+    const only = await runCli(['code'], { box, scenario: { items: [plain] }, typed: '\n', stdoutTty: true });
+    assert.equal(only.code, 3);
+    assert.equal(only.stderr, 'No item in Personal has a verification code.\n', 'with nothing else, nothing to choose from');
+    const named = await runCli(['code', 'psss://Plain'], { box, fake });
+    assert.equal(named.code, 3);
+    assert.equal(
+      named.stderr,
+      '"Plain" has no verification code.\nIts field called "code" is a stored value, not a verification code, and the item has no setup key. To make one, add a verification code to the item in the Psss app.\nIt has: password, code.\n',
+    );
+    assert.equal(named.stdout, '');
+    const viaField = await runCli(['code', 'psss://Plain/code'], { box, fake });
+    assert.equal(viaField.stderr, named.stderr, 'the same words for the field form');
+    const other = await runCli(['code', 'psss://Example API'], { box, fake });
+    assert.equal(other.stderr, '"Example API" has no verification code.\nIt has: token.\n', 'an item without any field called code keeps the short words');
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('history: the verification code is made fresh each time and has no earlier values; a stored field called "code" is an ordinary field', async () => {
+  const box = sandbox();
+  try {
+    const plain: FakeItem = { id: 'eeeeeeee', title: 'Plain', fields: { code: '999999' }, plainCode: true, earlier: { code: [{ replaced: at(2026, 11, 1, 10, 0), value: '111111' }] } };
+    const fake = new FakeVaultService(scenarioFor(box, { items: [ITEMS[3]!, plain] }));
+    const r = await runCli(['history', 'psss://Example Bank/code'], { box, fake });
+    assert.equal(r.code, 0, 'a field with no earlier values is exit 0, as the docs say');
+    assert.equal(r.stdout, '', 'nothing on standard output');
+    assert.equal(r.stderr, 'The verification code is made fresh each time; it has no earlier values.\n');
+    for (const extra of [['--show'], ['--json']]) {
+      const x = await runCli(['history', 'psss://Example Bank/code', ...extra], { box, fake });
+      assert.equal(x.code, 0);
+      assert.ok(!x.combined.includes('123456'), 'never the code');
+      if (extra[0] === '--json') assert.deepEqual(JSON.parse(x.stdout), { item: { id: 'c0ffee01', title: 'Example Bank', group: 'Only Me' }, field: 'code', earlier: [] });
+      else assert.equal(x.stderr, 'The verification code is made fresh each time; it has no earlier values.\n');
+    }
+    const stored = await runCli(['history', 'psss://Plain/code', '--show'], { box, fake });
+    assert.equal(stored.stdout, 'Replaced 2026-11-01 10:00 UTC  111111\n', 'a stored field named code has its earlier values like any other');
+    const none = await runCli(['history', 'psss://Example Bank/nothing'], { box, fake });
+    assert.equal(none.stderr, '"Example Bank" has no field called "nothing".\nIt has: password, code.\n', 'a field that is not there keeps its words');
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('history: a date that cannot be shown leaves no trailing spaces on a line with no value', async () => {
+  const box = sandbox();
+  try {
+    const item: FakeItem = { id: 'ffffffff', title: 'Odd', fields: { password: 'p' }, earlier: { password: [{ replaced: Number.NaN, value: 'old-pw' }, { replaced: at(2026, 1, 2, 3, 4), value: 'older' }] } };
+    const fake = new FakeVaultService(scenarioFor(box, { items: [item] }));
+    const r = await runCli(['history', 'psss://Odd/password'], { box, fake });
+    assert.equal(r.stdout, 'Replaced unknown date\nReplaced 2026-01-02 03:04 UTC\n', 'no spaces after "unknown date"');
+    const shown = await runCli(['history', 'psss://Odd/password', '--show'], { box, fake });
+    assert.equal(shown.stdout, `Replaced unknown date${' '.repeat(10)}old-pw\nReplaced 2026-01-02 03:04 UTC  older\n`, 'with a value the date is padded so the values line up');
+    assert.ok(!/ \n/.test(r.stdout), 'no line ends in a space');
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('set: the value a field already holds changes nothing: "Nothing changed." on standard output, exit 0, no history row, nothing kept as previous', async () => {
+  const box = sandbox();
+  try {
+    const fake = new FakeVaultService(scenarioFor(box, { items: ITEMS }));
+    const same = await runCli(['set', 'psss://Example API/token'], { box, fake, stdin: 'sk-example-old\n' });
+    assert.equal(same.code, 0, same.stderr);
+    assert.equal(same.stdout, 'Nothing changed.\n', 'standard output, as a result');
+    assert.equal(same.stderr, '');
+    const json = await runCli(['set', 'psss://Example API/token', '--json'], { box, fake, stdin: 'sk-example-old' });
+    assert.equal(json.code, 0);
+    assert.deepEqual(JSON.parse(json.stdout), { item: { id: 'a1b2c3d4', title: 'Example API', group: 'Only Me' }, field: 'token', itemCreated: false, previousKept: false, unchanged: true, delivery: { undelivered: 0, locations: [] } });
+    const history = await runCli(['history', 'psss://Example API'], { box, fake });
+    assert.equal(history.stdout, '2026-10-02 08:00 UTC  Added\n', 'no new row');
+    const earlier = await runCli(['history', 'psss://Example API/token'], { box, fake });
+    assert.equal(earlier.stderr, '"Example API" has no earlier value of "token".\n', 'nothing was pushed to the earlier values');
+    const different = await runCli(['set', 'psss://Example API/token'], { box, fake, stdin: 'sk-example-new\n' });
+    assert.equal(different.stdout, 'Saved "token" in Example API (Personal).\nThe earlier value is kept under previous values.\n', 'a different value is saved as before');
+    const back = await runCli(['set', 'psss://Example API/token'], { box, fake, stdin: 'sk-example-new\n' });
+    assert.equal(back.stdout, 'Nothing changed.\n', 'and the new value is now the one that is held');
+    const created = await runCli(['set', '--create', 'psss://Fresh/token'], { box, fake, stdin: 'x\n' });
+    assert.match(created.stdout, /^Saved "token" in Fresh/, 'a new item is never "unchanged"');
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('search folds case, accents, width, ligatures and the letters that do not decompose, and trims like Swift', () => {
+  const same = (a: string, b: string) => assert.equal(searchFold(a), searchFold(b), `"${a}" and "${b}" are one text`);
+  same('Caf\u00e9', 'CAFE');
+  same('cafe\u0301', 'Caf\u00e9');
+  same('\uff23\uff41\uff46\uff45', 'cafe');
+  same('\ufb01sh', 'FISH');
+  same('\u00d8rsted', 'orsted');
+  same('Stra\u00dfe', 'STRASSE');
+  same('\u1e9eorn', 'sSorn');
+  same('\u00c6on', 'aeon');
+  same('C\u0153ur', 'coeur');
+  same('\u0110akovo', 'dakovo');
+  same('\u0141\u00f3d\u017a', 'lodz');
+  same('\u0130stanbul', 'istanbul');
+  assert.notEqual(searchFold('\u00fe'), searchFold('th'), 'a letter that is not in the map is compared as itself');
+  assert.equal(swiftTrim(' \t\n\u00a0\u2003x y\u3000\u0085\r\n'), 'x y', 'Swift whitespace and newlines, including no-break and ideographic spaces and U+0085');
+  assert.equal(swiftTrim('\ufeffabc\ufeff'), '\ufeffabc\ufeff', 'U+FEFF is not whitespace to Swift, so it is not stripped');
+  assert.equal(swiftTrim('\u200babc'), '\u200babc', 'nor is a zero-width space');
+});
+
+test('search finds by the folded text in name, username and website, and trims the typed text like Swift', async () => {
+  const box = sandbox();
+  try {
+    const items: FakeItem[] = [
+      { id: '00000001', title: 'Caf\u00e9 Noir', fields: { password: 'p' } },
+      { id: '00000002', title: 'Stra\u00dfenbahn', fields: { password: 'p' } },
+      { id: '00000003', title: '\u00d8resund', username: '\u0141ukasz', fields: { password: 'p' } },
+      { id: '00000004', title: 'Office', fields: { password: 'p' } },
+      { id: '00000005', title: 'Plain', url: 'https://\u00c6on.example', fields: { password: 'p' } },
+    ];
+    const fake = new FakeVaultService(scenarioFor(box, { items }));
+    const find = async (text: string) => (await runCli(['search', text], { box, fake })).stdout.trimEnd().split('\n').map((l) => l.split(/ {2,}/)[0]).filter((l) => l !== '');
+    assert.deepEqual(await find('CAFE'), ['Caf\u00e9 Noir']);
+    assert.deepEqual(await find('\uff43\uff41\uff46\uff45'), ['Caf\u00e9 Noir'], 'fullwidth letters');
+    assert.deepEqual(await find('strasse'), ['Stra\u00dfenbahn'], 'ss finds \u00df');
+    assert.deepEqual(await find('STRA\u1e9eE'), ['Stra\u00dfenbahn'], 'and a capital sharp s');
+    assert.deepEqual(await find('oresund'), ['\u00d8resund'], '\u00f8');
+    assert.deepEqual(await find('lukasz'), ['\u00d8resund'], '\u0142 in a username');
+    assert.deepEqual(await find('office'), ['Office'], 'a ligature in the text is not in the title: the title is found as typed');
+    assert.deepEqual(await find('o\ufb03ce'), ['Office'], 'a ligature in the typed text finds its letters');
+    assert.deepEqual(await find('aeon'), ['Plain'], '\u00e6 in a website');
+    assert.deepEqual(await find(' \u3000caf\u00e9\u00a0\n'), ['Caf\u00e9 Noir'], 'ideographic and no-break spaces around the text are trimmed');
+    const bom = await runCli(['search', '\ufeffcafe'], { box, fake });
+    assert.equal(bom.code, 3, 'U+FEFF is part of the text, as in Swift: it is not trimmed, so nothing holds it');
+    assert.equal(bom.stdout, '');
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('search finds a nameless item by the name the apps show for it: a card, a note, a custom item, and not by a login\'s made-up name', async () => {
+  const box = sandbox();
+  try {
+    const items: FakeItem[] = [
+      { id: '00000011', title: '', kind: 2, fields: { card: '4111 1111 1111 4417' } },
+      { id: '00000012', title: ' ', kind: 2, fields: { card: '371449635398431' } },
+      { id: '00000013', title: '', kind: 2, fields: { card: '12' } },
+      { id: '00000014', title: '', kind: 3, fields: { notes: '  \n\n  Wi-Fi code for guests, kept in the hall cupboard under the stairs, second shelf.\nSecond line' } },
+      { id: '00000015', title: '', kind: 3, fields: { notes: '...\n' } },
+      { id: '00000016', title: '', kind: 4, url: 'https://www.Router.example/admin', fields: { password: 'p' } },
+      { id: '00000017', title: '', kind: 4, username: 'admin-user', fields: { password: 'p' } },
+      { id: '00000018', title: '', kind: 4, fields: { password: 'p' } },
+      { id: '00000019', title: '', kind: 1, username: 'robin-x', fields: { password: 'p' } },
+      { id: '0000001a', title: 'Named', kind: 3, fields: { notes: 'secret words in the first line' } },
+    ];
+    const fake = new FakeVaultService(scenarioFor(box, { items }));
+    const ids = async (text: string) => {
+      const r = await runCli(['search', text, '--json'], { box, fake });
+      return r.code === 0 ? (JSON.parse(r.stdout) as { items: Array<{ id: string }> }).items.map((i) => i.id).sort() : [];
+    };
+    assert.deepEqual(await ids('visa'), ['00000011'], 'a card is found by its network');
+    assert.deepEqual(await ids('visa \u2022\u2022 4417'), ['00000011'], 'and by the name as shown, "Visa \u2022\u2022 4417"');
+    assert.deepEqual(await ids('4417'), ['00000011'], 'and by its last four digits');
+    assert.deepEqual(await ids('amex'), ['00000012'], 'a card with a blank title is nameless too');
+    assert.deepEqual(await ids('card'), ['00000013'], 'a card with no known network and fewer than four digits is "Card"');
+    assert.deepEqual(await ids('wi-fi code for guests'), ['00000014'], 'a note by the start of its first line');
+    assert.deepEqual(await ids('second line'), [], 'not by the rest of its text');
+    assert.deepEqual(await ids('under the stairs'), [], 'a name cut at a word (40 characters) does not hold the rest of the line');
+    assert.deepEqual(await ids('note'), ['00000015'], 'a note whose first line is only punctuation is "Note"');
+    assert.deepEqual(await ids('router.example'), ['00000016'], 'a custom item by its website');
+    assert.deepEqual(await ids('custom item'), ['00000018'], 'a custom item with nothing to make a name from is "Custom item"');
+    assert.deepEqual(await ids('admin-user'), ['00000017']);
+    assert.deepEqual(await ids('login'), [], 'a login\'s unnamed title is not searched: the apps search its name field as typed only');
+    assert.deepEqual(await ids('robin-x'), ['00000019'], 'its username is');
+    assert.deepEqual(await ids('secret words'), [], 'a named note is found by its name, never by its text');
+    assert.equal(cardBrandShortName('5555555555554444'), 'Mastercard');
+    assert.equal(cardBrandShortName('6011000000000004'), 'Discover');
+    assert.equal(cardBrandShortName('1234'), undefined);
+    assert.equal(noteTitle('A line that is long enough to need cutting at a word somewhere near forty'), 'A line that is long enough to need');
+    assert.equal(noteTitle('abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz'), 'abcdefghijklmnopqrstuvwxyzabcdefghijklmn', 'one long word is cut in the middle');
+    assert.equal(shownName({ title: ' x ', kind: 3 }), 'x');
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('did you mean: a one-character name, or a name that is mostly punctuation, suggests nothing; a very long name is cut for matching and answers at once', async () => {
+  const titles = ['Alpha', 'Beta', 'a', 'b1', 'Ex', 'Example'];
+  assert.deepEqual(nearTitles('a', titles), [], 'one character');
+  assert.deepEqual(nearTitles('z', titles), []);
+  assert.deepEqual(nearTitles('x!', titles), [], 'two characters');
+  assert.deepEqual(nearTitles('--', ['---', 'a-b']), [], 'punctuation only');
+  assert.deepEqual(nearTitles('...a', ['..a.', '..b']), [], 'mostly punctuation: one letter is not enough to be near anything');
+  assert.deepEqual(nearTitles('alphx', titles), ['Alpha'], 'a real near miss still works');
+  assert.deepEqual(nearTitles('Exampel', titles), ['Example'], 'a transposition');
+  assert.deepEqual(nearTitles('caf\u00e9x', ['Cafe', 'Caf\u00e9 Noir']), ['Cafe', 'Caf\u00e9 Noir'], 'accents are folded');
+  const long = 'x'.repeat(20_000);
+  const t0 = Date.now();
+  assert.deepEqual(nearTitles(long, titles.concat(Array.from({ length: 2000 }, (_, i) => `Title number ${i} ${'y'.repeat(500)}`))), []);
+  assert.deepEqual(nearTitles(`Exam${'p'.repeat(19_990)}`, ['Exam']), ['Exam'], 'a name that starts with a title is near it, whatever follows');
+  assert.ok(Date.now() - t0 < 2000, `a 20,000-character name took ${Date.now() - t0} ms`);
+  const box = sandbox();
+  try {
+    const fake = new FakeVaultService(scenarioFor(box, { items: ITEMS }));
+    const one = await runCli(['search', 'q'], { box, fake });
+    assert.equal(one.stderr, 'No items match "q".\n', 'no hint line for one character');
+    assert.equal(one.code, 3);
   } finally {
     box.cleanup();
   }

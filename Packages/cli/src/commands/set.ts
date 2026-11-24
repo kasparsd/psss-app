@@ -22,7 +22,7 @@ const set: Command = {
     'Not a terminal: all of standard input, with one trailing line break removed.',
     'A terminal: asked without echo.',
     'A title that does not exist is an error (exit 3) unless --create is given, so a typo does not add a stray item.',
-    'The earlier value of a field is kept under previous values.',
+    'The earlier value of a field is kept under previous values. Setting the value a field already holds changes nothing: it says so and writes no record.',
   ],
   async run(ctx) {
     if (ctx.positionals.length === 0) throw missingReferenceError(ctx, 'set', 'field', false);
@@ -42,6 +42,16 @@ const set: Command = {
     }
     const value = await readSecret(ctx.io, 'Value (not shown): ');
     const done = ctx.unwrap(await svc.set(selector, ref.field, value, { create }));
+    if (done.unchanged === true) {
+      // nothing was written: no record, no history row, nothing to deliver
+      if (hasJson(ctx.values)) {
+        ctx.json({ item: { id: done.item.id, title: jsonName(done.item.title), group: jsonName(done.item.group) }, field: jsonName(done.field), itemCreated: false, previousKept: false, unchanged: true, delivery: deliveryJson(await checkDelivery(ctx)) });
+        return 0;
+      }
+      ctx.out('Nothing changed.\n');
+      await checkDelivery(ctx);
+      return 0;
+    }
     const delivery = await checkDelivery(ctx);
     if (hasJson(ctx.values)) {
       ctx.json({

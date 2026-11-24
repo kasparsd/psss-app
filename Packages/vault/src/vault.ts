@@ -197,6 +197,9 @@ export interface WriteResult {
   failed: { location: string; error: string }[];
   /** true until every location holds it: sync() delivers it */
   inOutbox: boolean;
+  /** true when nothing was written because the item already held every value asked for (`setField`, `editItem`): there is no record, `id` is
+   *  empty and `seq` is 0, and the item gets no history row and no new "Edited" date */
+  unchanged?: true;
 }
 
 /** What a write, an import or a sync left behind: records sealed on this device that are not yet in every location. See `Vault.delivery()`. */
@@ -990,6 +993,24 @@ export class Vault {
 
   private newId(): string { return hex(this.random(8)); }
 
+  /** True when the change would leave the item as it is: every field it sets already holds that exact value (compared as the canonical CBOR that
+   *  would be written) and every field it clears is not there. `password_over` only rides along with `password` and is not a value of its own.
+   *  A field with a wrong shape counts as not there, so writing it mends it. */
+  private changesNothing(entry: ItemEntry, c: ItemChange): boolean {
+    const v = entry.view;
+    for (const [name, value] of c.set) {
+      if (name === 'password_over') continue;
+      const have = v.carry.get(name);
+      if (have === undefined || v.invalid.includes(name) || !eq(encode(have), encode(value))) return false;
+    }
+    for (const name of c.clear) if (v.carry.has(name)) return false;
+    return true;
+  }
+
+  private nothingWritten(entry: ItemEntry): WriteResult {
+    return { id: '', seq: 0, group: entry.group.gid, delivered: [], failed: [], inOutbox: false, unchanged: true };
+  }
+
   private applyEdits(c: ItemChange, entry: ItemEntry | null, e: ItemEdits): void {
     const v = entry?.view ?? viewItem(new Map());
     checkSizes(e);
@@ -1021,7 +1042,7 @@ export class Vault {
   }
 
   /** Sets one field of one item: `psss://item/field` and the new value. A label that is not a built-in field name makes (or rewrites) a custom
-   *  field, concealed unless `concealed: false`. `code` cannot be set. One record. */
+   *  field, concealed unless `concealed: false`. `code` cannot be set. One record, or none when the item already holds that value (`unchanged`). */
   setField(reference: string | Reference, value: string, opts: { concealed?: boolean } = {}): WriteResult {
     const { entry, ref } = this.resolveForWrite(reference, 'live');
     if (ref.previous !== undefined) throw new VaultError('bad_reference', '?previous= names an earlier value and cannot be set');
@@ -1045,6 +1066,7 @@ export class Vault {
     }
     const c = this.change(entry);
     this.applyEdits(c, entry, edits);
+    if (this.changesNothing(entry, c)) return this.nothingWritten(entry);
     return this.writeRecord(entry.group, KIND.item, c.payload(entry.bytes));
   }
 
@@ -1061,11 +1083,12 @@ export class Vault {
     return { id: hex(id), item: summarize(entry), write };
   }
 
-  /** Several fields of one item in one record. */
+  /** Several fields of one item in one record. When every value is the one the item already holds, nothing is written (`unchanged` in the result). */
   editItem(reference: string | Reference, edits: ItemEdits): WriteResult {
     const { entry } = this.resolveForWrite(reference, 'live');
     const c = this.change(entry);
     this.applyEdits(c, entry, edits);
+    if (this.changesNothing(entry, c)) return this.nothingWritten(entry);
     return this.writeRecord(entry.group, KIND.item, c.payload(entry.bytes));
   }
 

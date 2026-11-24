@@ -73,18 +73,26 @@ test('a long import keeps its lock fresh, so that nobody takes it over while the
   e.vault.lockOptions = { staleMs: 400 }; // the lock counts as abandoned after 0.4 s; the import beats every 0.1 s
   const db = database(300);
   const seen: string[] = [];
+  const ages: number[] = [];
   e.vault.importKdbx(db, {
     progress: (done) => {
       if (done !== 250) return;
-      // by now the import has run for much longer than 0.4 s; another process that treats a lock of that age as abandoned must still find it held
+      // by now the import has run for much longer than 0.4 s, so its lock is only held because it was beaten. Read the lock here, in the importer's own
+      // thread, where no child start-up can delay a beat: its age must be well under the 0.4 s the lock would count as abandoned after.
+      const lock = JSON.parse(readFileSync(lockPath(e.stateDir), 'utf8')) as { time: number };
+      ages.push(Date.now() - lock.time);
+      // A second process must be refused while the holder is alive. Its clock is the lock's own time plus a millisecond: the check does not depend on how
+      // long the child takes to start (it cannot be beaten while this thread waits for it), which made an earlier version of this test fail under load.
       const r = spawnSync(process.execPath, [...NODE_ARGS, '-e', `
         import('${here('../src/index.ts')}').then(({ withLock }) => {
-          try { withLock(process.argv[1], () => console.log('took it'), { waitMs: 100, staleMs: 400 }); } catch (e) { console.log(e.code + ' ' + (e.what ?? '')); }
-        });`, e.stateDir], { encoding: 'utf8' });
+          try { withLock(process.argv[1], () => console.log('took it'), { waitMs: 100, staleMs: 400, clock: () => Number(process.argv[2]) + 1 }); } catch (e) { console.log(e.code + ' ' + (e.what ?? '')); }
+        });`, e.stateDir, String(lock.time)], { encoding: 'utf8' });
       seen.push(r.stdout.trim());
     },
   });
   assert.deepEqual(seen, ['state_locked import'], 'the other process was refused, and told that an import is running');
+  assert.equal(ages.length, 1);
+  assert.ok(ages[0]! < 400, `the lock was beaten: it was ${ages[0]} ms old after an import that ran for much longer than the 400 ms it would count as abandoned after`);
   assert.equal(e.vault.list().length, 300);
   assert.equal(existsSync(lockPath(e.stateDir)), false, 'and the lock is gone when the import is done');
   void withLock;

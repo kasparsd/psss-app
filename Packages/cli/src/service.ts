@@ -36,6 +36,8 @@ export interface ItemSummary {
   group: string;
   /** Names of the fields that hold secrets or notes (never values), such as `password`, `token`, `code`. */
   fields: string[];
+  /** The item has a real verification code (a setup key that makes one), not just a field that is called `code`. */
+  hasCode?: boolean;
   deleted: boolean;
 }
 
@@ -234,7 +236,7 @@ export interface EarlierValue {
 
 export type HistoryOutcome =
   | { mode: 'item'; item: ItemSummary; changes: ChangeEvent[] }
-  | { mode: 'field'; item: ItemSummary; field: string; earlier: EarlierValue[] };
+  | { mode: 'field'; item: ItemSummary; field: string; earlier: EarlierValue[]; /** The field is the computed verification code: made fresh each time, so it has no earlier values. */ computed?: true };
 
 export interface HistoryRequest {
   /** One field: its earlier values. Absent: the changes of the whole item. */
@@ -267,6 +269,8 @@ export interface SetOutcome {
   itemCreated: boolean;
   /** The field had a value before, and it is kept under previous values. */
   previousKept: boolean;
+  /** The field already held this value: nothing was written, there is no new record, no history row and nothing to deliver. */
+  unchanged?: boolean;
 }
 
 export interface SyncLocationReport {

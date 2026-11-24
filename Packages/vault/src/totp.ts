@@ -6,6 +6,8 @@ const ALGORITHMS: Record<number, string> = { 1: 'sha1', 2: 'sha256', 3: 'sha512'
 export function hotp(secret: Uint8Array, counter: bigint, digits: number, algorithm: number): string {
   const name = ALGORITHMS[algorithm];
   if (!name) throw new Error(`unknown algorithm ${algorithm}`);
+  // The record format stores 4 to 10 digits; a code is made of 6 to 8, as in the apps (`TOTP` in App/Core) and as the setup-key parsers accept.
+  if (!Number.isInteger(digits) || digits < 6 || digits > 8) throw new Error(`unsupported digits ${digits}`);
   const message = Buffer.alloc(8);
   message.writeBigUInt64BE(counter);
   const mac = createHmac(name, secret).update(message).digest();
