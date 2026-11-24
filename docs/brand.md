@@ -18,7 +18,7 @@ Approved by the owner on 2026-11-24. An outline pill (the field) with the word i
 - For a web page: `Design/Logo/psss-logo.svg` holds both states in one drawing and takes the text colour, and `psss-logo.css` switches it on hover or tap with no script. By default it rests hidden and shows the name on hover. With the class `rest-shown` it rests on “psss” and hides the name on hover; both are kept (owner, 2026-11-24).
 - In the logo files the letters are thickened with a stroke around the typeface's outlines. That renders the same in browsers, but a tool that wants plain filled shapes (some printers) needs the stroke turned into outlines first. The app icon's layers already have no strokes; see App icon.
 - No gradient, shadow or extra accent. Never add a caret, and never let any part leave the field.
-- In the app the switch belongs to the lock screen: hidden while locked, shown while the vault opens (built; see [experience](experience.md)). The script writes the icon cut as SwiftUI paths to `App/Features/LogoFieldGeometry.swift` for it. Not at the top left of the main screen and not as a launch animation.
+- In the app the switch belongs to the lock screen: hidden while locked, shown while the vault opens (built; see [experience](experience.md)). The script writes the icon cut as SwiftUI paths to `App/Features/LogoFieldGeometry.swift` for it. Not at the top left of the main screen and not as a launch animation. The lock screen runs it slower than the web logo (0.28 s per place, 120 ms apart, about 0.5 s in all, against 0.16 s and 70 ms), because it is a single moment that Face ID can cut short (owner, 2026-11-24).
 
 ### Cuts
 

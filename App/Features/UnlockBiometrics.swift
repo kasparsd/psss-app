@@ -79,11 +79,12 @@ struct LockHeader: View {
     var retry: () -> Void = {}
     var context: LAContext?
     @Environment(\.scenePhase) private var scenePhase
-    /// The introduction: a second after the lock screen shows, and again each time the app returns to the front, the dots change
+    /// Just long enough for the screen to draw its first frame with the dots, so the change is seen as a change. Nothing else waits.
+    private static let firstFrame = Duration.milliseconds(80)
+    /// The introduction: right after the lock screen shows, and again each time the app returns to the front, the dots change
     /// to the name and rest there. Nothing waits for it.
     @State private var introduced = false
-    /// What the icon shows: the name, once an attempt or the introduction has been under way for a moment. The moment lets the
-    /// screen draw its first frame with the dots, so the change is seen as a change; Face ID can start an attempt in the same
+    /// What the icon shows: the name, once an attempt or the introduction has been under way for a moment. Face ID can start an attempt in the same
     /// instant the screen appears, and a change in that very frame has nothing to animate from.
     @State private var showsName = false
 
@@ -94,12 +95,12 @@ struct LockHeader: View {
         }
         .task(id: scenePhase) {
             guard scenePhase == .active else { introduced = false; return }
-            try? await Task.sleep(for: .seconds(1))
+            try? await Task.sleep(for: Self.firstFrame)
             if !Task.isCancelled { introduced = true }
         }
         .task(id: opening || introduced) {
             guard opening || introduced else { showsName = false; return }
-            if !introduced { try? await Task.sleep(for: .milliseconds(400)) }
+            if !introduced { try? await Task.sleep(for: Self.firstFrame) }
             if !Task.isCancelled { showsName = true }
         }
     }

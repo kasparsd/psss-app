@@ -69,9 +69,10 @@ struct LogoField: View {
         }
     }
 
-    /// The three places change one after another; with Reduce Motion they change at once.
+    /// The three places change one after another; with Reduce Motion they change at once. Slower than the web logo (0.16 s, 70 ms
+    /// apart), which a pointer is already watching: here it is one moment, often over before Face ID has finished.
     private func animation(_ i: Int) -> Animation? {
-        reduceMotion ? nil : .easeInOut(duration: 0.16).delay(Double(i) * 0.07)
+        reduceMotion ? nil : .easeInOut(duration: 0.28).delay(Double(i) * 0.12)
     }
 }
 
