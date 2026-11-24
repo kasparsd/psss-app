@@ -226,8 +226,8 @@ struct VaultPasswordView: View {
     @State private var lost = false
     @State private var triedBiometric = false
     @State private var unlockingWithBiometrics = false
-    /// The vault is really being opened: the password was submitted, or Touch ID accepted the person. Not while a system
-    /// prompt is up, and off again with any failure. The lock icon shows the name meanwhile.
+    /// An unlock attempt is under way: the password was submitted, or Face ID or Touch ID was asked. Off again with any failure
+    /// or cancel; nothing waits for it. The lock icon shows the name meanwhile.
     @State private var opening = false
     /// "Use Password…" was pressed: the password form is shown in place.
     @State private var formRequested = false
@@ -570,15 +570,14 @@ struct VaultPasswordView: View {
         guard !working else { return }
         working = true
         unlockingWithBiometrics = true
-        // The Mac's embedded Touch ID already accepted the person. On iPhone and iPad the prompt runs inside the session call,
-        // which says when the person was accepted.
-        opening = evaluated != nil
+        // The icon starts changing as the attempt starts, not when the vault has opened; a failure or cancel puts the dots back.
+        opening = true
         problem = nil
         notRecognised = false
         // The lock notice stays until the unlock succeeds or a new problem replaces it: cancelling the prompt explains nothing else.
         defer { working = false; unlockingWithBiometrics = false; opening = false }
         do {
-            try await session.unlockWithBiometrics(evaluated: evaluated.map(EvaluatedContext.init), accepted: { opening = true })
+            try await session.unlockWithBiometrics(evaluated: evaluated.map(EvaluatedContext.init), accepted: {})
             password = ""
             gate.lockNotice = nil
             gate.markUnlocked()
