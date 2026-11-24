@@ -86,9 +86,9 @@ export function ItemPage() {
         <Decisions
           items={[
               {
-                decision: <><strong>Edit is the one prominent button of the item page.</strong> It is filled with the system accent colour (whatever accent the person chose) and a little wider than the buttons beside it, on iPhone, iPad and Mac. While editing, Save has that look in the same place and Cancel is plain.</>,
-                rejected: <>a plain Edit like every other toolbar button (as built before, and as in Apple's Passwords); a custom colour for it.</>,
-                why: <>Changing an item is the main thing to do on its page, and one filled button per screen is the system's way to say so. It uses the standard prominent button style, so it follows the person's accent colour.</>,
+                decision: <><strong>Edit is wider, Save is the accent button.</strong> Edit keeps the default button colour and is a little wider than the buttons beside it, on iPhone, iPad and Mac. While editing, Save takes its place, filled with the system accent colour, and Cancel is plain.</>,
+                rejected: <>Edit filled with the accent colour (drawn first: it looked like Save); Edit at the ordinary width (easy to miss on Mac).</>,
+                why: <>The accent marks the one button that commits something. Edit only opens the fields, so it is made easier to hit, not louder.</>,
               },
             {
               decision: <><strong>1. The icon and name stand above the card,</strong> on the page itself, centred, on every device. The cards below hold only the fields.</>,
@@ -142,7 +142,7 @@ export function ItemPage() {
 
         <History
           entries={[
-            { date: '2026-11-24', text: <>Edit became the prominent button of the item page, filled with the system accent colour and wider, on every device; Save takes the same look in its place while editing. Before, Edit was a plain toolbar button like the others, and on Mac it was easy to miss beside the search field. The owner asked for it on Mac; it was applied to iPhone and iPad too so the three stay alike.</> },
+            { date: '2026-11-24', text: <>Edit became wider than the buttons beside it and kept the default colour; Save is the one accent-filled button, shown only while editing. An accent-filled Edit was drawn first the same day and dropped by the owner: it looked like Save, and the accent should mean “this commits”. Before that, Edit was a plain toolbar button of ordinary width, easy to miss beside the search field on Mac.</> },
             { date: '2026-11-24', text: <>Secrets shown in the clear became monospaced, at body size: revealed values on the item page and the same fields in the editor and the new-item sheet. In the normal face, l, 1 and I look the same, and so do 0 and O. The owner decided it; the eight hidden dots did not change.</> },
             { date: '2026-11-24', text: <>The verification code and everything about it became one group under the heading “Verification code”: the code, the setup key, Copy Setup Link, Show QR Code and the warning, as the second card on a login's page after the username and password, then website and notes, then passkey. The owner changed decision 3 this way after approving cards as groups. Before, the code sat in the first card with its setup lower down.</> },
             { date: '2026-11-24', text: <>The item page keeps its cards, one per group. Plain rows were drawn beside them and rejected; the owner approved the cards. Before, one card held every field, with the website and notes inside it.</> },

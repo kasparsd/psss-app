@@ -222,7 +222,7 @@ export function Workspace({ device, init = {}, empty = false }: { device: 'mac' 
             ) : inDeleted ? (
               <button className="btn glass" onClick={() => restore(sel.id)}>Restore</button>
             ) : (
-              <button className="btn pri main" onClick={startEdit}>Edit</button>
+              <button className="btn glass main" onClick={startEdit}>Edit</button>
             ))}
             <label className="searchbox">
               <SearchIcon />

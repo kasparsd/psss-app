@@ -208,7 +208,7 @@ export function PhoneItem({ id = 1, mode = 'view', shown, copied, pill, from = '
   if (whole) {
     return (
       <IPhone tall>
-        <Nav left={back} right={<button className="btn pri main">Edit</button>} />
+        <Nav left={back} right={<button className="btn main">Edit</button>} />
         <div className="pbody" style={{ overflow: 'visible' }}>
           <ItemCard item={item} shown={shown} copied={copied} bubble={bubble} />
         </div>
@@ -217,7 +217,7 @@ export function PhoneItem({ id = 1, mode = 'view', shown, copied, pill, from = '
   }
   return (
     <IPhone tab={from} pill={pill}>
-      <Nav left={back} right={<button className="btn pri main">Edit</button>} />
+      <Nav left={back} right={<button className="btn main">Edit</button>} />
       <div className="pbody tabpad" style={{ overflow: 'auto' }}>
         <ItemCard item={item} shown={shown} copied={copied} bubble={bubble} />
       </div>
