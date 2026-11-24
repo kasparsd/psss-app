@@ -139,6 +139,10 @@ The app reads `ASCredentialIdentityStore.getState` at launch, after unlock and w
 
 The state map (every state against the card, Setup and the empty vault) and the checks that keep the app matching it are on the mock page, sections 10 and 11 ([autofill-setup.html](../Design/Mocks/autofill-setup.html)).
 
+## AutoFill without Face ID (2026-11-24)
+
+One setting, on by default, no question (owner). Psss saves the vault's key after every password unlock, protected with `.userPresence`, so AutoFill asks for Face ID or Touch ID and falls back to the device passcode (the login password on a Mac). A vault no longer needs biometry to work with AutoFill, and a person cannot end up with neither. The provider still never types the vault password: Argon2 needs 64 to 128 MiB and the extension's limit is unmeasured. Setup's switch is "Unlock with Face ID or passcode"; turning it off deletes the key and AutoFill cannot open that vault until it is turned on. Cost: adding a face or fingerprint no longer invalidates the key, and anyone who knows the passcode can fill. Frames 25 to 29 on [autofill-setup.html](../Design/Mocks/autofill-setup.html), section 13. Not yet checked on a device: the system's passcode sheet in Safari, and the Mac provider is still a stub.
+
 ## Provider screen copy (2026-11-23)
 
 - No vault, or only the sample vault: title “No vault yet”, body “Open Psss and create a vault. Then come back here to fill your logins. The sample vault is not available for AutoFill.” Other not-ready cases keep “Can’t open your vault here”.

@@ -875,10 +875,17 @@ final class VaultSession {
     /// Whether the device can offer biometric unlock at all.
     var biometry: BiometryKind? { BiometryKind.current }
 
-    /// True when the open vault could use Face ID or Touch ID and the person has not decided yet.
+    /// True when the open vault has no saved key and the person has not turned the setting off. The key is saved without asking
+    /// (owner decision 2026-11-24): the system checks Face ID, Touch ID or the passcode when AutoFill reads it, not when it is saved.
     var shouldOfferBiometric: Bool {
-        guard let reference, isOpen, biometry != nil else { return false }
+        guard let reference, isOpen else { return false }
         return !reference.biometricUnlock && !reference.biometricDeclined
+    }
+
+    /// Turns the setting off for good: deletes the saved key, and Psss does not save it again until the person turns it on.
+    func turnOffSavedKey() {
+        disableBiometric()
+        declineBiometricOffer()
     }
 
     /// Saves the open vault's key behind biometrics. Asks nothing now; the prompt comes at the next unlock.

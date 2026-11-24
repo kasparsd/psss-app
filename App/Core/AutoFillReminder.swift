@@ -24,8 +24,8 @@ enum AutoFillReading: Equatable, Sendable {
 /// The device word the copy uses.
 enum AutoFillDevice: Equatable, Sendable { case iPhone, iPad, mac }
 
-/// Which vault is open. The reminder belongs to a real vault: the sample vault registers no logins, so nothing can be filled.
-enum AutoFillVault: Equatable, Sendable { case none, sample, real }
+/// Whether a vault is open. The reminder shows for any open vault, the sample vault included.
+enum AutoFillVault: Equatable, Sendable { case none, real }
 
 /// What this device remembers, per device and never in the vault file: another device must not inherit any of it.
 struct AutoFillMemory: Codable, Equatable, Sendable {
@@ -69,18 +69,9 @@ struct AutoFillMemory: Codable, Equatable, Sendable {
 
 /// What the card and Setup show and do, from what is known now. Pure.
 struct AutoFillReminder: Equatable, Sendable {
-    enum Headline: Equatable, Sendable {
-        /// First time off.
-        case off
-        /// The system prompt was used and AutoFill is still off: the steps are in words.
-        case stillOff
-        /// It was on before and was turned off.
-        case offAgain
-    }
-
     enum Display: Equatable, Sendable {
         case nothing
-        case card(Headline)
+        case card
         case confirmation
     }
 
@@ -113,8 +104,7 @@ struct AutoFillReminder: Equatable, Sendable {
             return confirmationPending ? .confirmation : .nothing
         case .off:
             if memory.isSnoozed(at: now) { return .nothing }
-            if memory.promptUsed { return .card(.stillOff) }
-            return .card(memory.seenOn ? .offAgain : .off)
+            return .card
         case .notRead, .unreadable:
             return .nothing
         }
@@ -153,25 +143,29 @@ struct AutoFillCopy: Equatable, Sendable {
             : String(localized: "open Settings, tap General, tap AutoFill & Passwords, then switch on Psss")
     }
 
-    // MARK: Card
+    // MARK: Saved key (Setup)
 
-    func title(_ headline: AutoFillReminder.Headline) -> String {
-        switch headline {
-        case .off: String(localized: "AutoFill is off")
-        case .stillOff: String(localized: "AutoFill is still off")
-        case .offAgain: String(localized: "AutoFill is off again")
-        }
+    /// The footer under "Unlock with Face ID or passcode" while it is on. Says what is saved, where, what the system asks and
+    /// what turning it off does (owner, 2026-11-24).
+    var savedKeyOnFooter: String {
+        device == .mac
+            ? String(localized: "Psss saves a key on this Mac so AutoFill can open this vault with Touch ID, or your Mac password if Touch ID cannot be used. Psss does not store your vault password. Turn this off and the key is deleted; AutoFill then cannot open this vault.")
+            : String(localized: "Psss saves a key on this \(deviceName) so AutoFill can open this vault with Face ID, or your \(deviceName) passcode if Face ID cannot be used. Psss does not store your vault password. Turn this off and the key is deleted; AutoFill then cannot open this vault.")
     }
 
-    func body(_ headline: AutoFillReminder.Headline) -> String {
-        switch headline {
-        case .off:
-            String(localized: "Psss keeps your logins. Your \(deviceName) fills them in Safari and apps, and it needs your OK once. Until then, nothing fills.")
-        case .stillOff:
-            String(localized: "Nothing fills yet. To turn it on yourself: \(steps).")
-        case .offAgain:
-            String(localized: "AutoFill was turned off in \(settingsName), so Psss cannot fill logins right now.")
-        }
+    /// The footer while it is off by the person's choice.
+    var savedKeyOffFooter: String {
+        String(localized: "AutoFill cannot open this vault while this is off. Turn it on and Psss saves the key again.")
+    }
+
+    // MARK: Card
+
+    /// One heading and one sentence for every time the card shows (owner, 2026-11-24): first time, after the system prompt, and
+    /// after AutoFill was turned off again. Only the button differs.
+    var title: String { String(localized: "Enable AutoFill") }
+
+    var body: String {
+        String(localized: "For autocomplete in browsers, enable AutoFill for Psss in \(settingsName) under General › AutoFill & Passwords.")
     }
 
     var confirmationTitle: String { String(localized: "AutoFill is on") }

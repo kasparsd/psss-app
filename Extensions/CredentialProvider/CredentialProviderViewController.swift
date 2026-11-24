@@ -1,5 +1,5 @@
 import AuthenticationServices
-
+import LocalAuthentication
 import SwiftUI
 #if os(iOS)
 import UIKit
@@ -286,8 +286,10 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             } catch VaultStoreError.fileMissing {
                 present(NotReady(reason: .fileMissing, close: { self.cancel(.userCanceled) }))
             } catch BiometricKeyError.invalidated {
-                // Unlock with Face ID or Touch ID is off or was reset.
-                present(NotReady(reason: .biometryOff, close: { self.cancel(.userCanceled) }))
+                // The saved key is off or gone. Without a device passcode the system keeps no key, which is a different fix.
+                var passcodeError: NSError?
+                let hasPasscode = LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: &passcodeError)
+                present(NotReady(reason: hasPasscode ? .biometryOff : .noPasscode, close: { self.cancel(.userCanceled) }))
             } catch is BiometricKeyError {
                 // The key exists but biometry cannot be used now (lockout, unavailable, a failed read).
                 present(NotReady(reason: .unavailableNow, close: { self.cancel(.userCanceled) }))

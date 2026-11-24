@@ -100,8 +100,10 @@ private struct GroupLabel: View {
 enum NotReadyReason {
     /// No vault has been created.
     case noVault
-    /// Unlock with Face ID or Touch ID is off, was reset, or cannot be used now.
+    /// The saved key is off (the person turned it off) or gone.
     case biometryOff
+    /// The device has no passcode, so the system keeps no key.
+    case noPasscode
     /// The vault file cannot be found.
     case fileMissing
     /// The key exists but biometry cannot be used right now (a lockout, biometry unavailable, a busy Keychain).
@@ -121,11 +123,13 @@ enum NotReadyReason {
         case .noVault:
             String(localized: "Open Psss and create a vault. Then come back here to fill your logins. The sample vault is not available for AutoFill.")
         case .biometryOff:
-            String(localized: "Open Psss, unlock with your vault password and turn on \(BiometryKind.nameForMessages).")
+            String(localized: "Open Psss, unlock with your vault password and turn on Unlock with \(BiometryKind.unlockName) in Setup.")
+        case .noPasscode:
+            String(localized: "AutoFill needs a passcode on this device. Set one in Settings, then open Psss and unlock with your vault password.")
         case .fileMissing:
             String(localized: "Psss cannot find the vault file. Open Psss to locate it.")
         case .unavailableNow:
-            String(localized: "\(BiometryKind.nameForMessages) is not available right now. Open Psss and unlock with your vault password, then try again.")
+            String(localized: "\(BiometryKind.unlockName) is not available right now. Open Psss and unlock with your vault password, then try again.")
         case .vaultUnreadable:
             String(localized: "Psss could not open your vault. Open Psss to see what is wrong.")
         }

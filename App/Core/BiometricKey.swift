@@ -63,6 +63,18 @@ extension BiometryKind {
         UserDefaults(suiteName: SharedVault.groupID)?.set(name, forKey: rememberedKey)
     }
 
+    /// What opens the saved key, for the Setup switch and the AutoFill screens: "Face ID or passcode", or just "passcode" where
+    /// the device has no biometry. On a Mac the fallback is the login password.
+    static var unlockName: String {
+        #if os(macOS)
+        let fallback = String(localized: "password")
+        #else
+        let fallback = String(localized: "passcode")
+        #endif
+        guard let kind = current ?? remembered else { return fallback }
+        return String(localized: "\(kind.label) or \(fallback)")
+    }
+
     /// The name for a sentence: what the device has now, else what it had when the key was saved, else "Biometric unlock".
     static var nameForMessages: String {
         (current ?? remembered)?.label ?? String(localized: "Biometric unlock")
@@ -92,8 +104,8 @@ enum BiometricKeyError: Error {
 /// There are two kinds of build, decided once per process and never per error:
 /// - Provisioned (every iOS and iPadOS build, and a Mac build signed with the team's profile, which carries the shared
 ///   `keychain-access-groups` entry): the key is a data protection keychain item with a biometric access control
-///   (`.biometryCurrentSet`, this device only) in the shared access group, readable by the AutoFill extension and only with
-///   the enrolled face or fingers. This is the only item such a build ever reads or writes, and any error is an error: there
+///   (`.userPresence`, this device only) in the shared access group, readable by the AutoFill extension and only with
+///   Face ID or Touch ID, or the device passcode. This is the only item such a build ever reads or writes, and any error is an error: there
 ///   is no fallback to a weaker item. A login-keychain item left by an earlier local build is deleted, never read.
 /// - Local (an unsigned or ad-hoc signed Mac build, which cannot use the protected item): the key sits in the login keychain,
 ///   readable on this device, and the app asks for Touch ID itself before it reads it. The AutoFill extension never runs in
@@ -116,8 +128,10 @@ enum BiometricKey {
 
     private static func protectedAccessControl() throws -> SecAccessControl {
         var error: Unmanaged<CFError>?
+        // `.userPresence`: Face ID or Touch ID, and the device passcode when biometry is not enrolled or fails. Adding a face or
+        // finger does not invalidate the key (owner decision 2026-11-24: one switch, AutoFill works without biometry).
         guard let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly,
-                                                           .biometryCurrentSet, &error) else {
+                                                           .userPresence, &error) else {
             throw BiometricKeyError.failed(errSecParam)
         }
         return access
@@ -266,7 +280,7 @@ enum BiometricKey {
         probe[kSecReturnAttributes as String] = true
         guard SecItemCopyMatching(probe as CFDictionary, nil) == errSecSuccess else { throw BiometricKeyError.invalidated }
         let context = LAContext()
-        do { if evaluated == nil { _ = try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) } }
+        do { if evaluated == nil { _ = try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) } }
         catch let error as LAError where error.code == .userCancel || error.code == .appCancel || error.code == .systemCancel {
             throw BiometricKeyError.cancelled
         } catch let error as LAError where error.code == .biometryNotEnrolled {

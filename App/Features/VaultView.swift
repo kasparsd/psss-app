@@ -63,7 +63,7 @@ private struct AlertSurfaceModifier: ViewModifier {
 
 /// Every alert of the vault screen. Only one is shown at a time.
 private enum VaultAlert: Hashable {
-    case conflict, editorRemoved, storeProblem, autoFillSettings, importProblem, importNotice, biometricOff, biometricOffer
+    case conflict, editorRemoved, storeProblem, autoFillSettings, importProblem, importNotice, biometricOff
 }
 
 /// The tabs of the iPhone (and of iPad at compact width): the three places, then the iOS 26 search tab at the trailing end.
@@ -136,7 +136,6 @@ struct VaultView: View {
         _deletedEntries = State(initialValue: store.recentlyDeleted().map(DeletedItem.init))
     }
     @State private var confirmsReset = false
-    @State private var offersBiometric = false
     @State private var importing = false
     @State private var importNotice: String?
     @State private var importProblem: String?
@@ -432,7 +431,11 @@ struct VaultView: View {
             undoBanner.dismiss()
             undoToken.clear(in: undoManager)
         }
-        .task { if !store.isSample, session.biometricNotice == nil, session.shouldOfferBiometric { offersBiometric = true } }
+        .task {
+            // The key AutoFill and Face ID open the vault with is saved without a question (owner, 2026-11-24). No passcode on the
+            // device, or a Keychain refusal, leaves it unsaved and the next password unlock tries again.
+            if !store.isSample, session.biometricNotice == nil, session.shouldOfferBiometric { try? session.enableBiometric() }
+        }
         .sheet(isPresented: $changingPassword) {
             if let store = store as? KeePassVaultStore { ChangePasswordSheet(store: store, onReloaded: { adoptReloadedVault() },
                                                           onChangedElsewhere: { gate.lock(notice: Self.changedElsewhereNotice) }) }
@@ -450,7 +453,6 @@ struct VaultView: View {
         if importProblem != nil { waiting.append(.importProblem) }
         if importNotice != nil { waiting.append(.importNotice) }
         if session.biometricNotice != nil { waiting.append(.biometricOff) }
-        if offersBiometric { waiting.append(.biometricOffer) }
         return waiting
     }
 
@@ -510,7 +512,6 @@ struct VaultView: View {
         case .importProblem: return "Could not import"
         case .importNotice: return "Imported"
         case .biometricOff: return "\(faceID) is off"
-        case .biometricOffer: return "Unlock \(store.title) with \(faceID)?"
         case nil: return ""
         }
     }
@@ -541,12 +542,6 @@ struct VaultView: View {
             Button("Open vault") { importNotice = nil; refresh(); registerIdentities() }
         case .biometricOff:
             Button("OK") { session.biometricNotice = nil }
-        case .biometricOffer:
-            Button("Use \(session.biometry?.label ?? "Face ID")") {
-                offersBiometric = false
-                do { try session.enableBiometric() } catch { storeProblem = String(localized: "\(session.biometry?.label ?? "Face ID") could not be turned on for this vault.") }
-            }
-            Button("Not Now", role: .cancel) { offersBiometric = false; session.declineBiometricOffer() }
         }
     }
 
@@ -561,8 +556,6 @@ struct VaultView: View {
         case .importProblem: Text(importProblem ?? "")
         case .importNotice: Text(importNotice ?? "")
         case .biometricOff: Text(session.biometricNotice ?? "")
-        case .biometricOffer:
-            Text("\(session.biometry?.label ?? "Face ID") opens this vault on this device only. Your vault password still works, and you need it if you change \(session.biometry?.label ?? "Face ID"). Turn it off any time in Setup.")
         }
     }
 
@@ -1036,14 +1029,17 @@ struct VaultView: View {
                             LabeledContent("Items", value: items.count.formatted())
                             Button("Save a Copy…") { copyDocument = (try? VaultFiles.read(keePass.url)).map(VaultCopy.init) }
                             Button("Change Vault Password…") { wantsPasswordChange = true; showsSetup = false }
-                            if let biometry = session.biometry {
-                                Toggle("Unlock with \(biometry.label)", isOn: Binding(
-                                    get: { session.reference?.biometricUnlock == true },
-                                    set: { on in
-                                        if on { do { try session.enableBiometric() } catch { storeProblem = String(localized: "\(biometry.label) could not be turned on for this vault.") } }
-                                        else { session.disableBiometric() }
-                                    }))
-                            }
+                        }
+                        Section {
+                            Toggle("Unlock with \(BiometryKind.unlockName)", isOn: Binding(
+                                get: { session.reference?.biometricUnlock == true },
+                                set: { on in
+                                    if on { do { try session.enableBiometric() } catch { storeProblem = String(localized: "The key could not be saved on this device. AutoFill needs a passcode set in Settings.") } }
+                                    else { session.turnOffSavedKey() }
+                                }))
+                        } footer: {
+                            Text(session.reference?.biometricUnlock == true
+                                 ? AutoFillCopy(device: .current).savedKeyOnFooter : AutoFillCopy(device: .current).savedKeyOffFooter)
                         }
                     } else {
                         Section("Vaults") {
@@ -1795,6 +1791,8 @@ private struct ItemDetail: View {
     let used: () -> Void
     @State private var draft: VaultItem
     @State private var codeInput: VerificationCodeInput?
+    /// The field Edit opens with focused, when it was opened from a field's Add.
+    @State private var editFocus: ItemField?
     @State private var confirmsDiscard = false
     @State private var revealed: Set<FieldID> = []
     /// The field whose copy icon is a checkmark, for about a second and a half.
@@ -1829,7 +1827,7 @@ private struct ItemDetail: View {
 
     private var groupsShown: [Card] {
         var shown: [Card] = []
-        if !item.filledFirstCardFields.isEmpty { shown.append(.values) }
+        if !item.firstCardRows.isEmpty { shown.append(.values) }
         if item.kind == .login { shown.append(.code) }
         if !item.notes.isEmpty { shown.append(.notes) }
         if item.passkey != nil { shown.append(.passkey) }
@@ -1857,7 +1855,7 @@ private struct ItemDetail: View {
     private var editFields: ItemFields {
         let mappingAction: (() -> Void)? = canMap ? { beginFieldMapping() } : nil
         return ItemFields(item: $draft, codeInput: $codeInput, mapFieldsLabel: mappingLabel,
-                          onMapFields: mappingAction, canMapFields: !draft.hasChanges(from: item), onDelete: delete)
+                          onMapFields: mappingAction, canMapFields: !draft.hasChanges(from: item), onDelete: delete, focusField: editFocus)
     }
 
     var body: some View {
@@ -1935,9 +1933,10 @@ private struct ItemDetail: View {
         }
     }
 
-    private func beginEditing(atCode: Bool = false) {
+    private func beginEditing(atCode: Bool = false, at field: ItemField? = nil) {
         draft = item
         revealed = []
+        editFocus = field
         isEditing = true
         if atCode { codeInput = .manual }
     }
@@ -1970,15 +1969,11 @@ private struct ItemDetail: View {
         }
         if groupsShown.contains(.values) {
             Section {
-                ForEach(item.filledFirstCardFields, id: \.self) { field($0) }
+                ForEach(item.firstCardRows, id: \.self) { entry in
+                    if entry.isSet { field(entry.field) } else { unsetField(entry.field) }
+                }
             } header: {
                 header(for: .values)
-            } footer: {
-                // Directly under the first card.
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text("Copied values leave the clipboard after 60 seconds.")
-                    InfoButton(topic: HelpTopics.clipboard)
-                }
             }
         }
         if item.kind == .login {
@@ -2108,10 +2103,15 @@ private struct ItemDetail: View {
 
     /// One of the item's own values, under the name its kind gives it. A card's expiry is shown as MM/YY; protected values are hidden.
     private func field(_ field: ItemField) -> some View {
-        let value = field == .expiry ? CardExpiry.displayed(item.expiry) : item[field]
+        let value = field == .expiry || field == .validFrom ? CardExpiry.displayed(item[field]) : item[field]
         return row(.value(field), field.label(for: item.kind), value,
-                   hidden: field == .secret || field == .securityCode || item.concealedFields?.contains(field.rawValue) == true,
+                   hidden: field == .secret || field == .securityCode || field == .pin || item.concealedFields?.contains(field.rawValue) == true,
                    notice: item.mappedValueNotice(for: field))
+    }
+
+    /// A recognized field with no value: "Not set" and an Add that opens Edit with this field focused (owner, 2026-11-24).
+    private func unsetField(_ field: ItemField) -> some View {
+        UnsetFieldRow(label: field.label(for: item.kind)) { beginEditing(at: field) }
     }
 
     /// A field is one row with a copy icon at its end. Protected values stay hidden until a deliberate reveal.
