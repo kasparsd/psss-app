@@ -168,6 +168,8 @@ struct FieldRow: View {
     var copied = false
     /// A problem with this value, written under it (an empty card number, an expiry that is not a date).
     var notice: String? = nil
+    /// False for a fact that is not worth copying (a Wi-Fi network's security): no icon, no tap-to-copy.
+    var copyable = true
     let copy: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -201,10 +203,10 @@ struct FieldRow: View {
                 if let notice { ProblemText(text: notice) }
             }
             Spacer(minLength: 8)
-            if !value.isEmpty { CopyIconButton(name: name, copied: copied, action: copy) }
+            if !value.isEmpty, copyable { CopyIconButton(name: name, copied: copied, action: copy) }
         }
         .animation(revealAnimation, value: revealed)
-        .modifier(CopiesWhen(enabled: !value.isEmpty, action: copy))
+        .modifier(CopiesWhen(enabled: !value.isEmpty && copyable, action: copy))
     }
 }
 
@@ -278,6 +280,7 @@ final class CopiedPillModel {
     struct Offer: Equatable {
         let id = UUID()
         let message: String
+        var symbol = "checkmark.circle.fill"
     }
 
     static let visibleFor: Duration = .seconds(2)
@@ -288,9 +291,9 @@ final class CopiedPillModel {
     private var timer: Task<Void, Never>?
 
     /// Shows `message` for about two seconds. VoiceOver hears it once.
-    func show(_ message: String) {
+    func show(_ message: String, symbol: String = "checkmark.circle.fill") {
         timer?.cancel()
-        let offer = Offer(message: message)
+        let offer = Offer(message: message, symbol: symbol)
         self.offer = offer
         count += 1
         AccessibilityNotification.Announcement(message).post()
@@ -305,10 +308,11 @@ final class CopiedPillModel {
 /// The pill itself: a checkmark and a short sentence on glass. Shared by every copy on an item page, so they all look and move alike.
 private struct CopiedPill: View {
     let message: String
+    var symbol = "checkmark.circle.fill"
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Label(message, systemImage: "checkmark.circle.fill")
+        Label(message, systemImage: symbol)
             .fontWeight(.semibold)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
@@ -332,7 +336,7 @@ private struct CopiedPillModifier: ViewModifier {
             .contentMargins(.bottom, reserve, for: .scrollContent)
             // Inside the page's safe area: above the tab bar on iPhone, at the bottom centre of the detail on iPad and Mac.
             .overlay(alignment: .bottom) {
-                if let offer = model.offer { CopiedPill(message: offer.message) }
+                if let offer = model.offer { CopiedPill(message: offer.message, symbol: offer.symbol) }
             }
             .animation(reduceMotion ? .easeInOut(duration: 0.2) : .snappy, value: model.offer)
             #if os(iOS)

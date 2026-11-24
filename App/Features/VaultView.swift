@@ -2293,7 +2293,7 @@ private struct ItemDetail: View {
             switch await WiFiJoin.join(network) {
             case .joined: pill.show(String(localized: "Joined \(network.displayTitle)"))
             case .declined: break
-            case .failed: pill.show(String(localized: "Could not join. Check the name and password."))
+            case .failed: pill.show(String(localized: "Could not join. Check the name and password."), symbol: "exclamationmark.circle.fill")
             }
         }
     }
@@ -2314,6 +2314,7 @@ private struct ItemDetail: View {
                                           set: { if $0 { revealed.insert(id) } else { revealed.remove(id) } }),
                         copied: copied == id,
                         notice: notice,
+                        copyable: id != .wifiSecurity && id != .wifiHidden,
                         copy: { copy(value, as: id, name: String(localized: label)) })
     }
 
