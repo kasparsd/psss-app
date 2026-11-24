@@ -38,6 +38,17 @@ Keep iPhone, iPad and Mac behavior in sync. Review semantics (what queues, keeps
 
 Whenever you propose, build, suggest or review an interface or its copy, apply the `ui-clarity` skill (`.claude/skills/ui-clarity/SKILL.md`): say what is being created, where it is stored, who holds the key, how to get out and what happens next, in plain words, before polishing visuals. For a new or unclear screen, show a quick visual mock of the normal and error states and get approval before building (step 0 of the skill). Use at most two type sizes on a screen (title and body); never shrink text to footnote or caption to fit more.
 
+## Delegated work and validation
+
+Learned on the command line (2026-11-24, `docs/plans/command-line-and-agents.md`, "Process review"):
+
+- One command or one concern per implementer run. A validator checks what is new plus a fixed regression script, not a long checklist.
+- Every implementer brief for a command or library function cites this hostile-input and secrecy checklist, and the tests cover it: names escaped and truncated in every message, `~` in paths, plain errors without raw codes, no secret in any output (stdout, stderr, `--json`, state files), `kill -9` at random moments leaves `verify` clean, two writers at once, an unwritable location, a locked vault, hostile files (bidi, newline, `../` names, huge sizes). Prefer one shared test harness that runs every command through it.
+- Triage validator findings by severity. Data loss, a leak or a wrong result are blockers and get a re-validation after the fix. Everything else is fixed with a test and checked once at the end of the milestone, not per round.
+- Commit each validated slice at once with explicit paths (`git commit -- <paths>`, which takes the whole file, so check that the file holds no other session's edit), before starting the next.
+- Slow load tests (20,000 entries, 64 MiB files) live in their own script and run once per milestone.
+- For terminal output, get the words approved from a rendered mock before building, as for A1 to A11.
+
 ## Greenfield project
 
 This is a greenfield project. Do not spend effort on data migrations, backward compatibility, or preserving behavior for hypothetical existing users. Earlier implementation choices are not constraints: prefer a clean design and change it when a better approach serves the task.
