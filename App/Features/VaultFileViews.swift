@@ -226,6 +226,9 @@ struct VaultPasswordView: View {
     @State private var lost = false
     @State private var triedBiometric = false
     @State private var unlockingWithBiometrics = false
+    /// The vault is really being opened: the password was submitted, or Touch ID accepted the person. Not while a system
+    /// prompt is up, and off again with any failure. The lock icon shows the name meanwhile.
+    @State private var opening = false
     /// "Use Password…" was pressed: the password form is shown in place.
     @State private var formRequested = false
     /// Face ID or Touch ID looked and did not recognise the person. The form opens with a line that says so.
@@ -365,7 +368,7 @@ struct VaultPasswordView: View {
 
     private var content: some View {
         VStack(spacing: 16) {
-            LockHeader(biometry: biometry, listening: listening, dimmed: working || !listening, vaultName: vaultName,
+            LockHeader(biometry: biometry, listening: listening, dimmed: working || !listening, vaultName: vaultName, opening: opening,
                        retry: { startBiometrics(automatic: false) }, context: lockContext)
             statusLine
             messageLine
@@ -567,12 +570,15 @@ struct VaultPasswordView: View {
         guard !working else { return }
         working = true
         unlockingWithBiometrics = true
+        // The Mac's embedded Touch ID already accepted the person. On iPhone and iPad the prompt runs inside the session call,
+        // which says when the person was accepted.
+        opening = evaluated != nil
         problem = nil
         notRecognised = false
         // The lock notice stays until the unlock succeeds or a new problem replaces it: cancelling the prompt explains nothing else.
-        defer { working = false; unlockingWithBiometrics = false }
+        defer { working = false; unlockingWithBiometrics = false; opening = false }
         do {
-            try await session.unlockWithBiometrics(evaluated: evaluated.map(EvaluatedContext.init))
+            try await session.unlockWithBiometrics(evaluated: evaluated.map(EvaluatedContext.init), accepted: { opening = true })
             password = ""
             gate.lockNotice = nil
             gate.markUnlocked()
@@ -600,6 +606,7 @@ struct VaultPasswordView: View {
     private func unlock() {
         guard !working, !(password.isEmpty && keyFile == nil) else { return }
         working = true
+        opening = true
         problem = nil
         gate.lockNotice = nil
         Task {
@@ -616,6 +623,7 @@ struct VaultPasswordView: View {
                 }
                 password = ""
                 working = false
+                opening = false
                 refocus()
             }
             working = false

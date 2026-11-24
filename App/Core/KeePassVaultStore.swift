@@ -634,7 +634,10 @@ final class VaultSession {
     ///
     /// `evaluated` is a context that already passed the biometric check (the Mac lock screen's embedded Touch ID view), so the
     /// key is read without a second prompt.
-    func unlockWithBiometrics(evaluated: EvaluatedContext? = nil) async throws {
+    ///
+    /// `accepted` runs once the person has been accepted and the saved key is in hand, just before the vault is opened with
+    /// it, so the lock screen can show that the vault is opening. It does not run for a cancelled or failed prompt.
+    func unlockWithBiometrics(evaluated: EvaluatedContext? = nil, accepted: () -> Void = {}) async throws {
         syncReference()
         guard let reference, reference.biometricUnlock else { throw BiometricKeyError.invalidated }
         let key: Data
@@ -645,6 +648,7 @@ final class VaultSession {
             throw BiometricKeyError.invalidated
         }
         // Any other error from `load` (lockout, biometry unavailable, a failed read) leaves the key and the setting alone.
+        accepted()
         do {
             try await unlock { data in try KDBX.open(data, transformedKey: key) }
         } catch KDBXError.wrongCredentials {

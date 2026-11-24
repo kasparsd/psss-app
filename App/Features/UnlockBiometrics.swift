@@ -14,6 +14,8 @@ struct LockIcon: View {
     /// Dimmed: not listening, or opening the vault.
     var dimmed = false
     var vaultName = ""
+    /// The vault is being opened now: the icon shows the name instead of the dots.
+    var opening = false
     var retry: () -> Void = {}
     /// The context bound to the embedded Touch ID view (Mac only; nil elsewhere).
     var context: LAContext?
@@ -21,27 +23,12 @@ struct LockIcon: View {
     private let size: CGFloat = 76
 
     var body: some View {
-        icon
-            .frame(width: size, height: size)
+        LockAppIcon(shown: opening, size: size)
             .overlay(alignment: .bottomTrailing) {
                 if let biometry { badge(biometry).offset(x: 12, y: 12) }
             }
             .padding(.bottom, 8)
             .accessibilityElement(children: .contain)
-    }
-
-    @ViewBuilder private var icon: some View {
-        #if os(macOS)
-        Image(nsImage: NSApplication.shared.applicationIconImage)
-            .resizable().scaledToFit()
-            .accessibilityHidden(true)
-        #else
-        Image("LockScreenIcon")
-            .resizable().scaledToFit()
-            .clipShape(RoundedRectangle(cornerRadius: size * 0.2237, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: size * 0.2237, style: .continuous).strokeBorder(.primary.opacity(0.12), lineWidth: 0.5))
-            .accessibilityHidden(true)
-        #endif
     }
 
     private func badge(_ biometry: BiometryKind) -> some View {
@@ -82,18 +69,19 @@ struct LockIcon: View {
 }
 
 /// The top of every lock screen, so the sample vault and a real vault look the same: the app icon (with the biometric glyph
-/// when the vault unlocks with it) and the title.
+/// when the vault unlocks with it) and the title. The icon is drawn, and shows the name instead of the dots while the vault opens.
 struct LockHeader: View {
     let biometry: BiometryKind?
     var listening = false
     var dimmed = false
     var vaultName = ""
+    var opening = false
     var retry: () -> Void = {}
     var context: LAContext?
 
     var body: some View {
         VStack(spacing: 16) {
-            LockIcon(biometry: biometry, listening: listening, dimmed: dimmed, vaultName: vaultName, retry: retry, context: context)
+            LockIcon(biometry: biometry, listening: listening, dimmed: dimmed, vaultName: vaultName, opening: opening, retry: retry, context: context)
             Text("Psss Is Locked").font(.title2.weight(.semibold))
         }
     }

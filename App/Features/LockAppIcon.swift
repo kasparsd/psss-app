@@ -1,0 +1,81 @@
+import SwiftUI
+
+// The app icon's two brand colours. They are the icon's artwork (the tile and its mark), not a UI tint.
+private let butter = Color(red: 1.0, green: 0xD8 / 255, blue: 0x4D / 255)
+private let charcoal = Color(red: 0x1F / 255, green: 0x1F / 255, blue: 0x23 / 255)
+
+/// The logo's field drawn in the current foreground style: an outline holding a p and either three dots (hidden) or three s
+/// (shown). Every path is in `LogoFieldGeometry.box` units, so one transform scales them all to the view's width.
+struct LogoField: View {
+    var shown: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let box = LogoFieldGeometry.box
+        Color.clear
+            .aspectRatio(box.width / box.height, contentMode: .fit)
+            .overlay {
+                GeometryReader { proxy in
+                    let scale = proxy.size.width / box.width
+                    let transform = CGAffineTransform(scaleX: scale, y: scale).translatedBy(x: -box.minX, y: -box.minY)
+                    ZStack {
+                        capsule.applying(transform)
+                            .stroke(style: StrokeStyle(lineWidth: LogoFieldGeometry.line * scale, lineJoin: .round))
+                        letter(LogoFieldGeometry.p, transform)
+                        LogoFieldGeometry.tail.applying(transform).fill()
+                        ForEach(0..<3, id: \.self) { i in
+                            letter(LogoFieldGeometry.s[i], transform)
+                                .opacity(shown ? 1 : 0)
+                                .animation(animation(i), value: shown)
+                            dot(i).applying(transform).fill()
+                                .opacity(shown ? 0 : 1)
+                                .animation(animation(i), value: shown)
+                        }
+                    }
+                }
+            }
+    }
+
+    private func dot(_ i: Int) -> Path {
+        let c = LogoFieldGeometry.dotCentres[i], r = LogoFieldGeometry.dotRadius
+        return Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2))
+    }
+
+    private var capsule: Path {
+        let r = LogoFieldGeometry.outline
+        // Circular ends, as in the icon: the p's tail is cut to that curve.
+        return Path(roundedRect: r, cornerRadius: r.height / 2, style: .circular)
+    }
+
+    /// Fill and stroke together: the letters are thickened by the stroke, as in the logo.
+    private func letter(_ path: Path, _ transform: CGAffineTransform) -> some View {
+        let scaled = path.applying(transform)
+        let width = LogoFieldGeometry.letterStroke * transform.a
+        return ZStack {
+            scaled.fill()
+            scaled.stroke(style: StrokeStyle(lineWidth: width, lineJoin: .round))
+        }
+    }
+
+    /// The three places change one after another; with Reduce Motion they change at once.
+    private func animation(_ i: Int) -> Animation? {
+        reduceMotion ? nil : .easeInOut(duration: 0.16).delay(Double(i) * 0.07)
+    }
+}
+
+/// The app icon tile drawn flat, so the field can switch between the dots and the name.
+struct LockAppIcon: View {
+    var shown: Bool
+    var size: CGFloat = 76
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        let tile = RoundedRectangle(cornerRadius: size * 0.2237, style: .continuous)
+        tile.fill(colorScheme == .dark ? charcoal : butter)
+            .overlay { LogoField(shown: shown).frame(width: size * LogoFieldGeometry.iconFill) }
+            .foregroundStyle(colorScheme == .dark ? butter : charcoal)
+            .overlay { tile.strokeBorder(.primary.opacity(0.12), lineWidth: 0.5) }
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
+    }
+}
