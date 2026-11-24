@@ -78,11 +78,29 @@ struct LockHeader: View {
     var opening = false
     var retry: () -> Void = {}
     var context: LAContext?
+    @Environment(\.scenePhase) private var scenePhase
+    /// The introduction: a second after the lock screen shows, and again each time the app returns to the front, the dots change
+    /// to the name and rest there. Nothing waits for it.
+    @State private var introduced = false
+    /// What the icon shows: the name, once an attempt or the introduction has been under way for a moment. The moment lets the
+    /// screen draw its first frame with the dots, so the change is seen as a change; Face ID can start an attempt in the same
+    /// instant the screen appears, and a change in that very frame has nothing to animate from.
+    @State private var showsName = false
 
     var body: some View {
         VStack(spacing: 16) {
-            LockIcon(biometry: biometry, listening: listening, dimmed: dimmed, vaultName: vaultName, opening: opening, retry: retry, context: context)
+            LockIcon(biometry: biometry, listening: listening, dimmed: dimmed, vaultName: vaultName, opening: showsName, retry: retry, context: context)
             Text("Psss Is Locked").font(.title2.weight(.semibold))
+        }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { introduced = false; return }
+            try? await Task.sleep(for: .seconds(1))
+            if !Task.isCancelled { introduced = true }
+        }
+        .task(id: opening || introduced) {
+            guard opening || introduced else { showsName = false; return }
+            if !introduced { try? await Task.sleep(for: .milliseconds(400)) }
+            if !Task.isCancelled { showsName = true }
         }
     }
 }
@@ -96,7 +114,7 @@ struct LockScreen: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            LockHeader(biometry: BiometryKind.current, dimmed: unlocking, vaultName: String(localized: "the sample vault"),
+            LockHeader(biometry: BiometryKind.current, dimmed: unlocking, vaultName: String(localized: "the sample vault"), opening: unlocking,
                        retry: { Task { await gate.unlock() } })
             Text("Open the sample vault to continue.")
                 .multilineTextAlignment(.center)
