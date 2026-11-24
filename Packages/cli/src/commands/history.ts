@@ -8,12 +8,12 @@ import { jsonName } from './kdbx-report.ts';
 import type { ChangeEvent, ItemSelector, ItemSummary } from '../service.ts';
 
 /** `2026-11-20T09:12:00.000Z`, or null for a time no calendar can show (a record can carry any number). */
-function isoOf(ms: number): string | null {
+export function isoOf(ms: number): string | null {
   return Number.isFinite(ms) && ms >= 0 && ms <= 253_402_300_799_999 ? new Date(ms).toISOString() : null;
 }
 
 /** `2026-11-20 09:12 UTC`: UTC, so a log, a server and a laptop say the same thing. */
-function whenOf(ms: number): string {
+export function whenOf(ms: number): string {
   const iso = isoOf(ms);
   return iso === null ? 'unknown date'.padEnd(20) : `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
 }

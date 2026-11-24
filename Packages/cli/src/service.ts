@@ -4,7 +4,7 @@
 // Rules for an implementation:
 // - A call never prints, prompts or reads standard input. The command does that.
 // - An expected failure is returned as data (a Failure), never thrown. A throw is a bug or an I/O error and exits 1.
-// - Only `get`, `code` (a computed code) and `history` with `show` set return a stored value. Nothing else may put one in a result, a message or a log.
+// - Only `get`, `code` (a computed code), `history` with `show` set and `readFile` return stored content. Nothing else may put one in a result, a message or a log.
 
 /** What the command resolved from flags, environment and config files. Secrets are only ever here, never in arguments. */
 export interface ServiceOptions {
@@ -52,7 +52,7 @@ export interface NotFound {
   ok: false;
   kind: 'notFound';
   /** `item` and `field` for a name that matches nothing, `group` for an unknown group. */
-  what: 'item' | 'field' | 'group';
+  what: 'item' | 'field' | 'group' | 'file';
   /** What was asked for: a title, an id, a field name or a group name. */
   name: string;
   /** For `item`: whether `name` was an id or a title. */
@@ -60,7 +60,7 @@ export interface NotFound {
   vault: string;
   /** For `item` by title: titles that are close to the name asked for (see near.ts). Text for a person, never a result. */
   hints?: string[];
-  /** For `field`: the item's title and the fields it does have. */
+  /** For `field` and `file`: the item's title and the fields (or files) it does have. */
   item?: string;
   fields?: string[];
 }
@@ -271,6 +271,102 @@ export interface SetOutcome {
   previousKept: boolean;
   /** The field already held this value: nothing was written, there is no new record, no history row and nothing to deliver. */
   unchanged?: boolean;
+  /** `onlyIfEmpty` was asked for and the field already has a value: nothing was written. */
+  refusedExisting?: boolean;
+}
+
+export type ItemKind = 'login' | 'card' | 'note' | 'custom';
+
+/** One field of an item as `item show` draws it. A hidden field has no `value`; `detail` is what may be said about it (the last four digits of a card, the length of a note). */
+export interface ItemField {
+  name: string;
+  hidden: boolean;
+  value?: string;
+  detail?: string;
+  /** An extra field the person added (its name is a label, not one of the item's own fields, even when it reads the same). */
+  custom?: boolean;
+}
+
+/** An item with everything but its protected values. */
+export interface ItemDetails {
+  item: ItemSummary;
+  kind: ItemKind;
+  websites: string[];
+  tags: string[];
+  fields: ItemField[];
+  files: Array<{ name: string; size: number }>;
+  hasCode: boolean;
+  /** The passkey the item holds, as much as may be said: never its key. `created` is milliseconds since 1970. */
+  passkey?: { site: string; name: string; created: number };
+  /** Milliseconds since 1970. */
+  created?: number;
+  edited?: number;
+  deletedAt?: number;
+}
+
+/** Everything `item add` and `item edit` can set. A field that is absent is left alone (edit) or empty (add). Secrets are values the command read from standard input. */
+export interface ItemFields {
+  title?: string;
+  username?: string;
+  password?: string;
+  /** The whole list of websites (add), or the new list (edit). */
+  websites?: string[];
+  notes?: string;
+  cardholder?: string;
+  cardNumber?: string;
+  /** Four-digit year and month 1 to 12. */
+  expiry?: { year: number; month: number };
+  cardCode?: string;
+  cardPin?: string;
+  /** Stored as the custom fields `Valid from` and `Card issuer`, as the KeePass mapping does. */
+  validFrom?: string;
+  issuer?: string;
+  /** Custom fields by label: a plain value, a concealed one, or `null` to remove it (edit). */
+  custom?: Array<{ label: string; value: string | null; concealed: boolean }>;
+  addTags?: string[];
+  removeTags?: string[];
+}
+
+export interface AddRequest extends ItemFields {
+  kind: ItemKind;
+}
+
+export interface AddOutcome {
+  item: ItemSummary;
+  kind: ItemKind;
+}
+
+export interface EditOutcome {
+  item: ItemSummary;
+  /** Names of the fields that changed, as a reference names them. Empty: nothing was written. */
+  changed: string[];
+}
+
+export interface PurgeOutcome {
+  item: ItemSummary;
+  /** Milliseconds since 1970: when it was moved to Recently Deleted, if the vault knows. */
+  deletedAt?: number;
+  /** Attachments of the item. */
+  files: number;
+  dryRun: boolean;
+}
+
+export interface FileList {
+  item: ItemSummary;
+  files: Array<{ name: string; size: number }>;
+}
+
+export interface FileContent {
+  item: ItemSummary;
+  name: string;
+  data: Uint8Array;
+}
+
+export interface FilePut {
+  item: ItemSummary;
+  name: string;
+  size: number;
+  replaced: boolean;
 }
 
 export interface SyncLocationReport {
@@ -403,7 +499,23 @@ export interface VaultService {
   /** What the writes of this run left undelivered. Called by every command that writes, after it has written. */
   delivery(): Promise<Result<Delivery>>;
   /** Writes one field. A title that does not exist is `notFound` unless `create` is true, which adds the item. */
-  set(selector: ItemSelector, field: string, value: string, options: { create: boolean }): Promise<Result<SetOutcome>>;
+  set(selector: ItemSelector, field: string, value: string, options: { create: boolean; onlyIfEmpty?: boolean }): Promise<Result<SetOutcome>>;
+  /** One item with every field but the protected values. `deleted` looks in Recently Deleted. */
+  show(selector: ItemSelector, scope?: { deleted?: boolean }): Promise<Result<ItemDetails>>;
+  /** Adds an item in one record. With `dryRun`, checks it and writes nothing. */
+  add(request: AddRequest, options?: { dryRun?: boolean }): Promise<Result<AddOutcome>>;
+  /** Changes several fields of a live item in one record; fields that already hold the value are not rewritten. */
+  edit(selector: ItemSelector, fields: ItemFields): Promise<Result<EditOutcome>>;
+  /** Deletes an item that is in Recently Deleted for good (the permanent-delete request). An item that is not there is `failed`. */
+  purge(selector: ItemSelector, options: { dryRun: boolean }): Promise<Result<PurgeOutcome>>;
+  /** The files attached to an item. Never the bytes. */
+  files(selector: ItemSelector, scope?: { deleted?: boolean }): Promise<Result<FileList>>;
+  /** The bytes of one attachment. The only other place besides `get` where stored content leaves the service. */
+  readFile(selector: ItemSelector, name: string, scope?: { deleted?: boolean }): Promise<Result<FileContent>>;
+  /** The place the vault is kept in (a folder it lives in or syncs from) that holds this path, or null when the path is outside every one. For files psss must not write there. */
+  vaultPlaceOf(file: string): Promise<Result<string | null>>;
+  /** Attaches a file. The name is already the base name. `replace` writes over a file of that name. */
+  putFile(selector: ItemSelector, name: string, data: Uint8Array, options: { replace: boolean }): Promise<Result<FilePut>>;
   /** Adds the vault password as another way in. Called by `init` when the person chooses it. */
   setPassword(password: string): Promise<Result<null>>;
   /** Moves an item to Recently Deleted. */

@@ -511,6 +511,99 @@ It has: password, code.
   "remaining": 21
 }</div>
 <figcaption><strong>As built, awaiting the owner’s approval of the words; not approved.</strong> The code and a line break on standard output, nothing else. The seconds left are on standard error and only when standard error is a terminal, so <code>psss code … | pbcopy</code> at a keyboard still says how long it lasts and a script sees nothing. <code>psss://Example Bank/code</code> names the same thing. The setup key is never printed, and a stored field that is only called “code” is not a verification code: it is not offered by the picker and the words say so (no command sets up a code yet, so they point to the app). No code is exit 3, a locked vault exit 4, and a code that cannot be made (an algorithm Psss does not support, or a setup key with fewer than 6 or more than 8 digits) says why and exits 1.</figcaption></figure>
+
+<figure class="fig kmsh"><div class="lbl">A16 · Generate a password, and <span class="mono">set --generate</span></div>
+<div class="term"><span class="d">$</span> psss generate
+Tyhdyn-gozwet-6aqhyw
+
+<span class="d">$</span> psss generate --words 5 --separator space --no-numbers
+<span class="d">warning: that is weaker than the recommended password (about 64 bits against 71). Make it longer, or use --words.</span>
+Flounder Extruding Explode Imitation Unbridle
+
+<span class="d">$</span> psss generate --length 3
+--length 3 is not sensible: random characters are between 8 and 128.
+<span class="d">$</span> echo $?
+2
+
+<span class="d">$</span> psss set --generate --create "psss://Example API/token"
+psss://Example API/token
+
+<span class="d">$</span> psss set --generate "psss://Example API/token"
+"Example API" already has a value for "token". Nothing was changed.
+To replace it with a new one, add --force. The earlier value is kept under previous values.
+<span class="d">$</span> echo $?
+1
+
+<span class="d">$</span> psss set --generate --force "psss://Example API/token"
+<span class="d">The earlier value is kept under previous values.</span>
+psss://Example API/token</div>
+<figcaption><strong>As built, awaiting the owner’s approval of the words; not approved.</strong> With no options <span class="mono">generate</span> makes the apps’ default (three groups of six, 72 bits), from the system’s random source. Options widen the apps’ ranges (8 to 128 characters, 4 to 16 words, up to 1,000 at once) and a silly size is refused. It prints the value and a line break on standard output and never opens the vault. <span class="mono">set --generate</span> makes the value inside <span class="mono">psss</span> and prints only the reference, in text and in <span class="mono">--json</span>; it replaces a value only with <span class="mono">--force</span>, and the earlier value goes to previous values. A password weaker than the recommended one gets a warning on standard error.</figcaption></figure>
+
+<figure class="fig kmsh"><div class="lbl">A17 · An item: show, add, edit and purge</div>
+<div class="term"><span class="d">$</span> psss item add --title "Example Bank" --username robin@example.com --url bank.example --tag banking --password
+psss://Example Bank
+
+<span class="d">$</span> psss item show "psss://Example Bank"
+Example Bank
+  Kind      Login
+  Group     Only Me
+  Added     2026-11-24 18:43 UTC
+  Edited    2026-11-24 18:43 UTC
+  Website   https://bank.example
+  Username  robin@example.com
+  Password  hidden
+  Tags      banking
+
+<span class="d">$</span> psss item edit "psss://Example Bank" --username sam@example.com --add-tag family
+Changed username, tags of "Example Bank" (Personal).
+
+<span class="d">$</span> psss item purge "psss://Example Bank" --yes
+"Example Bank" is not in Recently Deleted, and psss only deletes for good what is already there.
+Move it there first with: psss rm psss://id:42a1f963bac1f9db45e0300299b9c67f
+Nothing was changed.
+<span class="d">$</span> echo $?
+1
+
+<span class="d">$</span> psss item purge "psss://Example Bank"
+psss item purge deletes "Example Bank" for good and cannot ask here. Add --yes to go ahead, or --dry-run to see what it would do. Nothing was deleted.
+<span class="d">$</span> echo $?
+2
+
+<span class="d">$</span> psss item purge "psss://Example Bank" --yes
+Deleted "Example Bank" for good from Personal.
+This computer no longer shows it. Other computers stop showing it when they next sync.
+The old records stay in the vault’s files until a checkpoint removes them, and earlier copies of the vault still hold it.</div>
+<figcaption><strong>As built, awaiting the owner’s approval of the words; not approved.</strong> <span class="mono">item add</span> takes secrets from standard input only (one secret takes all of it; several take one line each, in the order password, card number, security code, PIN, notes), prints the reference and nothing else, and has <span class="mono">--dry-run</span>. <span class="mono">item show</span> lists every field in the apps’ order and never a protected value: a password says “hidden”, a card says the last four digits; <span class="mono">get</span> is the only way to read one. <span class="mono">item edit</span> names what changed and never a value. <span class="mono">item purge</span> works only on an item already in Recently Deleted; at a terminal it asks, in a script it needs <span class="mono">--yes</span>, and <span class="mono">--dry-run</span> writes nothing. The records stay until a checkpoint removes them (not built yet), which the message says. A card number says its last four digits only when it has 12 or more; a shorter one is only “hidden”. <span class="mono">item edit --field</span> never turns a hidden field visible (it is refused; <span class="mono">--secret</span> changes it from standard input), an extra field cannot be named like a field the item has, and a kind has only its own fields. A passkey is listed by name, site and date, never its key.</figcaption></figure>
+
+<figure class="fig kmsh"><div class="lbl">A18 · A file kept with an item</div>
+<div class="term"><span class="d">$</span> psss file put "psss://Example API" ca.pem
+psss://Example API/ca.pem
+
+<span class="d">$</span> psss file list "psss://Example API"
+ca.pem   6 bytes
+
+<span class="d">$</span> psss file get "psss://Example API/ca.pem" --output out
+Wrote ./out/ca.pem (6 bytes) from "Example API".
+It is readable by you only.
+
+<span class="d">$</span> psss file get "psss://Example API/ca.pem" --output out
+./out/ca.pem already exists, so nothing was written.
+Choose another name, or add --force to replace it.
+<span class="d">$</span> echo $?
+1
+
+<span class="d">$</span> psss file put "psss://Example API" ca.pem
+"Example API" already has a file called "ca.pem". Nothing was changed.
+To replace it, add --force.
+<span class="d">$</span> echo $?
+1
+
+<span class="d">$</span> psss file get "psss://Example API/nope.pem" --output out
+"Example API" has no file called "nope.pem".
+It has: ca.pem.
+<span class="d">$</span> echo $?
+3</div>
+<figcaption><strong>As built, awaiting the owner’s approval of the words; not approved.</strong> <span class="mono">file put</span> stores the base name of the file (never empty, never with a separator), refuses over 64 MiB (as import does), writes every chunk before the record that names them, and replaces a name only with <span class="mono">--force</span>. <span class="mono">file get</span> writes under the name made safe (<span class="mono">../../etc/passwd</span> becomes <span class="mono">passwd</span> inside the chosen folder), mode <span class="mono">0600</span>, never over a file without <span class="mono">--force</span>, and never into the vault’s own folder. With no <span class="mono">--output</span> it writes the bytes to standard output, and refuses at a terminal. Names are made safe on every system (Windows device names such as <span class="mono">NUL.txt</span> and the characters <span class="mono">: &lt; &gt; " | ? *</span> are changed, at most 255 bytes, the extension kept), and a stored name over 255 bytes is refused. Sizes are in KiB and MiB. Removing an attachment is not built.</figcaption></figure>
 </div>
 
 <div class="prose">
@@ -531,6 +624,7 @@ It has: password, code.
 <li><strong><span class="mono">status</span> uses the words of the app:</strong> “Kept in”, “Up to date”, “Behind”, “way back”. <span class="why">Why: one meaning each, on every platform.</span></li>
 <li><strong>A write that could not be delivered still exits 0 and says so (A12; built, words awaiting approval).</strong> A warning on standard error after the result, <span class="mono">status</span> shows Behind with a count, <span class="mono">sync</span> delivers, and <span class="mono">--json</span> carries <span class="mono">delivery</span>. <span class="rej">Rejected: exit 1; saying nothing.</span> <span class="why">Why: the change is stored here and a retry would write it twice; a script that must know reads <span class="mono">--json</span> or runs <span class="mono">sync</span>, which exits 1 while a location is unreachable. Silence left a change late with no word.</span></li>
 <li><strong><span class="mono">search</span>, <span class="mono">history</span> and <span class="mono">code</span> print for a person what the apps show, and never a value unless asked (A13 to A15; built, words awaiting approval).</strong> <span class="mono">search</span> reads name, username and website like the apps; <span class="mono">history</span> shows fields and dates and gives earlier values only with <span class="mono">--show</span>; <span class="mono">code</span> prints the code and the seconds left only at a terminal. <span class="rej">Rejected: searching notes, tags or values; showing earlier values by default; a countdown or <span class="mono">--watch</span>; a “code” that is a stored field.</span> <span class="why">Why: a search result or a history is pasted into chats and logs, so what it shows must be what the apps already show openly; a value takes a flag that says so.</span></li>
+<li><strong><span class="mono">generate</span>, <span class="mono">item</span> and <span class="mono">file</span> keep a value out of every stream that is not a request for it (A16 to A18; built, words awaiting approval).</strong> <span class="mono">set --generate</span> prints only the reference; <span class="mono">item show</span> never prints a protected value; secrets are never arguments; <span class="mono">item purge</span> only deletes what is already in Recently Deleted, and asks or needs <span class="mono">--yes</span>; <span class="mono">file get</span> never leaves its folder, never overwrites and never writes into the vault. <span class="rej">Rejected: a <span class="mono">--show-secrets</span> flag on <span class="mono">item show</span>; purging a live item in one step; a value flag on <span class="mono">item add</span>.</span> <span class="why">Why: the output of these commands is pasted into chats and logs, and a purge cannot be undone.</span></li>
 </ol>
 
 <h3>Open questions for the core command</h3>
@@ -798,6 +892,8 @@ Example API  robin@example.com  api.example.com
 <ul>
 <li><strong>2026-11-24 (search, history, code):</strong> Added A13 (<code>search</code>), A14 (<code>history</code>) and A15 (<code>code</code>) and decision 14 for the three commands as built; the words are awaiting the owner’s approval and are not approved. Nothing approved was replaced.</li>
 <li><strong>2026-11-24 (search, history, code, after validation):</strong> A13: search now folds width, ligatures and ø ß æ œ đ ł like the apps, finds a nameless card or note by its shown name, and gives no hint for a one-character or mostly punctuation name. A14: added the computed-code line (replaces the contradictory “has no field called code”) and said that an import is dated by when it was imported and what a checkpoint would drop. A15: added the stored “code” field wording (replaces “has no verification code. It has: password, code.”) and the 6 to 8 digit rule. <code>psss set</code> of the value a field already holds now says “Nothing changed.” and writes nothing. The words are still awaiting approval.</li>
+<li><strong>2026-11-24 (generate, item, file):</strong> Added A16 (<code>generate</code> and <code>set --generate</code>), A17 (<code>item show</code>, <code>add</code>, <code>edit</code>, <code>purge</code>) and A18 (<code>file get</code>, <code>put</code>, <code>list</code>) and decision 15, as built; the words are awaiting the owner’s approval and are not approved. Nothing approved was replaced.</li>
+<li><strong>2026-11-24 (generate, item, file, after validation):</strong> A17: a card number says its last four digits only from 12 digits (replaces “ends in” for any length); added that a hidden extra field stays hidden on edit, that an extra field cannot be named like a built-in field, that a kind has only its own fields, and the passkey line. A18: names are made safe for Windows too and a stored name is at most 255 bytes; sizes in KiB and MiB (replaces KB and MB). A16: the weaker-password advice fits what was asked. The words are still awaiting approval.</li>
 <li><strong>2026-11-24 (delivery):</strong> Added A12 and decision 13 for the behaviour as built when a write could not be delivered to a location (warning on standard error, exit 0, <code>status</code> Behind with a count, <code>sync</code>, the <code>delivery</code> JSON field), with the words from <code>docs/cli.md</code>, “A write that was not delivered”. Why: a validation run found that such a write said nothing. The words are awaiting the owner’s approval; nothing approved was replaced.</li>
 <li><strong>2026-11-24 (after validation):</strong> An independent run of the first build found that <code>get</code> and <code>set</code> said nothing when <code>verify</code> would fail. Added A11 (the warnings) and its decision, and a missing-record line to A8. Nothing approved was replaced.</li>
 <li><strong>2026-11-24 (after the first build):</strong> Owner decisions from the first implementation: exact title matching with hints (A6 now shows two items titled “Example” and a near miss), one key file per vault under <code>~/.config/psss/keys/</code> (A1, A2, A7), <code>init</code> lists only the ways back that exist (A1 offers a vault password and “Not now” until the recovery kit is built and mocked), <code>set --create</code>, and <code>rm</code> without a question. Replaced: A6’s prefix match, A1’s three choices and its <code>device.key</code> path.</li>

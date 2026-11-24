@@ -16,7 +16,7 @@ export interface InputStream {
 }
 
 export interface OutputStream {
-  write(chunk: string): unknown;
+  write(chunk: string | Uint8Array): unknown;
 }
 
 export interface CliIo {

@@ -8,9 +8,10 @@ import { commands } from './commands/index.ts';
 import type { Command, CommandContext, OptionSpec } from './commands/command.ts';
 import { failureError } from './commands/command.ts';
 import { CliError, EXIT_FAILED, EXIT_LOCKED, EXIT_NOT_FOUND, EXIT_OK, EXIT_USAGE, ValidationError } from './errors.ts';
-import { commandHelp, rootHelp } from './help.ts';
+import { commandHelp, groupHelp, rootHelp } from './help.ts';
 import { displayPath, homeOf, isInteractive } from './io.ts';
 import { printable } from './text.ts';
+import { nearTitles } from './near.ts';
 import type { CliIo } from './io.ts';
 import type { Failure, OpenedVault, Result, VaultService } from './service.ts';
 
@@ -23,7 +24,7 @@ export const VERSION = '0.0.0';
 const VALUE_FLAGS = new Set(GLOBAL_OPTIONS.filter((o) => o.type === 'string').map((o) => `--${o.flag}`));
 
 /** Commands that read or write values and so say when the vault has a problem or the key file is open to others (frame A11). */
-const WARNING_COMMANDS = new Set(['get', 'list', 'set', 'status', 'run', 'search', 'history', 'code']);
+const WARNING_COMMANDS = new Set(['get', 'list', 'set', 'status', 'run', 'search', 'history', 'code', 'item show', 'item add', 'item edit', 'file get', 'file put', 'file list']);
 
 /** What the one warning says the problem touched, by command: `the value above` for get and set (frame A11). */
 function problemWarning(command: string, vault: string): string {
@@ -39,6 +40,13 @@ function problemWarning(command: string, vault: string): string {
       return `${head} the result above may be\nout of date. ${tail}\n`;
     case 'set':
       return `${head} the new value may not show up\nuntil it is fixed. ${tail}\n`;
+    case 'item add':
+    case 'item edit':
+    case 'file put':
+      return `${head} the change may not show up\nuntil it is fixed. ${tail}\n`;
+    case 'item show':
+    case 'file list':
+      return `${head} the result above may be\nout of date. ${tail}\n`;
     default:
       return `${head} the value above may be\nout of date. ${tail}\n`;
   }
@@ -126,18 +134,41 @@ export async function run(argv: string[], io: CliIo): Promise<number> {
   let name = argv[at];
   let args = [...argv.slice(0, at), ...argv.slice(at + 1)];
   if (name === 'help') {
-    const target = args.find((a) => !a.startsWith('-'));
+    const words = args.filter((a) => !a.startsWith('-'));
+    const target = words[0];
     if (target === undefined) {
       out(rootHelp(VERSION));
       return EXIT_OK;
     }
+    if (words[1] !== undefined && commands.find((c) => c.name === target)?.subcommands) return run([target, words[1], '--help'], io);
     name = target;
     args = ['--help'];
   }
-  const command = commands.find((c) => c.name === name);
+  let command = commands.find((c) => c.name === name);
   if (!command) {
     err(`Unknown command "${name}". See the commands with: psss --help\n`);
     return EXIT_USAGE;
+  }
+  if (command.subcommands) {
+    const group = command;
+    const verb = name === 'help' || argv[at] === 'help' ? undefined : argv[at + 1];
+    const known = group.subcommands!.map((c) => c.name.slice(group.name.length + 1));
+    if (verb === undefined || verb.startsWith('-')) {
+      if (args.includes('--help') || args.includes('-h')) {
+        out(groupHelp(group));
+        return EXIT_OK;
+      }
+      err(`psss ${group.name} needs one of: ${known.join(', ')}. See: psss ${group.name} --help\n`);
+      return EXIT_USAGE;
+    }
+    const sub = group.subcommands!.find((c) => c.name === `${group.name} ${verb}`);
+    if (!sub) {
+      const near = nearTitles(verb, known);
+      err(`Unknown command "${group.name} ${printable(verb, 30)}". The verbs of psss ${group.name} are: ${known.join(', ')}.${near.length > 0 ? `\nDid you mean: ${near.map((k) => `${group.name} ${k}`).join(', ')}?` : ''}\n`);
+      return EXIT_USAGE;
+    }
+    command = sub;
+    args = [...argv.slice(0, at), ...argv.slice(at + 2)];
   }
 
   // Everything after `--` belongs to the program a command starts, and is never parsed.
@@ -157,7 +188,16 @@ export async function run(argv: string[], io: CliIo): Promise<number> {
   try {
     let parsed;
     try {
-      parsed = parseArgs({ args: own, options: parseConfig(command), allowPositionals: true, strict: true });
+      const config = parseConfig(command);
+      // `--length -5`: a negative number is a value here, not an option (the generator then says it is below the smallest allowed)
+      const joined: string[] = [];
+      for (let i = 0; i < own.length; i++) {
+        const a = own[i]!;
+        const spec = a.startsWith('--') && !a.includes('=') ? config[a.slice(2)] : undefined;
+        if (spec && spec.type === 'string' && /^-\d+$/.test(own[i + 1] ?? '')) joined.push(`${a}=${own[++i]}`);
+        else joined.push(a);
+      }
+      parsed = parseArgs({ args: joined, options: config, allowPositionals: true, strict: true });
     } catch (e) {
       throw usageError(command, e);
     }
@@ -176,6 +216,11 @@ export async function run(argv: string[], io: CliIo): Promise<number> {
             ? ' If a reference has spaces, put it in quotes, as in "psss://Example API/token".'
             : '';
       throw new ValidationError(`psss ${command.name} takes ${allowed}, but ${more} more ${more === 1 ? 'was' : 'were'} not expected.${hint}`);
+    }
+
+    if (positionals.length < command.args.min && command.ownMissingMessage !== true) {
+      const need = command.args.min === 1 ? 'one argument' : `${command.args.min} arguments`;
+      throw new ValidationError(`psss ${command.name} needs ${need}, and got ${positionals.length === 0 ? 'none' : positionals.length}. Usage: psss ${command.usage}\nSee: psss ${command.name} --help`);
     }
 
     const settings = resolveSettings(io, values);

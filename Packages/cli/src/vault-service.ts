@@ -13,6 +13,7 @@
 // Rules kept here: nothing is printed, a value leaves only through `get`, and an error never carries a stack trace or a secret.
 
 import { printable } from './text.ts';
+import { shellQuote } from './reference.ts';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -29,6 +30,8 @@ import { nearTitles } from './near.ts';
 import { matchesSearch, needsDerivedName, searchTerm, swiftTrim } from './search.ts';
 import type { SearchableItem } from './search.ts';
 import type {
+  AddOutcome,
+  AddRequest,
   Candidate,
   CreateRequest,
   CreatedVault,
@@ -41,9 +44,17 @@ import type {
   ExportResult,
   HistoryOutcome,
   HistoryRequest,
+  EditOutcome,
+  FileContent,
+  FileList,
+  FilePut,
   ImportRequest,
   ImportResult,
+  ItemDetails,
+  ItemFields,
+  ItemKind,
   ItemSummary,
+  PurgeOutcome,
   KdbxCredentials,
   KeySource,
   ListQuery,
@@ -190,7 +201,7 @@ class RealVaultService implements VaultService {
     return path.join(this.opts.configDir, 'keys', `${name}.key`);
   }
 
-  private show(p: string): string {
+  private shown(p: string): string {
     const slash = (s: string) => s.replace(/\\/g, '/');
     const x = slash(p);
     const cwd = slash(this.opts.cwd).replace(/\/+$/, '');
@@ -276,7 +287,7 @@ class RealVaultService implements VaultService {
     const code = (e as NodeJS.ErrnoException)?.code;
     if (typeof code === 'string' && /^E[A-Z]+$/.test(code)) {
       const where = (e as NodeJS.ErrnoException).path;
-      return failed(`Psss could not read or write ${where ? this.show(where) : 'a file'} (${code}).`);
+      return failed(`Psss could not read or write ${where ? this.shown(where) : 'a file'} (${this.plainReason(code)}).${this.changes ? ' Nothing was changed.' : ''}`);
     }
     const why = this.scrub(e instanceof Error ? e.message : String(e));
     return failed(`Psss could not finish${why ? `: ${why}` : ''}. Nothing was changed.`);
@@ -373,7 +384,7 @@ class RealVaultService implements VaultService {
     if ('none' in where) return { ok: false, kind: 'locked', vault: '', reason: { why: 'noVault', path: where.unreadable ?? where.none, ...(where.unreadable !== undefined ? { unreadable: true } : {}) } };
     if ('many' in where) {
       const names = where.many.map((m) => printable(nameOf(m))).join(', ');
-      return failed(`There is more than one vault in ${this.show(where.dir)}: ${names}.\nSay which with --vault <name> or PSSS_VAULT.`);
+      return failed(`There is more than one vault in ${this.shown(where.dir)}: ${names}.\nSay which with --vault <name> or PSSS_VAULT.`);
     }
     this.vaultPath = where.path;
     this.name = nameOf(where.path);
@@ -414,7 +425,7 @@ class RealVaultService implements VaultService {
     const rel = path.relative(canonical(folder), canonical(keyFile));
     if (rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))) {
       throw new ValidationError(
-        `The key file ${this.show(keyFile)} is inside the vault folder ${this.show(folder)}.\nA key beside the vault would travel with it. Choose a key file outside the vault folder, or another place for the vault.`,
+        `The key file ${this.shown(keyFile)} is inside the vault folder ${this.shown(folder)}.\nA key beside the vault would travel with it. Choose a key file outside the vault folder, or another place for the vault.`,
       );
     }
     if (isVaultFolder(folder)) return failed(`A vault named "${printable(name)}" already exists at ${folder}. Nothing was changed.`);
@@ -727,7 +738,7 @@ class RealVaultService implements VaultService {
 
   // ------------------------------------------------------------------ writing
 
-  async set(selector: ItemSelector, field: string, value: string, options: { create: boolean }): Promise<Result<SetOutcome>> {
+  async set(selector: ItemSelector, field: string, value: string, options: { create: boolean; onlyIfEmpty?: boolean }): Promise<Result<SetOutcome>> {
     const v = this.use();
     if ('ok' in v) return v;
     this.secrets.push(value);
@@ -741,7 +752,7 @@ class RealVaultService implements VaultService {
     }
   }
 
-  private async setGuarded(v: Vault, selector: ItemSelector, field: string, value: string, options: { create: boolean }): Promise<Result<SetOutcome>> {
+  private async setGuarded(v: Vault, selector: ItemSelector, field: string, value: string, options: { create: boolean; onlyIfEmpty?: boolean }): Promise<Result<SetOutcome>> {
     return (await this.guard<SetOutcome>(() => {
       const r = this.pick(v, selector, 'live');
       if ('ok' in r) return r;
@@ -754,6 +765,7 @@ class RealVaultService implements VaultService {
         return { ok: true as const, value: { item: this.summary(v, added.item, 'live'), field, itemCreated: true, previousKept: false } };
       }
       const had = v.get({ item: { id: r.item.id }, field }).kind === 'value';
+      if (had && options.onlyIfEmpty) return { ok: true as const, value: { item: this.summary(v, r.item, 'live'), field, itemCreated: false, previousKept: false, refusedExisting: true } };
       const written = v.setField({ item: { id: r.item.id }, field }, value);
       const after = v.find({ item: { id: r.item.id }, field }) ;
       const item = after.kind === 'found' ? this.summary(v, after.item, 'live') : this.summary(v, r.item, 'live');
@@ -817,6 +829,265 @@ class RealVaultService implements VaultService {
       v.restoreItem({ item: { id: r.item.id }, field: 'password' });
       return { ok: true as const, value: { ...this.summary(v, r.item, 'live'), deleted: false } };
     })) as Result<ItemSummary>;
+  }
+
+  // ------------------------------------------------------------------ items
+
+  private pickOne(v: Vault, selector: ItemSelector, scope: Scope): { item: LibSummary } | Failure {
+    const r = this.pick(v, selector, scope);
+    if ('ok' in r) return r;
+    if ('none' in r) {
+      const n = this.nameOfSelector(selector);
+      return this.missing(v, n.name, n.by, scope);
+    }
+    return r;
+  }
+
+  async show(selector: ItemSelector, scope: { deleted?: boolean } = {}): Promise<Result<ItemDetails>> {
+    const v = this.use();
+    if ('ok' in v) return v;
+    return (await this.guard<ItemDetails>(() => {
+      const s: Scope = scope.deleted ? 'deleted' : 'live';
+      const r = this.pickOne(v, selector, s);
+      if ('ok' in r) return r;
+      const got = v.show({ item: { id: r.item.id }, field: 'password' }, { scope: s });
+      if (got.kind !== 'found') return failed('Psss could not read that item.');
+      const d = got.item;
+      const view = d.view;
+      const fields: ItemDetails['fields'] = [];
+      const kindNow: ItemKind = (['login', 'card', 'note', 'custom'] as const)[Math.min(3, Math.max(0, (d.type || 4) - 1))]!;
+      // the library lists an item's own fields first and its extra fields last, in order
+      const firstCustom = d.fields.length - view.customFields.length;
+      d.fields.forEach((f, at) => {
+        const custom = at >= firstCustom;
+        if (!custom && /^url( \d+)?$/.test(f.name)) return;
+        if (custom) {
+          fields.push(f.secret ? { name: f.name, hidden: true, custom: true } : { name: f.name, hidden: false, value: f.value, custom: true });
+        } else if (f.name === 'card') {
+          // the last four digits are said only for the number of a card item that is long enough for four to be a small part of it
+          const digits = f.value.replace(/\D/g, '');
+          fields.push({ name: 'card', hidden: true, ...(kindNow === 'card' && digits.length >= 12 ? { detail: `ends in ${digits.slice(-4)}` } : {}) });
+          if (view.card?.year !== undefined) fields.push({ name: 'expiry', hidden: false, value: `${String(view.card.month ?? 0).padStart(2, '0')}/${view.card.year}` });
+        } else if (f.name === 'notes') {
+          const lines = f.value === '' ? 0 : f.value.split(/\r\n|\r|\n/).length;
+          fields.push({ name: 'notes', hidden: true, detail: lines === 1 ? '1 line' : `${lines} lines` });
+        } else if (f.secret) fields.push({ name: f.name, hidden: true });
+        else fields.push({ name: f.name, hidden: false, value: f.value });
+      });
+      const kind = kindNow;
+      const out: ItemDetails = {
+        item: this.summary(v, r.item, s),
+        kind,
+        websites: view.websites.map((w: { address: string }) => w.address),
+        tags: d.tags,
+        fields,
+        files: view.attachments.map((a: { fileName: string; attachment: unknown }) => ({ name: a.fileName, size: (a.attachment as Map<number, unknown>).get(2) as number })),
+        hasCode: d.fields.some((f) => f.computed === true),
+      };
+      const pk = view.passkey as { relyingParty: string; userName: string; created: number } | undefined;
+      if (pk) out.passkey = { site: pk.relyingParty, name: pk.userName, created: pk.created };
+      if (d.created !== undefined) out.created = d.created;
+      if (d.edited !== undefined) out.edited = d.edited;
+      if (d.deletedAt !== undefined) out.deletedAt = d.deletedAt;
+      return { ok: true as const, value: out };
+    })) as Result<ItemDetails>;
+  }
+
+  /** The library's edits for the fields of a request. */
+  private itemEdits(f: ItemFields, current?: { card?: { number: string; year?: number; month?: number } }): Record<string, unknown> {
+    const e: Record<string, unknown> = {};
+    if (f.title !== undefined) e.title = f.title;
+    if (f.username !== undefined) e.username = f.username;
+    if (f.password !== undefined) e.password = f.password;
+    if (f.websites !== undefined) e.websites = f.websites;
+    if (f.notes !== undefined) e.notes = f.notes;
+    if (f.cardholder !== undefined) e.cardholder = f.cardholder;
+    if (f.cardCode !== undefined) e.cardCode = f.cardCode;
+    if (f.cardPin !== undefined) e.cardPin = f.cardPin;
+    const number = f.cardNumber ?? current?.card?.number;
+    if (number !== undefined && (f.cardNumber !== undefined || f.expiry !== undefined)) {
+      const year = f.expiry?.year ?? current?.card?.year, month = f.expiry?.month ?? current?.card?.month;
+      e.card = { number, ...(year !== undefined && month !== undefined ? { year, month } : {}) };
+    }
+    const custom: Record<string, unknown> = {};
+    for (const c of f.custom ?? []) custom[c.label] = c.value === null ? null : { value: c.value, concealed: c.concealed };
+    if (f.validFrom !== undefined) custom['Valid from'] = { value: f.validFrom, concealed: false };
+    if (f.issuer !== undefined) custom['Card issuer'] = { value: f.issuer, concealed: false };
+    if (Object.keys(custom).length > 0) e.custom = custom;
+    if ((f.addTags ?? []).length > 0 || (f.removeTags ?? []).length > 0) e.tags = { add: f.addTags ?? [], remove: f.removeTags ?? [] };
+    return e;
+  }
+
+  async add(request: AddRequest, options: { dryRun?: boolean } = {}): Promise<Result<AddOutcome>> {
+    const v = this.use();
+    if ('ok' in v) return v;
+    for (const x of [request.password, request.cardNumber, request.cardCode, request.cardPin, request.notes, ...(request.custom ?? []).map((c) => c.value)]) if (x) this.secrets.push(x);
+    return (await this.guard<AddOutcome>(() => {
+      const wanted = this.opts.group;
+      let group: { id: string; name: string } | undefined;
+      if (wanted !== undefined) {
+        group = this.groupNamed(v, wanted);
+        if (!group) return { ok: false, kind: 'notFound', what: 'group', name: wanted, vault: this.name } as Failure;
+      } else group = v.info().groups.find((g) => g.role !== 'reader');
+      if (!group) return failed('This computer has no group it can add items to. Nothing was changed.');
+      const type = ({ login: 1, card: 2, note: 3, custom: 4 } as const)[request.kind];
+      if (options.dryRun) {
+        return { ok: true as const, value: { item: { id: '', title: request.title ?? '', group: group.name, fields: [], deleted: false }, kind: request.kind } };
+      }
+      const added = v.addItem({ ...(this.itemEdits(request) as object), type, group: `id:${group.id}` });
+      return { ok: true as const, value: { item: this.summary(v, added.item, 'live'), kind: request.kind } };
+    })) as Result<AddOutcome>;
+  }
+
+  async edit(selector: ItemSelector, f: ItemFields): Promise<Result<EditOutcome>> {
+    const v = this.use();
+    if ('ok' in v) return v;
+    for (const x of [f.password, f.cardNumber, f.cardCode, f.cardPin, f.notes, ...(f.custom ?? []).map((c) => c.value)]) if (x) this.secrets.push(x);
+    return (await this.guard<EditOutcome>(() => {
+      const r = this.pickOne(v, selector, 'live');
+      if ('ok' in r) return r;
+      const got = v.show({ item: { id: r.item.id }, field: 'password' });
+      if (got.kind !== 'found') return failed('Psss could not read that item.');
+      const cur = got.item.view;
+      const nfc = (t: string) => t.normalize('NFC');
+      const changed: string[] = [];
+      const send: ItemFields = {};
+      const same = (a: string | undefined, b: string | undefined) => a === b;
+      if (f.title !== undefined && nfc(f.title) !== (cur.title ?? '')) { send.title = f.title; changed.push('title'); }
+      if (f.username !== undefined && !same(f.username, cur.username)) { send.username = f.username; changed.push('username'); }
+      if (f.password !== undefined && !same(f.password, cur.password)) { send.password = f.password; changed.push('password'); }
+      if (f.notes !== undefined && nfc(f.notes) !== (cur.notes ?? '')) { send.notes = f.notes; changed.push('notes'); }
+      if (f.cardholder !== undefined && nfc(f.cardholder) !== (cur.cardholder ?? '')) { send.cardholder = f.cardholder; changed.push('cardholder'); }
+      if (f.cardCode !== undefined && !same(f.cardCode, cur.cardCode)) { send.cardCode = f.cardCode; changed.push('card_code'); }
+      if (f.cardPin !== undefined && !same(f.cardPin, cur.cardPin)) { send.cardPin = f.cardPin; changed.push('card_pin'); }
+      if (f.cardNumber !== undefined || f.expiry !== undefined) {
+        if (cur.card === undefined && f.cardNumber === undefined) return failed(`"${printable(r.item.title)}" has no card number yet, so an expiry has nothing to go with. Add the number too (--card-number). Nothing was changed.`);
+        const numberChanged = f.cardNumber !== undefined && f.cardNumber !== cur.card?.number;
+        const expiryChanged = f.expiry !== undefined && (f.expiry.year !== cur.card?.year || f.expiry.month !== cur.card?.month);
+        if (numberChanged || expiryChanged) {
+          if (f.cardNumber !== undefined) send.cardNumber = f.cardNumber;
+          if (f.expiry !== undefined) send.expiry = f.expiry;
+          if (numberChanged) changed.push('card');
+          if (expiryChanged) changed.push('expiry');
+        }
+      }
+      if (f.websites !== undefined) {
+        const have = cur.websites.map((w: { address: string }) => w.address);
+        if (f.websites.length !== have.length || f.websites.some((w, i) => w !== have[i])) { send.websites = f.websites; changed.push('url'); }
+      }
+      const tagsHave = new Set<string>(cur.tags.map((t: { text: string }) => t.text));
+      const addTags = (f.addTags ?? []).filter((t) => !tagsHave.has(nfc(t))), removeTags = (f.removeTags ?? []).filter((t) => tagsHave.has(nfc(t)));
+      if (addTags.length > 0 || removeTags.length > 0) { send.addTags = addTags; send.removeTags = removeTags; changed.push('tags'); }
+      const labels = cur.customFields as Array<{ label: string; value: string; concealed: boolean }>;
+      const wanted: NonNullable<ItemFields['custom']> = [...(f.custom ?? [])];
+      if (f.validFrom !== undefined) wanted.push({ label: 'Valid from', value: f.validFrom, concealed: false });
+      if (f.issuer !== undefined) wanted.push({ label: 'Card issuer', value: f.issuer, concealed: false });
+      const customSend: NonNullable<ItemFields['custom']> = [];
+      for (const c of wanted) {
+        const have = labels.find((l) => l.label === nfc(c.label)) ?? labels.find((l) => l.label.toLowerCase() === nfc(c.label).toLowerCase());
+        if (c.value === null) {
+          if (!have) return { ok: false, kind: 'notFound', what: 'field', name: c.label, vault: this.name, item: r.item.title, fields: this.fieldNames(v, r.item.id, 'live').names } as Failure;
+          customSend.push({ label: have.label, value: null, concealed: false });
+          changed.push(have.label);
+        } else if (have && have.concealed && !c.concealed) {
+          // a value typed on the command line would be written to a field that is hidden: never silently make it visible, and never take its value as an argument
+          return failed(`"${printable(have.label)}" is a hidden field, so its value is not taken as an argument, and it stays hidden.\nTo change it, read the new value from standard input with: --secret ${shellQuote(have.label)}\nNothing was changed.`);
+        } else if (!have || have.value !== c.value || have.concealed !== c.concealed) {
+          customSend.push({ label: have?.label ?? c.label, value: c.value, concealed: c.concealed });
+          changed.push(have?.label ?? c.label);
+        }
+      }
+      if (customSend.length > 0) send.custom = customSend;
+      const item = this.summary(v, r.item, 'live');
+      if (changed.length === 0) return { ok: true as const, value: { item, changed } };
+      v.editItem({ item: { id: r.item.id }, field: 'password' }, this.itemEdits(send, cur.card ? { card: cur.card } : {}) as never);
+      const after = v.find({ item: { id: r.item.id }, field: 'password' });
+      return { ok: true as const, value: { item: after.kind === 'found' ? this.summary(v, after.item, 'live') : item, changed } };
+    })) as Result<EditOutcome>;
+  }
+
+  async purge(selector: ItemSelector, options: { dryRun: boolean }): Promise<Result<PurgeOutcome>> {
+    const v = this.use();
+    if ('ok' in v) return v;
+    return (await this.guard<PurgeOutcome>(() => {
+      const r = this.pickOne(v, selector, 'deleted');
+      if ('ok' in r) return r;
+      const files = v.files({ item: { id: r.item.id }, field: 'password' }, { scope: 'deleted' });
+      const out: PurgeOutcome = { item: this.summary(v, r.item, 'deleted'), files: files.kind === 'files' ? files.files.length : 0, dryRun: options.dryRun };
+      if ((r.item as { deletedAt?: number }).deletedAt !== undefined) out.deletedAt = (r.item as { deletedAt?: number }).deletedAt;
+      if (!options.dryRun) v.purgeItem({ item: { id: r.item.id }, field: 'password' });
+      return { ok: true as const, value: out };
+    })) as Result<PurgeOutcome>;
+  }
+
+  async vaultPlaceOf(file: string): Promise<Result<string | null>> {
+    const v = this.use();
+    if ('ok' in v) return v;
+    return { ok: true, value: this.insideVaultPlace(v, this.abs(file)) ?? null };
+  }
+
+  private fileProblem(item: ItemSummary, name: string, names: string[]): Failure {
+    return { ok: false, kind: 'notFound', what: 'file', name, vault: this.name, item: item.title, fields: names };
+  }
+
+  async files(selector: ItemSelector, scope: { deleted?: boolean } = {}): Promise<Result<FileList>> {
+    const v = this.use();
+    if ('ok' in v) return v;
+    return (await this.guard<FileList>(() => {
+      const s: Scope = scope.deleted ? 'deleted' : 'live';
+      const r = this.pickOne(v, selector, s);
+      if ('ok' in r) return r;
+      const got = v.files({ item: { id: r.item.id }, field: 'password' }, { scope: s });
+      if (got.kind !== 'files') return failed('Psss could not read the files of that item.');
+      return { ok: true as const, value: { item: this.summary(v, r.item, s), files: got.files.map((f) => ({ name: f.name, size: f.size })) } };
+    })) as Result<FileList>;
+  }
+
+  async readFile(selector: ItemSelector, name: string, scope: { deleted?: boolean } = {}): Promise<Result<FileContent>> {
+    const v = this.use();
+    if ('ok' in v) return v;
+    return (await this.guard<FileContent>(() => {
+      const s: Scope = scope.deleted ? 'deleted' : 'live';
+      const r = this.pickOne(v, selector, s);
+      if ('ok' in r) return r;
+      let got: ReturnType<Vault['readFile']>;
+      try {
+        got = v.readFile({ item: { id: r.item.id }, field: 'password' }, name, { scope: s });
+      } catch (e) {
+        if (e instanceof VaultError && e.code === 'missing_blob') return failed('A part of that file is not in any place this computer can read. Run psss sync, then try again.');
+        if (e instanceof VaultError && e.code === 'bad_blob') return failed('That file is damaged in the vault, so it cannot be read.');
+        throw e;
+      }
+      const item = this.summary(v, r.item, s);
+      if (got.kind === 'noFile') return this.fileProblem(item, name, got.names);
+      if (got.kind === 'severalFiles') return failed(`"${printable(item.title)}" has more than one file called "${printable(name)}", so psss cannot tell which you mean.`);
+      if (got.kind !== 'file') return failed('Psss could not read that file.');
+      return { ok: true as const, value: { item, name: got.name, data: got.data } };
+    })) as Result<FileContent>;
+  }
+
+  async putFile(selector: ItemSelector, name: string, data: Uint8Array, options: { replace: boolean }): Promise<Result<FilePut>> {
+    const v = this.use();
+    if ('ok' in v) return v;
+    return (await this.guard<FilePut>(() => {
+      const r = this.pickOne(v, selector, 'live');
+      if ('ok' in r) return r;
+      const item = this.summary(v, r.item, 'live');
+      try {
+        const w = v.putFile({ item: { id: r.item.id }, field: 'password' }, name, data, { replace: options.replace });
+        return { ok: true as const, value: { item, name, size: data.length, replaced: w.replaced } };
+      } catch (e) {
+        if (e instanceof VaultError) {
+          const none = ' Nothing was changed.';
+          if (e.code === 'file_exists') return failed(`"${printable(item.title)}" already has a file called "${printable(name)}".${none}\nTo replace it, add --force.`);
+          if (e.code === 'file_name_too_long') return failed(`"${printable(name, 40)}" is too long for a file name here (255 bytes at most).${none}`);
+          if (e.code === 'bad_file_name') return failed(`"${printable(name)}" cannot be used as a file name here.${none}`);
+          if (e.code === 'file_too_large') return failed(`That file is larger than an item can hold (64 MiB).${none}`);
+          if (e.code === 'too_many_files') return failed(`"${printable(item.title)}" already has 64 files, the most an item holds.${none}`);
+        }
+        throw e;
+      }
+    })) as Result<FilePut>;
   }
 
   /**
@@ -929,7 +1200,7 @@ class RealVaultService implements VaultService {
 
   /** Plain words for a finding when the library gives none: what it means, never ids or chain names. */
   private plainFor(code: string, location: string): string {
-    const where = this.show(location);
+    const where = this.shown(location);
     switch (code) {
       case 'gap':
         return `A record is missing from the middle of a device's history\nin ${where}. The ones after it wait\nfor it.`;
@@ -985,7 +1256,7 @@ class RealVaultService implements VaultService {
       try {
         key.keyFile = new Uint8Array(readFileSync(at));
       } catch {
-        return { ok: false, kind: 'kdbx', why: 'invalidKey', file, detail: `${this.show(at)} cannot be read` };
+        return { ok: false, kind: 'kdbx', why: 'invalidKey', file, detail: `${this.shown(at)} cannot be read` };
       }
     }
     return key;
@@ -1018,7 +1289,7 @@ class RealVaultService implements VaultService {
     const v = this.use();
     if ('ok' in v) return v;
     const at = this.abs(request.file);
-    const shown = this.show(at);
+    const shown = this.shown(at);
     let bytes: Uint8Array;
     try {
       const st = statSync(at);
@@ -1066,12 +1337,12 @@ class RealVaultService implements VaultService {
     const v = this.use();
     if ('ok' in v) return v;
     const at = this.abs(request.file);
-    const shown = this.show(at);
+    const shown = this.shown(at);
     // a KeePass file holds every secret in the clear: never in a folder that syncs (a place of the vault), as init refuses for the key file
     const inside = this.insideVaultPlace(v, at);
     if (inside !== undefined) {
       return failed(
-        `${shown} is inside ${this.show(inside)}, a place this vault is kept in and shared from.\nA KeePass file holds every secret in the clear, and anything saved there would sync with the vault.\nChoose another place for the file, outside the vault folder.`,
+        `${shown} is inside ${this.shown(inside)}, a place this vault is kept in and shared from.\nA KeePass file holds every secret in the clear, and anything saved there would sync with the vault.\nChoose another place for the file, outside the vault folder.`,
       );
     }
     if (!request.force && existsSync(at)) return { ok: false, kind: 'kdbx', why: 'exists', file: shown };

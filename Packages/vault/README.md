@@ -94,6 +94,20 @@ readKeepass(db, { now, stripInvalid?, includeTrash? }) / buildKeepass(items, { n
 
 A real import holds the state lock from the moment it reads what the vault holds until its last record is stored, and reads the vault again after taking it, so two imports of one file at once add each entry once. It refreshes the lock while it runs (`refreshLock`: for every entry it reads, at most once in a quarter of `staleMs`, so a long run of entries that write nothing cannot let it go stale; and always before and after each write to a location, which may be slow), and tells whoever waits that an import is running (`VaultError.what`). Records are sealed one after another, each stored in the outbox before it is delivered, and delivered a hundred at a time as one segment file; the cost is linear (20,000 entries in about three minutes on a laptop, 190 MB of memory). When it stops part of the way it throws `ImportInterrupted` (`added`, `updated`, `reason`): what was stored stays, and running the import again does the rest. A dry run (`readOnly` vault) takes no lock and writes nothing. Entries of one file that share a UUID become separate items under derived ids (see [items](../../docs/items.md#keepass-import-and-export-in-the-record-log-vault)). `ImportReport.invalidFields` counts the fields refused for their characters, a part of `refusedFields`; names in reports are cut to 60 characters (`shortName`).
 
+### Files kept with an item
+
+```ts
+vault.files(reference): { name, size }[]                          // attached files of one item, in the order they were added
+vault.readFile(reference, name): { name, data } | noFile | severalFiles   // name matched NFC, then ignoring case
+vault.putFile(reference, name, data, { replace? }): ...           // chunks first, then the record
+```
+
+`putFile` refuses (as errors with codes the command line rewrites) a name that is empty, has a separator, a control or direction character, `.` or `..` (`bad_file_name`), data over `ATTACHMENT_MAX_BYTES` (64 MiB, the import limit; `file_too_large`), a 65th file (`too_many_files`), and a name that is already there unless `replace` (`file_exists`). The data is sealed in 1 MiB chunks and stored in every location under the lock **before** the record that names it, so a process killed in between leaves unnamed chunks and no dangling reference. A name is at most `FILE_NAME_MAX_BYTES` (255 bytes; `file_name_too_long`). `vault.sweepBlobTemps(staleMs, now?, alive?)` removes the `.tmp-<pid>-…` pieces a killed put left in `groups/*/blobs/*` (a dead writer and 30 seconds old, or older than `staleMs`; never a young file of a live process); the first locked write of a process calls it. There is no remove yet; the format supports it by clearing the field.
+
+### Generator
+
+`generate(options, pick?)` makes what the apps' generator makes (`App/Core`): the default Apple-style three groups of six, random characters (look-alikes left out, one lowercase and one uppercase guaranteed), or words from `src/wordlist.txt`, a copy of `App/Core/EFFLongWordList.txt` that a test keeps byte-equal. Randomness is `node:crypto` `randomInt` (rejection sampling, no modulo bias); `pick` is injectable for tests. Limits: 8 to 128 characters, 4 to 16 words, 1 to 1,000 values (a `RangeError` otherwise, which the apps' narrower ranges sit inside). `appleBits()` is 71.97, the strength a weaker result is warned against. An Apple-style draft that holds a term of `src/offensive-terms.txt` (a copy of `App/Core/OffensiveTerms.txt`, kept equal by a test; empty of terms today) is drawn again and its bits lowered by `log2` of the share the list lets through, as `OffensiveFilter` does.
+
 ### Locking
 
 Every write, `sync()` and every open take an exclusive lock on `stateDir` (the file `<stateDir>/lock`), so that several processes of one device (a shell script running `psss set` in parallel, say) cannot read the same sequence number and outbox and seal two records at one place.

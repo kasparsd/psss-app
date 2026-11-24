@@ -51,8 +51,12 @@ export interface Command {
   options: Record<string, OptionSpec>;
   /** How many positional arguments it takes. */
   args: { min: number; max: number };
+  /** The command says in its own words what is missing (and why), so the generic usage line is not used for it. */
+  ownMissingMessage?: boolean;
   /** True when everything after `--` belongs to a program the command starts. */
   passthrough?: boolean;
+  /** A command that is a group of verbs (`item show`, `file get`): each is a command named `<group> <verb>`. */
+  subcommands?: Command[];
   /** Named in the help but not built yet. */
   planned?: boolean;
   /** Extra lines for `psss <command> --help`. */
@@ -77,6 +81,11 @@ export function failureError(io: CliIo, failure: Failure, options: { field?: str
       const see = options.deleted ? 'psss list --deleted' : 'psss list';
       if (failure.what === 'group') {
         return new CliError(`There is no group called "${printable(failure.name)}" in ${failure.vault}.`, EXIT_NOT_FOUND);
+      }
+      if (failure.what === 'file') {
+        const files = failure.fields ?? [];
+        const has = files.length > 0 ? `It has: ${files.map((f) => printable(f)).join(', ')}.` : 'It has no files.';
+        return new CliError(`"${failure.item === undefined ? 'That item' : printable(failure.item)}" has no file called "${printable(failure.name)}".\n${has}`, EXIT_NOT_FOUND);
       }
       if (failure.what === 'field') {
         const fields = failure.fields ?? [];

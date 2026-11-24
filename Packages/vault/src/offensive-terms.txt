@@ -1,0 +1,9 @@
+# Terms the generator never lets into a password like Safari makes (see App/Core/OffensiveFilter.swift).
+#
+# One lowercase term per line, three letters or more. Blank lines and lines starting with # are ignored. A term is found across
+# hyphens and in any case, so "ab-cd" holds "abcd"; a digit breaks a match.
+#
+# This file is deliberately EMPTY of terms. The plan (docs/plans/password-generator.md, "Security review of the generator")
+# asks for about 50 entries of obvious English profanity and slurs, three letters and up, written by hand and not taken from a
+# list whose licence is unchecked. The owner decides the source of that list and adds it here. Until then the filter rejects
+# nothing in the app. Review changes to this file like code.

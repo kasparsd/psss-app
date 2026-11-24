@@ -4,7 +4,7 @@
 // segment, open every frame (spec 9 steps 1 and 2), merge the records of all locations by union together with this device's outbox, and let
 // the format's reader fold them (steps 3 and 4). Nothing is repaired and nothing is written while loading except the device's own memory
 // of what it accepted from each location.
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync, unlinkSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { concat, eq, fromHex, hex } from '../../format/src/bytes.ts';
 import { CborError, decode, isBytes, isMap } from '../../format/src/cbor.ts';
@@ -22,7 +22,7 @@ import type { Argon2Params } from '../../format/src/prims.ts';
 import { ImportInterrupted, VaultError, ValueTooLarge, type Candidate } from './errors.ts';
 import { limits } from '../../format/src/limits.ts';
 import { homedir } from 'node:os';
-import { refreshLock, withLock, type LockOptions } from './lock.ts';
+import { processAlive, refreshLock, withLock, type LockOptions } from './lock.ts';
 import { flushDirectory, putIfAbsent } from './fsutil.ts';
 import { generateDeviceKey, keyFileWarning, parseKeyFile, readKeyFile, writeKeyFile, type DeviceKey } from './keyfile.ts';
 import { blobPath } from '../../format/src/folder.ts';
@@ -175,6 +175,8 @@ export interface ItemEdits {
   password?: string;
   /** the primary website: replaces the first one, or adds it */
   url?: string;
+  /** the whole list of websites, in order: replaces what the item has (the first is the primary one). Not with `url`. */
+  websites?: string[];
   notes?: string;
   cardholder?: string;
   card?: { number: string; year?: number; month?: number };
@@ -285,6 +287,10 @@ const short = (h: string) => h.slice(0, 8);
 
 interface SlotInfo { type: number; kemPk?: Uint8Array }
 const BATCH = 100;
+/** The largest file an item holds (the import's limit too). */
+export const ATTACHMENT_MAX_BYTES = 64 * 1024 * 1024;
+/** The longest name of an attached file, in UTF-8 bytes: what most file systems allow for one name, so that `file get` can always write it. */
+export const FILE_NAME_MAX_BYTES = 255;
 const specTitle = (s: ItemSpec): string => nameOf(s);
 const refusedWrite = (e: unknown): boolean => e instanceof ValueTooLarge || e instanceof SchemaError;
 const plainRefusal = (e: unknown): string => (e instanceof ValueTooLarge ? 'The item is too large for one record (1 MiB), so it was not imported.' : 'The item is over a limit of an item in a Psss vault, so it was not imported.');
@@ -499,9 +505,44 @@ export class Vault {
         this.swept = true;
         this.state.sweepOutbox(this.lockOptions.staleMs ?? 120_000, (this.lockOptions.clock ?? Date.now)());
         this.state.sweepLockTemps(this.lockOptions.staleMs ?? 120_000, (this.lockOptions.clock ?? Date.now)());
+        this.sweepBlobTemps(this.lockOptions.staleMs ?? 120_000, (this.lockOptions.clock ?? Date.now)());
       }
       return fn();
     }, options);
+  }
+
+  /** Removes the `.tmp-<pid>-…` files a process killed while it stored a piece of an attachment left in a location's `blobs/` folders (which sync):
+   *  those whose writer's process is gone here and that are at least `DEAD_MIN_MS` old (a writer on another computer that only looks dead gets that
+   *  long to finish one piece), or that are older than `staleMs`. A young file of a live process is never touched. Called with the lock held.
+   *  Returns how many it removed. */
+  sweepBlobTemps(staleMs: number, now: number = Date.now(), alive: (pid: number) => boolean = processAlive): number {
+    const DEAD_MIN_MS = 30_000;
+    let removed = 0;
+    for (const l of this.loaded.locs) {
+      const groups = join(l.path, 'groups');
+      let gids: string[];
+      try { gids = readdirSync(groups); } catch { continue; }
+      for (const gid of gids) {
+        const blobs = join(groups, gid, 'blobs');
+        let prefixes: string[];
+        try { prefixes = readdirSync(blobs); } catch { continue; }
+        for (const prefix of prefixes) {
+          let names: string[];
+          try { names = readdirSync(join(blobs, prefix)); } catch { continue; }
+          for (const name of names) {
+            const m = /^\.tmp-(\d+)-[0-9a-f]+-/.exec(name);
+            if (!m) continue;
+            const path = join(blobs, prefix, name);
+            let age: number;
+            try { age = now - statSync(path).mtimeMs; } catch { continue; }
+            const dead = !alive(Number(m[1])) && age >= DEAD_MIN_MS;
+            if (!dead && age <= staleMs) continue;
+            try { unlinkSync(path); removed++; } catch { /* already gone */ }
+          }
+        }
+      }
+    }
+    return removed;
   }
 
   /** Tells the others that the lock is still held. Unless `force`, at most once in a quarter of the time after which a lock counts as abandoned.
@@ -1022,6 +1063,14 @@ export class Vault {
       const first = v.websites[0];
       if (first) c.website(first.field.slice('web/'.length), e.url, first.pos); else c.website(this.newId(), e.url, positionAtEnd([]));
     }
+    if (e.websites !== undefined) {
+      const same = e.websites.length === v.websites.length && e.websites.every((w, i) => w === v.websites[i]!.address);
+      if (!same) {
+        for (const w of v.websites) c.remove(w.field);
+        const used: string[] = [];
+        for (const w of e.websites) { const pos = positionAtEnd(used); used.push(pos); c.website(this.newId(), w, pos); }
+      }
+    }
     if (e.notes !== undefined) c.notes(e.notes);
     if (e.cardholder !== undefined) c.cardholder(e.cardholder);
     if (e.card !== undefined) c.card(e.card);
@@ -1143,6 +1192,53 @@ export class Vault {
     });
     try { return openAttachment({ key: m.get(1) as Uint8Array, size: m.get(2) as number, chunkIds: ids.map((i) => fromHex(i)) }, chunks); }
     catch (e) { if (e instanceof FormatError) throw new VaultError('bad_blob', 'an attachment is damaged'); throw e; }
+  }
+
+  /** The files attached to an item, in order, with their sizes. Never the bytes. */
+  files(reference: string | Reference, opts: { scope?: Scope } = {}): { kind: 'files'; item: ItemSummary; files: { name: string; size: number; added: number }[] } | Exclude<FindResult, { kind: 'found' }> {
+    const r = this.resolve(reference, opts.scope ?? 'live');
+    if (r.kind !== 'found') return r;
+    const files = r.entry.view.attachments.map((a) => ({ name: a.fileName, size: (a.attachment as CMap).get(2) as number, added: a.added }));
+    return { kind: 'files', item: summarize(r.entry), files };
+  }
+
+  /** The bytes of the attachment called `name` (compared as NFC, then ignoring case when that is unambiguous). */
+  readFile(reference: string | Reference, name: string, opts: { scope?: Scope } = {}):
+    | { kind: 'file'; item: ItemSummary; name: string; data: Uint8Array }
+    | { kind: 'noFile'; item: ItemSummary; name: string; names: string[] }
+    | { kind: 'severalFiles'; item: ItemSummary; name: string }
+    | Exclude<FindResult, { kind: 'found' }> {
+    const r = this.resolve(reference, opts.scope ?? 'live');
+    if (r.kind !== 'found') return r;
+    const item = summarize(r.entry);
+    const all = r.entry.view.attachments;
+    const want = nfc(name);
+    let hits = all.filter((a) => a.fileName === want);
+    if (hits.length === 0) hits = all.filter((a) => fold(a.fileName) === fold(want));
+    if (hits.length === 0) return { kind: 'noFile', item, name, names: all.map((a) => a.fileName) };
+    if (hits.length > 1) return { kind: 'severalFiles', item, name };
+    return { kind: 'file', item, name: hits[0]!.fileName, data: this.readAttachment(r.entry.group.gid, hits[0]!.attachment) };
+  }
+
+  /** Attaches a file to a live item. The chunks go to every location before the record that names them, so a stop in between leaves unused
+   *  chunks and never a record that points at nothing. A name the item already has is refused unless `replace`, which writes a new attachment
+   *  (a new key) under the same field. The name is the base name: empty names, path separators and control characters are refused. */
+  putFile(reference: string | Reference, name: string, data: Uint8Array, opts: { replace?: boolean } = {}): WriteResult & { replaced: boolean } {
+    const clean = nfc(name);
+    if (clean.trim() === '' || /[\u0000-\u001f\u007f/\\]/.test(clean) || clean === '.' || clean === '..') throw new VaultError('bad_file_name', 'a file name must not be empty or hold a path separator');
+    if (new TextEncoder().encode(clean).length > FILE_NAME_MAX_BYTES) throw new VaultError('file_name_too_long', `a file name is at most ${FILE_NAME_MAX_BYTES} bytes`);
+    if (data.length > ATTACHMENT_MAX_BYTES) throw new VaultError('file_too_large', `a file is at most ${ATTACHMENT_MAX_BYTES / 1024 / 1024} MiB`);
+    const { entry } = this.resolveForWrite(reference, 'live');
+    const v = entry.view;
+    const existing = v.attachments.find((a) => a.fileName === clean) ?? v.attachments.find((a) => fold(a.fileName) === fold(clean));
+    if (existing && !opts.replace) throw new VaultError('file_exists', 'the item already has a file with that name');
+    if (!existing && v.attachments.length >= limits.attachments) throw new VaultError('too_many_files', `an item holds at most ${limits.attachments} files`);
+    const stored = this.locked(() => this.storeAttachment(entry.group.gid, data), true);
+    const c = this.change(entry);
+    const now = this.now();
+    if (existing) c.attachment(existing.field.slice('a/'.length), clean, stored, existing.pos, now);
+    else c.attachment(this.newId(), clean, stored, positionAtEnd(v.attachments.map((a) => a.pos)), now);
+    return { ...this.writeRecord(entry.group, KIND.item, c.payload(entry.bytes)), replaced: existing !== undefined };
   }
 
   // ------------------------------------------------------------ KeePass

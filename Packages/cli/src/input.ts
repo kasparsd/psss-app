@@ -72,7 +72,18 @@ function stripOneNewline(text: string): string {
  * An empty value is a usage error.
  */
 export async function readSecret(io: CliIo, prompt: string, options: { allowEmpty?: boolean; emptyMessage?: string } = {}): Promise<string> {
-  const value = io.isTTY.stdin ? await readHidden(io, prompt) : stripOneNewline(await readAll(io.stdin));
+  let value: string;
+  if (io.isTTY.stdin) value = await readHidden(io, prompt);
+  else {
+    // standard input that stays open and silent (a terminal-less shell, a pipe nobody writes to) would otherwise wait for ever with nothing said
+    const timer = setTimeout(() => io.stderr.write('Waiting for the value on standard input. End it with Ctrl-D, or pipe it in.\n'), 2000);
+    timer.unref?.();
+    try {
+      value = stripOneNewline(await readAll(io.stdin));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
   if (value === '' && !options.allowEmpty) {
     throw new ValidationError(options.emptyMessage ?? 'No value was given, so nothing was saved. Pipe the value in, or type it when asked.');
   }

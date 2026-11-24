@@ -15,6 +15,7 @@ const search: Command = {
     ...jsonOption,
   },
   args: { min: 1, max: 1 },
+  ownMissingMessage: true,
   details: [
     'Finds the items whose name, username or website holds the text, ignoring case, accents and letter width, as the apps do.',
     'Notes, tags, custom fields and every secret are never searched. Put text with spaces in quotes.',

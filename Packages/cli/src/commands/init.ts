@@ -27,6 +27,7 @@ const init: Command = {
     ...jsonOption,
   },
   args: { min: 1, max: 1 },
+  ownMissingMessage: true,
   details: [
     'Creates <name>.psss, a folder of encrypted files, and this computer\'s key file.',
     'In a terminal it then asks how you want a way back if the key file is lost.',

@@ -45,6 +45,13 @@ export function rootHelp(version: string): string {
   return lines.join('\n');
 }
 
+/** The help of a group of verbs: `psss item --help`. */
+export function groupHelp(command: Command): string {
+  const subs = command.subcommands ?? [];
+  const width = Math.max(...subs.map((c) => c.name.length)) + 2;
+  return [`Usage: psss ${command.usage}`, '', `${command.summary}.`, '', 'Verbs:', ...subs.map((c) => `  ${c.name.padEnd(width)}${c.summary}`), '', `See one with: psss ${command.name} <verb> --help`, ''].join('\n');
+}
+
 export function commandHelp(command: Command): string {
   const lines = [`Usage: psss ${command.usage}`, '', command.summary + (command.planned ? ' (planned, not built yet)' : '') + '.'];
   if (command.details?.length) lines.push('', ...command.details);

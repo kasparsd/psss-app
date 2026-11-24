@@ -1,5 +1,7 @@
 // @psss/vault: open and write a Psss folder vault over @psss/format, headless. See ../README.md.
-export { createVault, openVault, Vault } from './vault.ts';
+export { createVault, openVault, Vault, ATTACHMENT_MAX_BYTES, FILE_NAME_MAX_BYTES } from './vault.ts';
+export { generate, wordList, appleBits, systemPick, LIMITS as GENERATOR_LIMITS, APP_DEFAULTS as GENERATOR_DEFAULTS, RECOMMENDED_BITS, SYMBOLS as GENERATOR_SYMBOLS } from './generator.ts';
+export type { Generated, GeneratorKind, GeneratorOptions, Pick, Separator } from './generator.ts';
 export type {
   ChangesResult, CreateOptions, Delivery, FindResult, GetResult, GroupSummary, HistoryResult, ItemEdits, LocationStatus, NewItem, Issue, OpenOptions, Problem, Scope, ShowResult,
   SyncReport, Unlock, ImportOptions, ImportReport, ImportAction, ExportKdbxOptions, ExportKdbxResult, ExportReport, UnlockSource, VaultInfo, VerifyReport, WriteResult,

@@ -15,15 +15,15 @@ Commands:
   restore   Bring an item back from Recently Deleted
   run       Run a program with secrets in its environment and nowhere else
   code      Print the current verification code of an item
-  generate  (planned) Make a password with the app's generator
+  generate  Make a password with the app's generator and print it
   sync      Merge with every place the vault is kept
   verify    Check every record and report; exit 2 if anything is wrong
   doctor    (planned) Check permissions, the clock, the key and the locations
   history   Show an item's changes, or the earlier values of one field, with dates
   import    Bring in a KeePass file
   export    Write a copy as a KeePass file
-  item      (planned) Add, edit, show and purge items
-  file      (planned) Get and put attachments
+  item      Show, add, edit and purge whole items
+  file      Get, put and list files attached to items
   vault     (planned) Back up and restore a vault
   group     (planned) Create, list and show groups
   member    (planned) Invite, accept, list and remove members

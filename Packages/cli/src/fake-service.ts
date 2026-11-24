@@ -6,7 +6,18 @@ import { nearTitles } from './near.ts';
 import { matchesSearch, searchTerm, swiftTrim } from './search.ts';
 import type { SearchableItem } from './search.ts';
 import { printable } from './text.ts';
+import { shellQuote } from './reference.ts';
 import type {
+  AddOutcome,
+  AddRequest,
+  EditOutcome,
+  FileContent,
+  FileList,
+  FilePut,
+  ItemDetails,
+  ItemFields,
+  ItemKind,
+  PurgeOutcome,
   Candidate,
   ChangeEvent,
   CodeOutcome,
@@ -59,6 +70,15 @@ export interface FakeItem {
   changes?: ChangeEvent[];
   /** Earlier values per field, newest first. A `set` adds to it. */
   earlier?: Record<string, Array<{ replaced: number; value: string }>>;
+  /** Names of the fields that are not protected (shown by `item show`). Every other field is hidden. */
+  plain?: string[];
+  tags?: string[];
+  websites?: string[];
+  /** Attachments by name. */
+  files?: Record<string, Uint8Array | string>;
+  created?: number;
+  edited?: number;
+  deletedAt?: number;
 }
 
 export interface FakeScenario {
@@ -126,6 +146,13 @@ interface Row {
   previous: Record<string, string[]>;
   changes: ChangeEvent[];
   earlier: Record<string, Array<{ replaced: number; value: string }>>;
+  plain: string[];
+  tags: string[];
+  websites: string[];
+  files: Map<string, Uint8Array>;
+  created?: number;
+  edited?: number;
+  deletedAt?: number;
 }
 
 export class FakeVaultService implements VaultService {
@@ -157,6 +184,13 @@ export class FakeVaultService implements VaultService {
       previous: {},
       changes: i.changes ? i.changes.map((c) => ({ ...c, fields: [...c.fields] })) : [{ at: Date.UTC(2026, 9, 2, 8, 0), kind: 'added' as const, fields: [] }],
       earlier: Object.fromEntries(Object.entries(i.earlier ?? {}).map(([k, v]) => [k, v.map((e) => ({ ...e }))])),
+      plain: i.plain ?? [],
+      tags: [...(i.tags ?? [])],
+      websites: i.websites ?? (i.url !== undefined ? [i.url] : []),
+      files: new Map(Object.entries(i.files ?? {}).map(([n, d]) => [n, typeof d === 'string' ? new TextEncoder().encode(d) : d])),
+      ...(i.created !== undefined ? { created: i.created } : {}),
+      ...(i.edited !== undefined ? { edited: i.edited } : {}),
+      ...(i.deletedAt !== undefined ? { deletedAt: i.deletedAt } : {}),
     }));
   }
 
@@ -419,7 +453,7 @@ export class FakeVaultService implements VaultService {
     return { ok: true, value: { item: this.summary(item), code: item.fields.code, period: 30, remaining: this.scenario.codeRemaining ?? 21 } };
   }
 
-  async set(selector: ItemSelector, field: string, value: string, options: { create: boolean }): Promise<Result<SetOutcome>> {
+  async set(selector: ItemSelector, field: string, value: string, options: { create: boolean; onlyIfEmpty?: boolean }): Promise<Result<SetOutcome>> {
     this.calls.push('set');
     const problem = this.locked();
     if (problem) return problem;
@@ -432,9 +466,10 @@ export class FakeVaultService implements VaultService {
       if (!options.create) return this.missing(selector.title);
       itemCreated = true;
       const group = r.group ?? this.groups()[0];
-      item = { id: this.newId(), title: selector.title, group, fields: {}, deleted: false, kind: 1, plainCode: false, previous: {}, changes: [{ at: this.clock(), kind: 'added', fields: [field] }], earlier: {} };
+      item = { ...this.blank(selector.title, group), changes: [{ at: this.clock(), kind: 'added', fields: [field] }] };
       this.rows().push(item);
     }
+    if (!itemCreated && options.onlyIfEmpty && Object.hasOwn(item.fields, field)) return { ok: true, value: { item: this.summary(item), field, itemCreated: false, previousKept: false, refusedExisting: true } };
     // the item already holds this value: nothing is written
     if (!itemCreated && Object.hasOwn(item.fields, field) && item.fields[field] === value) return { ok: true, value: { item: this.summary(item), field, itemCreated: false, previousKept: false, unchanged: true } };
     const previousKept = Object.hasOwn(item.fields, field);
@@ -447,6 +482,152 @@ export class FakeVaultService implements VaultService {
     return { ok: true, value: { item: this.summary(item), field, itemCreated, previousKept } };
   }
 
+  private blank(title: string, group: string, kind = 1): Row {
+    return { id: this.newId(), title, group, fields: {}, deleted: false, kind, plainCode: false, previous: {}, changes: [{ at: this.clock(), kind: 'added', fields: [] }], earlier: {}, plain: [], tags: [], websites: [], files: new Map(), created: this.clock() };
+  }
+
+  async show(selector: ItemSelector, scope: { deleted?: boolean } = {}): Promise<Result<ItemDetails>> {
+    this.calls.push('show');
+    const problem = this.locked();
+    if (problem) return problem;
+    const r = this.resolve(selector, scope);
+    if (!r.ok) return r;
+    if (r.value === null) return this.missing('title' in selector ? selector.title : selector.id, 'title' in selector ? 'title' : 'id');
+    const i = r.value;
+    const fields: ItemDetails['fields'] = [];
+    if (i.username !== undefined) fields.push({ name: 'username', hidden: false, value: i.username });
+    for (const [name, value] of Object.entries(i.fields)) {
+      if (name === 'card') {
+        const digits = value.replace(/\D/g, '');
+        fields.push({ name, hidden: true, ...(i.kind === 2 && digits.length >= 12 ? { detail: `ends in ${digits.slice(-4)}` } : {}) });
+      } else if (name === 'notes') {
+        const n = value === '' ? 0 : value.split(/\r\n|\r|\n/).length;
+        fields.push({ name, hidden: true, detail: n === 1 ? '1 line' : `${n} lines` });
+      } else if (i.plain.includes(name)) fields.push({ name, hidden: false, value });
+      else fields.push({ name, hidden: true });
+    }
+    const kinds: ItemKind[] = ['login', 'card', 'note', 'custom'];
+    const out: ItemDetails = { item: this.summary(i), kind: kinds[i.kind - 1] ?? 'custom', websites: [...i.websites], tags: [...i.tags], fields, files: [...i.files].map(([name, d]) => ({ name, size: d.length })), hasCode: this.hasCode(i) };
+    if (i.created !== undefined) out.created = i.created;
+    if (i.edited !== undefined) out.edited = i.edited;
+    if (i.deletedAt !== undefined) out.deletedAt = i.deletedAt;
+    return { ok: true, value: out };
+  }
+
+  private apply(i: Row, f: ItemFields, changed: string[]): void {
+    const put = (name: string, value: string | undefined, hidden: boolean) => {
+      if (value === undefined || i.fields[name] === value) return;
+      if (Object.hasOwn(i.fields, name)) (i.earlier[name] ??= []).unshift({ replaced: this.clock(), value: i.fields[name] });
+      i.fields[name] = value;
+      if (!hidden && !i.plain.includes(name)) i.plain.push(name);
+      changed.push(name);
+    };
+    if (f.title !== undefined && f.title !== i.title) { i.title = f.title; changed.push('title'); }
+    if (f.username !== undefined && f.username !== i.username) { i.username = f.username; changed.push('username'); }
+    put('password', f.password, true);
+    if (f.notes !== undefined) put('notes', f.notes, true);
+    put('cardholder', f.cardholder, false);
+    put('card', f.cardNumber, true);
+    if (f.expiry) put('expiry', `${String(f.expiry.month).padStart(2, '0')}/${f.expiry.year}`, false);
+    put('card_code', f.cardCode, true);
+    put('card_pin', f.cardPin, true);
+    put('Valid from', f.validFrom, false);
+    put('Card issuer', f.issuer, false);
+    if (f.websites !== undefined && JSON.stringify(f.websites) !== JSON.stringify(i.websites)) { i.websites = [...f.websites]; i.url = f.websites[0]; changed.push('url'); }
+    for (const c of f.custom ?? []) {
+      if (c.value === null) { delete i.fields[c.label]; changed.push(c.label); } else put(c.label, c.value, c.concealed);
+    }
+    const add = (f.addTags ?? []).filter((t) => !i.tags.includes(t)), rem = (f.removeTags ?? []).filter((t) => i.tags.includes(t));
+    if (add.length > 0 || rem.length > 0) { i.tags = [...i.tags.filter((t) => !rem.includes(t)), ...add]; changed.push('tags'); }
+  }
+
+  async add(request: AddRequest, options: { dryRun?: boolean } = {}): Promise<Result<AddOutcome>> {
+    this.calls.push('add');
+    const problem = this.locked();
+    if (problem) return problem;
+    const group = this.options.group ?? this.groups()[0];
+    if (!this.groups().includes(group)) return { ok: false, kind: 'notFound', what: 'group', name: group, vault: this.vaultName };
+    const row = this.blank(request.title ?? '', group, { login: 1, card: 2, note: 3, custom: 4 }[request.kind]);
+    this.apply(row, request, []);
+    row.changes = [{ at: this.clock(), kind: 'added', fields: [] }];
+    if (!options.dryRun) this.rows().push(row);
+    return { ok: true, value: { item: this.summary(row), kind: request.kind } };
+  }
+
+  async edit(selector: ItemSelector, f: ItemFields): Promise<Result<EditOutcome>> {
+    this.calls.push('edit');
+    const problem = this.locked();
+    if (problem) return problem;
+    const r = this.resolve(selector, {});
+    if (!r.ok) return r;
+    if (r.value === null) return this.missing('title' in selector ? selector.title : selector.id, 'title' in selector ? 'title' : 'id');
+    const own = new Set(['password', 'notes', 'card', 'card_code', 'card_pin', 'cardholder', 'expiry', 'code']);
+    for (const c of f.custom ?? []) {
+      if (c.value !== null && !c.concealed && Object.hasOwn(r.value.fields, c.label) && !own.has(c.label) && !r.value.plain.includes(c.label)) {
+        return { ok: false, kind: 'failed', message: `"${printable(c.label)}" is a hidden field, so its value is not taken as an argument, and it stays hidden.\nTo change it, read the new value from standard input with: --secret ${shellQuote(c.label)}\nNothing was changed.` };
+      }
+      if (c.value === null && !Object.hasOwn(r.value.fields, c.label)) return { ok: false, kind: 'notFound', what: 'field', name: c.label, vault: this.vaultName, item: r.value.title, fields: Object.keys(r.value.fields) };
+    }
+    const changed: string[] = [];
+    this.apply(r.value, f, changed);
+    if (changed.length > 0) { r.value.changes.unshift({ at: this.clock(), kind: 'changed', fields: [...changed] }); r.value.edited = this.clock(); }
+    return { ok: true, value: { item: this.summary(r.value), changed } };
+  }
+
+  async purge(selector: ItemSelector, options: { dryRun: boolean }): Promise<Result<PurgeOutcome>> {
+    this.calls.push('purge');
+    const problem = this.locked();
+    if (problem) return problem;
+    const r = this.resolve(selector, { deleted: true });
+    if (!r.ok) return r;
+    if (r.value === null) return this.missing('title' in selector ? selector.title : selector.id, 'title' in selector ? 'title' : 'id');
+    const out: PurgeOutcome = { item: this.summary(r.value), files: r.value.files.size, dryRun: options.dryRun, ...(r.value.deletedAt !== undefined ? { deletedAt: r.value.deletedAt } : {}) };
+    if (!options.dryRun) this.items = this.items.filter((i) => i !== r.value);
+    return { ok: true, value: out };
+  }
+
+  async vaultPlaceOf(file: string): Promise<Result<string | null>> {
+    this.calls.push('vaultPlaceOf');
+    const rel = path.relative(this.vaultPath, path.resolve(this.options.cwd, file));
+    return { ok: true, value: rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel)) ? this.vaultPath : null };
+  }
+
+  async files(selector: ItemSelector, scope: { deleted?: boolean } = {}): Promise<Result<FileList>> {
+    this.calls.push('files');
+    const problem = this.locked();
+    if (problem) return problem;
+    const r = this.resolve(selector, scope);
+    if (!r.ok) return r;
+    if (r.value === null) return this.missing('title' in selector ? selector.title : selector.id, 'title' in selector ? 'title' : 'id');
+    return { ok: true, value: { item: this.summary(r.value), files: [...r.value.files].map(([name, d]) => ({ name, size: d.length })) } };
+  }
+
+  async readFile(selector: ItemSelector, name: string, scope: { deleted?: boolean } = {}): Promise<Result<FileContent>> {
+    this.calls.push('readFile');
+    const problem = this.locked();
+    if (problem) return problem;
+    const r = this.resolve(selector, scope);
+    if (!r.ok) return r;
+    if (r.value === null) return this.missing('title' in selector ? selector.title : selector.id, 'title' in selector ? 'title' : 'id');
+    const key = [...r.value.files.keys()].find((k) => k === name) ?? [...r.value.files.keys()].find((k) => k.toLowerCase() === name.toLowerCase());
+    if (key === undefined) return { ok: false, kind: 'notFound', what: 'file', name, vault: this.vaultName, item: r.value.title, fields: [...r.value.files.keys()] };
+    return { ok: true, value: { item: this.summary(r.value), name: key, data: r.value.files.get(key)! } };
+  }
+
+  async putFile(selector: ItemSelector, name: string, data: Uint8Array, options: { replace: boolean }): Promise<Result<FilePut>> {
+    this.calls.push('putFile');
+    const problem = this.locked();
+    if (problem) return problem;
+    const r = this.resolve(selector, {});
+    if (!r.ok) return r;
+    if (r.value === null) return this.missing('title' in selector ? selector.title : selector.id, 'title' in selector ? 'title' : 'id');
+    const replaced = r.value.files.has(name);
+    if (replaced && !options.replace) return { ok: false, kind: 'failed', message: `"${printable(r.value.title)}" already has a file called "${printable(name)}". Nothing was changed.\nTo replace it, add --force.` };
+    r.value.files.set(name, data);
+    r.value.changes.unshift({ at: this.clock(), kind: 'changed', fields: ['attachments'] });
+    return { ok: true, value: { item: this.summary(r.value), name, size: data.length, replaced } };
+  }
+
   async delete(selector: ItemSelector): Promise<Result<ItemSummary>> {
     this.calls.push('delete');
     const problem = this.locked();
@@ -455,6 +636,7 @@ export class FakeVaultService implements VaultService {
     if (!r.ok) return r;
     if (r.value === null) return this.missing('title' in selector ? selector.title : selector.id, 'title' in selector ? 'title' : 'id');
     r.value.deleted = true;
+    r.value.deletedAt = this.clock();
     r.value.changes.unshift({ at: this.clock(), kind: 'deleted', fields: [] });
     return { ok: true, value: this.summary(r.value) };
   }

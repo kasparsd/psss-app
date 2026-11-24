@@ -16,8 +16,10 @@ sh ../../scripts/test-cli.sh      # run the tests (one run at a time)
 | `init`, `status`, `get`, `set`, `list`, `rm`, `restore`, `run`, `sync`, `verify` | Built, and connected to the vault library |
 | `search <text>`, `history <reference>`, `code <reference>` | Built (2026-11-24, words awaiting approval, frames A13 to A15): find by the name the apps show, username or website (case, accents, width, ligatures and ø ß æ œ đ ł folded as the apps do); what changed and when, earlier values with `--show`; the current verification code; see [cli](../../docs/cli.md#search-history-and-code) |
 | `import <file>`, `export --format kdbx <file>` | Built: KeePass in and out, `--dry-run`, `--progress`, `--json`; one import at a time, an interrupted import says how much it stored, an export never goes into a vault folder; see [cli](../../docs/cli.md#import-and-export) |
-| `generate`, `doctor` | Planned: print `psss <name> is not built yet.` on standard error, exit 1 |
-| `item`, `file`, `vault`, `group`, `member`, `device`, `location`, `key` | Planned, same |
+| `generate`, `set --generate` | Built: the apps' generator (default three groups of six, `--length`, `--symbols`, `--words`, `--count`, `--json`); never opens a vault; `set --generate` prints only the reference; see [cli](../../docs/cli.md#generate-items-and-files) |
+| `item show\|add\|edit\|purge`, `file get\|put\|list` | Built: `show` never prints a protected value, secrets come from standard input only, `purge` only from Recently Deleted (asks, or `--yes`), `file get` makes names safe on every system (Windows device names, forbidden characters, 255 bytes), writes mode 0600 and never overwrites without `--force`; a hidden extra field stays hidden on `item edit`; every command refuses missing arguments with exit 2; a closed pipe is not an error |
+| `doctor` | Planned: prints `psss doctor is not built yet.` on standard error, exit 1 |
+| `vault`, `group`, `member`, `device`, `location`, `key` | Planned, same |
 
 Planned commands are listed in `--help`, marked `(planned)`, and their arguments are not parsed.
 
