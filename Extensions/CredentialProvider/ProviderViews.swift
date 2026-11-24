@@ -197,7 +197,12 @@ private struct LoginRow: View {
     let action: () -> Void
 
     private var account: String { DisplayText.safe(item.account, empty: "") }
-    private var site: String { showsSite ? HostDisplay.shown(SharedVault.host(item.website)) : "" }
+    /// The saved site, unless it is already the name (an item with no name is called by its site, and saying it twice is noise).
+    private var site: String {
+        guard showsSite else { return "" }
+        let shown = HostDisplay.shown(SharedVault.host(item.website))
+        return shown == DisplayText.title(of: item) ? "" : shown
+    }
 
     var body: some View {
         HStack {
@@ -213,7 +218,7 @@ private struct LoginRow: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.primary)
-            let button = Button(verb, action: action).buttonStyle(.bordered).controlSize(.small)
+            let button = Button(verb, action: action).buttonStyle(.bordered)
             if isDefault { button.keyboardShortcut(.defaultAction) } else { button }
         }
     }
@@ -232,7 +237,7 @@ private struct ValueRow: View {
                 Text(verbatim: value.preview).foregroundStyle(.secondary)
             }
             Spacer()
-            Button(verb, action: action).buttonStyle(.bordered).controlSize(.small)
+            Button(verb, action: action).buttonStyle(.bordered)
         }
     }
 }
@@ -250,18 +255,14 @@ private struct ItemValues: View {
     let cancel: () -> Void
     let back: () -> Void
 
-    private var account: String { DisplayText.safe(item.account, empty: "") }
     private var values: [PickerValue] { PickerSearch.values(of: item) }
     private var fillTitle: LocalizedStringKey { "Fill Username and Password" }
 
     private var list: some View {
         List {
-            Section {
-                #if os(macOS)
-                Text(verbatim: DisplayText.title(of: item)).font(.title2.bold())
-                #endif
-                if !account.isEmpty { Text(verbatim: account).foregroundStyle(.secondary) }
-            }
+            #if os(macOS)
+            Section { Text(verbatim: DisplayText.title(of: item)).font(.title2.bold()) }
+            #endif
             if !lines.isEmpty {
                 Section {
                     ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
@@ -342,21 +343,22 @@ private struct WarningNotice: View {
     }
 }
 
-/// The line under a list that says what a tap on a name does, and when the list is cut.
-private struct ListFootnote: View {
-    var shown = 0
-    var total = 0
-    var hint: LocalizedStringKey = "Tap a name to use one value instead."
+/// The footer of a list: what a tap on a name does, or that the list is cut. A section footer, so it sits on the screen’s own
+/// background under the card (owner, 2026-11-24), never in a row, where people find it. Body size, like every other line.
+private struct ListFooter: View {
+    let shown: Int
+    let total: Int
+    let fallback: LocalizedStringKey
     var body: some View {
         Group {
             if total > shown {
                 Text("Showing \(shown) of \(total) items. Type to narrow the list.")
-            } else if total > 0 {
-                Text(hint)
+            } else {
+                Text(fallback)
             }
         }
-        .foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: .infinity)
-        .listRowSeparator(.hidden)
+        .font(.body).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity).padding(.top, 8)
     }
 }
 
@@ -451,6 +453,7 @@ struct FillList: View {
         ProviderScreen(heading: heading, cancel: ProviderAction(title: "Cancel", run: cancel)) {
             mainContent
                 .searchable(text: $search, prompt: "Search all items")
+                .searchPresentationToolbarBehavior(.avoidHidingContent)
                 .navigationDestination(isPresented: Binding(get: { detail != nil }, set: { if !$0 { detail = nil } })) {
                     if let detail { detailView(detail) }
                 }
@@ -508,7 +511,8 @@ struct FillList: View {
                     passkeyOnlyNote
                     // Return fills the one login only when no passkey sits beside it.
                     ForEach(siteLogins) { row($0, isDefault: siteLogins.count == 1 && passkeyItems.isEmpty) }
-                    ListFootnote(shown: siteLogins.count, total: siteLogins.count)
+                } footer: {
+                    ListFooter(shown: siteLogins.count, total: siteLogins.count, fallback: "Tap a name to use one value instead.")
                 }
             }
         case .plainHTTP(let host):
@@ -525,6 +529,8 @@ struct FillList: View {
                     GroupLabel(text: siteLabel(host))
                     passkeyOnlyNote
                     ForEach(siteLogins) { row($0) }
+                } footer: {
+                    ListFooter(shown: siteLogins.count, total: siteLogins.count, fallback: "Tap a name to use one value instead.")
                 }
             }
         case .unknown:
@@ -540,7 +546,10 @@ struct FillList: View {
                 Text("No items match “\(query)”.").foregroundStyle(.secondary)
             } else {
                 ForEach(found.prefix(PickerSearch.limit)) { row($0, showsSite: true) }
-                ListFootnote(shown: min(found.count, PickerSearch.limit), total: found.count)
+            }
+        } footer: {
+            if !found.isEmpty {
+                ListFooter(shown: min(found.count, PickerSearch.limit), total: found.count, fallback: "Tap a name to use one value instead.")
             }
         }
     }
@@ -550,7 +559,7 @@ struct FillList: View {
     private func detailView(_ item: VaultItem) -> some View {
         let own = isOwnSite(item)
         let confirmLines = item.kind == .login && (!own || plainHTTP)
-            ? lines(for: Pending(item: item, otherSite: !own, plainHTTP: plainHTTP)) : []
+            ? lines(for: Pending(item: item, otherSite: !own, plainHTTP: plainHTTP), namesItem: false) : []
         return ItemValues(item: item, lines: confirmLines,
                           fill: item.kind == .login ? { detail = nil; choose(item) } : nil,
                           verb: insert == nil ? "Copy" : "Use",
@@ -571,7 +580,7 @@ struct FillList: View {
 
     private func row(_ item: VaultItem, showsSite: Bool = false, isDefault: Bool = false) -> some View {
         let isLogin = item.kind == .login
-        let verb: LocalizedStringKey = !isLogin ? "Open" : (isOwnSite(item) && !plainHTTP ? "Fill" : "Fill…")
+        let verb: LocalizedStringKey = !isLogin ? "Choose" : (isOwnSite(item) && !plainHTTP ? "Fill" : "Fill…")
         return LoginRow(item: item, showsSite: showsSite, verb: verb, isDefault: isDefault && isLogin,
                         openValues: { detail = item }) {
             if isLogin { select(item) } else { detail = item }
@@ -597,7 +606,7 @@ struct FillList: View {
     /// the site being signed in to, the login's name and account, then the sentences. Each line about the login is a fixed label
     /// and a value. Values from the vault (the name and the account) are in quotes, so text in them that looks like one of our
     /// labels reads as the vault's; the site names are ours and have none.
-    private func lines(for pending: Pending) -> [ConfirmLine] {
+    private func lines(for pending: Pending, namesItem: Bool = true) -> [ConfirmLine] {
         let httpWarning = ConfirmLine(String(localized: "This page is not encrypted (http), so anything filled here can be read on the network."))
         guard pending.otherSite else { return [httpWarning] }
         let website = pending.item.website.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -606,11 +615,14 @@ struct FillList: View {
         let pageValue = site.host.map { HostDisplay.shown($0) } ?? String(localized: "an unknown site")
         var lines = [
             ConfirmLine(String(localized: "Saved for:"), savedValue),
-            ConfirmLine(String(localized: "You are signing in to:"), pageValue),
-            ConfirmLine(String(localized: "Login:"), DisplayText.quoted(DisplayText.title(of: pending.item)))
+            ConfirmLine(String(localized: "You are signing in to:"), pageValue)
         ]
-        let account = DisplayText.safe(pending.item.account, empty: "")
-        if !account.isEmpty { lines.append(ConfirmLine(String(localized: "Account:"), DisplayText.quoted(account))) }
+        // The item screen already shows the name and the account, so only the sheet repeats them.
+        if namesItem {
+            lines.append(ConfirmLine(String(localized: "Login:"), DisplayText.quoted(DisplayText.title(of: pending.item))))
+            let account = DisplayText.safe(pending.item.account, empty: "")
+            if !account.isEmpty { lines.append(ConfirmLine(String(localized: "Account:"), DisplayText.quoted(account))) }
+        }
         lines.append(ConfirmLine(String(localized: "Only continue if you trust this page.")))
         if pending.plainHTTP { lines.append(httpWarning) }
         return lines
@@ -644,13 +656,17 @@ struct TextPicker: View {
                         }
                     } else {
                         ForEach(found.prefix(PickerSearch.limit)) { item in
-                            LoginRow(item: item, showsSite: true, verb: "Open") { detail = item }
+                            LoginRow(item: item, showsSite: true, verb: "Choose") { detail = item }
                         }
-                        ListFootnote(shown: min(found.count, PickerSearch.limit), total: found.count, hint: "Choose an item, then the value.")
+                    }
+                } footer: {
+                    if !found.isEmpty {
+                        ListFooter(shown: min(found.count, PickerSearch.limit), total: found.count, fallback: "Choose an item, then the value.")
                     }
                 }
             }
             .searchable(text: $search, prompt: "Search all items")
+            .searchPresentationToolbarBehavior(.avoidHidingContent)
             .navigationDestination(isPresented: Binding(get: { detail != nil }, set: { if !$0 { detail = nil } })) {
                 if let item = detail {
                     ItemValues(item: item, lines: [], fill: nil, verb: "Use", use: { value in
