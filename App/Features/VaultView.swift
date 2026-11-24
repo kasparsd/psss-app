@@ -1130,7 +1130,7 @@ struct VaultView: View {
 
     private var showsAutoFillCard: Bool { autoFill.reminder(for: autoFillVault).display != .nothing }
 
-    /// The card is the first row of the list, so it scrolls away with it and never covers a row. An empty vault shows it
+    /// The card is the first row of the list, above the title line on Mac and iPad, so it scrolls away with it and never covers a row. An empty vault shows it
     /// above its own text instead, and a search or a filter with nothing to list has no room for it.
     @ViewBuilder
     private func autoFillRow(_ results: [VaultItem]) -> some View {
@@ -1175,6 +1175,8 @@ struct VaultView: View {
     /// The rows of the list: live items, or what waits in Recently Deleted, followed by the one sentence about other KeePass apps.
     @ViewBuilder
     private func listRows(_ results: [VaultItem]) -> some View {
+        // The notice is about the app, not the list, so it sits above the list's title and the title stays next to its rows (owner, 2026-11-24).
+        if !isRecentlyDeleted { autoFillRow(results) }
         if !usesStack {
             // Mac and iPad: the list's title and count are its first line (the bar carries the controls).
             // While a search is active the list shows results from the whole vault, whatever place is selected.
@@ -1191,7 +1193,6 @@ struct VaultView: View {
                     #endif
             }
         } else {
-            autoFillRow(results)
             let group = recentGroup
             if group.isEmpty {
                 ForEach(results) { row($0, section: .all, in: results) }
