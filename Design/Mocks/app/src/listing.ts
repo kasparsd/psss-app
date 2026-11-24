@@ -13,7 +13,7 @@ export const sortNames: Record<SortKey, string> = {
 /** The kind of item the All list shows. One at a time. */
 export type TypeKey = 'all' | 'logins' | 'notes' | 'custom';
 export const typeKeys: TypeKey[] = ['all', 'logins', 'notes', 'custom'];
-export const typeNames: Record<TypeKey, string> = { all: 'All', logins: 'Logins', notes: 'Notes', custom: 'Custom' };
+export const typeNames: Record<TypeKey, string> = { all: 'All', logins: 'Logins', notes: 'Notes', custom: 'Custom items' };
 const kindOf: Record<Exclude<TypeKey, 'all'>, Kind> = { logins: 'login', notes: 'note', custom: 'custom' };
 
 /** What an item has. Any number; an item must have all that are chosen. */

@@ -13,7 +13,7 @@ export type SideKey = 'all' | 'codes' | 'cards' | 'logins' | 'notes' | 'custom' 
 /** The sidebar: the places, then the kinds, then Recently Deleted. */
 const sideRows: [SideKey, string][] = [
   ['all', 'All'], ['codes', 'Codes'], ['cards', 'Cards'],
-  ['logins', 'Logins'], ['notes', 'Secure notes'], ['custom', 'Custom items'],
+  ['logins', 'Logins'], ['notes', 'Notes'], ['custom', 'Custom items'],
 ];
 const titles: Record<SideKey, string> = { ...Object.fromEntries(sideRows), deleted: 'Recently Deleted' } as Record<SideKey, string>;
 const oneType = (s: SideKey): TypeKey => (s === 'logins' || s === 'notes' || s === 'custom' ? s : 'all');

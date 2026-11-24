@@ -57,7 +57,7 @@ export const items: Item[] = [
     ],
   },
   {
-    id: 3, name: 'Home Wi-Fi', account: 'Secure note', kind: 'note', color: 5, recent: true, uses: 12,
+    id: 3, name: 'Home Wi-Fi', account: 'Note', kind: 'note', color: 5, recent: true, uses: 12,
     fields: [{ label: 'Note', value: 'Network: Harbor-5G. Password on the router label.' }],
   },
   {
@@ -196,7 +196,7 @@ export const items: Item[] = [
 /** Items in Recently Deleted, with their age. */
 export const deletedItems: (Item & { deletedAgo: string })[] = [
   {
-    id: 101, name: 'Retired router', account: 'Secure note', kind: 'note', color: 4, uses: 1, deletedAgo: 'Deleted 3 days ago',
+    id: 101, name: 'Retired router', account: 'Note', kind: 'note', color: 4, uses: 1, deletedAgo: 'Deleted 3 days ago',
     fields: [{ label: 'Note', value: 'Admin login for the old router. Replaced in March.' }],
   },
   {

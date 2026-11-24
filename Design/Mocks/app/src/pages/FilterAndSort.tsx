@@ -108,7 +108,7 @@ export function FilterAndSort() {
               why: <>The pill row showed three and a half of eight choices and mixed kinds, orders and “has” in one row. What is listed and in which order are two questions, and one row answered both, so “my most used logins” could not be asked.</>,
             },
             {
-              decision: <><strong>2. Three choices that combine.</strong> <em>Show</em> All, Logins, Notes, Custom (one) and <em>With</em> Passkey, Notes (any number; an item must have all that are ticked) in the Filter menu; <em>Sort by</em> Recently used, Most used, Recently changed, Name (one) in the Sort menu. Recently Deleted is the last entry of the Filter menu on iPhone. Sort orders All, each of its filters and search results, and is remembered on the device. The list does not reorder while you look at it; a new order applies when you choose it or the list next appears.</>,
+              decision: <><strong>2. Three choices that combine.</strong> <em>Show</em> All, Logins, Notes, Custom items (one) and <em>With</em> Passkey, Notes (any number; an item must have all that are ticked) in the Filter menu; <em>Sort by</em> Recently used, Most used, Recently changed, Name (one) in the Sort menu. Recently Deleted is the last entry of the Filter menu on iPhone. Sort orders All, each of its filters and search results, and is remembered on the device. The list does not reorder while you look at it; a new order applies when you choose it or the list next appears.</>,
               rejected: <>“any of” for With (ticking more would show more); newest or oldest first as a second choice in the menu (four orders that each have one sensible direction do not need it); a “With code” filter (Codes is that list).</>,
             },
             {
@@ -117,7 +117,7 @@ export function FilterAndSort() {
               why: <>The default order used to put every used item first and the rest by name, which is one long list with no seam. A short group on top finds what you use lately, and the list below stays complete and predictable.</>,
             },
             {
-              decision: <><strong>4. Where the buttons are.</strong> Sort, then Filter, then + Add, in that order on every device. iPhone: at the top right of the All tab; Setup stays top left. Mac and iPad: the same buttons over the list; the sidebar lists All, Codes, Cards, Logins, Secure notes, Custom items and Recently Deleted, and has no Filters section. With the sidebar hidden the Filter menu also lists the places and kinds. The View menu on Mac and iPad lists every Show, With and Sort by choice with its checkmark.</>,
+              decision: <><strong>4. Where the buttons are.</strong> Sort, then Filter, then + Add, in that order on every device. iPhone: at the top right of the All tab; Setup stays top left. Mac and iPad: the same buttons over the list; the sidebar lists All, Codes, Cards, Logins, Notes, Custom items and Recently Deleted, and has no Filters section. With the sidebar hidden the Filter menu also lists the places and kinds. The View menu on Mac and iPad lists every Show, With and Sort by choice with its checkmark.</>,
               rejected: <>Sort inside the Filter menu (three taps to change the order, and one button for two different questions); With and Sort by as tick rows in the Mac and iPad sidebar (drawn and dropped: visible and one click, but a different control from iPhone, a longer sidebar, and settings among places; the owner chose the same dropdowns everywhere); the sort or filter button at the bottom beside search, as in Passwords (the tab bar is there); the Recent and Most used sidebar rows.</>,
             },
             {
@@ -134,12 +134,13 @@ export function FilterAndSort() {
 
         <Against>
           <li><strong>Filter and Sort are buttons without a word.</strong> The standard symbols, as in Mail and Passwords, each with a spoken label and a tooltip. The project rule prefers words; “Sort” and “Filter” as text beside “+ Add” are tight on iPhone.</li>
-          <li><strong>Filters are in a menu on iPhone,</strong> against the project rule that important things stay visible. Logins, Notes, Custom, Passkey and Notes take two taps instead of one. They are used far less than Codes and Cards, which stay one tap away, and the title line and the filled button keep the current state on screen.</li>
+          <li><strong>Filters are in a menu on iPhone,</strong> against the project rule that important things stay visible. Logins, Notes, Custom items, Passkey and Notes take two taps instead of one. They are used far less than Codes and Cards, which stay one tap away, and the title line and the filled button keep the current state on screen.</li>
           <li><strong>Sort is at the top on iPhone, not at the bottom as in Passwords.</strong> Passwords has a toolbar at the bottom of its list. Psss has the tab bar there, and Apple's guidance keeps actions out of a tab bar. On Mac and iPad it is in the same place as in Passwords.</li>
         </Against>
 
         <History
           entries={[
+            { date: '2026-11-24', text: <>Each kind got one name everywhere: Logins, Cards, Notes, Custom items (singular: Note, Custom item). Before, the sidebar and titles said “Secure notes” where the pills and the menu said “Notes”, and the menu said “Custom” where the sidebar said “Custom items”. The owner chose the names after the review of the iPhone and iPad screens found the two spellings.</> },
             { date: '2026-11-24', text: <>A “Recently used” group was added at the top of All in the default order, with a full list under it headed “All items”. Before, the default order was every used item first and then the rest by name. The group is limited to five items used in the last 30 days; “everything used in the last 30 days” was rejected because for a daily user it is most of the vault. A group under every sort order was rejected too. The owner decided it for All, Codes and Cards together.</> },
             { date: '2026-11-24', text: <>The owner approved the filter menu ("approved, build it") with Sort and Filter as dropdowns before + Add on every device. A Mac and iPad version with With and Sort by as tick rows in the sidebar had been drawn and was dropped.</> },
             { date: '2026-11-24', text: <>Sort became its own button again, before Filter and + Add, after an owner question; the Filter menu then held only Show and With. Sort inside the Filter menu had needed three taps and made one button answer two questions.</> },
