@@ -57,6 +57,16 @@ struct AutoFillCard: View {
         }
     }
 
+    /// A system background, not a fill: the card is content on the list, like the banners in Apple's own Settings and Wallet
+    /// (owner, 2026-11-24).
+    private static var cardBackground: Color {
+        #if os(iOS)
+        Color(.secondarySystemBackground)
+        #else
+        Color(nsColor: .controlBackgroundColor)
+        #endif
+    }
+
     /// The words read as one element, then the buttons, all inside one group. The buttons sit side by side and stack when
     /// the text size is large, so no label is cut off.
     private func card<Buttons: View>(title: String, message: String, @ViewBuilder buttons: () -> Buttons) -> some View {
@@ -78,7 +88,7 @@ struct AutoFillCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(.quaternary, in: .rect(cornerRadius: 12))
+        .background(Self.cardBackground, in: .rect(cornerRadius: 12))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(title)
     }
