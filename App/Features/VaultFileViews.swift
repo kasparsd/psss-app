@@ -229,6 +229,9 @@ struct VaultPasswordView: View {
     /// An unlock attempt is under way: the password was submitted, or Face ID or Touch ID was asked. Off again with any failure
     /// or cancel; nothing waits for it. The lock icon shows the name meanwhile.
     @State private var opening = false
+    /// The icon's one introduction: a second after the lock screen shows, the dots change to the name and stay. Nothing waits
+    /// for it; it starts again each time the app comes back to the front.
+    @State private var introduced = false
     /// "Use Password…" was pressed: the password form is shown in place.
     @State private var formRequested = false
     /// Face ID or Touch ID looked and did not recognise the person. The form opens with a line that says so.
@@ -238,11 +241,11 @@ struct VaultPasswordView: View {
     @State private var listener = TouchIDListener()
     @Environment(\.controlActiveState) private var controlActiveState
     #else
-    @Environment(\.scenePhase) private var scenePhase
     /// The scene went to the background since Face ID last ran, so coming back asks again. The Face ID sheet itself makes the
     /// scene inactive and active, which must not start another attempt.
     @State private var leftScene = false
     #endif
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage("vaultSource") private var vaultSource = ""
 
     /// Input fields are darker than the grey rows around them, with a visible edge, so they read as places to type.
@@ -300,6 +303,11 @@ struct VaultPasswordView: View {
         }
         .background(.background)
         .onAppear { startBiometricsOnAppear() }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { introduced = false; return }
+            try? await Task.sleep(for: .seconds(1))
+            if !Task.isCancelled { introduced = true }
+        }
         .task {
             // Like Apple Passwords, ask for Face ID straight away. Not when the vault was just locked because it changed
             // elsewhere: the saved key is probably stale, so the prompt would only fail. The notice says to enter the vault
@@ -368,7 +376,7 @@ struct VaultPasswordView: View {
 
     private var content: some View {
         VStack(spacing: 16) {
-            LockHeader(biometry: biometry, listening: listening, dimmed: working || !listening, vaultName: vaultName, opening: opening,
+            LockHeader(biometry: biometry, listening: listening, dimmed: working || !listening, vaultName: vaultName, opening: opening || introduced,
                        retry: { startBiometrics(automatic: false) }, context: lockContext)
             statusLine
             messageLine

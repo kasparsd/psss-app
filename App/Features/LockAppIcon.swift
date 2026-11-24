@@ -9,6 +9,15 @@ private let charcoal = Color(red: 0x1F / 255, green: 0x1F / 255, blue: 0x23 / 25
 struct LogoField: View {
     var shown: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Which of the three places show the s. Each follows `shown` with its own delay, through an explicit animation that touches
+    /// only this value: an implicit animation on the letters would also animate any layout change that lands in the same update
+    /// (the lock screen's text and form change as the attempt starts) and slide the s into place.
+    @State private var placed: [Bool]
+
+    init(shown: Bool) {
+        self.shown = shown
+        _placed = State(initialValue: Array(repeating: shown, count: 3))
+    }
 
     var body: some View {
         let box = LogoFieldGeometry.box
@@ -25,13 +34,16 @@ struct LogoField: View {
                         LogoFieldGeometry.tail.applying(transform).fill()
                         ForEach(0..<3, id: \.self) { i in
                             letter(LogoFieldGeometry.s[i], transform)
-                                .opacity(shown ? 1 : 0)
-                                .animation(animation(i), value: shown)
+                                .opacity(placed[i] ? 1 : 0)
                             dot(i).applying(transform).fill()
-                                .opacity(shown ? 0 : 1)
-                                .animation(animation(i), value: shown)
+                                .opacity(placed[i] ? 0 : 1)
                         }
                     }
+                }
+            }
+            .onChange(of: shown) {
+                for i in 0..<3 {
+                    withAnimation(animation(i)) { placed[i] = shown }
                 }
             }
     }
