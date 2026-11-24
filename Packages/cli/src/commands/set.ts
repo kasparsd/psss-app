@@ -1,6 +1,8 @@
 import { readSecret } from '../input.ts';
 import { formatReference, shellQuote } from '../reference.ts';
 import { CliError, EXIT_NOT_FOUND } from '../errors.ts';
+import { checkDelivery, deliveryJson } from './delivery.ts';
+import { jsonName } from './kdbx-report.ts';
 import { failureError, hasJson, jsonOption, missingReferenceError, resolveReference } from './command.ts';
 import type { Command } from './command.ts';
 import { ValidationError } from '../errors.ts';
@@ -25,7 +27,7 @@ const set: Command = {
     if (ctx.positionals.length === 0) throw missingReferenceError(ctx, 'set', 'field', false);
     const { ref, selector } = resolveReference(ctx, ctx.positionals[0], 'field');
     if (ref.field === undefined) throw new ValidationError('A reference for set names a field, such as "psss://Example API/token".');
-    const vault = await ctx.open();
+    const vault = await ctx.open({ changes: true });
     const svc = await ctx.service();
     const create = ctx.values.create === true;
     if (!create) {
@@ -39,12 +41,14 @@ const set: Command = {
     }
     const value = await readSecret(ctx.io, 'Value (not shown): ');
     const done = ctx.unwrap(await svc.set(selector, ref.field, value, { create }));
+    const delivery = await checkDelivery(ctx);
     if (hasJson(ctx.values)) {
       ctx.json({
-        item: { id: done.item.id, title: done.item.title, group: done.item.group },
-        field: done.field,
+        item: { id: done.item.id, title: jsonName(done.item.title), group: jsonName(done.item.group) },
+        field: jsonName(done.field),
         itemCreated: done.itemCreated,
         previousKept: done.previousKept,
+        delivery: deliveryJson(delivery),
       });
       return 0;
     }

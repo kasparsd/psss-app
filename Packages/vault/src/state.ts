@@ -6,12 +6,13 @@
 // - `heads[location][gid/author/device]` is the last record this device accepted from that location: the rollback check (spec 4.4).
 // - the outbox holds sealed bytes, stored before anything is written to a location, and every delivery sends exactly those bytes (4.1).
 // Every file is replaced atomically. Losing the directory does not lose the vault but makes the device a new one (a new device id).
-import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { fromHex, hex } from '../../format/src/bytes.ts';
 import type { Remembered } from '../../format/src/remember.ts';
 import { VaultError } from './errors.ts';
 import { flushDirectory, writeAtomic } from './fsutil.ts';
+import { processAlive } from './lock.ts';
 
 export interface ChainHead { seq: number; id: string }
 interface StateData {
@@ -24,6 +25,8 @@ interface StateData {
 export interface OutboxEntry { gid: string; seq: number; sealed: Uint8Array }
 
 const OUTBOX_NAME = /^([0-9a-f]{64})-([0-9]{10})\.sealed$/;
+/** a temporary file of an outbox write: `.tmp-<pid>-<random>-<name>.sealed`, or the older `.tmp-<random>-<name>.sealed` without a process id */
+const OUTBOX_TEMP = /^\.tmp-(?:([0-9]+)-)?[0-9a-f]{12}-.*\.sealed$/;
 
 export class DeviceState {
   dir: string;
@@ -142,6 +145,32 @@ export class DeviceState {
       if (m) out.push({ gid: m[1]!, seq: Number(m[2]), sealed: new Uint8Array(readFileSync(join(this.outboxDir, name))) });
     }
     return out;
+  }
+
+  /** How many sealed records wait in the outbox (a count of names, nothing is read). */
+  outboxCount(): number {
+    if (!existsSync(this.outboxDir)) return 0;
+    let n = 0;
+    for (const name of readdirSync(this.outboxDir)) if (OUTBOX_NAME.test(name)) n++;
+    return n;
+  }
+  /** Removes the temporary files a process that was killed (SIGKILL, power) left in the outbox folder: `.tmp-*.sealed` whose writer's process is
+   *  gone, or that are older than `staleMs`. A file whose writer is alive and that is young is being written and is never touched, and neither
+   *  is a real outbox entry. Returns how many it removed. Called with the state lock held. */
+  sweepOutbox(staleMs: number, now: number = Date.now(), alive: (pid: number) => boolean = processAlive): number {
+    if (this.memory || !existsSync(this.outboxDir)) return 0;
+    let removed = 0;
+    for (const name of readdirSync(this.outboxDir)) {
+      const m = OUTBOX_TEMP.exec(name);
+      if (!m) continue;
+      const path = join(this.outboxDir, name);
+      let old: boolean;
+      try { old = now - statSync(path).mtimeMs > staleMs; } catch { continue; }
+      const dead = m[1] !== undefined && !alive(Number(m[1]));
+      if (!dead && !old) continue;
+      try { unlinkSync(path); removed++; } catch { /* already gone */ }
+    }
+    return removed;
   }
 
   // ---- remembered chain heads, per location (spec 4.4)

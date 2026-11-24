@@ -29,6 +29,7 @@ import type {
   Candidate,
   CreateRequest,
   CreatedVault,
+  Delivery,
   Failure,
   FieldValue,
   ItemSelector,
@@ -127,6 +128,8 @@ class RealVaultService implements VaultService {
   private opts: ServiceOptions;
   private vault: Vault | undefined;
   private readOnly = false;
+  /** The command that opened the vault will change something, so a refusal says `Nothing was changed.` (see `open`). */
+  private changes = false;
   private vaultPath = '';
   private name = '';
   private keyFilePath: string | undefined;
@@ -232,10 +235,9 @@ class RealVaultService implements VaultService {
         case 'conflict':
           return failed('A file in the vault changed while it was being written. Nothing was lost; try again.');
         case 'state_locked':
+          // `Nothing was changed.` only for a command that would have changed something: a read-only one has nothing to say about that
           return failed(
-            e.what === 'import'
-              ? 'Another psss is importing into this vault right now. Wait for it to finish and try again. Nothing was changed.'
-              : 'Another psss is working on this vault right now. Wait for it to finish and try again. Nothing was changed.',
+            `${e.what === 'import' ? 'Another psss is importing into this vault right now.' : 'Another psss is working on this vault right now.'} Wait for it to finish and try again.${this.changes ? ' Nothing was changed.' : ''}`,
           );
         default:
           return failed(`Psss could not finish: ${text}. Nothing was changed.`);
@@ -416,8 +418,9 @@ class RealVaultService implements VaultService {
     return { ok: true, value: { name, path: folder, key: { path: keyFile, ownerOnly, created: true } } };
   }
 
-  async open(options: { readOnly?: boolean } = {}): Promise<Result<OpenedVault>> {
+  async open(options: { readOnly?: boolean; changes?: boolean } = {}): Promise<Result<OpenedVault>> {
     this.readOnly = options.readOnly === true;
+    this.changes = options.changes === true;
     const v = this.use();
     if ('ok' in v) return v;
     const raw = (v as unknown as { issues?: Array<{ code: string; location: string | null; detail: string; plain: string }> }).issues;
@@ -510,14 +513,21 @@ class RealVaultService implements VaultService {
       const wayBack: VaultInfo['wayBack'] = [];
       if (i.wayBack.recoveryKit) wayBack.push('recoveryKit');
       if (i.wayBack.password) wayBack.push('password');
-      const locations: LocationInfo[] = i.locations.map((l) => ({
+      // a location is behind while it lacks a change made here, and nothing is up to date while a change waits in the outbox
+      const waiting = v.outbox();
+      const lacks = (path: string) => waiting.filter((o) => o.pendingLocations.includes(path)).length;
+      const undelivered = Math.max(i.outbox, waiting.length);
+      let locations: LocationInfo[] = i.locations.map((l) => ({
         label: locationLabel(l.location),
         path: l.location,
-        state: l.status === 'upToDate' ? 'upToDate' : 'behind',
+        state: l.status === 'upToDate' && lacks(l.location) === 0 ? 'upToDate' : 'behind',
+        ...(lacks(l.location) > 0 ? { pending: lacks(l.location) } : {}),
       }));
+      // changes wait but no location is known to lack them (a record that cannot be read, a place that was removed): it cannot be called up to date
+      if (undelivered > 0 && locations.every((l) => l.state === 'upToDate')) locations = locations.map((l) => ({ ...l, state: 'behind' as const, pending: undelivered }));
       return {
         ok: true as const,
-        value: { name: this.name, path: this.vaultPath, groups: i.groups.map((g) => g.name), itemCount: i.itemCount, keySource: source, wayBack, locations, formatVersion: i.formatVersion },
+        value: { name: this.name, path: this.vaultPath, groups: i.groups.map((g) => g.name), itemCount: i.itemCount, keySource: source, wayBack, locations, formatVersion: i.formatVersion, undelivered },
       };
     })) as Result<VaultInfo>;
   }
@@ -704,6 +714,48 @@ class RealVaultService implements VaultService {
       renameSync(tmp, target);
       return { ok: true as const, value: null };
     })) as Result<null>;
+  }
+
+  /** What the writes of this run left undelivered, with the places that refused them and why in plain words. */
+  async delivery(): Promise<Result<Delivery>> {
+    const v = this.use();
+    if ('ok' in v) return v;
+    return (await this.guard<Delivery>(() => {
+      const d = v.delivery();
+      return {
+        ok: true as const,
+        value: { undelivered: d.pending, locations: d.locations.map((l) => ({ label: locationLabel(l.location), path: l.location, reason: this.plainReason(l.error) })) },
+      };
+    })) as Result<Delivery>;
+  }
+
+  /** Why a location could not be written, in words for a person: the error code or the library's sentence, without paths. */
+  private plainReason(error: string): string {
+    const code = /\b(E[A-Z0-9]{3,})\b/.exec(error)?.[1];
+    switch (code) {
+      case 'EACCES':
+      case 'EPERM':
+        return 'permission denied';
+      case 'EROFS':
+        return 'the folder is read-only';
+      case 'ENOSPC':
+        return 'the disk is full';
+      case 'EDQUOT':
+        return 'the disk quota is used up';
+      case 'ENOENT':
+      case 'ENOTDIR':
+        return 'the folder is missing';
+      case 'EIO':
+        return 'the disk reported an error';
+      case 'EBUSY':
+      case 'ETIMEDOUT':
+        return 'the place did not answer';
+    }
+    if (/has not been set up yet/.test(error)) return 'it is not set up yet; psss sync does that';
+    if (/not a psss vault/.test(error)) return 'the folder is not a Psss vault';
+    if (/not a folder/.test(error)) return 'it is not a folder';
+    const clean = this.scrub(error).replace(/'[^']*[\\/][^']*'/g, 'a file').replace(/\s*\(.*$/, '');
+    return clean.length > 80 ? `${clean.slice(0, 79)}\u2026` : clean;
   }
 
   // ------------------------------------------------------------------ sync and verify

@@ -195,6 +195,14 @@ export interface WriteResult {
   inOutbox: boolean;
 }
 
+/** What a write, an import or a sync left behind: records sealed on this device that are not yet in every location. See `Vault.delivery()`. */
+export interface Delivery {
+  /** records in the outbox: stored durably on this device, not in every location */
+  pending: number;
+  /** the locations the last operation could not write to, each with the library's own words for why (technical: a person-facing layer rewrites them) */
+  locations: { location: string; error: string }[];
+}
+
 export interface LocationStatus {
   location: string;
   /** `upToDate`: the location holds every record this device holds, which is all a reader can know (spec 4.4). `behind`: it does not, or cannot be read, and `reason` says why. */
@@ -437,6 +445,12 @@ export class Vault {
   /** the records of an import in progress: sealed and stored in the outbox, not yet delivered (see `queueRecord`) */
   private batch: { clock: Clock | null; pending: { rec: Rec; sealed: Uint8Array }[] } | null = null;
   private beatAt = 0;
+  /** the locations the current or last operation could not write to, and why; cleared at the start of each write, import or sync. A location in
+   *  here gets nothing more from the same operation, so that its copy of this device's chain never has a gap. */
+  private failures = new Map<string, string>();
+  private swept = false;
+  /** @internal for tests: called just before records are written to a location, to stand in for a slow one */
+  beforeLocationWrite?: (location: string) => void;
   private wrapCache = new Map<string, Uint8Array | null>();
   /** @internal set by openVault */
   lockOptions: LockOptions = {};
@@ -473,16 +487,34 @@ export class Vault {
     return withLock(this.state.dir, () => {
       const changed = this.state.reload();
       if (changed && refresh) this.load(true);
+      if (!this.swept) {
+        // a process killed while it wrote an outbox file leaves a `.tmp-*.sealed` behind: remove those of dead or long gone writers
+        this.swept = true;
+        this.state.sweepOutbox(this.lockOptions.staleMs ?? 120_000, (this.lockOptions.clock ?? Date.now)());
+      }
       return fn();
     }, options);
   }
 
-  /** Tells the others that the lock is still held, at least every quarter of the time after which a lock counts as abandoned. */
-  private beat(): void {
-    const t = Date.now();
-    if (t - this.beatAt < (this.lockOptions.staleMs ?? 120_000) / 4) return;
+  /** Tells the others that the lock is still held. Unless `force`, at most once in a quarter of the time after which a lock counts as abandoned.
+   *  Called for every entry and record of a long job, and (forced) before and after each write to a location, which may be slow. */
+  private beat(force = false): void {
+    const t = (this.lockOptions.clock ?? Date.now)();
+    if (!force && t - this.beatAt < (this.lockOptions.staleMs ?? 120_000) / 4) return;
     this.beatAt = t;
-    refreshLock(this.state.dir);
+    refreshLock(this.state.dir, this.lockOptions);
+  }
+
+  /** Where this device stands after the last write, import or sync: how many records wait in the outbox, and which locations refused them. */
+  delivery(): Delivery {
+    return { pending: this.state.outboxCount(), locations: [...this.failures].map(([location, error]) => ({ location, error })) };
+  }
+
+  /** Writes to one location, with the lock refreshed before and after: a slow disk or share must not make the lock look abandoned. */
+  private toLocation(location: string, write: () => void): void {
+    this.beat(true);
+    this.beforeLocationWrite?.(location);
+    try { write(); } finally { this.beat(true); }
   }
 
   // ------------------------------------------------------------ loading
@@ -823,7 +855,61 @@ export class Vault {
   /** One record: built, sealed once, stored in the outbox, the sequence number advanced, then written to every location with put-if-absent
    *  (spec 4.1, 4.4). A location that fails does not lose the record: it stays in the outbox. */
   private writeRecord(g: GroupCtx, kind: number, payload: CMap): WriteResult {
-    return this.locked(() => this.writeRecordLocked(g, kind, payload), true);
+    return this.locked(() => { this.drainOutbox(); return this.writeRecordLocked(g, kind, payload); }, true);
+  }
+
+  /** Before a write or an import: sends what an earlier run left in the outbox (a failed delivery, a killed import) to the locations that lack
+   *  it. The stored bytes go out exactly as they are, never sealed again (spec 4.1), in sequence order and a hundred records to a file, as an
+   *  import writes them. A location that fails is noted in `failures` and gets nothing more from this operation; what is held by every
+   *  location leaves the outbox. Does nothing while offline. */
+  private drainOutbox(): void {
+    this.failures.clear();
+    if (this.offline) return;
+    const entries = this.state.outbox();
+    if (entries.length === 0) return;
+    const L = this.loaded;
+    const todo: { gid: string; id: string; rec: Rec; sealed: Uint8Array; seq: number; seg: boolean }[] = [];
+    for (const o of entries) {
+      const id = hex(recordId(o.sealed));
+      const rec = L.union.get(id);
+      if (rec) todo.push({ gid: o.gid, id, rec, sealed: o.sealed, seq: o.seq, seg: !isMembership(rec.kind) });
+    }
+    for (const l of L.locs) {
+      const p = probe(l.path);
+      if (p.state !== 'vault') { this.failures.set(l.path, p.state === 'empty' ? 'the location has not been set up yet; sync does that' : p.reason); continue; }
+      const missing = todo.filter((t) => !l.ids.has(t.id));
+      for (let i = 0; i < missing.length && !this.failures.has(l.path);) {
+        // a run: consecutive records of one chain that go in one file (membership records are always a file each)
+        let j = i + 1;
+        const first = missing[i]!;
+        while (first.seg && j < missing.length && j - i < BATCH && missing[j]!.seg && missing[j]!.gid === first.gid && missing[j]!.rec.seq === missing[j - 1]!.rec.seq + 1
+               && eq(missing[j]!.rec.author, first.rec.author) && eq(missing[j]!.rec.device, first.rec.device)) j++;
+        const run = missing.slice(i, j), last = run[run.length - 1]!;
+        i = j;
+        const rel = join(chainDir(first.gid, hex(first.rec.author), hex(first.rec.device)), segmentName(first.rec.seq, last.rec.seq, isMembership(first.rec.kind)));
+        try {
+          this.toLocation(l.path, () => {
+            putIfAbsent(l.path, rel, concat(...run.map((r) => frame(r.sealed))), this.durable);
+            if (this.durable) flushDirectory(join(l.path, dirname(rel)));
+          });
+        } catch (e) { this.failures.set(l.path, message(e)); break; }
+        for (const r of run) l.ids.add(r.id);
+        this.remember(l, first.gid, last.rec);
+      }
+    }
+    const done = todo.filter((t) => L.locs.every((l) => l.ids.has(t.id)));
+    if (done.length > 0) {
+      this.state.flush();
+      for (const t of done) { this.state.removeOutbox(t.gid, t.seq); L.outboxIds.delete(t.id); }
+    }
+    this.state.save();
+  }
+
+  /** Remembers that `l` holds this chain up to `rec` (the rollback check of spec 4.4). */
+  private remember(l: LocLoad, gid: string, rec: Rec): void {
+    const remembered = this.state.remembered(l.key);
+    const k = `${gid}/${chainOf(rec.author, rec.device)}`;
+    if (!remembered.has(k) || remembered.get(k)!.seq < rec.seq) { remembered.set(k, { seq: rec.seq, id: rec.id }); this.state.setRemembered(l.key, remembered); }
   }
 
   private writeRecordLocked(g: GroupCtx, kind: number, payload: CMap): WriteResult {
@@ -860,16 +946,23 @@ export class Vault {
   private deliver(gid: string, rec: Rec, sealed: Uint8Array, result: WriteResult): void {
     const rel = join(chainDir(gid, hex(rec.author), hex(rec.device)), segmentName(rec.seq, rec.seq, isMembership(rec.kind)));
     for (const l of this.loaded.locs) {
+      // a location that refused earlier records of this operation would get this one with a gap before it: it keeps it in the outbox instead
+      const earlier = this.failures.get(l.path);
+      if (earlier !== undefined) { result.failed.push({ location: l.path, error: earlier }); continue; }
       const p = probe(l.path);
-      if (p.state !== 'vault') { result.failed.push({ location: l.path, error: p.state === 'empty' ? 'the location has not been set up yet; sync does that' : p.reason }); continue; }
+      if (p.state !== 'vault') {
+        const error = p.state === 'empty' ? 'the location has not been set up yet; sync does that' : p.reason;
+        this.failures.set(l.path, error);
+        result.failed.push({ location: l.path, error });
+        continue;
+      }
       try {
-        putIfAbsent(l.path, rel, frame(sealed), this.durable);
+        this.toLocation(l.path, () => { putIfAbsent(l.path, rel, frame(sealed), this.durable); });
         l.ids.add(result.id);
         result.delivered.push(l.path);
-        const remembered = this.state.remembered(l.key);
-        const k = `${gid}/${chainOf(rec.author, rec.device)}`;
-        if (!remembered.has(k) || remembered.get(k)!.seq < rec.seq) { remembered.set(k, { seq: rec.seq, id: rec.id }); this.state.setRemembered(l.key, remembered); }
+        this.remember(l, gid, rec);
       } catch (e) {
+        this.failures.set(l.path, message(e));
         result.failed.push({ location: l.path, error: message(e) });
       }
     }
@@ -1037,6 +1130,7 @@ export class Vault {
 
   private importRead(read: ReturnType<typeof readKeepass>, options: ImportOptions, now: number): ImportReport {
     const dry = options.dryRun === true;
+    if (!dry) this.drainOutbox(); // records an earlier, failed or killed run left in the outbox go out first, as stored
     const target = this.pickGroup(options.group);
     const groups = this.visibleGroups();
     const bySource = new Map<string, { entry: ItemEntry; baseline: Uint8Array | null }>();
@@ -1064,6 +1158,7 @@ export class Vault {
       let done = 0;
       for (const spec of read.items) {
         options.progress?.(done++, read.items.length);
+        this.beat(); // also for an entry that writes nothing: a long run of those must not let the lock go stale
         const view = specView(spec);
         const fileHash = contentHash(spec.sourceId, view);
         if (gone.has(spec.uuid)) { r.skippedGone++; note(spec, 'gone'); continue; }
@@ -1149,16 +1244,18 @@ export class Vault {
     const data = concat(...pending.map((p) => frame(p.sealed)));
     let delivered = 0;
     for (const l of this.loaded.locs) {
-      if (probe(l.path).state !== 'vault') continue;
+      if (this.failures.has(l.path)) continue; // it refused an earlier batch: no gap in its copy of the chain, the outbox keeps the rest for sync
+      const p = probe(l.path);
+      if (p.state !== 'vault') { this.failures.set(l.path, p.state === 'empty' ? 'the location has not been set up yet; sync does that' : p.reason); continue; }
       try {
-        putIfAbsent(l.path, rel, data, this.durable);
-        if (this.durable) flushDirectory(join(l.path, dirname(rel)));
+        this.toLocation(l.path, () => {
+          putIfAbsent(l.path, rel, data, this.durable);
+          if (this.durable) flushDirectory(join(l.path, dirname(rel)));
+        });
         for (const p of pending) l.ids.add(hex(p.rec.id));
         delivered++;
-        const remembered = this.state.remembered(l.key);
-        const k = `${gid}/${chainOf(last.author, last.device)}`;
-        if (!remembered.has(k) || remembered.get(k)!.seq < last.seq) { remembered.set(k, { seq: last.seq, id: last.id }); this.state.setRemembered(l.key, remembered); }
-      } catch { /* this location keeps what it has; the outbox still holds the records */ }
+        this.remember(l, gid, last);
+      } catch (e) { this.failures.set(l.path, message(e)); /* this location keeps what it has; the outbox still holds the records */ }
     }
     if (delivered === this.loaded.locs.length) {
       this.state.flush();
@@ -1308,6 +1405,7 @@ export class Vault {
   sync(): SyncReport { return this.locked(() => this.syncLocked()); }
 
   private syncLocked(): SyncReport {
+    this.failures.clear();
     const before = this.load(true);
     const rolledBack = before.rollbacks.map((r) => ({ location: r.location, detail: describeRollback(r) }));
     const sources = new Map<string, string>();
@@ -1323,10 +1421,12 @@ export class Vault {
         if (l.probe.state === 'empty') initFolder(l.path);
         for (const [rel, from] of sources) {
           if (from === l.path) continue;
+          this.beat();
           try { n += putIfAbsent(l.path, rel, new Uint8Array(readFileSync(join(from, rel))), this.durable) === 'written' ? 1 : 0; } catch (e) { fail(l, `${rel}: ${message(e)}`); }
         }
         for (const r of records) {
           if (l.ids.has(hex(r.id))) continue;
+          this.beat(); // a long sync is a long time under the lock
           try {
             putIfAbsent(l.path, join(chainDir(hex(r.gid), hex(r.author), hex(r.device)), segmentName(r.seq, r.seq, isMembership(r.kind))), frame(r.sealed), this.durable);
             n++;
@@ -1335,6 +1435,7 @@ export class Vault {
       } catch (e) { fail(l, message(e)); }
       wrote.set(l.path, n);
     }
+    for (const [path, f] of failures) this.failures.set(path, f[0]!);
     const after = this.load(true);
     this.state.flush();
     for (const o of this.state.outbox()) {

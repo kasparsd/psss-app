@@ -36,8 +36,9 @@ export interface CommandContext {
   service(): Promise<VaultService>;
   /** The value of a result, or a CliError with the right words and exit code. */
   unwrap<T>(result: Result<T>, options?: { field?: string; deleted?: boolean }): T;
-  /** Opens the vault and returns its name. `readOnly` takes no lock and writes nothing, not even device state (a dry run). */
-  open(options?: { readOnly?: boolean }): Promise<{ name: string; path: string }>;
+  /** Opens the vault and returns its name. `readOnly` takes no lock and writes nothing, not even device state (a dry run). `changes` says the
+   *  command will change something: a refusal because another psss is busy then adds `Nothing was changed.` (a read-only command does not). */
+  open(options?: { readOnly?: boolean; changes?: boolean }): Promise<{ name: string; path: string }>;
 }
 
 export interface Command {

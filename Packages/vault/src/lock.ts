@@ -21,6 +21,8 @@ export interface LockOptions {
   staleMs?: number;
   /** what the holder is doing, written into the lock so that a process that has to wait can say so (for example `import`) */
   what?: string;
+  /** the time source for the times written into the lock and compared with them; `Date.now` by default. For tests: a lock must not go stale over a gap on this clock. */
+  clock?: () => number;
 }
 interface LockInfo { pid: number; time: number; token: string; what?: string }
 
@@ -31,7 +33,8 @@ function sleep(ms: number): void {
   try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch { const end = Date.now() + ms; while (Date.now() < end) { /* spin */ } }
 }
 
-function alive(pid: number): boolean {
+/** Whether a process with this id exists (on this machine). */
+export function processAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM'; }
 }
 
@@ -77,7 +80,7 @@ function isStale(path: string, seen: LockInfo | 'unreadable', now: number, stale
     // empty or damaged: a file just being created is young; anything older than a few seconds is debris
     try { return now - statSync(path).mtimeMs > 5000; } catch { return false; }
   }
-  return !alive(seen.pid) || now - seen.time > staleMs;
+  return !processAlive(seen.pid) || now - seen.time > staleMs;
 }
 
 export function lockPath(dir: string): string { return join(dir, LOCK_NAME); }
@@ -91,13 +94,12 @@ export function refreshLock(dir: string, opts: LockOptions = {}): void {
   if (token === undefined) return;
   const mine = readLock(path);
   if (mine === null || mine === 'unreadable' || mine.token !== token) return;
-  const next: LockInfo = { ...mine, time: Date.now() };
+  const next: LockInfo = { ...mine, time: (opts.clock ?? Date.now)() };
   const tmp = `${path}.${token}.beat`;
   try {
     writeFileSync(tmp, JSON.stringify(next), { flag: 'w', mode: 0o600 });
     renameSync(tmp, path);
   } catch { try { unlinkSync(tmp); } catch { /* gone */ } }
-  void opts;
 }
 
 /** Runs `fn` holding the exclusive lock of `dir`. Throws a VaultError `state_locked` if another psss still holds it after `waitMs`. */
@@ -107,15 +109,16 @@ export function withLock<T>(dir: string, fn: () => T, opts: LockOptions = {}): T
   if (depth > 0) { held.set(path, depth + 1); try { return fn(); } finally { held.set(path, depth); } }
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const waitMs = opts.waitMs ?? 5000, staleMs = opts.staleMs ?? 120_000;
-  const info: LockInfo = { pid: process.pid, time: Date.now(), token: randomBytes(8).toString('hex'), ...(opts.what !== undefined ? { what: opts.what } : {}) };
+  const clock = opts.clock ?? Date.now;
+  const info: LockInfo = { pid: process.pid, time: clock(), token: randomBytes(8).toString('hex'), ...(opts.what !== undefined ? { what: opts.what } : {}) };
   const started = Date.now();
   let attempt = 0;
   for (;;) {
-    info.time = Date.now();
+    info.time = clock();
     if (create(path, info)) break;
     const seen = readLock(path);
     if (seen !== null) {
-      if (isStale(path, seen, Date.now(), staleMs)) { steal(path, seen); continue; }
+      if (isStale(path, seen, clock(), staleMs)) { steal(path, seen); continue; }
     } else continue; // released between the two calls
     if (Date.now() - started >= waitMs) {
       const who = seen === 'unreadable' ? '' : ` (process ${seen.pid})`;

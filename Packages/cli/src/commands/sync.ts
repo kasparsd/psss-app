@@ -12,7 +12,7 @@ const sync: Command = {
   args: { min: 0, max: 0 },
   details: ['Adds what each location holds that this computer lacks, and what this computer holds that a location lacks. Never replaces.'],
   async run(ctx) {
-    await ctx.open();
+    await ctx.open({ changes: true });
     const svc = await ctx.service();
     const report = ctx.unwrap(await svc.sync((line) => ctx.err(`${line}\n`)));
     const failed = report.locations.filter((l) => l.error !== undefined);

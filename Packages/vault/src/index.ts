@@ -1,7 +1,7 @@
 // @psss/vault: open and write a Psss folder vault over @psss/format, headless. See ../README.md.
 export { createVault, openVault, Vault } from './vault.ts';
 export type {
-  CreateOptions, FindResult, GetResult, GroupSummary, HistoryResult, ItemEdits, LocationStatus, NewItem, Issue, OpenOptions, Problem, Scope, ShowResult,
+  CreateOptions, Delivery, FindResult, GetResult, GroupSummary, HistoryResult, ItemEdits, LocationStatus, NewItem, Issue, OpenOptions, Problem, Scope, ShowResult,
   SyncReport, Unlock, ImportOptions, ImportReport, ImportAction, ExportKdbxOptions, ExportKdbxResult, ExportReport, UnlockSource, VaultInfo, VerifyReport, WriteResult,
 } from './vault.ts';
 export { ImportInterrupted, VaultError, ValueTooLarge } from './errors.ts';

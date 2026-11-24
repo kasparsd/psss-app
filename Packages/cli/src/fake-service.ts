@@ -6,6 +6,7 @@ import { nearTitles } from './near.ts';
 import type {
   Candidate,
   CreateRequest,
+  Delivery,
   CreatedVault,
   Failure,
   ExportRequest,
@@ -67,6 +68,8 @@ export interface FakeScenario {
   keyFileReadableByOthers?: boolean;
   /** KeePass files by absolute path. A path that is not here is a file that does not exist. */
   kdbxFiles?: Record<string, FakeKdbxFile>;
+  /** What a write leaves undelivered: reported by `delivery`, and `info` counts it. Default: nothing. */
+  delivery?: Delivery;
   /** What an export finds and reports. */
   kdbxExport?: { items?: number; deleted?: number; attachments?: number; groups?: number; doesNotTravel?: string[]; issues?: ImportIssue[]; existing?: string[] };
 }
@@ -265,6 +268,7 @@ export class FakeVaultService implements VaultService {
         keySource: this.scenario.keySource ?? 'keyFile',
         wayBack: this.scenario.wayBack ?? [],
         locations: this.scenario.locations ?? [{ label: 'This computer', path: this.vaultPath, state: 'upToDate' }],
+        ...(this.scenario.delivery ? { undelivered: this.scenario.delivery.undelivered } : {}),
         formatVersion: this.scenario.formatVersion ?? 1,
       },
     };
@@ -384,6 +388,11 @@ export class FakeVaultService implements VaultService {
     };
     if (report.locations.length > 1) for (const l of report.locations) progress?.(`Reading ${l.label}`);
     return { ok: true, value: report };
+  }
+
+  async delivery(): Promise<Result<Delivery>> {
+    this.calls.push('delivery');
+    return { ok: true, value: this.scenario.delivery ?? { undelivered: 0, locations: [] } };
   }
 
   async verify(): Promise<Result<VerifyReport>> {

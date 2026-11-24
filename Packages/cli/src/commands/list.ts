@@ -1,6 +1,7 @@
 import { ValidationError } from '../errors.ts';
 import { hasJson, jsonOption } from './command.ts';
 import type { Command } from './command.ts';
+import { jsonName } from './kdbx-report.ts';
 
 const list: Command = {
   name: 'list',
@@ -27,11 +28,11 @@ const list: Command = {
       ctx.json({
         items: items.map((i) => ({
           id: i.id,
-          title: i.title,
+          title: jsonName(i.title),
           ...(i.username !== undefined ? { username: i.username } : {}),
           ...(i.url !== undefined ? { url: i.url } : {}),
-          group: i.group,
-          fields: i.fields,
+          group: jsonName(i.group),
+          fields: i.fields.map(jsonName),
         })),
       });
       return 0;

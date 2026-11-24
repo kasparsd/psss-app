@@ -1,6 +1,7 @@
 import { formatReference } from '../reference.ts';
 import { hasJson, jsonOption, missingReferenceError, resolveReference } from './command.ts';
 import type { Command } from './command.ts';
+import { jsonName } from './kdbx-report.ts';
 import { chooseField, chooseItem } from './choose.ts';
 import { ValidationError } from '../errors.ts';
 import type { ItemSelector } from '../service.ts';
@@ -41,8 +42,8 @@ const get: Command = {
     if (hasJson(ctx.values)) {
       ctx.json({
         reference: formatReference({ item: { id: found.item.id }, field: found.field }),
-        item: { id: found.item.id, title: found.item.title, group: found.item.group },
-        field: found.field,
+        item: { id: found.item.id, title: jsonName(found.item.title), group: jsonName(found.item.group) },
+        field: jsonName(found.field),
         value: found.value,
       });
     } else {

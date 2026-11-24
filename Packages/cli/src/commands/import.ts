@@ -5,7 +5,8 @@ import type { ImportResult } from '../service.ts';
 import { hasJson, jsonOption } from './command.ts';
 import type { Command, CommandContext } from './command.ts';
 import { kdbxCredentials, kdbxKeyOption } from './kdbx-key.ts';
-import { plural, warnIssues } from './kdbx-report.ts';
+import { checkDelivery, deliveryJson } from './delivery.ts';
+import { jsonName, plural, warnIssues } from './kdbx-report.ts';
 
 /** The lines for a person (frame A9). A line appears only when its count is not zero. */
 export function importText(r: ImportResult): string {
@@ -80,27 +81,35 @@ const importCommand: Command = {
     const file = ctx.positionals[0];
     if (file === undefined || file === '') throw new ValidationError('psss import needs the KeePass file to read, such as: psss import ~/Downloads/Family.kdbx');
     const dryRun = ctx.values['dry-run'] === true;
-    await ctx.open(dryRun ? { readOnly: true } : {});
+    await ctx.open(dryRun ? { readOnly: true } : { changes: true });
     const svc = await ctx.service();
     const credentials = await kdbxCredentials(ctx, { prompt: basename(file), name: displayPath(ctx.io, file) });
     // a progress line goes to standard error, for a terminal or when asked, and never into --json
     const asked = ctx.values.progress === true;
     const terminal = ctx.io.isTTY.stderr === true;
     const progress = !hasJson(ctx.values) && (asked || terminal) ? progressLine(ctx, terminal) : undefined;
-    const result = ctx.unwrap(
-      await svc.importKdbx({
-        file,
-        credentials,
-        ...(progress ? { progress: progress.update } : {}),
-        dryRun,
-        stripInvalid: ctx.values['strip-invalid'] === true,
-        includeTrash: ctx.values['include-trash'] === true,
-        update: ctx.values.update === true,
-      }),
-    );
+    const imported = await svc.importKdbx({
+      file,
+      credentials,
+      ...(progress ? { progress: progress.update } : {}),
+      dryRun,
+      stripInvalid: ctx.values['strip-invalid'] === true,
+      includeTrash: ctx.values['include-trash'] === true,
+      update: ctx.values.update === true,
+    });
     progress?.done();
+    // what was stored stays and is delivered if it can be, also when the import stopped part of the way: say what is kept here only
+    const delivery = dryRun ? undefined : await checkDelivery(ctx);
+    const result = ctx.unwrap(imported);
     if (hasJson(ctx.values)) {
-      ctx.json({ file: displayPath(ctx.io, resolve(ctx.io.cwd, file)), ...result });
+      ctx.json({
+        file: displayPath(ctx.io, resolve(ctx.io.cwd, file)),
+        ...result,
+        group: jsonName(result.group),
+        issues: result.issues.map((i) => ({ ...i, ...(i.item !== undefined ? { item: jsonName(i.item) } : {}) })),
+        items: result.items.map((i) => ({ ...i, title: jsonName(i.title) })),
+        ...(delivery ? { delivery: deliveryJson(delivery) } : {}),
+      });
       return 0;
     }
     warnIssues(ctx, result.issues);

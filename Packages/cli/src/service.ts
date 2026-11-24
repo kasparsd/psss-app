@@ -160,8 +160,10 @@ export interface LocationInfo {
   /** The name a person gave it: "This computer", "iCloud Drive". */
   label: string;
   path: string;
-  /** "Behind" means this computer has not seen everything the location holds. */
+  /** "Behind" means this computer has not seen everything the location holds, or the location lacks changes this computer has made. */
   state: 'upToDate' | 'behind';
+  /** Changes made on this computer that this location does not hold yet. Absent or 0: none. */
+  pending?: number;
 }
 
 export interface VaultInfo {
@@ -174,6 +176,24 @@ export interface VaultInfo {
   wayBack: Array<'recoveryKit' | 'password'>;
   locations: LocationInfo[];
   formatVersion: number;
+  /** Changes sealed on this computer and not yet in every location. While this is not 0, no location is reported up to date. Absent: 0. */
+  undelivered?: number;
+}
+
+/** A location a write could not reach. */
+export interface UndeliveredLocation {
+  label: string;
+  path: string;
+  /** Why, in plain words (`permission denied`, `the disk is full`). Never a value. */
+  reason: string;
+}
+
+/** What is kept on this computer only after a write, an import or a sync: stored safely, not yet in every place the vault lives. */
+export interface Delivery {
+  /** Changes sealed here that some location does not hold yet. 0: everything is delivered. */
+  undelivered: number;
+  /** The locations the last operation could not write to. May be empty while `undelivered` is not 0 (nothing says why). */
+  locations: UndeliveredLocation[];
 }
 
 export interface ListQuery {
@@ -313,12 +333,14 @@ export interface VaultService {
   /** Creates a vault and this computer's key. */
   create(request: CreateRequest): Promise<Result<CreatedVault>>;
   /** Opens the vault the options point at, or says why not. Called first by every command except `init`. */
-  open(options?: { readOnly?: boolean }): Promise<Result<OpenedVault>>;
+  open(options?: { readOnly?: boolean; changes?: boolean }): Promise<Result<OpenedVault>>;
   info(): Promise<Result<VaultInfo>>;
   list(query: ListQuery): Promise<Result<ItemSummary[]>>;
   /** Resolves a selector to exactly one item. `deleted` looks in Recently Deleted instead. */
   find(selector: ItemSelector, scope?: { deleted?: boolean }): Promise<Result<ItemSummary>>;
   get(selector: ItemSelector, field: string): Promise<Result<FieldValue>>;
+  /** What the writes of this run left undelivered. Called by every command that writes, after it has written. */
+  delivery(): Promise<Result<Delivery>>;
   /** Writes one field. A title that does not exist is `notFound` unless `create` is true, which adds the item. */
   set(selector: ItemSelector, field: string, value: string, options: { create: boolean }): Promise<Result<SetOutcome>>;
   /** Adds the vault password as another way in. Called by `init` when the person chooses it. */

@@ -33,6 +33,7 @@ test('--json: every result command prints a documented, stable shape on standard
         items: 2,
         key: { source: 'keyFile' },
         wayBack: ['password'],
+        undelivered: 0,
         locations: [
           { label: 'This computer', path: personal, state: 'upToDate' },
           { label: 'iCloud Drive', path: '/icloud/P.psss', state: 'behind' },
@@ -63,11 +64,11 @@ test('--json: every result command prints a documented, stable shape on standard
     const set = await runCli(['set', 'psss://Example API/token', '--json'], { box, fake, stdin: 'new-value\n' });
     assert.deepEqual(
       json(set.stdout),
-      { item: { id: 'a1b2c3d4', title: 'Example API', group: 'Only Me' }, field: 'token', itemCreated: false, previousKept: true },
+      { item: { id: 'a1b2c3d4', title: 'Example API', group: 'Only Me' }, field: 'token', itemCreated: false, previousKept: true, delivery: { undelivered: 0, locations: [] } },
       'set --json shape, with no value',
     );
-    assert.deepEqual(await out(['rm', 'psss://Example Bank']), { item: { id: '7f3a9c21', title: 'Example Bank', group: 'Only Me' }, deleted: true }, 'rm --json shape');
-    assert.deepEqual(await out(['restore', 'psss://Example Bank']), { item: { id: '7f3a9c21', title: 'Example Bank', group: 'Only Me' }, restored: true }, 'restore --json shape');
+    assert.deepEqual(await out(['rm', 'psss://Example Bank']), { item: { id: '7f3a9c21', title: 'Example Bank', group: 'Only Me' }, deleted: true, delivery: { undelivered: 0, locations: [] } }, 'rm --json shape');
+    assert.deepEqual(await out(['restore', 'psss://Example Bank']), { item: { id: '7f3a9c21', title: 'Example Bank', group: 'Only Me' }, restored: true, delivery: { undelivered: 0, locations: [] } }, 'restore --json shape');
     assert.deepEqual(await out(['sync']), { locations: [{ label: 'iCloud Drive', path: '/icloud/P.psss', pulled: 2, pushed: 1 }] }, 'sync --json shape');
     const verify = await runCli(['verify', '--json'], { box, fake });
     assert.deepEqual(json(verify.stdout), { ok: false, records: 5, locations: 1, problems: [{ kind: 'missing', location: '/icloud/P.psss' }] }, 'verify --json shape');

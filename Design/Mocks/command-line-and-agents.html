@@ -383,6 +383,46 @@ out of date. Run psss verify to see what is wrong.</span>
 other users. Run: chmod 600 ~/.config/psss/keys/Personal.key</span>
 sk-example-0000</div>
 <figcaption>When opening the vault found something wrong, <code>get</code>, <code>list</code> and <code>set</code> still work and add one plain warning on standard error; the exit code does not change. A key file other users can read gets its own warning and the fix. Not shown on Windows, which has no such modes.</figcaption></figure>
+
+<figure class="fig kmsh"><div class="lbl">A12 · A change that was kept on this computer only</div>
+<div class="term"><span class="d">$</span> psss set "psss://Example API/token"
+Value (not shown):
+Saved "token" in Example API (Personal).
+<span class="d">warning: 1 change is kept on this computer only;
+~/iCloud/Psss/Personal.psss could not be written
+(permission denied). Run psss sync to deliver it.</span>
+<span class="d">$</span> echo $?
+0
+
+<span class="d">$</span> psss import ~/Downloads/Family.kdbx
+Password for Family.kdbx (not shown):
+Added 95 items to Only Me.
+<span class="d">warning: 95 changes are kept on this computer only;
+~/iCloud/Psss/Personal.psss could not be written
+(permission denied). Run psss sync to deliver them.</span>
+
+<span class="d">$</span> psss status
+Vault     Personal   1 group (Only Me), 137 items
+Key       this computer's key file
+Way back  none yet. Add one with: psss key password set
+Kept in
+  This computer    ~/Psss/Personal.psss             Up to date
+  iCloud Drive     ~/iCloud/Psss/Personal.psss      Behind
+95 changes are kept on this computer only, not in every
+location yet.
+Run psss sync to deliver them.
+
+<span class="d">$</span> psss sync
+This computer: nothing new.
+iCloud Drive: read 0 new records, wrote 95.
+Merged with 2 locations.
+
+<span class="d">$</span> psss set "psss://Example API/token" --json
+{ "delivery": { "undelivered": 1, "locations": [
+  { "label": "iCloud Drive",
+    "path": "~/iCloud/Psss/Personal.psss",
+    "reason": "permission denied" } ] } }</div>
+<figcaption><strong>As built, awaiting the owner’s approval of the words; not approved.</strong> The change is stored here first, so the command succeeded and exits 0. The warning comes after the result, on standard error, and names the location and the reason. <code>status</code> shows the location as Behind with the count below the table, and <code>sync</code> delivers it once the folder can be written again. With <code>--json</code>, <code>set</code>, <code>rm</code>, <code>restore</code> and a real <code>import</code> always carry <code>delivery</code> (<code>undelivered</code> is 0 and <code>locations</code> empty when all is delivered); the JSON shown is the full result trimmed to that field. A dry run never says any of this. The frame reads top to bottom: set, import, status, sync, and the JSON form of an earlier <code>set</code> (shown with the folder still unwritable).</figcaption></figure>
 </div>
 
 <div class="prose">
@@ -401,6 +441,7 @@ sk-example-0000</div>
 <li><strong><span class="mono">set</span> on a title that does not exist fails unless <span class="mono">--create</span> is given; <span class="mono">rm</span> asks nothing.</strong> Only permanent purge asks. <span class="rej">Rejected: <span class="mono">set</span> adding items silently; <span class="mono">rm</span> asking y/N.</span> <span class="why">Why: a typo in a title would add a stray item; <span class="mono">rm</span> moves to Recently Deleted and <span class="mono">restore</span> undoes it.</span></li>
 <li><strong>Reading warns and never refuses.</strong> If opening the vault found a problem (a record that fails its checks, a gap, a location that looks rolled back), <span class="mono">get</span>, <span class="mono">list</span> and <span class="mono">set</span> print one plain warning on standard error and keep their exit code. A key file other users can read gets its own warning. <span class="rej">Rejected: refusing to read; saying nothing.</span> <span class="why">Why: a vault that is only behind must stay readable, and a stale value with no word is the worst outcome. <span class="mono">verify</span> says what is wrong.</span></li>
 <li><strong><span class="mono">status</span> uses the words of the app:</strong> “Kept in”, “Up to date”, “Behind”, “way back”. <span class="why">Why: one meaning each, on every platform.</span></li>
+<li><strong>A write that could not be delivered still exits 0 and says so (A12; built, words awaiting approval).</strong> A warning on standard error after the result, <span class="mono">status</span> shows Behind with a count, <span class="mono">sync</span> delivers, and <span class="mono">--json</span> carries <span class="mono">delivery</span>. <span class="rej">Rejected: exit 1; saying nothing.</span> <span class="why">Why: the change is stored here and a retry would write it twice; a script that must know reads <span class="mono">--json</span> or runs <span class="mono">sync</span>, which exits 1 while a location is unreachable. Silence left a change late with no word.</span></li>
 </ol>
 
 <h3>Open questions for the core command</h3>
@@ -666,6 +707,7 @@ Example API  robin@example.com  api.example.com
 
 <h3>History</h3>
 <ul>
+<li><strong>2026-11-24 (delivery):</strong> Added A12 and decision 13 for the behaviour as built when a write could not be delivered to a location (warning on standard error, exit 0, <code>status</code> Behind with a count, <code>sync</code>, the <code>delivery</code> JSON field), with the words from <code>docs/cli.md</code>, “A write that was not delivered”. Why: a validation run found that such a write said nothing. The words are awaiting the owner’s approval; nothing approved was replaced.</li>
 <li><strong>2026-11-24 (after validation):</strong> An independent run of the first build found that <code>get</code> and <code>set</code> said nothing when <code>verify</code> would fail. Added A11 (the warnings) and its decision, and a missing-record line to A8. Nothing approved was replaced.</li>
 <li><strong>2026-11-24 (after the first build):</strong> Owner decisions from the first implementation: exact title matching with hints (A6 now shows two items titled “Example” and a near miss), one key file per vault under <code>~/.config/psss/keys/</code> (A1, A2, A7), <code>init</code> lists only the ways back that exist (A1 offers a vault password and “Not now” until the recovery kit is built and mocked), <code>set --create</code>, and <code>rm</code> without a question. Replaced: A6’s prefix match, A1’s three choices and its <code>device.key</code> path.</li>
 <li><strong>2026-11-24 (later):</strong> Owner approved part 1 (A1 to A10 and its nine decisions) after a render and consistency check. The check changed A1, A4, A5, A6, A9, A10, decision 6 and decision 7 and made the frames fit narrow windows; nothing approved was replaced.</li>

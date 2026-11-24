@@ -2,6 +2,7 @@ import { jsonOption, hasJson } from './command.ts';
 import type { Command } from './command.ts';
 import { displayPath } from '../io.ts';
 import type { KeySource } from '../service.ts';
+import { jsonName, plural } from './kdbx-report.ts';
 
 const KEY_TEXT: Record<KeySource, string> = {
   keyFile: "this computer's key file",
@@ -23,10 +24,11 @@ const status: Command = {
     if (hasJson(ctx.values)) {
       ctx.json({
         vault: { name: info.name, path: info.path, formatVersion: info.formatVersion },
-        groups: info.groups,
+        groups: info.groups.map(jsonName),
         items: info.itemCount,
         key: { source: info.keySource },
         wayBack: info.wayBack,
+        undelivered: info.undelivered ?? 0,
         locations: info.locations.map((l) => ({ label: l.label, path: l.path, state: l.state })),
       });
       return 0;
@@ -45,7 +47,14 @@ const status: Command = {
     for (const r of rows) {
       text += `  ${r.label.padEnd(labelW)}${r.shown.padEnd(pathW)}${r.state === 'upToDate' ? 'Up to date' : 'Behind'}\n`;
     }
-    const behind = info.locations.filter((l) => l.state === 'behind').length;
+    const undelivered = info.undelivered ?? 0;
+    // a location is behind for its own reasons, or only because it lacks changes made here (those say so below)
+    const behind = info.locations.filter((l) => l.state === 'behind' && (l.pending ?? 0) === 0).length;
+    if (undelivered > 0) {
+      text +=
+        `${plural(undelivered, 'change')} ${undelivered === 1 ? 'is' : 'are'} kept on this computer only, not in every location yet.\n` +
+        `Run psss sync to deliver ${undelivered === 1 ? 'it' : 'them'}.\n`;
+    }
     if (behind > 0) {
       const these = behind === 1 ? 'this location' : 'these locations';
       text +=

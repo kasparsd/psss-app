@@ -4,7 +4,9 @@ import { randomBytes } from 'node:crypto';
 import { basename, dirname, join } from 'node:path';
 import { VaultError } from './errors.ts';
 
-const tmpName = (name: string) => `.tmp-${randomBytes(6).toString('hex')}-${name}`;
+/** `.tmp-<pid>-<random>-<name>`: the writer's process id is in the name, so that a temporary file left by a process that was killed can be told from
+ *  one that is being written (see `DeviceState.sweepOutbox`). Readers ignore every `.tmp-` name. */
+const tmpName = (name: string) => `.tmp-${process.pid}-${randomBytes(6).toString('hex')}-${name}`;
 
 function writeDurably(path: string, data: Uint8Array, mode: number): void {
   const fd = openSync(path, 'wx', mode);

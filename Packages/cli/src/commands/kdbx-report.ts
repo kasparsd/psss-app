@@ -19,6 +19,9 @@ export function printable(text: string, max = NAME_CHARACTERS): string {
   return cut.map((c) => (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/u.test(c) ? `\\u{${c.codePointAt(0)!.toString(16)}}` : c)).join('');
 }
 
+/** A name for a `--json` string: control, direction and zero-width characters written as `\u{202e}`, as in a warning, and no cutting. Not for values. */
+export const jsonName = (text: string): string => printable(text, Infinity);
+
 function list(names: string[]): string {
   const shown = names.slice(0, 3);
   const more = names.length - shown.length;

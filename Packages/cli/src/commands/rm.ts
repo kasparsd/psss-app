@@ -1,4 +1,6 @@
 import { formatReference } from '../reference.ts';
+import { checkDelivery, deliveryJson } from './delivery.ts';
+import { jsonName } from './kdbx-report.ts';
 import { findItem, hasJson, jsonOption, missingReferenceError, resolveReference } from './command.ts';
 import type { Command } from './command.ts';
 import type { ItemSelector } from '../service.ts';
@@ -18,7 +20,7 @@ const rm: Command = {
     const typed = ctx.positionals[0];
     if (typed === undefined && !ctx.interactive) throw missingReferenceError(ctx, 'rm', 'item', true);
     const resolved = typed === undefined ? undefined : resolveReference(ctx, typed, 'item').selector;
-    const vault = await ctx.open();
+    const vault = await ctx.open({ changes: true });
     const svc = await ctx.service();
     let selector: ItemSelector;
     if (resolved === undefined) {
@@ -30,8 +32,9 @@ const rm: Command = {
     }
     const item = await findItem(ctx, svc, 'rm', selector, false);
     ctx.unwrap(await svc.delete({ id: item.id }));
+    const delivery = await checkDelivery(ctx);
     if (hasJson(ctx.values)) {
-      ctx.json({ item: { id: item.id, title: item.title, group: item.group }, deleted: true });
+      ctx.json({ item: { id: item.id, title: jsonName(item.title), group: jsonName(item.group) }, deleted: true, delivery: deliveryJson(delivery) });
       return 0;
     }
     ctx.out(`Moved "${item.title}" to Recently Deleted.\nBring it back with: psss restore ${formatReference({ item: { id: item.id } })}\n`);

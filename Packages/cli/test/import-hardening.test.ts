@@ -60,16 +60,23 @@ test('two imports of one file at once: the vault holds the entries once, and the
 test('another command that needs the vault while an import runs is told so in plain words', (t) => {
   const d = ready(t);
   const state = d.stateDir('Personal');
-  const src = `import('${path.join(import.meta.dirname, '..', '..', 'vault', 'src', 'index.ts')}').then(({ withLock }) => withLock(process.argv[1], () => { console.log('held'); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 9000); }, { what: 'import' }))`;
+  const src = `import('${path.join(import.meta.dirname, '..', '..', 'vault', 'src', 'index.ts')}').then(({ withLock }) => withLock(process.argv[1], () => { console.log('held'); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 40000); }, { what: 'import' }))`;
   return new Promise<void>((resolve, reject) => {
     const holder = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '-e', src, state], { stdio: ['ignore', 'pipe', 'inherit'] });
     t.after(() => holder.kill());
     holder.stdout.once('data', () => {
       try {
-        const r = d.psss(['list']);
-        assert.equal(r.code, 1);
-        assert.equal(r.stderr, 'Another psss is importing into this vault right now. Wait for it to finish and try again. Nothing was changed.\n');
-        assert.ok(!/state_locked|lock/.test(r.stderr), 'no jargon');
+        for (const read of [['list'], ['get', 'psss://Nothing/password']]) {
+          const r = d.psss(read);
+          assert.equal(r.code, 1, read[0]);
+          assert.equal(r.stderr, 'Another psss is importing into this vault right now. Wait for it to finish and try again.\n', `${read[0]}: a read-only command has nothing to say about changes`);
+          assert.ok(!/state_locked|lock/.test(r.stderr), 'no jargon');
+        }
+        for (const write of [['set', '--create', 'psss://New/password'], ['rm', 'psss://Nothing']]) {
+          const r = d.psss(write, { stdin: 'x' });
+          assert.equal(r.code, 1, write[0]);
+          assert.equal(r.stderr, 'Another psss is importing into this vault right now. Wait for it to finish and try again. Nothing was changed.\n', `${write[0]}: a command that would have changed something says nothing was`);
+        }
         resolve();
       } catch (e) { reject(e); }
     });
@@ -133,8 +140,13 @@ test('odd names in a file cannot forge, flood or reorder a line: they are cut an
   assert.match(r.stdout, /2 fields were not imported because they are over a size or number limit of an item\./, 'what the file asked for is counted');
   assert.doesNotMatch(r.stdout, /--strip-invalid/, 'a size limit gets no hint: the flag would not help');
   const json = JSON.parse(d.psss(['import', file, '--json'], { env }).stdout) as { issues: Array<{ item?: string }>; items: Array<{ title: string }> };
-  assert.ok(json.issues.every((i) => i.item === undefined || [...i.item].length <= 60), '--json names are cut too');
-  assert.ok(json.items.every((i) => [...i.title].length <= 60));
+  // names are cut to 60 characters and then written without control, direction or zero-width characters: each such one as \u{..}
+  const shown = (s: string) => [...s.replace(/\\u\{[0-9a-f]+\}/g, '?')].length;
+  assert.ok(json.issues.every((i) => i.item === undefined || shown(i.item) <= 60), '--json names are cut too');
+  assert.ok(json.items.every((i) => shown(i.title) <= 60));
+  const raw = JSON.stringify(json);
+  assert.ok(!/[\u0000-\u001f\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/u.test(raw.replace(/\n\s*/g, '')), '--json carries no control, direction or zero-width character in a name');
+  assert.ok(json.issues.some((i) => i.item?.includes('\\u{202e}') && i.item.includes('\\u{a}')), 'they are written as escapes, as in a warning');
 });
 
 test('the flag hint shows for fields refused for their characters, and only for those', async () => {
