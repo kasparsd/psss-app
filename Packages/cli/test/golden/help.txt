@@ -1,0 +1,60 @@
+psss 0.0.0: use a Psss vault from a terminal, a script or CI.
+
+Usage:
+  psss <command> [options]
+  psss help <command>
+
+Commands:
+  init      Create a vault and this computer's key
+  status    Show the vault, where it is kept and whether it is up to date
+  get       Print one value, bare, so it can fill a variable or a file
+  set       Save one value, read from standard input or typed without echo
+  list      List item names, accounts and field names, never values
+  search    (planned) Find items by text
+  rm        Move an item to Recently Deleted (restore brings it back)
+  restore   Bring an item back from Recently Deleted
+  run       Run a program with secrets in its environment and nowhere else
+  code      (planned) Print a verification code
+  generate  (planned) Make a password with the app's generator
+  sync      Merge with every place the vault is kept
+  verify    Check every record and report; exit 2 if anything is wrong
+  doctor    (planned) Check permissions, the clock, the key and the locations
+  history   (planned) Show an item's previous values, with dates
+  import    (planned) Bring in a KeePass file, then 1Password and CSV
+  export    (planned) Write a copy as a KeePass file
+  item      (planned) Add, edit, show and purge items
+  file      (planned) Get and put attachments
+  vault     (planned) Back up and restore a vault
+  group     (planned) Create, list and show groups
+  member    (planned) Invite, accept, list and remove members
+  device    (planned) List, approve and remove devices
+  location  (planned) Add, list and remove places the vault is kept
+  key       (planned) Recovery kit, vault password and key recovery
+
+Options for every command:
+      --vault <folder-or-name>      The vault to use: its folder or its name. For init, the folder to create it in
+                                    [PSSS_VAULT, config key: vault]
+      --group <name>                Look in one group, and create new items there
+                                    [PSSS_GROUP, config key: group]
+      --key-file <file>             This computer's key file. Never in a committed .psss.json
+                                    [PSSS_KEY_FILE, config key: keyFile, user config only]
+      --verbose                     Say on standard error which settings were used and where they came from
+                                    [PSSS_VERBOSE, config key: verbose]
+  -y, --yes                         Answer yes to questions. Never settable by a config file
+                                    [PSSS_YES]
+  -h, --help                        Show help for psss or for one command
+      --version                     Show the version
+
+Precedence: flags, environment, .psss.json in the working folder, user config, defaults.
+--json is an option of each command that produces a result, never a global one.
+
+Secrets are never arguments or config keys:
+  PSSS_KEY                          A key given inline, for CI that can only set variables (the weakest source)
+  PSSS_PASSWORD_FILE                A file that holds the vault password
+
+Exit codes:
+  0  done
+  1  failed
+  2  wrong use, or a failed verify
+  3  no such item, an ambiguous name, or not allowed
+  4  locked, not open, or no key

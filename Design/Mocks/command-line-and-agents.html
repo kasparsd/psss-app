@@ -242,28 +242,26 @@ Created the vault "Personal".
 
   Where   ~/Psss/Personal.psss
           A folder of encrypted files. Nothing is uploaded.
-  Key     ~/.config/psss/device.key
+  Key     ~/.config/psss/keys/Personal.key
           This computer's key. Without it nobody can open the
           vault, not even Psss.
 
 How do you want a way back if that file is lost?
-  1  A printed recovery kit
-  2  A vault password
-  3  Not now
-Choose 1, 2 or 3: 3
+  1  A vault password
+  2  Not now
+Choose 1 or 2: 2
 
-Done. Add a way back later with: psss key kit
-or: psss key password set
-Next: psss set "psss://Example API/token"</div>
+Done. Add a way back later with: psss key password set
+Next: psss set --create "psss://Example API/token"</div>
 <figcaption>Says what was made, where it lives, who holds the key and what loses the vault, before the person can do anything else. “Not now” is a real answer.</figcaption></figure>
 
 <figure class="fig kmsh"><div class="lbl">A2 · Creating a vault in a script</div>
 <div class="term"><span class="d">$</span> psss init Team --vault ./vault &lt; /dev/null
 Created the vault "Team" in ./vault/Team.psss
-Key file: ./.psss/device.key (readable by you only)
+Key file: ~/.config/psss/keys/Team.key (readable by you only)
 <span class="d">warning: that key file is the only way into the vault.
-Run psss key kit or psss key password set, or pass
---no-recovery to stop this warning.</span>
+Run psss key password set, or pass --no-recovery
+to stop this warning.</span>
 <span class="d">$</span> echo $?
 0</div>
 <figcaption>No terminal, so nothing is asked. The warning is on standard error and the exit code is 0, so a script can create a vault, and the risk is still written where a log will keep it.</figcaption></figure>
@@ -272,7 +270,7 @@ Run psss key kit or psss key password set, or pass
 <div class="term"><span class="d">$</span> psss status
 Vault     Personal   1 group (Only Me), 42 items
 Key       this computer's key file
-Way back  none yet. Add one with: psss key kit
+Way back  none yet. Add one with: psss key password set
 Kept in
   This computer    ~/Psss/Personal.psss             Up to date
   iCloud Drive     ~/iCloud/Psss/Personal.psss      Behind
@@ -304,13 +302,14 @@ Done.</div>
 <figure class="fig kmsh"><div class="lbl">A6 · A name that matches two items, or none</div>
 <div class="term"><span class="d">$</span> psss get psss://Example/password
 "Example" matches 2 items in Personal. Use one of these:
-  psss://id:7f3a9c21/password   Example Bank   robin@example.com
-  psss://id:b01d5e44/password   Example Shop   robin@example.com
+  psss://id:7f3a9c21/password   Example   robin@example.com
+  psss://id:b01d5e44/password   Example   sam@example.com
 <span class="d">$</span> echo $?
 3
 
-<span class="d">$</span> psss get psss://Nothing/password
-There is no item called "Nothing" in Personal.
+<span class="d">$</span> psss get psss://Exampel/password
+There is no item called "Exampel" in Personal.
+Did you mean: Example, Example API?
 See what is there with: psss list
 <span class="d">$</span> echo $?
 3</div>
@@ -319,7 +318,7 @@ See what is there with: psss list
 <figure class="fig kmsh"><div class="lbl">A7 · The key is not there</div>
 <div class="term"><span class="d">$</span> psss get "psss://Example API/token"
 Cannot open the vault "Personal".
-This computer's key file is missing: ~/.config/psss/device.key
+This computer's key file is missing: ~/.config/psss/keys/Personal.key
 Point PSSS_KEY_FILE at your key file, or use the vault
 password with PSSS_PASSWORD_FILE.
 <span class="d">$</span> echo $?
@@ -340,6 +339,9 @@ Checked 1,204 records in 2 locations.
 it was written. It is ignored.
 That location is missing records this computer saw before.
 It may have been rolled back.
+A record is missing from the middle of a device's history
+in ~/iCloud/Psss/Personal.psss. The ones after it wait
+for it.
 <span class="d">$</span> echo $?
 2</div>
 <figcaption>Says what was found in plain words and never repairs anything, since a repair would be a write. Exit 2 is also what the other tools use for a failed check.</figcaption></figure>
@@ -367,6 +369,20 @@ so Psss cannot offer a list to choose from.
 2</div>
 <figcaption>With no terminal or with CI set, a missing reference is a usage error and exit 2. It never opens a menu and never reads standard input to choose.</figcaption></figure>
 
+
+<figure class="fig kmsh"><div class="lbl">A11 · Something is wrong, and the command says so</div>
+<div class="term"><span class="d">$</span> psss get "psss://Example API/token"
+sk-example-0000
+<span class="d">warning: "Personal" has a problem, so the value above may be
+out of date. Run psss verify to see what is wrong.</span>
+<span class="d">$</span> echo $?
+0
+
+<span class="d">$</span> psss get "psss://Example API/token"
+<span class="d">warning: ~/.config/psss/keys/Personal.key can be read by
+other users. Run: chmod 600 ~/.config/psss/keys/Personal.key</span>
+sk-example-0000</div>
+<figcaption>When opening the vault found something wrong, <code>get</code>, <code>list</code> and <code>set</code> still work and add one plain warning on standard error; the exit code does not change. A key file other users can read gets its own warning and the fix. Not shown on Windows, which has no such modes.</figcaption></figure>
 </div>
 
 <div class="prose">
@@ -376,10 +392,14 @@ so Psss cannot offer a list to choose from.
 <li><strong><span class="mono">init</span> offers a way back and never forces one.</strong> In a terminal it asks; in a script it warns on standard error and exits 0. <span class="rej">Rejected: refusing to finish without a recovery kit or password; making a kit silently.</span> <span class="why">Why: a script must be able to create a vault, and a kit nobody asked for is a secret nobody knows about.</span></li>
 <li><strong>A value is never an argument.</strong> <span class="mono">set</span> reads standard input or asks without echo. <span class="rej">Rejected: a <span class="mono">--value</span> flag.</span> <span class="why">Why: arguments show in process lists and shell history.</span></li>
 <li><strong><span class="mono">get</span> prints the bare value.</strong> <span class="rej">Rejected: a label, a colour or JSON by default.</span> <span class="why">Why: so a variable or a file gets exactly the value. Structure is <span class="mono">--json</span>.</span></li>
-<li><strong>A name that matches two items lists them by id and exits 3.</strong> <span class="rej">Rejected: taking the first, or the most recent.</span> <span class="why">Why: the wrong secret in the wrong place is worse than one more command.</span></li>
+<li><strong>A title matches only exactly, ignoring case. Two items with one title are listed by id and exit 3; a near miss exits 3 with hints that are never used.</strong> <span class="rej">Rejected: prefix matching; taking the first or the most recent.</span> <span class="why">Why: if the item a script meant is deleted, a prefix match quietly returns another item’s secret. The wrong secret in the wrong place is worse than one more command. Scripts that must not break on a rename use the id form.</span></li>
 <li><strong>One table of exit codes, the same in both modes.</strong> 0 done, 1 failed, 2 wrong use or a failed check, 3 no such item, an ambiguous name or not allowed, 4 locked, not open or no key. <span class="why">Why: the agent frames below already use 3 and 4 this way, and a script should not learn two tables.</span></li>
 <li><strong>Every error says what is wrong and what to do; an error about a vault names the vault and the file.</strong> <span class="rej">Rejected: “Permission denied”, “Invalid key”.</span> <span class="why">Why: the person has not read this repository.</span></li>
 <li><strong><span class="mono">verify</span> reports and never repairs.</strong> <span class="why">Why: a repair would be a write made by a tool that has just found something wrong.</span></li>
+<li><strong>The key file is one file per vault in the user’s config folder and never inside the vault folder.</strong> <span class="mono">init</span> refuses a key file inside the vault. <span class="rej">Rejected: one <span class="mono">device.key</span> for every vault; a key next to the vault.</span> <span class="why">Why: the format uses a device key for one slot only, and a key beside the vault would travel with it through iCloud Drive or Dropbox.</span></li>
+<li><strong><span class="mono">init</span> offers only ways back that exist.</strong> The recovery kit joins the list when <span class="mono">key kit</span> is built and mocked. <span class="rej">Rejected: listing options that end in “not built yet”.</span> <span class="why">Why: a promise that depends on an unbuilt feature reads as a failure.</span></li>
+<li><strong><span class="mono">set</span> on a title that does not exist fails unless <span class="mono">--create</span> is given; <span class="mono">rm</span> asks nothing.</strong> Only permanent purge asks. <span class="rej">Rejected: <span class="mono">set</span> adding items silently; <span class="mono">rm</span> asking y/N.</span> <span class="why">Why: a typo in a title would add a stray item; <span class="mono">rm</span> moves to Recently Deleted and <span class="mono">restore</span> undoes it.</span></li>
+<li><strong>Reading warns and never refuses.</strong> If opening the vault found a problem (a record that fails its checks, a gap, a location that looks rolled back), <span class="mono">get</span>, <span class="mono">list</span> and <span class="mono">set</span> print one plain warning on standard error and keep their exit code. A key file other users can read gets its own warning. <span class="rej">Rejected: refusing to read; saying nothing.</span> <span class="why">Why: a vault that is only behind must stay readable, and a stale value with no word is the worst outcome. <span class="mono">verify</span> says what is wrong.</span></li>
 <li><strong><span class="mono">status</span> uses the words of the app:</strong> “Kept in”, “Up to date”, “Behind”, “way back”. <span class="why">Why: one meaning each, on every platform.</span></li>
 </ol>
 
@@ -646,6 +666,8 @@ Example API  robin@example.com  api.example.com
 
 <h3>History</h3>
 <ul>
+<li><strong>2026-11-24 (after validation):</strong> An independent run of the first build found that <code>get</code> and <code>set</code> said nothing when <code>verify</code> would fail. Added A11 (the warnings) and its decision, and a missing-record line to A8. Nothing approved was replaced.</li>
+<li><strong>2026-11-24 (after the first build):</strong> Owner decisions from the first implementation: exact title matching with hints (A6 now shows two items titled “Example” and a near miss), one key file per vault under <code>~/.config/psss/keys/</code> (A1, A2, A7), <code>init</code> lists only the ways back that exist (A1 offers a vault password and “Not now” until the recovery kit is built and mocked), <code>set --create</code>, and <code>rm</code> without a question. Replaced: A6’s prefix match, A1’s three choices and its <code>device.key</code> path.</li>
 <li><strong>2026-11-24 (later):</strong> Owner approved part 1 (A1 to A10 and its nine decisions) after a render and consistency check. The check changed A1, A4, A5, A6, A9, A10, decision 6 and decision 7 and made the frames fit narrow windows; nothing approved was replaced.</li>
 <li><strong>2026-11-24:</strong> Added part 1, the core command in a terminal (A1 to A10), its decisions and open questions, after the owner re-scoped the command line to put general vault operations first. Retitled the page from “Command line and AI agents”. Nothing in part 2 was replaced; its exit codes 3 and 4 now also define the core table, where they were the only ones drawn.</li>
 <li><strong>2026-11-23:</strong> Part 2 first proposed: the approval sheets, what happens when it cannot go ahead, the Setup section, and what the terminal shows.</li>

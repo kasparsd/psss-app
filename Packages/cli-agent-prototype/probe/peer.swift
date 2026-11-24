@@ -4,7 +4,7 @@
 // This probe listens on a socket, and for one connection prints what the kernel and the code-signing system report:
 // the peer's process, its signature, and every ancestor up to launchd, each with its own signature.
 //
-//   scripts/heavy.sh swiftc -O Packages/cli/probe/peer.swift -o build/cli/peer
+//   scripts/heavy.sh swiftc -O Packages/cli-agent-prototype/probe/peer.swift -o build/cli/peer
 //   build/cli/peer serve build/cli/probe.sock &      (prints one report, then exits)
 //   build/cli/peer connect build/cli/probe.sock
 //

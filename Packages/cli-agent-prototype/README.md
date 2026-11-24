@@ -10,6 +10,6 @@ Node 24, TypeScript run directly by Node, no dependencies, no build step.
 - `test/` runs the real command as a child process and checks everything it printed. Tests named KNOWN LIMIT or KNOWN GAP assert that a weakness exists, so the document cannot quietly claim otherwise.
 - `probe/peer.swift` asks macOS who is on the other end of a local socket. Compile with `scripts/heavy.sh swiftc`.
 
-Run the tests from the repository root with `scripts/test-cli.sh`.
+Run the tests from the repository root with `scripts/test-cli-agent.sh`.
 
 Not covered: who is really asking (the stand-in trusts the name a caller gives, and answers anything that speaks the protocol), Touch ID, the sandbox, the real site-matching rule, a real vault. Whoever starts the Node command also controls its environment (`NODE_OPTIONS`), which a signed Swift command with the hardened runtime does not allow.

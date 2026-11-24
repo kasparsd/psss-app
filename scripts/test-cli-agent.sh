@@ -1,5 +1,5 @@
 #!/bin/sh
-# Runs the tests of the command-line prototype (Packages/cli): what a caller of the psss command can and cannot see.
+# Runs the tests of the command-line prototype (Packages/cli-agent-prototype): what a caller of the psss command can and cannot see.
 # Needs Node 24; compiles nothing, installs nothing, and touches only a temporary folder and local sockets.
 set -e
 cd "$(dirname "$0")/.."
@@ -13,9 +13,9 @@ else
   done
 fi
 if [ -z "$NODE" ]; then
-  echo "test-cli: Node 24 not found. Install it (see .nvmrc, for example 'nvm install 24') and run again." >&2
+  echo "test-cli-agent: Node 24 not found. Install it (see .nvmrc, for example 'nvm install 24') and run again." >&2
   exit 1
 fi
 
-cd Packages/cli
+cd Packages/cli-agent-prototype
 exec "$NODE" --disable-warning=ExperimentalWarning --test test/*.test.ts

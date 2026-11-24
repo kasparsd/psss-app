@@ -1,0 +1,16 @@
+{
+  "name": "@psss/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The psss command line: create, read, write and use a vault from a terminal, a script or CI (docs/cli.md, part 1).",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "psss": "src/bin/psss.ts"
+  },
+  "scripts": {
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts"
+  }
+}

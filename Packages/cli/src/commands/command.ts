@@ -1,0 +1,182 @@
+// What every command module has, and the helpers they share.
+
+import { CliError, EXIT_FAILED, EXIT_LOCKED, EXIT_NOT_FOUND, EXIT_USAGE, ValidationError } from '../errors.ts';
+import { displayPath } from '../io.ts';
+import type { CliIo } from '../io.ts';
+import type { ParsedValues, Settings } from '../config.ts';
+import { formatReference, parseReference, shellQuote, toSelector } from '../reference.ts';
+import type { Reference, ReferenceKind } from '../reference.ts';
+import type { Failure, ItemSelector, ItemSummary, Result, VaultService } from '../service.ts';
+
+export interface OptionSpec {
+  type: 'string' | 'boolean';
+  short?: string;
+  multiple?: boolean;
+  valueName?: string;
+  description: string;
+}
+
+export interface CommandContext {
+  io: CliIo;
+  values: ParsedValues;
+  /** Arguments after the command name, without options. */
+  positionals: string[];
+  /** Everything after `--`. Only commands with `passthrough` get any. */
+  rest: string[];
+  settings: Settings;
+  /** A person is at a terminal and CI is not set: questions and menus are allowed. */
+  interactive: boolean;
+  /** Writes to standard output: results and values. */
+  out(text: string): void;
+  /** Writes to standard error: errors, warnings, progress. */
+  err(text: string): void;
+  /** Prints a result as JSON on standard output. */
+  json(value: unknown): void;
+  /** The vault service for this run, made on first use. */
+  service(): Promise<VaultService>;
+  /** The value of a result, or a CliError with the right words and exit code. */
+  unwrap<T>(result: Result<T>, options?: { field?: string; deleted?: boolean }): T;
+  /** Opens the vault and returns its name. */
+  open(): Promise<{ name: string; path: string }>;
+}
+
+export interface Command {
+  name: string;
+  summary: string;
+  /** The usage line without `psss `, such as `get <reference>`. */
+  usage: string;
+  /** Options of this command, besides the global ones. */
+  options: Record<string, OptionSpec>;
+  /** How many positional arguments it takes. */
+  args: { min: number; max: number };
+  /** True when everything after `--` belongs to a program the command starts. */
+  passthrough?: boolean;
+  /** Named in the help but not built yet. */
+  planned?: boolean;
+  /** Extra lines for `psss <command> --help`. */
+  details?: string[];
+  run(context: CommandContext): Promise<number>;
+}
+
+export const jsonOption: Record<string, OptionSpec> = {
+  json: { type: 'boolean', description: 'Print the result as JSON on standard output' },
+};
+
+export function hasJson(values: ParsedValues): boolean {
+  return values.json === true;
+}
+
+/** The text of a failed result and its exit code. */
+export function failureError(io: CliIo, failure: Failure, options: { field?: string; deleted?: boolean } = {}): CliError {
+  switch (failure.kind) {
+    case 'notFound': {
+      const where = options.deleted ? `in Recently Deleted in ${failure.vault}` : `in ${failure.vault}`;
+      const see = options.deleted ? 'psss list --deleted' : 'psss list';
+      if (failure.what === 'group') {
+        return new CliError(`There is no group called "${failure.name}" in ${failure.vault}.`, EXIT_NOT_FOUND);
+      }
+      if (failure.what === 'field') {
+        const fields = failure.fields ?? [];
+        const has = fields.length > 0 ? `It has: ${fields.join(', ')}.` : 'It has no fields of that kind.';
+        return new CliError(`"${failure.item ?? 'That item'}" has no field called "${failure.name}".\n${has}`, EXIT_NOT_FOUND);
+      }
+      const what = failure.by === 'id' ? `item with the id "${failure.name}"` : `item called "${failure.name}"`;
+      const did = failure.hints && failure.hints.length > 0 ? `\nDid you mean: ${failure.hints.join(', ')}?` : '';
+      return new CliError(`There is no ${what} ${where}.${did}\nSee what is there with: ${see}`, EXIT_NOT_FOUND);
+    }
+    case 'ambiguous': {
+      const rows = failure.candidates.map((c) => ({
+        ref: formatReference({ item: { id: c.id }, ...(options.field !== undefined ? { field: options.field } : {}) }),
+        title: c.title,
+        username: c.username ?? '',
+      }));
+      const refW = Math.max(...rows.map((r) => r.ref.length)) + 3;
+      const titleW = Math.max(...rows.map((r) => r.title.length)) + 3;
+      const lines = rows.map((r) => `  ${r.ref.padEnd(refW)}${r.title.padEnd(titleW)}${r.username}`.trimEnd());
+      return new CliError(
+        `"${failure.name}" matches ${failure.candidates.length} items in ${failure.vault}. Use one of these:\n${lines.join('\n')}`,
+        EXIT_NOT_FOUND,
+      );
+    }
+    case 'locked': {
+      const tail = 'Point PSSS_KEY_FILE at your key file, or use the vault\npassword with PSSS_PASSWORD_FILE.';
+      const r = failure.reason;
+      const head = `Cannot open the vault "${failure.vault}".`;
+      switch (r.why) {
+        case 'keyFileMissing':
+          return new CliError(`${head}\nThis computer's key file is missing: ${displayPath(io, r.keyFile)}\n${tail}`, EXIT_LOCKED);
+        case 'keyFileUnreadable':
+          return new CliError(`${head}\nThis computer's key file cannot be read: ${displayPath(io, r.keyFile)}\n${tail}`, EXIT_LOCKED);
+        case 'noKey':
+          return new CliError(`${head}\nNo key was found on this computer.\n${tail}`, EXIT_LOCKED);
+        case 'locked':
+          return new CliError(`${head}\nIt needs its vault password.\nPut it in a file and point PSSS_PASSWORD_FILE at it.`, EXIT_LOCKED);
+        case 'noVault': {
+          const at = r.path === undefined ? '' : ` at ${displayPath(io, r.path)}`;
+          return new CliError(
+            `There is no vault${at}.\nCreate one with: psss init <name>\nor point PSSS_VAULT at a vault folder.`,
+            EXIT_LOCKED,
+          );
+        }
+      }
+      break;
+    }
+    case 'wrongKey': {
+      const which = failure.keyFile === undefined ? 'The key you gave' : `The key in ${displayPath(io, failure.keyFile)}`;
+      return new CliError(
+        `Cannot open the vault "${failure.vault}".\n${which} does not open it.\nCheck that it is the key for this vault.`,
+        EXIT_LOCKED,
+      );
+    }
+    case 'failed':
+      return new CliError(failure.message, EXIT_FAILED);
+  }
+  return new CliError('Something went wrong.', EXIT_FAILED);
+}
+
+/** The usage error for a missing reference (frame A10). A terminal can be offered a list only where `canOffer` is true. */
+export function missingReferenceError(ctx: CommandContext, command: string, kind: ReferenceKind, canOffer: boolean): ValidationError {
+  const example = kind === 'field' ? '"psss://Example API/token"' : '"psss://Example API"';
+  const head = `psss ${command} needs a reference, such as\n${example}.`;
+  if (canOffer && !ctx.interactive) {
+    const why = ctx.io.isTTY.stdin && ctx.io.isTTY.stdout ? 'CI is set' : 'No terminal is attached';
+    return new ValidationError(`${head} ${why},\nso Psss cannot offer a list to choose from.`);
+  }
+  return new ValidationError(head);
+}
+
+/** Parses a reference argument and applies `--group`. A reference that names another group than `--group` is a contradiction. */
+export function resolveReference(ctx: CommandContext, text: string, kind: ReferenceKind): { ref: Reference; selector: ItemSelector } {
+  let ref: Reference;
+  try {
+    ref = parseReference(text, kind);
+  } catch (e) {
+    if (e instanceof ValidationError && !text.startsWith('psss://')) {
+      throw new ValidationError(`${e.message}\nA reference with spaces needs quotes in a shell, as in ${kind === 'field' ? '"psss://Example API/token"' : '"psss://Example API"'}.`);
+    }
+    throw e;
+  }
+  const group = ctx.settings.group;
+  if (ref.group !== undefined && group !== undefined && ref.group.toLowerCase() !== group.toLowerCase()) {
+    throw new ValidationError(`The reference names the group "${ref.group}" but --group (or PSSS_GROUP) says "${group}". Use one of them.`);
+  }
+  return { ref, selector: toSelector(ref) };
+}
+
+/**
+ * Finds the one item an item-level command (rm, restore) names. A reference such as `psss://Example API/token` reads as group and
+ * item; when that group does not exist but the first part is an item, the person gave a field, and the answer says so (exit 2).
+ */
+export async function findItem(ctx: CommandContext, svc: VaultService, command: string, selector: ItemSelector, deleted: boolean): Promise<ItemSummary> {
+  const found = await svc.find(selector, { deleted });
+  if (!found.ok && found.kind === 'notFound' && found.what === 'group' && 'title' in selector && selector.group !== undefined) {
+    for (const scope of [deleted, !deleted]) {
+      const first = await svc.find({ title: selector.group }, { deleted: scope });
+      if (first.ok) {
+        const use = formatReference({ item: { title: first.value.title } });
+        throw new ValidationError(`${command} takes an item, not a field. Use: psss ${command} ${shellQuote(use)}`);
+      }
+    }
+  }
+  return ctx.unwrap(found, deleted ? { deleted: true } : {});
+}

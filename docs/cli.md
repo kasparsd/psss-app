@@ -1,6 +1,6 @@
 # Command line
 
-**Status: re-scoped 2026-11-24. Nothing is built beyond the prototype.** Part 1, the core command line, is the priority. The owner decided on 2026-11-24 on direct and brokered modes, the parser, recovery at `init` and one `psss` executable, and approved the terminal output drawn in the mock (frames A1 to A10); the other rows of the decisions table are recommendations. Part 2 is not approved. Part 2, agent access, is the proposal of 2026-11-23 with its prototype in `Packages/cli` and its screens in `Design/Mocks/command-line-and-agents.html`; it now extends part 1 instead of standing alone. The decisions waiting for the owner are [at the end](#decisions-for-the-owner). Nothing here changes the app until they are made. The working plan is `docs/plans/command-line-and-agents.md`.
+**Status: re-scoped 2026-11-24. Milestone 1 of part 1 is built and independently validated (2026-11-24): `Packages/vault` and `Packages/cli` give a working headless `psss` with `init`, `status`, `get`, `set`, `list`, `rm`, `restore`, `run`, `sync` and `verify` on a folder vault. Everything else in part 1, and all of part 2, is not built.** Part 1, the core command line, is the priority. The owner decided on 2026-11-24 on direct and brokered modes, the parser, recovery at `init` and one `psss` executable, and approved the terminal output drawn in the mock (frames A1 to A10); the other rows of the decisions table are recommendations. Part 2 is not approved. Part 2, agent access, is the proposal of 2026-11-23 with its prototype in `Packages/cli-agent-prototype` and its screens in `Design/Mocks/command-line-and-agents.html`; it now extends part 1 instead of standing alone. The decisions waiting for the owner are [at the end](#decisions-for-the-owner). Nothing here changes the app until they are made. The working plan is `docs/plans/command-line-and-agents.md`.
 
 ## What was asked
 
@@ -76,17 +76,17 @@ The command is a device of the vault, with its own X-Wing key pair, let in throu
 
 | Source | Slot | Notes |
 | --- | --- | --- |
-| Key file | Another device (type 3) | The default. Created by `init` with mode `0600` in the user config directory. `PSSS_KEY_FILE` points CI at one |
+| Key file | Another device (type 3) | The default. Created by `init` with mode `0600`, one file per vault: `~/.config/psss/keys/<vault name>.key` on macOS and Linux (`XDG_CONFIG_HOME` honoured), `%APPDATA%\psss\keys` on Windows. Never inside the vault folder, and `init` refuses it there, because a key beside the vault would travel with it through iCloud Drive or Dropbox. `--key-file` or `PSSS_KEY_FILE` points a script or CI at one |
 | Key in the environment | Another device (type 3) | `PSSS_KEY`, for CI that can only inject environment variables. The weakest source; the docs say file first, as tug says for its credential |
 | Operating system keyring | Another device (type 3) | Keychain, libsecret, Credential Manager. Not decided: needs a spike to reach them with no native code and without the secret appearing in a process's arguments |
 | Vault password | Password (type 1) | Argon2id at 128 MiB, asked without echo or read from `PSSS_PASSWORD_FILE`. Never an argument |
 | Recovery kit | Recovery kit (type 2) | `key recover` only |
 
-`init` follows the app's rule: when the device key is the only way back, it says so in plain words and offers a recovery kit or a password before finishing, and `--no-recovery` is the explicit opt-out. Whether it should refuse without a choice is an owner decision below.
+`init` follows the app's rule: when the device key is the only way back, it says so in plain words and offers the ways back that exist before finishing, and `--no-recovery` is the explicit opt-out. Until `key kit` is built (and its output mocked) the choices are a vault password or “Not now”; the recovery kit joins the list when it works, because a choice that ends in “not built yet” reads as a failure. It does not refuse to finish without a choice, since a script must be able to create a vault (decided 2026-11-24).
 
 ### Device state
 
-The command remembers, outside the vault, what the format requires of a device: its device id and sequence numbers, the last chain heads it accepted from each location (the rollback check, spec 4.4), and every sealed record it wrote, stored before anything is uploaded (the never-seal-twice rule). On macOS this is `~/Library/Application Support/psss`, on Linux `$XDG_STATE_HOME/psss`, on Windows `%APPDATA%\psss`. Losing it does not lose the vault but makes the device a new one, so it is part of what `vault backup` mentions.
+The command remembers, outside the vault, what the format requires of a device: its device id and sequence numbers, the last chain heads it accepted from each location (the rollback check, spec 4.4), and every sealed record it wrote, stored before anything is uploaded (the never-seal-twice rule). On macOS and Linux this is `~/.local/state/psss` (`XDG_STATE_HOME` honoured), on Windows `%LOCALAPPDATA%\psss`. Losing it does not lose the vault but makes the device a new one, so it is part of what `vault backup` mentions.
 
 ### What direct mode does not protect against
 
@@ -107,7 +107,7 @@ Three packages, each with a README, `docs/` and a changelog, in the shape of `wp
 | `@psss/vault` | Opening a vault, unlocking, device state, the read model and references, writes, import and export, backup. No prompts, no output | New, phase 1 |
 | `@psss/cli` | The commands over `@psss/vault`; exports `run(argv, io)`; bin `psss` | New, phase 1 |
 
-Node does not strip types from files inside `node_modules`, so a published package has to be compiled even though the repository runs TypeScript directly. Names are not registered until the brand and domain decision in the [roadmap](roadmap.md#open-decisions). The prototype in `Packages/cli` stays as the reference for part 2 and is renamed when `@psss/cli` takes its place.
+Node does not strip types from files inside `node_modules`, so a published package has to be compiled even though the repository runs TypeScript directly. Names are not registered until the brand and domain decision in the [roadmap](roadmap.md#open-decisions). The prototype in `Packages/cli-agent-prototype` stays as the reference for part 2; it was renamed on 2026-11-24 to leave the name `Packages/cli` to `@psss/cli`.
 
 ### What 1.0 freezes
 
@@ -185,7 +185,7 @@ Rules that hold for all of them:
 
 ### What it protects against, and what it does not
 
-Stated plainly, because “without exposing the secrets” is easy to over-promise. The lines about the software are checked by tests in `Packages/cli/test/agent.test.ts`; the last two are about people and other programs and are not.
+Stated plainly, because “without exposing the secrets” is easy to over-promise. The lines about the software are checked by tests in `Packages/cli-agent-prototype/test/agent.test.ts`; the last two are about people and other programs and are not.
 
 | Threat | Result | How |
 | --- | --- | --- |
@@ -209,7 +209,7 @@ The sheet says “Claude wants to…”. That name has to come from the system a
 - **The app that started it is found by walking up the process chain** to the first one that is an application (Terminal, Claude, an editor). That is a label for the person, not proof: a parent process can exit and its number be reused.
 - **When no application is found** (a remote login, a background job), the sheet says so and offers no “until Psss locks”.
 
-The prototype cannot check any of this, because Node cannot read who is on the other end of a socket: it takes the caller's word. A Swift probe (`Packages/cli/probe/peer.swift`) shows what macOS reports; its result is under [measured](#what-the-prototype-measured).
+The prototype cannot check any of this, because Node cannot read who is on the other end of a socket: it takes the caller's word. A Swift probe (`Packages/cli-agent-prototype/probe/peer.swift`) shows what macOS reports; its result is under [measured](#what-the-prototype-measured).
 
 ### How it fits
 
@@ -243,19 +243,19 @@ What only a signed build can settle, to add to spike S5:
 
 ### The prototype
 
-`Packages/cli` (Node 24, no dependencies, fictional data):
+`Packages/cli-agent-prototype` (Node 24, no dependencies, fictional data):
 
 - `src/broker.ts` stands in for the app: it holds the fictional vault, decides what leaves and asks an “approver” function where the app would show a sheet.
 - `src/cli.ts` is the `psss` command: `run`, `fetch`, `code`, `save`, `list`, `show`, `status`.
 - `src/mask.ts` hides a secret in a stream of output. `src/protocol.ts` is the messages and the `psss://` reference.
 - `test/agent.test.ts` runs the real command as a child process and checks everything it printed, which is what an assistant would see.
 - `probe/peer.swift` asks macOS who is on the other end of a socket.
-- `scripts/test-cli.sh` runs the tests.
+- `scripts/test-cli-agent.sh` runs the tests.
 
 To try it by hand, in one terminal start the stand-in, which asks its questions as lines of text:
 
 ```sh
-cd Packages/cli && node scripts/app.ts
+cd Packages/cli-agent-prototype && node scripts/app.ts
 ```
 
 and in a second terminal, after the `export PSSS_SOCKET=…` line the first one prints:
@@ -332,6 +332,8 @@ Part 1 (2026-11-24):
 | `get` prints to a pipe | Yes in direct mode, bare, so it can fill a file or a variable. Brokered mode keeps part 2's rule that `show` is refused outside a terminal. |
 | Headless unlock sources | Key file by default, key in the environment for CI that cannot do better, keyring after a spike, vault password and recovery kit as slots. |
 | `init` and recovery | **Decided 2026-11-24.** `init` says plainly that the device key is the only way back and offers a recovery kit or a password before it finishes; `--no-recovery` is the opt-out. Recommended: do not refuse without a choice, since a script must be able to create a vault. |
+| Naming of items (decided 2026-11-24) | A title matches only exactly, ignoring case, in every command. Two items with one title are listed by id and exit 3; a near miss exits 3 with `Did you mean` hints that are text only. Scripts that must survive a rename use `psss://id:<id>/field`. Prefix matching was rejected: when the item a script meant is deleted, it would quietly return another item's secret. |
+| `set` and `rm` (decided 2026-11-24) | `set` on a title that does not exist fails with exit 3 unless `--create` is given, so a typo cannot add a stray item. `rm` moves to Recently Deleted and asks nothing, since `restore` undoes it; only permanent purge asks. |
 | Packages | `@psss/format`, `@psss/vault`, `@psss/cli`, each a library and, for the CLI, a binary; compiled `dist/` for publishing and a source condition for development. Names are registered after the brand and domain decision. |
 | Release | Changesets, the 1.0 freeze list above, publication by CI with provenance and signed release files. A standalone binary is evaluated later. |
 | One `psss` or two | **Decided 2026-11-24: one `psss`, final call in phase 4.** The cross-platform command is on the path and hands brokered verbs to the signed helper in the app. Decide in phase 4 after S5. |
@@ -356,15 +358,16 @@ Part 2 (2026-11-23, unchanged except the first row):
 Core command line (part 1):
 
 - [ ] Owner decisions above; core terminal output mocked and approved.
-- [ ] Headless key custody spike, result in [vault format](format.md#keys).
-- [ ] `@psss/vault` and `@psss/cli`, phase 1 commands, docs, docs test, `scripts/test-vault.sh`.
+- [x] Headless key custody, v1 (2026-11-24): a key file per vault, a key in the environment, a vault password; the OS keyring is deferred. Result still to be written into [vault format](format.md#keys).
+- [x] Milestone 1 (2026-11-24): `@psss/vault` and `@psss/cli` with the ten commands above, `scripts/test-vault.sh` and `scripts/test-cli.sh`, validated twice by an independent agent.
+- [ ] The rest of phase 1: `search`, `history`, `code`, `generate`, `item`, `file`, `location`, `import`, `export`, `vault backup` and `restore`, `doctor`, the lock and `key` commands beyond the first password, docs, the docs test.
 - [ ] Interop with the Swift core, and the three-device rounds with the command as a device.
 - [ ] Phase 2 (sharing and devices) and phase 3 (automation).
 - [ ] Changesets, signed releases, publication by CI.
 
 Agent access (part 2):
 
-- [x] Prototype of the command, the stand-in and the tests (`Packages/cli`, 2026-11-23).
+- [x] Prototype of the command, the stand-in and the tests (`Packages/cli-agent-prototype`, 2026-11-23).
 - [x] Three independent runs recorded (2026-11-23).
 - [ ] Signed-build questions answered in S5.
 - [ ] Relay in the app, shared with the browser host.
