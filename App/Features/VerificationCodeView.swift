@@ -156,38 +156,53 @@ struct VerificationCodeSheet: View {
 
     // MARK: Collect
 
+    /// Three rows in one card (mock `#/code-setup`, option H): the system Paste control at the end of the first,
+    /// then the other ways in. One help block under the card, which a problem replaces.
     private var collect: some View {
         VStack(spacing: 16) {
-            Text("Copy the setup key or QR code from the site. Psss reads it on this device. Nothing is uploaded.")
-                .multilineTextAlignment(.center)
-            #if os(iOS)
-            Text("On this phone? On the site, tap “Can’t scan?”, copy the key, then tap Paste. Or take a screenshot, tap it, choose Copy and Delete, then tap Paste.")
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            #else
-            Text("Copy the setup key, or take a screenshot with ⇧⌃⌘4, then press ⌘V. You can also drop an image here.")
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            #endif
-            PasteButton(supportedContentTypes: [.image, .plainText], payloadAction: ingest)
-                .buttonBorderShape(.capsule)
-                .controlSize(.large)
-            #if os(iOS)
-            HStack(spacing: 12) {
-                Button("Scan with camera", systemImage: "camera") { startScan() }
-                PhotosPicker("Choose photo", selection: $photo, matching: .screenshots)
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    Text("Screenshot or key")
+                    Spacer(minLength: 8)
+                    PasteButton(supportedContentTypes: [.image, .plainText], payloadAction: ingest)
+                        .buttonBorderShape(.capsule)
+                }
+                .frame(minHeight: 46)
+                .padding(.horizontal, 16)
+                #if os(iOS)
+                Divider().padding(.leading, 16)
+                Button { startScan() } label: { CardRowLabel(title: "Scan with camera", systemImage: "camera") }
+                    .buttonStyle(.plain)
+                Divider().padding(.leading, 16)
+                PhotosPicker(selection: $photo, matching: .screenshots) {
+                    // Inline, not CardRowLabel: this closure is not main-actor isolated.
+                    Label("Choose photo", systemImage: "photo")
+                        .foregroundStyle(Color.accentColor)
+                        .frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .contentShape(Rectangle())
+                }
+                    .buttonStyle(.plain)
+                    .onChange(of: photo) { _, item in readPhoto(item) }
+                #else
+                Divider().padding(.leading, 16)
+                Button { choosingFile = true } label: { CardRowLabel(title: "Choose image…", systemImage: "photo") }
+                    .buttonStyle(.plain)
+                #endif
             }
-            .buttonStyle(.bordered)
-            .onChange(of: photo) { _, item in readPhoto(item) }
-            #else
-            Button("Choose image…") { choosingFile = true }
-            #endif
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 16))
             if let problem {
                 Label { Text(problem).multilineTextAlignment(.leading) } icon: { Image(systemName: "exclamationmark.triangle") }
-                    .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
                     .accessibilityAddTraits(.updatesFrequently)
+            } else {
+                #if os(iOS)
+                Text("Take a screenshot of the QR code, then paste it or pick it from your photos. Or copy the setup key from the site and paste that.")
+                    .multilineTextAlignment(.center)
+                #else
+                Text("Take a screenshot of the QR code with ⇧⌃⌘4, which copies it, then paste. Or choose an image, drop one here, or copy the setup key and paste that.")
+                    .multilineTextAlignment(.center)
+                #endif
             }
         }
         .overlay {
@@ -200,53 +215,16 @@ struct VerificationCodeSheet: View {
     // MARK: Confirm
 
     private func confirm(_ setup: TOTPSetup, remindToDeleteScreenshot: Bool) -> some View {
-        VStack(spacing: 16) {
-            Text(setup.issuer.isEmpty ? "Found a verification code" : "Found a code for \(setup.issuer)")
-                .font(.title2.weight(.semibold))
-            if !setup.account.isEmpty { Text(setup.account).foregroundStyle(.secondary) }
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                let code = TOTP.code(secret: setup.secret, settings: setup.settings, at: context.date) ?? "------"
-                let remaining = TOTP.secondsRemaining(period: setup.settings.period, at: context.date)
-                VStack(spacing: 4) {
-                    CodeDigits(code: code, style: .title2)
-                    ProgressView(value: Double(remaining), total: Double(setup.settings.period))
-                        .frame(maxWidth: 200)
-                        .accessibilityHidden(true)
-                }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Code found")
-                .accessibilityValue(Text("Expires in \(remaining) seconds"))
-            }
-            if setup.settings != .standard {
-                Text("\(setup.settings.digits) digits, every \(setup.settings.period) seconds, \(setup.settings.algorithm.rawValue)")
-                    .foregroundStyle(.secondary)
-            }
-            Text("Type this code into the site to finish turning on two-step verification. It saves to \(loginName) in your vault, on this device.")
-                .multilineTextAlignment(.center)
-            if hasExistingCode {
-                Text("This login already has a code. Saving replaces it.").foregroundStyle(.secondary)
-            }
-            Button(hasExistingCode ? "Replace code" : "Save code") {
-                onSave(setup)
-                phase = .saved(remindToDeleteScreenshot: remindToDeleteScreenshot)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            Button(hasExistingCode ? "Keep current code" : "Cancel") { dismiss() }
+        // The corner Cancel already leaves a new code; only a replacement needs words for what leaving keeps.
+        CodeConfirmContent(setup: setup, loginName: loginName, hasExistingCode: hasExistingCode,
+                           secondary: hasExistingCode ? (title: "Keep current code", action: { dismiss() }) : nil) {
+            onSave(setup)
+            phase = .saved(remindToDeleteScreenshot: remindToDeleteScreenshot)
         }
     }
 
     private func saved(remindToDeleteScreenshot: Bool) -> some View {
-        VStack(spacing: 16) {
-            Image(systemName: "checkmark.circle").font(.system(size: 40)).foregroundStyle(.secondary).accessibilityHidden(true)
-            Text("Code saved to \(loginName).").font(.title2.weight(.semibold))
-            if remindToDeleteScreenshot {
-                Text("Delete the screenshot now. It still holds the setup key.").multilineTextAlignment(.center)
-            }
-            Button("Done") { dismiss() }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-        }
+        CodeSavedContent(loginName: loginName, remindToDeleteScreenshot: remindToDeleteScreenshot) { dismiss() }
     }
 
     // MARK: Input
@@ -315,13 +293,7 @@ struct VerificationCodeSheet: View {
             phase = .confirm(setup, remindToDeleteScreenshot: remindToDeleteScreenshot)
             return
         }
-        switch results.first(where: { $0 != .empty }) ?? .empty {
-        case .webLink: problem = "That QR code is a web link, not a verification code. Look for “Can’t scan?” on the site to get the setup key."
-        case .migration: problem = "This QR code holds several accounts exported from Google Authenticator. Importing those isn’t built yet. Nothing was saved."
-        case .unsupported: problem = "This code uses a type Psss can’t make yet. Nothing was saved."
-        case .invalidKey: problem = "That setup key is not valid. It uses letters and the numbers 2 to 7."
-        default: problem = "Nothing to paste. Copy the setup key or QR code first."
-        }
+        problem = (results.first(where: { $0 != .empty }) ?? .empty).problemText
     }
 }
 
@@ -377,3 +349,95 @@ private struct ScannerRepresentable: UIViewControllerRepresentable {
     }
 }
 #endif
+
+/// One row of the setup card: the whole row is the button, in the accent colour.
+private struct CardRowLabel: View {
+    let title: LocalizedStringKey
+    let systemImage: String
+
+    var body: some View {
+        Label(title, systemImage: systemImage)
+            .foregroundStyle(Color.accentColor)
+            .frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
+            .padding(.horizontal, 16)
+            .contentShape(Rectangle())
+    }
+}
+
+extension TOTPParse {
+    /// Why a read result cannot be saved, in words that name the fix. Every way in (paste, image, camera, a site's link) says the same.
+    var problemText: LocalizedStringKey {
+        switch self {
+        case .webLink: "That QR code is a web link, not a verification code. Look for “Can’t scan?” on the site to get the setup key."
+        case .migration: "This QR code holds several accounts exported from Google Authenticator. Importing those isn’t built yet. Nothing was saved."
+        case .unsupported: "This code uses a type Psss can’t make yet. Nothing was saved."
+        case .invalidKey: "That setup key is not valid. It uses letters and the numbers 2 to 7."
+        default: "Nothing to paste. Copy the setup key or QR code first."
+        }
+    }
+}
+
+/// The step that shows the code found and asks before saving it: issuer, account, a live code (the site will not turn on two-step
+/// verification until a valid one is typed) and the button. Shared by the add-code sheet and the sheet a site's link opens.
+struct CodeConfirmContent: View {
+    let setup: TOTPSetup
+    let loginName: String
+    let hasExistingCode: Bool
+    /// A second, quieter way out under the button: keep the current code, or choose another login.
+    var secondary: (title: LocalizedStringKey, action: () -> Void)?
+    let onSave: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text(setup.issuer.isEmpty ? "Found a verification code" : "Found a code for \(setup.issuer)")
+                .font(.title2.weight(.semibold))
+            if !setup.account.isEmpty { Text(setup.account).foregroundStyle(.secondary) }
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let code = TOTP.code(secret: setup.secret, settings: setup.settings, at: context.date) ?? "------"
+                let remaining = TOTP.secondsRemaining(period: setup.settings.period, at: context.date)
+                VStack(spacing: 4) {
+                    CodeDigits(code: code, style: .title2)
+                    ProgressView(value: Double(remaining), total: Double(setup.settings.period))
+                        .frame(maxWidth: 200)
+                        .accessibilityHidden(true)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Code found")
+                .accessibilityValue(Text("Expires in \(remaining) seconds"))
+            }
+            if setup.settings != .standard {
+                Text("\(setup.settings.digits) digits, every \(setup.settings.period) seconds, \(setup.settings.algorithm.rawValue)")
+                    .foregroundStyle(.secondary)
+            }
+            Text("Type this code into the site to finish turning on two-step verification. It saves to \(loginName) in your vault, on this device.")
+                .multilineTextAlignment(.center)
+            if hasExistingCode {
+                Text("This login already has a code. Saving replaces it.").foregroundStyle(.secondary)
+            }
+            Button(hasExistingCode ? "Replace code" : "Save code", action: onSave)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+            if let secondary { Button(secondary.title, action: secondary.action) }
+        }
+    }
+}
+
+/// The saved state: the login that now holds the code, and Done.
+struct CodeSavedContent: View {
+    let loginName: String
+    let remindToDeleteScreenshot: Bool
+    let onDone: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "checkmark.circle").font(.system(size: 40)).foregroundStyle(.secondary).accessibilityHidden(true)
+            Text("Code saved to \(loginName).").font(.title2.weight(.semibold))
+            if remindToDeleteScreenshot {
+                Text("Delete the screenshot now. It still holds the setup key.").multilineTextAlignment(.center)
+            }
+            Button("Done", action: onDone)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+        }
+    }
+}

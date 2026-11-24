@@ -2,47 +2,6 @@ import AuthenticationServices
 import CoreImage.CIFilterBuiltins
 import SwiftUI
 
-extension ItemKind {
-    var label: LocalizedStringKey {
-        switch self {
-        case .login: "Login"
-        case .creditCard: "Card"
-        case .secureNote: "Note"
-        case .keePassEntry: "Custom item"
-        case .wifi: "Wi-Fi network"
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .login: "key"
-        case .creditCard: "creditcard"
-        case .secureNote: "note.text"
-        case .keePassEntry: "doc"
-        case .wifi: "wifi"
-        }
-    }
-}
-
-extension ItemTrait {
-    /// The filled glyph a list row shows for what a login has (the notes glyph is not shown in rows).
-    var rowSymbol: String {
-        switch self {
-        case .passkey: "person.badge.key.fill"
-        case .code: "lock.badge.clock.fill"
-        case .notes: "note.text"
-        }
-    }
-
-    var badgeLabel: LocalizedStringKey {
-        switch self {
-        case .passkey: "Has a passkey"
-        case .code: "Has a verification code"
-        case .notes: "Has notes"
-        }
-    }
-}
-
 /// Where an alert is shown: the vault screen, or a sheet that is open over it.
 fileprivate enum AlertSurface: Hashable { case vault, editor, setup }
 
@@ -266,7 +225,12 @@ struct VaultView: View {
     private var isEditingInPlace: Bool { editingID != nil }
     @State private var showsEditorRemoved = false
     @State private var showsSetup = false
+    /// The Add a Vault sheet, from Settings or the vault switcher.
+    @State private var addingVault = false
     @Environment(SettingsRequests.self) private var settingsRequests
+    @Environment(IncomingCodeRequests.self) private var incoming
+    /// A new login started from a site's setup link; the editor opens once the link's sheet has gone.
+    @State private var editorAfterLink: VaultItem?
     @State private var wantsPasswordChange = false
     /// The alert on screen and the surface that shows it. There is only ever one of each, so an alert cannot be asked for on
     /// two surfaces at once. See `nextAlert` for the order of the ones waiting.
@@ -371,6 +335,28 @@ struct VaultView: View {
             }
     }
 
+    /// A vault was created, opened or imported from the Add a Vault sheet: it is open now, in place of the one that was.
+    private func vaultAdded() {
+        showsSetup = false
+        gate.markUnlocked()
+        vaultSource = RootView.keePassSource
+    }
+
+    /// Choosing another vault in the switcher: this one is written and locked, and the other's unlock screen shows.
+    private func switchVault(to id: UUID) {
+        session.lock()
+        gate.lock()
+        session.switchTo(id)
+    }
+
+    /// The vault switcher, an icon beside the Settings gear (owner, 2026-11-24, mock `#/vault-switcher`). Only with two or more vaults.
+    @ViewBuilder
+    private var vaultSwitcher: some View {
+        if store is KeePassVaultStore, VaultSwitcher.isShown(session), !isEditingInPlace {
+            VaultSwitcher(session: session, unlocked: gate.isUnlocked, choose: switchVault) { addingVault = true }
+        }
+    }
+
     /// Psss, Settings… (⌘,) on iPad with a keyboard. The Mac has its own Settings window and no sheet.
     private var openSetupAction: (() -> Void)? {
         #if os(iOS)
@@ -415,18 +401,33 @@ struct VaultView: View {
                 NewItemSheet(item: item, onSave: save, onKeepDraft: keepDraft)
                     .modifier(AlertSurfaceModifier(surface: .editor, owner: self))
             }
+            // A site's setup link (otpauth://) waits here until no other sheet is open. Choosing a login saves nothing.
+            .sheet(item: Binding(get: { showsSetup || changingPassword || editor != nil ? nil : incoming.pending },
+                                 set: { if $0 == nil { incoming.clear() } }), onDismiss: {
+                incoming.clear()
+                if let item = editorAfterLink { editorAfterLink = nil; editor = item }
+            }) { link in
+                IncomingCodeSheet(result: link.result, logins: items.filter { $0.kind == .login }, onSave: saveIncomingCode) { setup in
+                    editorAfterLink = IncomingCodeMatch.newLogin(for: setup)
+                }
+            }
         #if os(iOS)
         return editorSheets
             .sheet(isPresented: $showsSetup, onDismiss: {
                 // Change Vault Password opens its own sheet, but only once this one has gone.
                 if wantsPasswordChange { wantsPasswordChange = false; changingPassword = true }
             }) { setupSheet.modifier(AlertSurfaceModifier(surface: .setup, owner: self)) }
+            // From the switcher; the sheet in Settings has its own.
+            .sheet(isPresented: Binding(get: { addingVault && !showsSetup }, set: { if !$0 { addingVault = false } })) {
+                AddVaultSheet(session: session) { vaultAdded() }
+            }
         #else
         return editorSheets
             // The Mac Settings window asks for Change Vault Password here, where its sheet belongs.
             .onChange(of: settingsRequests.changePassword) { _, asked in
                 if asked { settingsRequests.changePassword = false; changingPassword = true }
             }
+            .sheet(isPresented: $addingVault) { AddVaultSheet(session: session) { vaultAdded() } }
         #endif
     }
 
@@ -489,7 +490,7 @@ struct VaultView: View {
         return waiting
     }
 
-    private var sheetIsOpen: Bool { showsSetup || changingPassword || editor != nil }
+    private var sheetIsOpen: Bool { showsSetup || changingPassword || editor != nil || incoming.pending != nil }
 
     private func isOpen(_ surface: AlertSurface) -> Bool {
         switch surface {
@@ -716,6 +717,7 @@ struct VaultView: View {
                         Button("Settings", systemImage: "gearshape") { showsSetup = true }
                             .labelStyle(.iconOnly)
                     }
+                    ToolbarItem(placement: .topBarLeading) { vaultSwitcher }
                     // Sort, Filter, then Add, as Apple's Passwords has Sort before Add. Filter stays in Recently Deleted: it is the
                     // way back to All.
                     if showsSort {
@@ -1045,6 +1047,7 @@ struct VaultView: View {
         // While the sidebar is hidden its gear would be out of reach, so it moves here, after the system's sidebar button.
         if columns != .all {
             ToolbarItem(placement: .topBarLeading) { setupButton }
+            ToolbarItem(placement: .topBarLeading) { vaultSwitcher }
         }
         #endif
         // Sort applies to All, its filters and search results only.
@@ -1116,7 +1119,13 @@ struct VaultView: View {
                 .toolbar {
                     if columns == .all {
                         ToolbarItem(placement: .topBarTrailing) { setupButton }
+                        ToolbarItem(placement: .topBarTrailing) { vaultSwitcher }
                     }
+                }
+                #else
+                // The Mac sidebar's toolbar: the vault switcher, next to the system's sidebar button.
+                .toolbar {
+                    ToolbarItem(placement: .automatic) { vaultSwitcher }
                 }
                 #endif
             } content: {
@@ -1152,22 +1161,19 @@ struct VaultView: View {
             Form {
                 Section {
                     if let keePass = store as? KeePassVaultStore {
-                        NavigationLink {
-                            vaultPage(keePass)
-                        } label: {
-                            VStack(alignment: .leading) {
-                                Text(keePass.title)
-                                Text(vaultSummary(keePass.reference)).foregroundStyle(.secondary)
+                        ForEach(session.knownVaults, id: \.id) { reference in
+                            NavigationLink(reference.name) {
+                                if reference.id == keePass.reference.id {
+                                    vaultPage(keePass)
+                                } else {
+                                    OtherVaultSettingsPage(reference: reference)
+                                }
                             }
                         }
+                        Button("Add Vault…") { addingVault = true }
                     } else {
-                        NavigationLink {
+                        NavigationLink("Sample vault") {
                             SampleSettingsPage(session: session, gate: gate) { showsSetup = false }
-                        } label: {
-                            VStack(alignment: .leading) {
-                                Text("Sample vault")
-                                Text("Not saved").foregroundStyle(.secondary)
-                            }
                         }
                     }
                 } header: {
@@ -1189,6 +1195,9 @@ struct VaultView: View {
             }
         }
         .modifier(SheetSize())
+        .sheet(isPresented: $addingVault) {
+            AddVaultSheet(session: session) { vaultAdded() }
+        }
     }
 
     private func vaultPage(_ keePass: KeePassVaultStore) -> some View {
@@ -1727,6 +1736,15 @@ struct VaultView: View {
 
     /// Save on an item's own page: stays on the item, back in view mode with the saved values. A refused save leaves edit mode open
     /// with the person's text (the conflict alert follows, as for every write).
+    /// Stores a code that arrived as a link in the login the person chose, after they confirmed it. Returns whether the vault took it.
+    private func saveIncomingCode(_ login: VaultItem, _ setup: TOTPSetup) -> Bool {
+        var updated = login
+        updated.otpSecret = setup.secret
+        updated.otpSettings = setup.settings
+        let form = updated.savedForm
+        return attempt({ try store.save([form]) }, subject: form.id, then: { showSaved(form) })
+    }
+
     private func saveEdited(_ item: VaultItem) {
         attempt({ try store.save([item]) }, subject: item.id, then: {
             refresh()
@@ -1843,47 +1861,6 @@ struct TitleAndLogin: Layout {
             subviews[1].place(at: CGPoint(x: bounds.minX, y: bounds.minY + titleHeight + stackedSpacing), anchor: .topLeading,
                               proposal: .init(width: bounds.width, height: nil))
         }
-    }
-}
-
-/// A site monogram today and the favicon slot later. Colour comes from the site so it is stable and offline.
-struct ItemIcon: View {
-    let item: VaultItem
-    var size: CGFloat = 30
-
-    private var tint: Color {
-        guard item.kind == .login else { return .gray }
-        let seed = (item.website.isEmpty ? item.displayTitle : item.website).unicodeScalars.reduce(UInt32(7)) { $0 &* 31 &+ $1.value }
-        return Color(hue: Double(seed % 360) / 360, saturation: 0.5, brightness: 0.72)
-    }
-
-    private var brand: BrandIcons.Brand? {
-        switch item.kind {
-        case .login: BrandIcons.brand(forWebsite: item.website)
-        case .creditCard: CardBrand(number: item.secret).map { BrandIcons.Brand(asset: $0.asset, color: $0.color, glyph: .white) }
-        default: nil
-        }
-    }
-
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.27, style: .continuous).fill(brand?.color ?? tint)
-            if let brand {
-                Image(brand.asset)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: size * 0.56, height: size * 0.56)
-                    .foregroundStyle(brand.glyph)
-            } else if item.kind == .login, let letter = item.displayTitle.first {
-                Text(String(letter).uppercased())
-                    .font(.system(size: size * 0.53, weight: .semibold, design: .rounded))
-            } else {
-                Image(systemName: item.kind.symbol).font(.system(size: size * 0.47, weight: .semibold))
-            }
-        }
-        .foregroundStyle(.white)
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
     }
 }
 

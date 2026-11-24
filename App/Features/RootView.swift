@@ -15,6 +15,7 @@ struct RootView: View {
     @AppStorage("vaultSource") private var vaultSource = ""
     @AppStorage("lockTiming") private var lockTiming = LockTiming.oneMinute.rawValue
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(IncomingCodeRequests.self) private var incomingCodes
 
     static let keePassSource = "kdbx"
     private var usesDeviceAuth: Bool { vaultSource != Self.keePassSource }
@@ -48,7 +49,7 @@ struct RootView: View {
         .environment(safariExtension)
         // Locking drops the keys and the decrypted vault, after writing anything pending.
         .onChange(of: gate.isUnlocked) { _, unlocked in
-            if unlocked { Task { await autoFill.refresh(); await safariExtension.refresh() } } else { session.lock(); sample = SampleVaultStore() }
+            if unlocked { Task { await autoFill.refresh(); await safariExtension.refresh() } } else { session.lock(); sample = SampleVaultStore(); incomingCodes.clear() }
         }
         .focusedSceneValue(\.lockVault, gate.isUnlocked ? { gate.lock() } : nil)
         .task { if !vaultSource.isEmpty { await gate.didBecomeActive(after: timing, prompt: usesDeviceAuth) } }

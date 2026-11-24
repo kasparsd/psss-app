@@ -36,6 +36,14 @@ struct AppSettingsSections: View {
                  : "Applies to every vault.")
         }
         AutoFillSetupSection()
+        #if os(iOS)
+        // iOS does not say which app opens a site's setup link, so this is a standing line, not a status.
+        Section {
+            Text("To open a site's “set up authenticator” link in Psss, choose Psss under Settings, Passwords, Verification Codes, Set Up Codes In.")
+        } header: {
+            Text("Verification codes")
+        }
+        #endif
         Section("Help") {
             ForEach(HelpTopics.all) { HelpRow(topic: $0) }
         }
@@ -202,7 +210,7 @@ struct OtherVaultSettingsPage: View {
                 LabeledContent("Name", value: reference.name)
                 LabeledContent("Location", value: reference.managed ? String(localized: "On this device") : reference.fileName)
             } footer: {
-                Text("To change this vault, choose it in the vault pop-up on the lock screen. It then opens here.")
+                Text("To change this vault, choose it with the vault switcher or on the lock screen. It then opens here.")
             }
         }
         .formStyle(.grouped)
@@ -245,8 +253,3 @@ struct SampleSettingsPage: View {
     }
 }
 
-/// The line under a vault's name in a vaults list: where it is kept, and whether it opens with Face ID or Touch ID.
-func vaultSummary(_ reference: VaultReference) -> String {
-    let place = reference.managed ? String(localized: "On this device") : reference.fileName
-    return reference.biometricUnlock ? "\(place) · \(BiometryKind.unlockName)" : place
-}

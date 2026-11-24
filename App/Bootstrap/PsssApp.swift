@@ -12,6 +12,7 @@ struct PsssApp: App {
     @State private var autoFill = AutoFillStatus.live()
     @State private var safariExtension = SafariExtensionStatus.live()
     @State private var settingsRequests = SettingsRequests()
+    @State private var incomingCodes = IncomingCodeRequests()
 
     init() {
         // Earlier builds may have left real logins in a plain-text file in the App Group. Delete it.
@@ -36,9 +37,14 @@ struct PsssApp: App {
         WindowGroup {
             RootView(gate: gate, session: session, autoFill: autoFill, safariExtension: safariExtension)
                 .environment(settingsRequests)
+                .environment(incomingCodes)
+                // A site's “set up authenticator” link. It only queues; the unlocked vault asks which login it belongs to.
+                .onOpenURL { incomingCodes.receive($0) }
         }
         #if os(macOS)
         .defaultSize(width: 1100, height: 680)
+        // A link opens in the window that is there, not in a new one.
+        .handlesExternalEvents(matching: ["*"])
         #endif
         .commands {
             VaultPlaceCommands()

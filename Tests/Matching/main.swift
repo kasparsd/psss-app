@@ -390,6 +390,9 @@ do {
     expect("a note is never offered", PickerSearch.matches(all, query: "note").isEmpty, true)
     expect("a login without a password is never offered", PickerSearch.matches(all, query: "empty").isEmpty, true)
     same("a card is found by its holder", PickerSearch.matches(all, query: "Kid Example").first.map { String($0.kind == .creditCard) }, "true")
+    same("pill counts for a name", PickerSearch.counts(all, query: "heron").map { "\($0.key.label)=\($0.value)" }.sorted().joined(separator: ","), "Name=2,Username=0,Website=2")
+    same("a chosen pill narrows the search (nothing has it as a username)", String(PickerSearch.matches(all, query: "heron", in: [.username]).count), "0")
+    same("a chosen pill keeps what has the text there", String(PickerSearch.matches(all, query: "heron", in: [.website]).count), "2")
     same("login values", PickerSearch.values(of: bank).map(\.label).joined(separator: ","), "Username,Password")
     same("login password preview is hidden", PickerSearch.values(of: bank).first { $0.role == .password }?.preview, "••••••••")
     same("card values", PickerSearch.values(of: visa).map(\.label).joined(separator: ","), "Card number,Name on card,Expiry,Security code")
@@ -402,6 +405,81 @@ do {
     same("a card releases its number", ReleaseCheck.value(item: visa, role: .cardNumber), "4242424242424242")
     same("a card has no password", ReleaseCheck.value(item: visa, role: .password), nil)
     same("a note releases nothing", ReleaseCheck.value(item: note, role: .username), nil)
+}
+
+// The browser protocol's search and vaults, on the prototype host's sample vaults (a temporary directory, never the real one).
+do {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("psss-matching-\(UUID().uuidString)")
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    BrowserPrototypeStore.directory = dir
+    BrowserProtocol.vaultService = BrowserPrototypeStore.vaultService
+    func ask(_ type: String, _ fields: [String: Any] = [:]) -> [String: Any] {
+        BrowserProtocol.handle(["v": BrowserProtocol.version, "id": "t", "type": type].merging(fields) { $1 })
+    }
+    func search(_ query: String, fields: [String] = []) -> [String: Any] { ask("search", ["origin": "https://example.org", "query": query, "fields": fields]) }
+    func names(_ reply: [String: Any]) -> String { ((reply["vaults"] as? [[String: Any]]) ?? []).map { "\($0["name"] ?? ""):\($0["active"] ?? ""):\($0["locked"] ?? "")" }.joined(separator: ",") }
+
+    expect("protocol is version 2", BrowserProtocol.version == 2, true)
+    same("an old version is refused", ask("ping", ["v": 1])["error"] as? String, "unsupported")
+    let all = search("studio north")
+    let counts = all["counts"] as? [String: Int] ?? [:]
+    same("search counts per field", "\(counts["name"] ?? -1) \(counts["website"] ?? -1) \(counts["username"] ?? -1)", "1 0 0")
+    let rows = all["results"] as? [[String: Any]] ?? []
+    same("a result says which field matched and the part for bold", rows.map { "\($0["found"] ?? "") \($0["hit"] ?? "") \($0["hitRange"] ?? "")" }.joined(separator: ","), "name Studio North (work) [0, 12]")
+    let byUser = search("alex@studio", fields: ["website"])
+    same("a chosen field narrows the results, never the counts", "\((byUser["results"] as? [Any])?.count ?? -1) \((byUser["counts"] as? [String: Int])?["username"] ?? -1)", "0 1")
+    same("a blank search finds nothing", "\((search("  ")["results"] as? [Any])?.count ?? -1)", "0")
+    expect("a result for another site says so", rows.allSatisfy { $0["matches"] as? Bool == false }, true)
+
+    same("vaults: three, Passwords open", names(ask("vaults")), "Passwords:true:false,Work:false:true,Archive:false:true")
+    same("switching to Work opens it and lists it first", names(ask("switch-vault", ["vault": "work"])), "Work:true:false,Passwords:false:true,Archive:false:true")
+    same("Work serves its own logins", ((ask("candidates", ["origin": "https://gitforge.example"])["candidates"] as? [[String: Any]]) ?? []).map { "\($0["title"] ?? "")" }.joined(separator: ","), "Gitforge (work)")
+    let refused = ask("save", ["origin": "https://gitforge.example", "account": "a@b.c", "secret": "pw"])
+    same("a save outside the first vault is refused", refused["error"] as? String, "unsupported")
+    let locked = ask("switch-vault", ["vault": "archive"])
+    same("a vault that does not open: chosen, locked, with the new list", "\(locked["error"] ?? "") \(names(locked))", "locked Archive:true:true,Passwords:false:true,Work:false:true")
+    same("a locked vault serves nothing", ask("candidates", ["origin": "https://gitforge.example"])["error"] as? String, "locked")
+    same("a locked vault searches nothing", search("studio")["error"] as? String, "locked")
+    same("unknown vault", ask("switch-vault", ["vault": "nope"])["error"] as? String, "not-found")
+    same("back to Passwords", names(ask("switch-vault", ["vault": "passwords"])), "Passwords:true:false,Work:false:true,Archive:false:true")
+    BrowserPrototypeStore.directory = nil
+    BrowserProtocol.vaultService = nil
+    try? FileManager.default.removeItem(at: dir)
+}
+
+// An otpauth:// link: which logins it suggests, and the unsaved login it starts.
+do {
+    func titled(_ title: String, account: String = "me", website: String = "") -> VaultItem {
+        VaultItem(kind: .login, title: title, account: account, website: website, secret: "pw")
+    }
+    let named = titled("GitHub", account: "a@b.c")
+    let bySite = titled("Code host", account: "x@y.z", website: "https://www.github.com/login")
+    let unrelated = titled("Bank", account: "dev@example.com")
+    let sameUser = titled("Forum", account: "dev@example.com")
+    let note = VaultItem(kind: .secureNote, title: "GitHub notes")
+    let all = [unrelated, note, sameUser, bySite, named]
+
+    let withIssuer = IncomingCodeMatch.suggested(for: TOTPSetup(secret: "JBSWY3DPEHPK3PXP", issuer: "GitHub", account: "dev@example.com"), among: all)
+    expect("otpauth issuer: title and website match", Set(withIssuer.map { $0.id }) == Set([named.id, bySite.id]), true)
+    expect("otpauth issuer: same username alone is not suggested", withIssuer.contains { $0.id == sameUser.id || $0.id == unrelated.id }, false)
+    expect("otpauth issuer: notes are never suggested", withIssuer.contains { $0.id == note.id }, false)
+
+    let noIssuer = IncomingCodeMatch.suggested(for: TOTPSetup(secret: "JBSWY3DPEHPK3PXP", account: "DEV@Example.com"), among: all)
+    expect("otpauth no issuer: username matches, any case", Set(noIssuer.map { $0.id }) == Set([unrelated.id, sameUser.id]), true)
+    let nothing = IncomingCodeMatch.suggested(for: TOTPSetup(secret: "JBSWY3DPEHPK3PXP"), among: all)
+    expect("otpauth no issuer and no account: nothing suggested", nothing.isEmpty, true)
+    var noteWithAccount = VaultItem(kind: .secureNote, title: "n"); noteWithAccount.account = "dev@example.com"
+    expect("otpauth username: non-login kinds are never suggested", IncomingCodeMatch.suggested(for: TOTPSetup(secret: "JBSWY3DPEHPK3PXP", account: "dev@example.com"), among: [noteWithAccount]).isEmpty, true)
+
+    var settings = TOTPSettings(); settings.digits = 8; settings.period = 60
+    let setup = TOTPSetup(secret: "JBSWY3DPEHPK3PXP", settings: settings, issuer: "GitHub", account: "dev@example.com")
+    let fresh = IncomingCodeMatch.newLogin(for: setup)
+    expect("otpauth new login: kind is login", fresh.kind == .login, true)
+    same("otpauth new login: title", fresh.title, "GitHub")
+    same("otpauth new login: account", fresh.account, "dev@example.com")
+    same("otpauth new login: secret", fresh.otpSecret, "JBSWY3DPEHPK3PXP")
+    expect("otpauth new login: settings", fresh.otpSettings == settings, true)
+    expect("otpauth new login: not in any list", all.contains { $0.id == fresh.id }, false)
 }
 
 if failures > 0 { print("\n\(failures) FAILED"); exit(1) }

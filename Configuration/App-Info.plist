@@ -2,6 +2,21 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!-- A site's "set up authenticator" button opens otpauth:// links. Registering the scheme lists Psss under Settings, Passwords,
+         Verification Codes, Set Up Codes In. The app only queues the link and asks which login it belongs to. -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>app.psss.otpauth</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>otpauth</string>
+            </array>
+        </dict>
+    </array>
     <key>NSUbiquitousContainers</key>
     <dict>
         <key>iCloud.app.psss</key>
