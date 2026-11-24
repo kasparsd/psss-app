@@ -66,41 +66,64 @@ struct ItemFieldMappingView: View {
         #endif
     }
 
+    /// The title, the Show as row and its line. On Mac they stay put while only the field list scrolls; elsewhere they are the
+    /// first rows of one form.
+    @ViewBuilder
+    private var topRows: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(verbatim: item.displayTitle).font(.title.weight(.semibold))
+            Text("Choose what each field is used for.").foregroundStyle(.secondary)
+        }
+        .accessibilityAddTraits(.isHeader)
+        Section {
+            Picker("Show as", selection: Binding(get: { draft.kind }, set: { kind in
+                draft = Self.suggested(for: kind, item: item)
+                saveProblem = nil
+                revealedFields = []
+            })) {
+                Text("Card").tag(ItemKind.creditCard)
+                Text("Login").tag(ItemKind.login)
+                Text("Custom item").tag(ItemKind.keePassEntry)
+            }
+            .pickerStyle(.menu)
+        } footer: {
+            helpLine
+        }
+    }
+
+    private var fieldRows: some View {
+        Section {
+            ForEach(fields) { fieldRow($0) }
+        }
+    }
+
     private var form: some View {
-        Form {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(verbatim: item.displayTitle).font(.title.weight(.semibold))
-                Text("Choose what each field is used for.").foregroundStyle(.secondary)
-            }
-            .accessibilityAddTraits(.isHeader)
-            Section {
-                Picker("Show as", selection: Binding(get: { draft.kind }, set: { kind in
-                    draft = Self.suggested(for: kind, item: item)
-                    saveProblem = nil
-                    revealedFields = []
-                })) {
-                    Text("Card").tag(ItemKind.creditCard)
-                    Text("Login").tag(ItemKind.login)
-                    Text("Custom item").tag(ItemKind.keePassEntry)
-                }
-                .pickerStyle(.menu)
-            } footer: {
-                helpLine
-            }
-            Section {
-                ForEach(fields) { fieldRow($0) }
-            }
-            #if os(macOS)
+        #if os(macOS)
+        VStack(spacing: 0) {
+            Form { topRows }
+                .formStyle(.grouped)
+                .scrollDisabled(true)
+                .fixedSize(horizontal: false, vertical: true)
+            Form { fieldRows }
+                .formStyle(.grouped)
             HStack {
                 Spacer()
                 cancelButton
                 saveButton.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
             }
-            #endif
+            .padding([.horizontal, .bottom], 20)
+        }
+        .modifier(HidesRevealedValues(signal: hideSignal) { revealedFields = [] })
+        .onChange(of: fields) { revealedFields = [] }
+        #else
+        Form {
+            topRows
+            fieldRows
         }
         .formStyle(.grouped)
         .modifier(HidesRevealedValues(signal: hideSignal) { revealedFields = [] })
         .onChange(of: fields) { revealedFields = [] }
+        #endif
     }
 
     /// The one line under Show as: how the first guess was made, or what is missing. A problem is the app's problem line.
