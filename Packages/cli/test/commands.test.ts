@@ -329,7 +329,7 @@ test('sync: progress on standard error, one plain line per location, exit 1 when
     assert.equal(ok.stderr, 'Reading This computer\nReading iCloud Drive\nReading NAS\n', 'one progress line per stage on standard error, with no terminal');
     assert.equal(ok.code, 0, 'exit 0');
     const bad = await runCli(['sync'], { box, scenario: { sync: { locations: [{ label: 'iCloud Drive', path: '/b', pulled: 0, pushed: 0, error: 'the folder is offline' }, { label: 'This computer', path: '/a', pulled: 0, pushed: 0 }] } } });
-    assert.match(bad.stderr, /iCloud Drive could not be reached: the folder is offline\n$/, 'the failure is on standard error');
+    assert.match(bad.stderr, /iCloud Drive \(\/b\) could not be reached: the folder is offline\n$/, 'the failure is on standard error');
     assert.match(bad.stdout, /Merged with 1 of 2 locations\. Nothing was lost; run psss sync again/, 'and the count says how much was done');
     assert.equal(bad.code, 1, 'exit 1');
   } finally {

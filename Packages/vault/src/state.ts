@@ -173,6 +173,25 @@ export class DeviceState {
     return removed;
   }
 
+  /** Removes the `lock.<pid>.<token>.beat` files a process killed in the middle of refreshing the lock left in the state folder, by the same
+   *  rule as `sweepOutbox`: the writer's process is gone, or the file is older than `staleMs`. A name without a pid is judged by age alone.
+   *  Called with the state lock held, so no refresh of ours is under way. Returns how many it removed. */
+  sweepLockTemps(staleMs: number, now: number = Date.now(), alive: (pid: number) => boolean = processAlive): number {
+    if (this.memory || !existsSync(this.dir)) return 0;
+    let removed = 0;
+    for (const name of readdirSync(this.dir)) {
+      const m = /^lock\.(?:(\d+)\.)?[0-9a-f]+\.beat$/.exec(name);
+      if (!m) continue;
+      const path = join(this.dir, name);
+      let old: boolean;
+      try { old = now - statSync(path).mtimeMs > staleMs; } catch { continue; }
+      const dead = m[1] !== undefined && !alive(Number(m[1]));
+      if (!dead && !old) continue;
+      try { unlinkSync(path); removed++; } catch { /* already gone */ }
+    }
+    return removed;
+  }
+
   // ---- remembered chain heads, per location (spec 4.4)
   remembered(location: string): Remembered {
     const out: Remembered = new Map();

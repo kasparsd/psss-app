@@ -75,7 +75,7 @@ export type LockedReason =
   | { why: 'keyFileMissing'; keyFile: string }
   | { why: 'keyFileUnreadable'; keyFile: string }
   | { why: 'noKey' }
-  | { why: 'noVault'; path?: string }
+  | { why: 'noVault'; path?: string; unreadable?: boolean }
   | { why: 'locked' };
 
 /** The vault cannot be opened: no key, no vault, nothing to unlock with. Exit 4. */

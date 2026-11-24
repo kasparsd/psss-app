@@ -142,6 +142,20 @@ test('temporary outbox files of a dead writer or of long ago are removed on the 
   assert.equal(v.delivery().pending, 0);
 });
 
+test('a lock refresh killed in the middle leaves a lock.<pid>.<token>.beat file: removed on the next write when its process is gone or it is old, not while it is young and alive', (t) => {
+  const e = newVault(t, { durable: false });
+  e.vault.addItem({ title: 'Item', password: 'p0' });
+  const gone = Number(spawnSync(process.execPath, ['-e', 'console.log(process.pid)'], { encoding: 'utf8' }).stdout.trim());
+  const make = (name: string, ageMs = 0) => { const p = join(e.stateDir, name); writeFileSync(p, '{}'); const t0 = (Date.now() - ageMs) / 1000; utimesSync(p, t0, t0); return name; };
+  const orphans = [make(`lock.${gone}.0011223344556677.beat`), make(`lock.${process.pid}.0011223344556678.beat`, 10 * 60_000), make('lock.0011223344556679.beat', 10 * 60_000)];
+  const keep = [make(`lock.${process.pid}.001122334455667a.beat`), make('lock.001122334455667b.beat')];
+  const v = reopen(e);
+  v.setField('psss://Item/password', 'p1');
+  const left = readdirSync(e.stateDir);
+  for (const n of orphans) assert.ok(!left.includes(n), `${n} was removed`);
+  for (const n of keep) assert.ok(left.includes(n), `${n} was kept`);
+});
+
 // ---------------------------------------------------------------- heartbeat
 
 test('a long run of entries that write nothing does not let the lock go stale (checked on an injected clock)', (t) => {

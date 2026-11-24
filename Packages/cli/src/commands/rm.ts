@@ -1,4 +1,5 @@
 import { formatReference } from '../reference.ts';
+import { printable } from '../text.ts';
 import { checkDelivery, deliveryJson } from './delivery.ts';
 import { jsonName } from './kdbx-report.ts';
 import { findItem, hasJson, jsonOption, missingReferenceError, resolveReference } from './command.ts';
@@ -37,7 +38,7 @@ const rm: Command = {
       ctx.json({ item: { id: item.id, title: jsonName(item.title), group: jsonName(item.group) }, deleted: true, delivery: deliveryJson(delivery) });
       return 0;
     }
-    ctx.out(`Moved "${item.title}" to Recently Deleted.\nBring it back with: psss restore ${formatReference({ item: { id: item.id } })}\n`);
+    ctx.out(`Moved "${printable(item.title)}" to Recently Deleted.\nBring it back with: psss restore ${formatReference({ item: { id: item.id } })}\n`);
     return 0;
   },
 };

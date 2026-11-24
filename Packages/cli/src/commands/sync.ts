@@ -1,4 +1,5 @@
 import { EXIT_FAILED } from '../errors.ts';
+import { displayPath } from '../io.ts';
 import { hasJson, jsonOption } from './command.ts';
 import type { Command } from './command.ts';
 
@@ -31,7 +32,7 @@ const sync: Command = {
     let text = '';
     for (const l of report.locations) {
       if (l.error !== undefined) {
-        ctx.err(`${l.label} could not be reached: ${l.error}\n`);
+        ctx.err(`${l.label} (${displayPath(ctx.io, l.path)}) could not be reached: ${l.error}\n`);
       } else if (l.pulled === 0 && l.pushed === 0) {
         text += `${l.label}: nothing new.\n`;
       } else {

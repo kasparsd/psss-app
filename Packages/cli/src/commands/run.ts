@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { printable } from '../text.ts';
 import { readFileSync } from 'node:fs';
 import { constants as osConstants } from 'node:os';
 import path from 'node:path';
@@ -20,9 +21,9 @@ function binding(text: string, where: string): Binding {
   const name = text.slice(0, at);
   let reference = text.slice(at + 1);
   if (/^(".*"|'.*')$/.test(reference) && reference.length >= 2) reference = reference.slice(1, -1);
-  if (!NAME.test(name)) throw new ValidationError(`${where}: "${name}" is not a usable environment variable name. Use letters, digits and "_".`);
+  if (!NAME.test(name)) throw new ValidationError(`${where}: "${printable(name)}" is not a usable environment variable name. Use letters, digits and "_".`);
   if (!reference.startsWith('psss://')) {
-    throw new ValidationError(`${where}: the value of ${name} must be a psss:// reference. A secret is never written in a command.`);
+    throw new ValidationError(`${where}: the value of ${printable(name)} must be a psss:// reference. A secret is never written in a command.`);
   }
   return { name, reference };
 }

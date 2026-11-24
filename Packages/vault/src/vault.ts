@@ -491,6 +491,7 @@ export class Vault {
         // a process killed while it wrote an outbox file leaves a `.tmp-*.sealed` behind: remove those of dead or long gone writers
         this.swept = true;
         this.state.sweepOutbox(this.lockOptions.staleMs ?? 120_000, (this.lockOptions.clock ?? Date.now)());
+        this.state.sweepLockTemps(this.lockOptions.staleMs ?? 120_000, (this.lockOptions.clock ?? Date.now)());
       }
       return fn();
     }, options);

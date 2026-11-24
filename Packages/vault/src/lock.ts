@@ -95,7 +95,7 @@ export function refreshLock(dir: string, opts: LockOptions = {}): void {
   const mine = readLock(path);
   if (mine === null || mine === 'unreadable' || mine.token !== token) return;
   const next: LockInfo = { ...mine, time: (opts.clock ?? Date.now)() };
-  const tmp = `${path}.${token}.beat`;
+  const tmp = `${path}.${process.pid}.${token}.beat`; // the pid lets a sweep tell a killed refresh from one in progress (DeviceState.sweepLockTemps)
   try {
     writeFileSync(tmp, JSON.stringify(next), { flag: 'w', mode: 0o600 });
     renameSync(tmp, path);

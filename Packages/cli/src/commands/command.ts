@@ -1,5 +1,6 @@
 // What every command module has, and the helpers they share.
 
+import { printable } from '../text.ts';
 import { CliError, EXIT_FAILED, EXIT_LOCKED, EXIT_NOT_FOUND, EXIT_USAGE, ValidationError } from '../errors.ts';
 import { displayPath } from '../io.ts';
 import type { CliIo } from '../io.ts';
@@ -71,38 +72,39 @@ export function hasJson(values: ParsedValues): boolean {
 export function failureError(io: CliIo, failure: Failure, options: { field?: string; deleted?: boolean } = {}): CliError {
   switch (failure.kind) {
     case 'notFound': {
-      const where = options.deleted ? `in Recently Deleted in ${failure.vault}` : `in ${failure.vault}`;
+      const vaultName = printable(failure.vault);
+      const where = options.deleted ? `in Recently Deleted in ${vaultName}` : `in ${vaultName}`;
       const see = options.deleted ? 'psss list --deleted' : 'psss list';
       if (failure.what === 'group') {
-        return new CliError(`There is no group called "${failure.name}" in ${failure.vault}.`, EXIT_NOT_FOUND);
+        return new CliError(`There is no group called "${printable(failure.name)}" in ${failure.vault}.`, EXIT_NOT_FOUND);
       }
       if (failure.what === 'field') {
         const fields = failure.fields ?? [];
-        const has = fields.length > 0 ? `It has: ${fields.join(', ')}.` : 'It has no fields of that kind.';
-        return new CliError(`"${failure.item ?? 'That item'}" has no field called "${failure.name}".\n${has}`, EXIT_NOT_FOUND);
+        const has = fields.length > 0 ? `It has: ${fields.map((f) => printable(f)).join(', ')}.` : 'It has no fields of that kind.';
+        return new CliError(`"${failure.item === undefined ? 'That item' : printable(failure.item)}" has no field called "${printable(failure.name)}".\n${has}`, EXIT_NOT_FOUND);
       }
-      const what = failure.by === 'id' ? `item with the id "${failure.name}"` : `item called "${failure.name}"`;
-      const did = failure.hints && failure.hints.length > 0 ? `\nDid you mean: ${failure.hints.join(', ')}?` : '';
+      const what = failure.by === 'id' ? `item with the id "${printable(failure.name)}"` : `item called "${printable(failure.name)}"`;
+      const did = failure.hints && failure.hints.length > 0 ? `\nDid you mean: ${failure.hints.map((h) => printable(h)).join(', ')}?` : '';
       return new CliError(`There is no ${what} ${where}.${did}\nSee what is there with: ${see}`, EXIT_NOT_FOUND);
     }
     case 'ambiguous': {
       const rows = failure.candidates.map((c) => ({
         ref: formatReference({ item: { id: c.id }, ...(options.field !== undefined ? { field: options.field } : {}) }),
-        title: c.title,
-        username: c.username ?? '',
+        title: printable(c.title),
+        username: printable(c.username ?? ''),
       }));
       const refW = Math.max(...rows.map((r) => r.ref.length)) + 3;
       const titleW = Math.max(...rows.map((r) => r.title.length)) + 3;
       const lines = rows.map((r) => `  ${r.ref.padEnd(refW)}${r.title.padEnd(titleW)}${r.username}`.trimEnd());
       return new CliError(
-        `"${failure.name}" matches ${failure.candidates.length} items in ${failure.vault}. Use one of these:\n${lines.join('\n')}`,
+        `"${printable(failure.name)}" matches ${failure.candidates.length} items in ${failure.vault}. Use one of these:\n${lines.join('\n')}`,
         EXIT_NOT_FOUND,
       );
     }
     case 'locked': {
       const tail = 'Point PSSS_KEY_FILE at your key file, or use the vault\npassword with PSSS_PASSWORD_FILE.';
       const r = failure.reason;
-      const head = `Cannot open the vault "${failure.vault}".`;
+      const head = `Cannot open the vault "${printable(failure.vault)}".`;
       switch (r.why) {
         case 'keyFileMissing':
           return new CliError(`${head}\nThis computer's key file is missing: ${displayPath(io, r.keyFile)}\n${tail}`, EXIT_LOCKED);
@@ -113,6 +115,12 @@ export function failureError(io: CliIo, failure: Failure, options: { field?: str
         case 'locked':
           return new CliError(`${head}\nIt needs its vault password.\nPut it in a file and point PSSS_PASSWORD_FILE at it.`, EXIT_LOCKED);
         case 'noVault': {
+          if (r.unreadable && r.path !== undefined) {
+            return new CliError(
+              `The vault folder ${displayPath(io, r.path)} cannot be read (permission denied).\nCheck who may open that folder, or point PSSS_VAULT at another vault folder.`,
+              EXIT_LOCKED,
+            );
+          }
           const at = r.path === undefined ? '' : ` at ${displayPath(io, r.path)}`;
           return new CliError(
             `There is no vault${at}.\nCreate one with: psss init <name>\nor point PSSS_VAULT at a vault folder.`,
@@ -125,7 +133,7 @@ export function failureError(io: CliIo, failure: Failure, options: { field?: str
     case 'wrongKey': {
       const which = failure.keyFile === undefined ? 'The key you gave' : `The key in ${displayPath(io, failure.keyFile)}`;
       return new CliError(
-        `Cannot open the vault "${failure.vault}".\n${which} does not open it.\nCheck that it is the key for this vault.`,
+        `Cannot open the vault "${printable(failure.vault)}".\n${which} does not open it.\nCheck that it is the key for this vault.`,
         EXIT_LOCKED,
       );
     }
@@ -193,7 +201,7 @@ export function resolveReference(ctx: CommandContext, text: string, kind: Refere
   }
   const group = ctx.settings.group;
   if (ref.group !== undefined && group !== undefined && ref.group.toLowerCase() !== group.toLowerCase()) {
-    throw new ValidationError(`The reference names the group "${ref.group}" but --group (or PSSS_GROUP) says "${group}". Use one of them.`);
+    throw new ValidationError(`The reference names the group "${printable(ref.group)}" but --group (or PSSS_GROUP) says "${printable(group)}". Use one of them.`);
   }
   return { ref, selector: toSelector(ref) };
 }

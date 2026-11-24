@@ -102,7 +102,8 @@ function encodePart(name: string, isTitle: boolean): string {
     else if (ch === '/') out += '%2F';
     else if (ch === '?') out += '%3F';
     else if (ch === '#') out += '%23';
-    else if (/[\u0000-\u001f\u007f]/.test(ch)) out += encodeURIComponent(ch);
+    // control, direction-mark and zero-width characters are written %-encoded so a printed reference cannot reorder or hide text; parsing reads them back unchanged
+    else if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(ch)) out += encodeURIComponent(ch);
     else out += ch;
   }
   if (isTitle && out.startsWith('id:')) out = `id%3A${out.slice(3)}`;

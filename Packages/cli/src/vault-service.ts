@@ -12,6 +12,7 @@
 //
 // Rules kept here: nothing is printed, a value leaves only through `get`, and an error never carries a stack trace or a secret.
 
+import { printable } from './text.ts';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -97,6 +98,28 @@ function vaultsBelow(dir: string): string[] {
   }
 }
 
+/** A folder this account may not list (permission denied), as opposed to one that is missing or empty. */
+function cannotList(dir: string): boolean {
+  try {
+    readdirSync(dir);
+    return false;
+  } catch (e) {
+    return ['EACCES', 'EPERM'].includes((e as NodeJS.ErrnoException).code ?? '');
+  }
+}
+
+/** The place nothing was found at: with `unreadable` set when the folder, or a vault folder in it, exists but cannot be read. */
+function nothingAt(dir: string): { none: string; unreadable?: string } {
+  if (cannotList(dir)) return { none: dir, unreadable: dir };
+  try {
+    const child = readdirSync(dir).filter((n) => n.endsWith('.psss')).map((n) => path.join(dir, n)).find(cannotList);
+    if (child) return { none: dir, unreadable: child };
+  } catch {
+    /* missing: nothing there */
+  }
+  return { none: dir };
+}
+
 function locationLabel(p: string): string {
   if (/[\\/]Mobile Documents[\\/]|[\\/]iCloud/i.test(p)) return 'iCloud Drive';
   if (/[\\/]Dropbox/i.test(p)) return 'Dropbox';
@@ -172,13 +195,13 @@ class RealVaultService implements VaultService {
   }
 
   /** Finds the vault folder the options point at. `none` carries the place that was looked at, for the message. */
-  private locate(): { path: string } | { none: string } | { many: string[]; dir: string } {
+  private locate(): { path: string } | { none: string; unreadable?: string } | { many: string[]; dir: string } {
     const v = this.opts.vault;
     const fromFolder = (dir: string) => {
       const found = vaultsBelow(dir);
       if (found.length === 1) return { path: found[0] };
       if (found.length > 1) return { many: found, dir };
-      return { none: dir };
+      return nothingAt(dir);
     };
     if (v === undefined) return fromFolder(path.join(this.home(), 'Psss'));
     const abs = this.abs(v);
@@ -192,10 +215,10 @@ class RealVaultService implements VaultService {
     }
     if (isDir(abs)) {
       const inside = fromFolder(abs);
-      if ('none' in inside && bare) return { none: path.join(this.home(), 'Psss', v.endsWith('.psss') ? v : `${v}.psss`) };
+      if ('none' in inside && bare) return nothingAt(path.join(this.home(), 'Psss', v.endsWith('.psss') ? v : `${v}.psss`));
       return inside;
     }
-    return { none: bare ? path.join(this.home(), 'Psss', v.endsWith('.psss') ? v : `${v}.psss`) : abs };
+    return nothingAt(bare ? path.join(this.home(), 'Psss', v.endsWith('.psss') ? v : `${v}.psss`) : abs);
   }
 
   // ------------------------------------------------------------------ errors
@@ -224,11 +247,11 @@ class RealVaultService implements VaultService {
           return failed('This computer can read the vault but not change it. Nothing was changed.');
         case 'no_group': {
           const named = /^no writable group named (.*)$/.exec(text);
-          return failed(named ? `This computer cannot add items to a group called "${named[1]}". Nothing was changed.` : 'This computer cannot add items to any group in this vault. Nothing was changed.');
+          return failed(named ? `This computer cannot add items to a group called "${printable(named[1])}". Nothing was changed.` : 'This computer cannot add items to any group in this vault. Nothing was changed.');
         }
         case 'ambiguous_group': {
           const named = /^several groups named (.*)$/.exec(text);
-          return failed(`More than one group is called ${named ? `"${named[1]}"` : 'that'}. Say which one with --group. Nothing was changed.`);
+          return failed(`More than one group is called ${named ? `"${printable(named[1])}"` : 'that'}. Say which one with --group. Nothing was changed.`);
         }
         case 'group_required':
           return failed('There is more than one group in this vault. Say which one with --group. Nothing was changed.');
@@ -340,9 +363,9 @@ class RealVaultService implements VaultService {
   private use(): Vault | Failure {
     if (this.vault) return this.vault;
     const where = this.locate();
-    if ('none' in where) return { ok: false, kind: 'locked', vault: '', reason: { why: 'noVault', path: where.none } };
+    if ('none' in where) return { ok: false, kind: 'locked', vault: '', reason: { why: 'noVault', path: where.unreadable ?? where.none, ...(where.unreadable !== undefined ? { unreadable: true } : {}) } };
     if ('many' in where) {
-      const names = where.many.map(nameOf).join(', ');
+      const names = where.many.map((m) => printable(nameOf(m))).join(', ');
       return failed(`There is more than one vault in ${this.show(where.dir)}: ${names}.\nSay which with --vault <name> or PSSS_VAULT.`);
     }
     this.vaultPath = where.path;
@@ -387,7 +410,7 @@ class RealVaultService implements VaultService {
         `The key file ${this.show(keyFile)} is inside the vault folder ${this.show(folder)}.\nA key beside the vault would travel with it. Choose a key file outside the vault folder, or another place for the vault.`,
       );
     }
-    if (isVaultFolder(folder)) return failed(`A vault named "${name}" already exists at ${folder}. Nothing was changed.`);
+    if (isVaultFolder(folder)) return failed(`A vault named "${printable(name)}" already exists at ${folder}. Nothing was changed.`);
     if (isDir(folder) && readdirSync(folder).some((n) => n !== '.DS_Store')) {
       return failed(`The folder ${folder} is not empty, so no vault was made there. Nothing was changed.`);
     }
@@ -396,7 +419,7 @@ class RealVaultService implements VaultService {
     }
     const stateDir = this.stateFor(name);
     if (existsSync(path.join(stateDir, 'state.json'))) {
-      return failed(`This computer already holds device state for a vault named "${name}" (${stateDir}). Nothing was changed.`);
+      return failed(`This computer already holds device state for a vault named "${printable(name)}" (${stateDir}). Nothing was changed.`);
     }
     try {
       const { vault } = createVault({ name, location: folder, keyFile, stateDir });
@@ -593,7 +616,7 @@ class RealVaultService implements VaultService {
       return await this.setGuarded(v, selector, field, value, options);
     } catch (e) {
       if (e instanceof ValidationError && e.message.startsWith('That value is too large to store')) {
-        throw new ValidationError(`${e.message} The value for "${field}" is ${Buffer.byteLength(value).toLocaleString('en-US')} bytes.`);
+        throw new ValidationError(`${e.message} The value for "${printable(field)}" is ${Buffer.byteLength(value).toLocaleString('en-US')} bytes.`);
       }
       throw e;
     }
@@ -777,7 +800,7 @@ class RealVaultService implements VaultService {
         // heads are remembered per location, and this adapter opens one
         pulled: i === 0 ? pulled : 0,
         pushed: l.wrote,
-        ...(l.failed.length > 0 ? { error: this.scrub(l.failed[0]) } : {}),
+        ...(l.failed.length > 0 ? { error: this.plainReason(l.failed[0]) } : {}),
       }));
       return { ok: true as const, value: { locations: locations.map((l) => (l.error ? { ...l, pulled: 0, pushed: 0 } : l)) } };
     })) as Result<SyncReport>;

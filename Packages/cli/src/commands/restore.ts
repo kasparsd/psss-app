@@ -1,4 +1,5 @@
 import { checkDelivery, deliveryJson } from './delivery.ts';
+import { printable } from '../text.ts';
 import { jsonName } from './kdbx-report.ts';
 import { findItem, hasJson, jsonOption, missingReferenceError, resolveReference } from './command.ts';
 import type { Command } from './command.ts';
@@ -32,7 +33,7 @@ const restore: Command = {
       ctx.json({ item: { id: item.id, title: jsonName(item.title), group: jsonName(item.group) }, restored: true, delivery: deliveryJson(delivery) });
       return 0;
     }
-    ctx.out(`Restored "${item.title}" from Recently Deleted.\n`);
+    ctx.out(`Restored "${printable(item.title)}" from Recently Deleted.\n`);
     return 0;
   },
 };

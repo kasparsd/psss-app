@@ -1,4 +1,5 @@
 import { readSecret } from '../input.ts';
+import { printable } from '../text.ts';
 import { formatReference, shellQuote } from '../reference.ts';
 import { CliError, EXIT_NOT_FOUND } from '../errors.ts';
 import { checkDelivery, deliveryJson } from './delivery.ts';
@@ -33,9 +34,9 @@ const set: Command = {
     if (!create) {
       const found = await svc.find(selector);
       if (!found.ok && found.kind === 'notFound' && found.what === 'item' && found.by !== 'id') {
-        const did = found.hints && found.hints.length > 0 ? `\nDid you mean: ${found.hints.join(', ')}?` : '';
+        const did = found.hints && found.hints.length > 0 ? `\nDid you mean: ${found.hints.map((h) => printable(h)).join(', ')}?` : '';
         const again = `psss set --create ${shellQuote(formatReference(ref))}`;
-        throw new CliError(`There is no item called "${found.name}" in ${vault.name}.${did}\nTo add it as a new item, run: ${again}`, EXIT_NOT_FOUND);
+        throw new CliError(`There is no item called "${printable(found.name)}" in ${vault.name}.${did}\nTo add it as a new item, run: ${again}`, EXIT_NOT_FOUND);
       }
       if (!found.ok) throw failureError(ctx.io, found);
     }
@@ -52,7 +53,7 @@ const set: Command = {
       });
       return 0;
     }
-    let text = `Saved "${done.field}" in ${done.item.title} (${vault.name}).\n`;
+    let text = `Saved "${printable(done.field)}" in ${printable(done.item.title)} (${vault.name}).\n`;
     if (done.itemCreated) text += `There was no item with that title, so it was added (--create).\n`;
     if (done.previousKept) text += 'The earlier value is kept under previous values.\n';
     ctx.out(text);
