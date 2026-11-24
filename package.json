@@ -1,0 +1,17 @@
+{
+  "name": "psss",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Root of the Node 24 packages. Run npm install once; each package keeps its own tests and scripts.",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "Packages/*"
+  ],
+  "scripts": {
+    "test": "npm test --workspaces --if-present",
+    "test:sites": "npm test -w @psss/test-sites",
+    "start:sites": "npm start -w @psss/test-sites -- --seed"
+  }
+}

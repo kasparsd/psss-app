@@ -1,0 +1,14 @@
+{
+  "name": "@psss/test-sites",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Disposable local websites for trying AutoFill: passwords, sign-up, verification codes and passkeys, verified on the server.",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/server.ts",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts"
+  }
+}

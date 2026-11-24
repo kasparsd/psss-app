@@ -6,7 +6,7 @@ Inputs (downloaded by hand, never committed):
   --tranco FILE        the Tranco top-1m CSV, used only on this machine to pick which brands matter
 
 Outputs:
-  App/Assets.xcassets/Brands/<slug>.imageset   one vector SVG per brand, template rendering
+  App/Core/Assets.xcassets/Brands/<slug>.imageset   one vector SVG per brand, template rendering
   App/Core/BrandIcons.swift                    domain -> (slug, hex colour)
 
 A domain maps to a brand when it is listed in OVERRIDES, its name (`paypal` in paypal.com) equals the icon's slug
@@ -71,10 +71,10 @@ def main():
                 break
 
     root = os.path.abspath(args.root)
-    brands = os.path.join(root, "App/Assets.xcassets/Brands")
-    shutil.rmtree(os.path.join(root, "App/Assets.xcassets"), ignore_errors=True)
+    brands = os.path.join(root, "App/Core/Assets.xcassets/Brands")
+    shutil.rmtree(os.path.join(root, "App/Core/Assets.xcassets"), ignore_errors=True)
     os.makedirs(brands)
-    json.dump({"info": {"author": "xcode", "version": 1}}, open(os.path.join(root, "App/Assets.xcassets/Contents.json"), "w"))
+    json.dump({"info": {"author": "xcode", "version": 1}}, open(os.path.join(root, "App/Core/Assets.xcassets/Contents.json"), "w"))
     json.dump({"info": {"author": "xcode", "version": 1}, "properties": {"provides-namespace": False}},
               open(os.path.join(brands, "Contents.json"), "w"))
     for slug in slugs:

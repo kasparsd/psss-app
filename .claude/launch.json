@@ -42,6 +42,16 @@
         "Design/Landing"
       ],
       "port": 8123
+    },
+    {
+      "name": "test-sites",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "--disable-warning=ExperimentalWarning",
+        "Packages/test-sites/src/server.ts",
+        "--seed"
+      ],
+      "port": 8090
     }
   ]
 }

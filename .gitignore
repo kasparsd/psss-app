@@ -12,3 +12,6 @@ Configuration/Local.xcconfig
 
 # Agent worktrees are local scratch checkouts
 /.claude/worktrees/
+
+# Root npm workspace
+/node_modules/
