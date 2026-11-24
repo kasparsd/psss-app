@@ -51,7 +51,7 @@ export function IPhone({ children, tab, onTab, search, pill, tall }: {
 }) {
   const hasBar = tab !== undefined || search !== undefined;
   return (
-    <div className="phone dt">
+    <div className={'phone dt'}>
       <div className={`scr${tall ? ' tall' : ''}`} data-bounds>
         <CopyHost initial={pill} className={hasBar ? 'above-tabbar' : ''}>
           <div className="sbar"><span>9:41</span><span>●●● 100%</span></div>

@@ -25,6 +25,8 @@ export function FieldRow({ label, value, secret, mask = DOTS, shown: shown0 = fa
   const [shown, setShown] = useState(shown0);
   const [copied, setCopied] = useState(copied0);
   const notify = useCopied();
+  // The whole row copies; the eye stays its own target.
+  const tap = !noCopy;
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
@@ -37,17 +39,17 @@ export function FieldRow({ label, value, secret, mask = DOTS, shown: shown0 = fa
   const lower = label.toLowerCase();
 
   return (
-    <div className="frow">
+    <div className={`frow${tap ? ' tap' : ''}${tap && copied ? ' down' : ''}`} onClick={tap ? copy : undefined}>
       <div className="fbody">
         <div className="s">{label}</div>
         <div className="vrow">
           {display ?? (
-            <span className={`fval${secret && shown ? ' revealed' : ''}`} key={shown ? 'v' : 'm'}>
+            <span className={`fval${secret && shown ? ' revealed mono' : ''}`} key={shown ? 'v' : 'm'}>
               {secret && !shown ? mask : value}
             </span>
           )}
           {secret && !display && (
-            <button className="eye" onClick={() => setShown(!shown)} aria-label={`${shown ? 'Hide' : 'Show'} ${lower}`} data-tip={`${shown ? 'Hide' : 'Show'} ${lower}`}>
+            <button className="eye" onClick={(e) => { e.stopPropagation(); setShown(!shown); }} aria-label={`${shown ? 'Hide' : 'Show'} ${lower}`} data-tip={`${shown ? 'Hide' : 'Show'} ${lower}`}>
               {shown ? <EyeOffIcon /> : <EyeIcon />}
             </button>
           )}
@@ -55,7 +57,7 @@ export function FieldRow({ label, value, secret, mask = DOTS, shown: shown0 = fa
         {action && <div className="fact">{action}</div>}
       </div>
       {!noCopy && (
-        <button className={`cp${copied ? ' done' : ''}`} onClick={copy} aria-label={`Copy ${lower}`} data-tip={`Copy ${lower}`}>
+        <button className={`cp${copied ? ' done' : ''}`} onClick={(e) => { e.stopPropagation(); copy(); }} aria-label={`Copy ${lower}`} data-tip={`Copy ${lower}`}>
           {copied ? <CheckIcon /> : <CopyIcon />}
         </button>
       )}
@@ -64,11 +66,13 @@ export function FieldRow({ label, value, secret, mask = DOTS, shown: shown0 = fa
 }
 
 /** A field in the editor: label above an input, an optional action on the right of the input. */
-export function EditRow({ label, value, placeholder, secret, action, below, info }: {
+export function EditRow({ label, value, placeholder, secret, mono, action, below, info }: {
   label: string;
   value?: string;
   placeholder?: string;
   secret?: boolean;
+  /** A secret value is written in the monospaced face, so 1, l and I can be told apart. */
+  mono?: boolean;
   action?: ReactNode;
   below?: ReactNode;
   info?: ReactNode;
@@ -78,7 +82,7 @@ export function EditRow({ label, value, placeholder, secret, action, below, info
       <div className="fbody">
         <div className="s">{label}{info}</div>
         <div className="efield">
-          <input defaultValue={secret && value ? DOTS : value} placeholder={placeholder} aria-label={label} />
+          <input className={secret || mono ? 'mono' : undefined} defaultValue={secret && value ? DOTS : value} placeholder={placeholder} aria-label={label} />
           {action}
         </div>
         {below && <div className="fact">{below}</div>}

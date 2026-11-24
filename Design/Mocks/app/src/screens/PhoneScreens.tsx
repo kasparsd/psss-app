@@ -1,9 +1,12 @@
-import type { ReactNode } from 'react';
-import { byId, cardItems } from '../data';
-import { BackIcon, ClockIcon, GearIcon, StarIcon } from '../icons';
+import { useState, type ReactNode } from 'react';
+import { byId, cardItems, codeItems, items } from '../data';
+import { BackIcon, GearIcon } from '../icons';
 import { ItemCard } from '../components/ItemCard';
-import { Chevron, CodeRow, CodesCountdown, EmptyState, ListRow } from '../components/Rows';
+import { Chevron, CodePill, CodeRow, EmptyState, ListHead, ListRow } from '../components/Rows';
+import { FilterMenu } from '../components/FilterMenu';
+import { SortMenu } from '../components/SortMenu';
 import { IPhone } from '../components/devices';
+import { allHeading, allSections, featLine, listOne, typeNames, withRecent, type Feat, type SortKey, type TypeKey } from '../listing';
 
 /** Top bar: Setup at the leading end on the All tab, labelled actions at the trailing end. */
 export function Nav({ left, mid, right }: { left?: ReactNode; mid?: ReactNode; right?: ReactNode }) {
@@ -15,49 +18,89 @@ export function Nav({ left, mid, right }: { left?: ReactNode; mid?: ReactNode; r
     </div>
   );
 }
-const Setup = () => <button className="ibtn flat" aria-label="Setup" data-tip="Setup"><GearIcon /></button>;
 const Add = () => <button className="btn">+ Add</button>;
 const Title = ({ children }: { children: ReactNode }) => <div className="lt"><div className="t">{children}</div></div>;
 
-type Pill = 'Recent' | 'Most used' | 'All' | 'Logins' | 'Notes';
-const pillRow: Pill[] = ['Recent', 'Most used', 'All', 'Logins', 'Notes'];
+const sortLine: Record<SortKey, string> = { used: '', most: 'most used first', changed: 'recently changed first', name: 'by name' };
+const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 
-export function Pills({ on }: { on: Pill }) {
+/**
+ * The All tab: Setup at the top left; Sort, Filter and + Add at the top
+ * right. The title says what is listed, the line under it what else is in
+ * force. In the default order a Recently used group leads. Clickable.
+ */
+export function PhoneAll({ type = 'all', feats = [], sort = 'used', menuOpen, sortOpen }: {
+  type?: TypeKey;
+  feats?: Feat[];
+  sort?: SortKey;
+  /** Draw the Filter or Sort menu already open. */
+  menuOpen?: boolean;
+  sortOpen?: boolean;
+}) {
+  const [choice, setChoice] = useState({ type, feats, sort });
+  const { recent, main } = allSections(items, choice.type, choice.feats, choice.sort);
+  const line = featLine(choice.feats, choice.type);
+  const what = `${choice.type === 'all' ? 'items' : choice.type === 'custom' ? 'custom items' : typeNames[choice.type].toLowerCase()}${line ? ` ${line.toLowerCase()}` : ''}`;
   return (
-    <div className="pills">
-      {pillRow.map((p) => (
-        <span key={p} className={`pill${p === on ? ' on' : ''}`}>
-          {p === 'Recent' && <ClockIcon />}
-          {p === 'Most used' && <StarIcon />}
-          {p}
-        </span>
-      ))}
-    </div>
+    <IPhone tab="all">
+      <Nav
+        left={<button className="ibtn flat" aria-label="Setup" data-tip="Setup"><GearIcon /></button>}
+        right={
+          <span className="navend">
+            <SortMenu value={choice.sort} onChange={(k) => setChoice({ ...choice, sort: k })} open={sortOpen} />
+            <FilterMenu value={choice} onChange={(v) => setChoice({ ...choice, ...v })} open={menuOpen} />
+            <Add />
+          </span>
+        }
+      />
+      <div className="lt">
+        <div className="t">{typeNames[choice.type]} <span className="s" style={{ fontWeight: 400 }}>· {main.length} item{main.length === 1 ? '' : 's'}</span></div>
+        {(line || sortLine[choice.sort]) && <div className="s">{cap([line, sortLine[choice.sort]].filter(Boolean).join(', '))}</div>}
+      </div>
+      {main.length === 0 ? (
+        <div className="empty" style={{ paddingBottom: 110 }}>
+          <div className="t">No {what}</div>
+          <button className="btn pri" onClick={() => setChoice({ ...choice, type: 'all', feats: [] })}>Show All Items</button>
+        </div>
+      ) : (
+        <div className="pbody tabpad">
+          {recent.length > 0 && (
+            <>
+              <ListHead>Recently used</ListHead>
+              <div className="grp">{recent.map((it) => <ListRow key={it.id} item={it} trailing={<Chevron />} />)}</div>
+              <ListHead>{allHeading(choice.type)}</ListHead>
+            </>
+          )}
+          <div className="grp">{main.map((it) => <ListRow key={it.id} item={it} trailing={<Chevron />} />)}</div>
+        </div>
+      )}
+    </IPhone>
   );
 }
 
-/** All tab: today's list and pills, with the new bar. The Codes and Cards pills are gone: they are tabs. */
-export function PhoneAll({ search, on = 'Recent', ids = [1, 2, 10, 3, 6], codes }: { search?: string; on?: Pill; ids?: number[]; codes?: boolean }) {
+/** Search tab: results from the whole vault in the order chosen for All, the field above the keyboard. */
+export function PhoneSearch({ text = 'g', sort = 'name' }: { text?: string; sort?: SortKey }) {
+  const word = text.toLowerCase();
+  const found = listOne(items, 'all', [], sort).filter((i) => `${i.name} ${i.account}`.toLowerCase().includes(word));
   return (
-    <IPhone tab="all" search={search}>
-      {search === undefined && <Nav left={<Setup />} right={<Add />} />}
-      <Title>{on}</Title>
-      <Pills on={on} />
-      <div className="pbody">
+    <IPhone search={text}>
+      <div className="lt">
+        <div className="t">Results <span className="s" style={{ fontWeight: 400 }}>· {found.length} item{found.length === 1 ? '' : 's'}</span></div>
+      </div>
+      <div className="pbody tabpad">
         <div className="grp">
-          {ids.map((id) => {
-            const it = byId(id);
-            return <ListRow key={id} item={it} trailing={codes && it.code ? <span className="codepill" style={{ cursor: 'default' }}>{it.code}</span> : <Chevron />} />;
-          })}
+          {found.map((it) => (it.code
+            ? <ListRow key={it.id} item={it} traits="passkey" trailing={<CodePill code={it.code} />} />
+            : <ListRow key={it.id} item={it} trailing={<Chevron />} />))}
         </div>
       </div>
     </IPhone>
   );
 }
 
-export type CodesVariant = 'normal' | 'copied' | 'last5' | 'empty' | 'broken' | 'bubble';
+export type CodesVariant = 'normal' | 'copied' | 'empty' | 'broken';
 
-/** Codes tab: every login with a code, live. */
+/** Codes tab: every login with a code, live. A Recently used group leads when the list is long enough. */
 export function PhoneCodes({ variant = 'normal' }: { variant?: CodesVariant }) {
   if (variant === 'empty') {
     return (
@@ -67,29 +110,24 @@ export function PhoneCodes({ variant = 'normal' }: { variant?: CodesVariant }) {
       </IPhone>
     );
   }
-  const seconds = variant === 'last5' ? 4 : variant === 'copied' ? 17 : 18;
-  const recent = [byId(1), byId(5)];
-  const rest = variant === 'broken'
-    ? [byId(4), byId(14), byId(5)]
-    : variant === 'last5'
-      ? [byId(4), byId(13)]
-      : [byId(4), byId(1), byId(5)];
+  // The "broken" frame lists a short vault (one code that cannot be made), so it has no group.
+  const list = (variant === 'broken' ? codeItems.filter((i) => i.id === 4 || i.id === 14 || i.id === 5) : codeItems).slice().sort((a, b) => a.name.localeCompare(b.name));
+  const { recent } = withRecent(list);
   return (
     <IPhone tab="codes">
       <Title>Codes</Title>
-      <CodesCountdown seconds={seconds} bubble={variant === 'bubble'} />
       <div className="pbody tabpad">
-        {variant !== 'broken' && (
+        {recent.length > 0 && (
           <>
-            <div className="sec" style={{ padding: '2px 4px 6px' }}>Recently copied</div>
+            <ListHead>Recently used</ListHead>
             <div className="grp">
               {recent.map((it) => <CodeRow key={it.id} item={it} copied={variant === 'copied' && it.id === 1} />)}
             </div>
+            <ListHead>All codes</ListHead>
           </>
         )}
-        {recent.length > 0 && <div className="sec" style={{ padding: '2px 4px 6px' }}>All codes</div>}
         <div className="grp">
-          {rest.map((it) => <CodeRow key={it.id} item={it} />)}
+          {list.map((it) => <CodeRow key={it.id} item={it} />)}
         </div>
         <div className="hint">Tap a code to copy it. Tap the name to open the login.</div>
       </div>
@@ -97,9 +135,13 @@ export function PhoneCodes({ variant = 'normal' }: { variant?: CodesVariant }) {
   );
 }
 
-export type CardsVariant = 'normal' | 'expired' | 'empty';
+export type CardsVariant = 'normal' | 'expired' | 'empty' | 'short';
 
-/** Cards tab: one row per card to scan; a tap opens the card's page, as everywhere else. */
+/**
+ * Cards tab: one row per card to scan; a tap opens the card's page. A Recently
+ * used group leads when there are more than five cards; `short` draws a vault
+ * with four, which has none. Expired cards come last.
+ */
 export function PhoneCards({ variant = 'normal' }: { variant?: CardsVariant }) {
   if (variant === 'empty') {
     return (
@@ -110,22 +152,27 @@ export function PhoneCards({ variant = 'normal' }: { variant?: CardsVariant }) {
       </IPhone>
     );
   }
-  const live = cardItems.filter((c) => !c.expired);
+  const az = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
+  const live = (variant === 'short' ? cardItems.filter((c) => c.id <= 9) : cardItems).filter((c) => !c.expired).sort(az);
   const expired = cardItems.filter((c) => c.expired);
+  const { recent } = withRecent(live);
   return (
     <IPhone tab="cards">
       <Nav right={<Add />} />
       <Title>Cards</Title>
       <div className="pbody tabpad">
-        <div className="grp">
-          {live.map((c) => <ListRow key={c.id} item={c} trailing={<Chevron />} />)}
-        </div>
-        {variant === 'expired' && (
+        {recent.length > 0 && (
           <>
-            <div className="sec" style={{ padding: '2px 4px 6px' }}>Expired</div>
-            <div className="grp">
-              {expired.map((c) => <ListRow key={c.id} item={c} trailing={<Chevron />} />)}
-            </div>
+            <ListHead>Recently used</ListHead>
+            <div className="grp">{recent.map((c) => <ListRow key={c.id} item={c} trailing={<Chevron />} />)}</div>
+            <ListHead>All cards</ListHead>
+          </>
+        )}
+        <div className="grp">{live.map((c) => <ListRow key={c.id} item={c} trailing={<Chevron />} />)}</div>
+        {variant !== 'normal' && (
+          <>
+            <ListHead>Expired</ListHead>
+            <div className="grp">{expired.map((c) => <ListRow key={c.id} item={c} trailing={<Chevron />} />)}</div>
           </>
         )}
       </div>
@@ -133,8 +180,17 @@ export function PhoneCards({ variant = 'normal' }: { variant?: CardsVariant }) {
   );
 }
 
-/** An item page, or its editor. The editor has no tab bar. */
-export function PhoneItem({ id = 1, mode = 'view', shown, copied, pill, from = 'all' }: { id?: number; mode?: 'view' | 'edit'; shown?: string[]; copied?: string; pill?: string; from?: 'all' | 'cards' }) {
+/** An item page, or its editor. `whole` draws the page as tall as its content, without a tab bar. */
+export function PhoneItem({ id = 1, mode = 'view', shown, copied, pill, from = 'all', whole, bubble }: {
+  id?: number;
+  mode?: 'view' | 'edit';
+  shown?: string[];
+  copied?: string;
+  pill?: string;
+  from?: 'all' | 'cards';
+  whole?: boolean;
+  bubble?: boolean;
+}) {
   const item = byId(id);
   if (mode === 'edit') {
     return (
@@ -146,36 +202,25 @@ export function PhoneItem({ id = 1, mode = 'view', shown, copied, pill, from = '
       </IPhone>
     );
   }
+  const back = (
+    <button className="btn plain" style={{ paddingLeft: 0 }}><span style={{ display: 'inline-flex', width: 14, height: 14 }}><BackIcon /></span>{from === 'cards' ? 'Cards' : 'All'}</button>
+  );
+  if (whole) {
+    return (
+      <IPhone tall>
+        <Nav left={back} right={<button className="btn">Edit</button>} />
+        <div className="pbody" style={{ overflow: 'visible' }}>
+          <ItemCard item={item} shown={shown} copied={copied} bubble={bubble} />
+        </div>
+      </IPhone>
+    );
+  }
   return (
     <IPhone tab={from} pill={pill}>
-      <Nav
-        left={<button className="btn plain" style={{ paddingLeft: 0 }}><span style={{ display: 'inline-flex', width: 14, height: 14 }}><BackIcon /></span>{from === 'cards' ? 'Cards' : 'All'}</button>}
-        right={<button className="btn">Edit</button>}
-      />
+      <Nav left={back} right={<button className="btn">Edit</button>} />
       <div className="pbody tabpad" style={{ overflow: 'auto' }}>
-        <ItemCard item={item} shown={shown} copied={copied} />
+        <ItemCard item={item} shown={shown} copied={copied} bubble={bubble} />
       </div>
     </IPhone>
   );
 }
-
-/** Search tab: the All screen with its pills, the field above the keyboard. */
-export function PhoneSearch({ text = 'g', pill = 'All' as Pill }: { text?: string; pill?: Pill }) {
-  const narrowed = pill === 'Logins';
-  const ids = narrowed ? [1, 10] : [1, 10, 3];
-  return (
-    <IPhone tab="all" search={text}>
-      <Title>{pill}</Title>
-      <Pills on={pill} />
-      <div className="pbody">
-        <div className="grp">
-          {ids.map((id) => {
-            const it = id === 10 ? { ...byId(10), name: 'Gitforge work', account: 's.r@company.example' } : id === 3 ? { ...byId(3), name: 'Garage door' } : byId(id);
-            return <ListRow key={id} item={it} trailing={it.code ? <span className="codepill" style={{ cursor: 'default' }}>{it.code}</span> : <Chevron />} />;
-          })}
-        </div>
-      </div>
-    </IPhone>
-  );
-}
-

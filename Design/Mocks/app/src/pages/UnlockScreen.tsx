@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Against, Approved, Clarity, Decisions, Frame, Frames, Page, Section } from '../components/page';
+import { Against, Approved, Clarity, Decisions, Frame, Frames, History, Page, Section } from '../components/page';
 import { IPad, IPhone, MacWindow } from '../components/devices';
 
 type Bio = 'touch' | 'face' | 'none';
@@ -72,10 +72,10 @@ export function UnlockScreen() {
   return (
     <Page
       title="Unlock screen"
-      status={<><Approved />. Not built yet. Replaces the current password-first lock screen on every device.</>}
+      status={<><Approved on="2026-11-23" /> One lock screen on every device, as in Apple Passwords.</>}
     >
       <Clarity
-        intro={<p>Today the lock screen opens with a password field, an Unlock button, a key file row, a paragraph of help and two buttons, and on Mac it asks for Touch ID in a system dialog. Apple Passwords shows one calm screen: its icon with a Touch ID glyph, one line, and “Use Password…”. Touching the sensor while the window is in front unlocks it, with no dialog.</p>}
+        intro={<p>One calm screen, as Apple Passwords shows it: the app icon with a Touch ID or Face ID glyph, one line, and “Use Password…”. On Mac, touching the sensor while the window is in front unlocks it, with no dialog.</p>}
         items={[
           ['Which thing?', 'The vault named in the line (“Personal”). Psss stays locked until it is opened.'],
           ['What must they give?', 'A finger on Touch ID or a glance for Face ID. The vault password works at any time through “Use Password…”.'],
@@ -95,10 +95,10 @@ export function UnlockScreen() {
         <Frame label="C. Window not in front" caption="macOS only lets the sensor answer the app in front. When the window loses focus, Psss stops listening and dims the glyph; when it comes back, listening starts again by itself.">
           <MacWindow><div className="lk-win"><Lock bio="touch" state="inactive" /></div></MacWindow>
         </Frame>
-        <Frame label="D. Not recognised" caption="After the system's failed attempts the password form opens with a plain line. Touch ID listens again when the window is next brought forward. Other problems (turned off, changed elsewhere, vault file missing) use today's messages in this same spot.">
+        <Frame label="D. Not recognised" caption="After the system's failed attempts the password form opens with a plain line. Touch ID listens again when the window is next brought forward. Other problems (turned off, changed elsewhere, vault file missing) have their own messages, shown in this same spot.">
           <MacWindow><div className="lk-win"><Lock bio="touch" state="failed" /></div></MacWindow>
         </Frame>
-        <Frame label="E. Touch ID not turned on" caption="No glyph. The password form shows straight away with the field focused, as today.">
+        <Frame label="E. Touch ID not turned on" caption="No glyph. The password form shows straight away with the field focused.">
           <MacWindow><div className="lk-win"><Lock bio="none" state="ready" /></div></MacWindow>
         </Frame>
       </Frames>
@@ -121,7 +121,7 @@ export function UnlockScreen() {
         items={[
           {
             decision: <>One calm lock screen on every device: icon with the biometric glyph, “Psss Is Locked”, one line naming the vault, and “Use Password…”.</>,
-            rejected: <>today's password-first screen with the help paragraph always shown; the system Touch ID dialog on Mac.</>,
+            rejected: <>a password-first screen with the help paragraph always shown; the system Touch ID dialog on Mac.</>,
             why: <>Most unlocks are a finger or a face. The password form is one click away and still always works, and help is behind labelled buttons, not hidden.</>,
           },
           {
@@ -141,8 +141,14 @@ export function UnlockScreen() {
         ]}
       />
       <Against>
-        <li>None for the layout: it follows Passwords and standard controls. The embedded Touch ID view on Mac needs a short probe first: that the sensor answers without a dialog while the window is in front, and that the same unlock can read the saved key from the Keychain without a second prompt. If either fails, the fallback is today's system dialog, shown automatically when the window comes to the front.</li>
+        <li>None for the layout: it follows Passwords and standard controls. The Mac decision rests on two conditions: that the embedded Touch ID view answers without a dialog while the window is in front, and that the same unlock can read the saved key from the Keychain without a second prompt. If either fails, the fallback is the system Touch ID dialog, shown automatically when the window comes to the front.</li>
       </Against>
+
+      <History
+        entries={[
+          { date: '2026-11-23', text: <>Approved as drawn. It replaced a password-first lock screen that opened with a password field, an Unlock button, a key file row, a paragraph of help and two buttons, and that asked for Touch ID in a system dialog on Mac. The password form is now one click away and still always works, and help sits behind two labelled buttons. The line says “vault password” and names the vault, because “your password” reads as the Mac login or Apple Account password.</> },
+        ]}
+      />
     </Page>
   );
 }

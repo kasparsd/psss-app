@@ -10,15 +10,15 @@ export interface HelpTopic {
 
 /** The reviewed topics. One source, so every frame says the same thing. */
 export const topics = {
-  codes: {
-    title: 'Verification codes',
-    text: 'Each code works for 30 seconds. Most sites also accept the code just before, so one that has just changed usually still works.',
-    link: 'Which sites offer two-step verification',
-  },
   setupKey: {
     title: 'Setup key',
     text: 'When you turn on two-step verification, a site shows a QR code or a setup key. Psss turns it into the six-digit codes, so you do not need a separate app. Keep it secret: anyone who has it can make your codes.',
     link: 'How to add a code',
+  },
+  passkey: {
+    title: 'Passkey',
+    text: 'A sign-in without a password that only works on the real site.',
+    link: 'About passkeys',
   },
   clipboard: {
     title: 'Copies leave the clipboard',

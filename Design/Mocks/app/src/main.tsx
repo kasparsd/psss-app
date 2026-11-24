@@ -5,7 +5,14 @@ import { Home } from './pages/Home';
 import { pages } from './registry';
 import { PageMenu } from './components/PageMenu';
 
-const aliases: Record<string, string> = { places: 'tabs-on-mac-and-ipad' };
+/** Slugs that moved, so old links and the static redirect pages keep working. */
+const aliases: Record<string, string> = {
+  'tab-bar-and-codes': 'places',
+  'tabs-on-mac-and-ipad': 'places',
+  'one-list': 'filter-and-sort',
+  'rows-filter-sort': 'list-rows',
+  'toolbar-and-edit': 'item-page',
+};
 
 /** A small hash router: `#/slug`. Works from file:// with no server. */
 function currentSlug(): string {

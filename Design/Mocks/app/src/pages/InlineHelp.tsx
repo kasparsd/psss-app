@@ -1,9 +1,9 @@
-import { Against, Approved, ChangeNote, Clarity, Decisions, Frame, Frames, Page, Section } from '../components/page';
+import { Against, Approved, Clarity, Decisions, Frame, Frames, History, Page, Section } from '../components/page';
 import { DeviceProvider, DeviceView, PageDeviceSwitch } from '../components/DeviceSwitcher';
 import { EditRow } from '../components/FieldRow';
 import { InfoButton, topics } from '../components/InfoButton';
 import { IPhone } from '../components/devices';
-import { PhoneCodes, Nav } from '../screens/PhoneScreens';
+import { Nav, PhoneItem } from '../screens/PhoneScreens';
 import { renderDevice } from '../screens/render';
 
 /** A new login's editor with the setup key bubble open. */
@@ -20,6 +20,7 @@ function EditorWithBubble() {
             label="Verification code (optional)"
             info={<InfoButton topic={topics.setupKey} open />}
             placeholder="Setup key"
+            mono
             action={<button className="btn sq acc">Add code</button>}
           />
         </div>
@@ -31,7 +32,7 @@ function EditorWithBubble() {
 export function InlineHelp() {
   return (
     <DeviceProvider>
-      <Page title="Inline help" status={<><Approved /> as drawn. Being built.</>}>
+      <Page title="Inline help" status={<><Approved on="2026-11-23" /> The countdown bubble was removed on 2026-11-24 with the countdown line it explained.</>}>
         <div className="prose">
           <p>A small labeled info button next to a word or a line that a newcomer might not understand. Tapping or clicking it opens a short bubble with a title, two or three sentences and, where useful, one link to read more on the web. The screen itself stays short; the explanation is one tap away and never moves anything.</p>
         </div>
@@ -42,19 +43,14 @@ export function InlineHelp() {
             ['How do they leave?', 'Tap anywhere outside the bubble, press Escape on Mac, or follow the link.'],
           ]}
         />
-        <ChangeNote>
-          The bubble is one component with its text in one place (<code>InfoButton.tsx</code>, “topics”), and the three frames below open it for real: press the info buttons. The link is leading-aligned in the accent colour, as built. The Mac and iPad frame is the Toolbar and Edit layout, with an iPhone option.
-        </ChangeNote>
+        <p className="prose muted">The bubble is one component with its text in one place, and the frames below open it for real: press the info buttons.</p>
 
         <Section title="1. iPhone" />
         <Frames>
-          <Frame phone label="A. Codes, short countdown" caption="The countdown line is short again: “New codes in 18 s”, with the info button after it. Nothing on the line changes size, so the list never moves. Press the info button.">
-            <PhoneCodes />
+          <Frame phone label="A. The clipboard line" caption="The line under the first group of an item page says copies are cleared after 60 seconds, with the info button after it. Pressing the button opens a popover anchored to it: a title and the explanation. Nothing on the page moves, and tapping outside closes it.">
+            <PhoneItem id={1} whole bubble />
           </Frame>
-          <Frame phone label="B. The bubble open" caption="A popover anchored to the button: a title, the explanation and one link marked ↗, which opens in Safari. Tapping outside closes it.">
-            <PhoneCodes variant="bubble" />
-          </Frame>
-          <Frame phone label="C. In the editor" caption="The same button explains a term in a form: what a setup key is, where it comes from and why it is secret. The field and the Add code button stay as they are.">
+          <Frame phone label="B. In the new-login sheet" caption="The same button explains a term in a form: what a setup key is, where it comes from and why it is secret, with one link marked ↗ that opens in Safari. The field and the Add code button stay as they are.">
             <EditorWithBubble />
           </Frame>
         </Frames>
@@ -63,59 +59,54 @@ export function InlineHelp() {
         <PageDeviceSwitch />
         <div className="frames">
           <DeviceView
-            label="D. Mac, the same bubble"
+            label="C. The same bubble on Mac"
             initial="mac"
             caption={{
-              iphone: 'The iPhone bubble, as in B.',
+              iphone: 'The iPhone bubble, as in A.',
               ipad: 'On iPad the bubble is a standard popover with an arrow; it closes with a tap outside.',
-              mac: 'On Mac and iPad the bubble is a standard popover with an arrow; it closes with Escape or a click outside. The button also shows a tooltip, “About verification codes”, on hover.',
+              mac: 'On Mac and iPad the bubble is a standard popover with an arrow; it closes with Escape or a click outside. The button also shows a tooltip on hover, “About copies leave the clipboard”.',
             }}
-            render={(d) => renderDevice(d, <PhoneCodes variant="bubble" />, { side: 'codes', bubble: true })}
+            render={(d) => renderDevice(d, <PhoneItem id={1} whole bubble />, { side: 'all', sel: 1, bubble: true })}
           />
         </div>
 
-        <Section title="3. Where it would be used first" />
+        <Section title="3. Where it is used first" />
         <div className="prose">
           <table className="cmp">
             <thead><tr><th>Place</th><th>Button next to</th><th>Bubble says</th><th>Link</th></tr></thead>
             <tbody>
-              <tr><td>Codes</td><td>“New codes in 18 s”</td><td>Codes last 30 seconds; most sites accept the one just before.</td><td>Which sites offer two-step verification (2fa.directory)</td></tr>
               <tr><td>Editor, verification code</td><td>“Verification code (optional)”</td><td>What a setup key is, where sites show it, keep it secret.</td><td>How to add a code (Psss help page)</td></tr>
-              <tr><td>Detail, verification code setup</td><td>“Verification code setup”</td><td>Why the setup key and link are here: to move codes to another app.</td><td>None</td></tr>
-              <tr><td>Card editor and Cards</td><td>“Security code”</td><td>The three or four digits on the back (front for American Express); sites ask for it at checkout.</td><td>None</td></tr>
-              <tr><td>Detail, passkeys</td><td>“Passkey”</td><td>A sign-in without a password that only works on the real site.</td><td>About passkeys (Apple Support)</td></tr>
+              <tr><td>Item page, verification code</td><td>“Verification code”</td><td>Why the setup key and link are here: to move codes to another app.</td><td>None</td></tr>
+              <tr><td>Card editor and card page</td><td>“Security code”</td><td>The three or four digits on the back (front for American Express); sites ask for it at checkout.</td><td>None</td></tr>
+              <tr><td>Item page, passkey</td><td>“Passkey”</td><td>A sign-in without a password that only works on the real site.</td><td>About passkeys (Apple Support)</td></tr>
               <tr><td>Recently Deleted</td><td>The title</td><td>Items stay 30 days, then are deleted for good; backups may still hold them.</td><td>None</td></tr>
-              <tr><td>Detail, clipboard line</td><td>“Copies are cleared after 60 seconds”</td><td>Why: other apps can read the clipboard; Universal Clipboard is off for copies from Psss.</td><td>None</td></tr>
+              <tr><td>Item page, clipboard line</td><td>“Copies are cleared after 60 seconds”</td><td>Why: other apps can read the clipboard; Universal Clipboard is off for copies from Psss.</td><td>None</td></tr>
             </tbody>
           </table>
         </div>
 
-        <Section title="4. Decisions to approve" />
+        <Section title="4. Decisions" />
         <Decisions
           items={[
             {
-              decision: <>One shared component: an info button that opens a popover with a title, two or three sentences and at most one link.</>,
+              decision: <><strong>1. One shared component:</strong> an info button that opens a popover with a title, two or three sentences and at most one link.</>,
               rejected: <>text that expands in place; a sheet; Apple's TipKit tips.</>,
               why: <>Expanding text moves the layout, a sheet is heavy for two sentences, and TipKit is for one-time hints that go away, while this has to be there whenever someone wonders. TipKit can still be used later for first-run hints.</>,
             },
             {
-              decision: <>The button is the system info symbol, with an accessibility label and a tooltip naming the topic (“About verification codes”).</>,
+              decision: <><strong>2. The button is the system info symbol,</strong> with an accessibility label and a tooltip naming the topic (“About verification codes”).</>,
               why: <>Apple's guidelines allow the info symbol alone; the label and tooltip say what it explains.</>,
             },
             {
-              decision: <>Bubbles explain; they never hold what the person must know to act. Required steps, warnings, errors and the consequences of a destructive action stay on the screen in full.</>,
+              decision: <><strong>3. Bubbles explain; they never hold what the person must know to act.</strong> Required steps, warnings, errors and the consequences of a destructive action stay on the screen in full.</>,
               why: <>Hiding a warning behind a tap is how people miss it. The ui-clarity rules still apply to the screen itself.</>,
             },
             {
-              decision: <>Links only to a reviewed list of https pages, kept in one file in shared code, opened in the default browser. Each shows ↗ and the page's name, not a URL. No tracking parameters, nothing from the vault in the address.</>,
+              decision: <><strong>4. Links only to a reviewed list of https pages,</strong> kept in one file in shared code, opened in the default browser. Each shows ↗ and the page's name, not a URL. No tracking parameters, nothing from the vault in the address.</>,
               why: <>The link is chosen by us and the same for everyone, so it says nothing about the person. Reviewed each release, so a dead or changed page is caught.</>,
             },
             {
-              decision: <>The Codes countdown becomes “New codes in 18 s” plus the button; the sentence about the previous code moves into its bubble.</>,
-              why: <>The owner found the full sentence too long for a line that is always on screen.</>,
-            },
-            {
-              decision: <>Help text lives in one file of topics (title, text, optional link), used by every platform, and listed in Help so it can be read in one place.</>,
+              decision: <><strong>5. Help text lives in one file of topics</strong> (title, text, optional link), used by every platform, and listed in Help so it can be read in one place.</>,
               why: <>One source keeps iPhone, iPad and Mac identical and makes the copy easy to check against the code.</>,
             },
           ]}
@@ -123,6 +114,14 @@ export function InlineHelp() {
         <Against>
           <li>None. Info buttons with popovers are standard on iPhone, iPad and Mac. On iPhone the popover is kept as a bubble rather than turning into a sheet, as Apple allows for short content.</li>
         </Against>
+
+        <History
+          entries={[
+            { date: '2026-11-24', text: <>The Codes countdown bubble was removed. The countdown line it explained had already left the Codes list (see <a href="#/places">Places</a>), so the sentence about the previous code no longer has a home. The frames that drew it are gone.</> },
+            { date: '2026-11-23', text: <>The Codes countdown line was shortened to “New codes in 18 s” with an info button, and the sentence that most sites also accept the previous code moved into the bubble, because the owner found the full sentence too long for a line that is always on screen. The line itself was removed later the same day.</> },
+            { date: '2026-11-23', text: <>The page was approved as drawn: one shared popover component, with text that expands in place, a sheet and TipKit rejected.</> },
+          ]}
+        />
       </Page>
     </DeviceProvider>
   );

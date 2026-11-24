@@ -43,7 +43,7 @@ export const items: Item[] = [
     id: 1, name: 'Gitforge', account: 'sam.r', kind: 'login', color: 1, code: '482 913', passkey: true, recent: true, uses: 42,
     fields: [
       { label: 'Username', value: 'sam.r' },
-      { label: 'Password', value: 'harbor-lantern-quiet-orbit-7', secret: true },
+      { label: 'Password', value: 'harbor-Il1-lantern-O0-quiet-7', secret: true },
       { label: 'Website', value: 'gitforge.example' },
       { label: 'Notes', value: 'Team account. Billing contact is the finance mailbox.' },
     ],
@@ -79,7 +79,7 @@ export const items: Item[] = [
   {
     id: 6, name: 'Everyday Visa', account: 'Visa •• 4417 · 08/28', kind: 'card', color: 2, recent: true, uses: 18, last4: '4417', brand: 'Visa',
     fields: [
-      { label: 'Number', value: '4929 1102 7731 4417', secret: true, mask: '•••• 4417' },
+      { label: 'Number', value: '4929 1102 7731 4417', secret: true },
       { label: 'Expiry', value: '08/28' },
       { label: 'Security code', value: '731', secret: true },
       { label: 'Name on card', value: 'Sam Rivera' },
@@ -89,7 +89,7 @@ export const items: Item[] = [
     id: 7, name: 'Travel Mastercard', account: 'Mastercard •• 9052 · 11/27', kind: 'card', color: 3, uses: 9, last4: '9052', brand: 'Mastercard',
     // No security code saved: the row does not exist.
     fields: [
-      { label: 'Number', value: '5412 7500 3318 9052', secret: true, mask: '•••• 9052' },
+      { label: 'Number', value: '5412 7500 3318 9052', secret: true },
       { label: 'Expiry', value: '11/27' },
       { label: 'Name on card', value: 'Sam Rivera' },
     ],
@@ -97,7 +97,7 @@ export const items: Item[] = [
   {
     id: 8, name: 'Business Amex', account: 'Amex •• 3006 · 05/29', kind: 'card', color: 5, uses: 6, last4: '3006', brand: 'American Express',
     fields: [
-      { label: 'Number', value: '3782 822463 13006', secret: true, mask: '•••• 3006' },
+      { label: 'Number', value: '3782 822463 13006', secret: true },
       { label: 'Expiry', value: '05/29' },
       { label: 'Security code', value: '4421', secret: true },
       { label: 'Name on card', value: 'Sam Rivera' },
@@ -106,7 +106,7 @@ export const items: Item[] = [
   {
     id: 9, name: 'Old Visa', account: 'Expired 03/25', kind: 'card', color: 4, uses: 2, last4: '1180', brand: 'Visa', expired: true,
     fields: [
-      { label: 'Number', value: '4716 2209 4410 1180', secret: true, mask: '•••• 1180' },
+      { label: 'Number', value: '4716 2209 4410 1180', secret: true },
       { label: 'Expiry', value: '03/25' },
       { label: 'Security code', value: '208', secret: true },
       { label: 'Name on card', value: 'Sam Rivera' },
@@ -145,6 +145,50 @@ export const items: Item[] = [
     fields: [
       { label: 'Username', value: 'sam.r' },
       { label: 'Password', value: 'quartz-moss-pine-17', secret: true },
+    ],
+  },
+  // More codes and cards, so the lists are long enough to show the Recently used group.
+  {
+    id: 15, name: 'Family Debit', account: 'Visa •• 2290 · 03/29', kind: 'card', color: 6, recent: true, uses: 11, last4: '2290', brand: 'Visa',
+    fields: [
+      { label: 'Number', value: '4485 2031 7764 2290', secret: true },
+      { label: 'Expiry', value: '03/29' },
+      { label: 'Security code', value: '552', secret: true },
+      { label: 'Name on card', value: 'Sam Rivera' },
+    ],
+  },
+  {
+    id: 16, name: 'Fuel Card', account: 'Mastercard •• 6148 · 09/27', kind: 'card', color: 1, recent: true, uses: 7, last4: '6148', brand: 'Mastercard',
+    fields: [
+      { label: 'Number', value: '5290 4417 0083 6148', secret: true },
+      { label: 'Expiry', value: '09/27' },
+      { label: 'Security code', value: '319', secret: true },
+      { label: 'Name on card', value: 'Sam Rivera' },
+    ],
+  },
+  {
+    id: 17, name: 'Savings Visa', account: 'Visa •• 7733 · 12/28', kind: 'card', color: 5, uses: 3, last4: '7733', brand: 'Visa',
+    fields: [
+      { label: 'Number', value: '4024 0071 5520 7733', secret: true },
+      { label: 'Expiry', value: '12/28' },
+      { label: 'Security code', value: '640', secret: true },
+      { label: 'Name on card', value: 'Sam Rivera' },
+    ],
+  },
+  {
+    id: 18, name: 'Taxdesk', account: 'sam.r', kind: 'login', color: 2, code: '627 305', uses: 6,
+    fields: [
+      { label: 'Username', value: 'sam.r' },
+      { label: 'Password', value: 'linen-cobalt-ridge-27', secret: true },
+      { label: 'Website', value: 'taxdesk.example' },
+    ],
+  },
+  {
+    id: 19, name: 'Travelnest', account: 'sam.r', kind: 'login', color: 3, code: '774 021', uses: 2,
+    fields: [
+      { label: 'Username', value: 'sam.r' },
+      { label: 'Password', value: 'amber-plover-cliff-93', secret: true },
+      { label: 'Website', value: 'travelnest.example' },
     ],
   },
 ];

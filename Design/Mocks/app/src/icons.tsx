@@ -43,12 +43,6 @@ export const BackIcon = () => (
 export const CloseIcon = () => (
   <svg {...base} strokeWidth={2}><path d="M6 6l12 12M18 6L6 18" /></svg>
 );
-export const ClockIcon = () => (
-  <svg {...base}><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></svg>
-);
-export const StarIcon = () => (
-  <svg {...base}><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9L3.5 9.7l5.9-.8z" /></svg>
-);
 // Tab glyphs
 export const AllGlyph = () => (
   <svg {...base}><rect x="3.5" y="9" width="13" height="11.5" rx="2.5" /><path d="M7 6h10.5a3 3 0 0 1 3 3v8.5" /></svg>
@@ -58,4 +52,24 @@ export const CodesGlyph = () => (
 );
 export const CardsGlyph = () => (
   <svg {...base}><rect x="3" y="5.5" width="18" height="13" rx="2.5" /><path d="M3 10h18M7 15h4" /></svg>
+);
+// Proposal 2026-11-24: filled glyphs for what a login has, and the sort symbol.
+export const PasskeyGlyph = () => (
+  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+    <circle cx="9" cy="7" r="4" />
+    <path d="M2 20.5c0-3.9 3.1-6.5 7-6.5 1.4 0 2.7.3 3.8.9-.5.9-.8 1.9-.8 3 0 .9.2 1.8.6 2.6z" />
+    <path fillRule="evenodd" d="M18.5 10.5a3.5 3.5 0 0 0-1.25 6.77v4.23l1.25 1.25 1.25-1.25v-1l-.75-.75.75-.75v-1.73a3.5 3.5 0 0 0-1.25-6.77zm0 1.7a.9.9 0 1 1 0 1.8.9.9 0 0 1 0-1.8z" />
+  </svg>
+);
+export const CodeTraitGlyph = () => (
+  <svg viewBox="0 0 24 24" aria-hidden>
+    <path fill="currentColor" fillRule="evenodd" d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm-.9 4.2h1.8v4.3l3 1.7-.9 1.56-3.9-2.2z" />
+  </svg>
+);
+export const SortIcon = () => (
+  <svg {...base} strokeWidth={2}><path d="M8 19V5M8 5L4.5 8.5M8 5l3.5 3.5M16 5v14M16 19l-3.5-3.5M16 19l3.5-3.5" /></svg>
+);
+// Proposal 2026-11-24 (one list): the filter symbol and a plus.
+export const FilterIcon = () => (
+  <svg {...base} strokeWidth={2}><path d="M4 7h16M7 12h10M10 17h4" /></svg>
 );

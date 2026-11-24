@@ -11,11 +11,9 @@ export function Page({ title, status, children }: { title: string; status: React
   );
 }
 
-export const Approved = ({ on = '2026-11-23', children }: { on?: string; children?: ReactNode }) => (
-  <><strong>Approved {on}</strong>{children}</>
-);
-export const Proposed = ({ on = '2026-11-23', children }: { on?: string; children?: ReactNode }) => (
-  <><strong>Proposed {on}</strong>{children}</>
+/** The status line: who approved the current decisions, and when. */
+export const Approved = ({ on = '2026-11-24', children }: { on?: string; children?: ReactNode }) => (
+  <><strong>Approved by the owner, {on}.</strong>{children}</>
 );
 
 /** The clarity bullets: Which thing? / What must they give? / How do they leave? */
@@ -32,14 +30,8 @@ export function Clarity({ items, intro }: { items: [string, ReactNode][]; intro?
   );
 }
 
-export const Prose = ({ children }: { children: ReactNode }) => <div className="prose">{children}</div>;
 export const Section = ({ title, children }: { title: string; children?: ReactNode }) => (
   <><h2>{title}</h2>{children && <div className="prose">{children}</div>}</>
-);
-
-/** What changed on this page compared with the earlier static mock. */
-export const ChangeNote = ({ children, title = "Changed from the static mock." }: { children: ReactNode; title?: string }) => (
-  <div className="note"><strong>{title}</strong> {children}</div>
 );
 
 export const Frames = ({ children }: { children: ReactNode }) => <div className="frames">{children}</div>;
@@ -75,3 +67,25 @@ export function Decisions({ items }: { items: DecisionItem[] }) {
 export const Against = ({ children }: { children: ReactNode }) => (
   <Section title="Against Apple's guidance"><ul>{children}</ul></Section>
 );
+
+export interface HistoryEntry { date: string; text: ReactNode }
+
+/**
+ * The last section of every page: a dated log in words, newest first. What
+ * was tried or changed, what replaced it, why, and who decided. No frames.
+ */
+export function History({ entries }: { entries: HistoryEntry[] }) {
+  return (
+    <>
+      <h2>History</h2>
+      <div className="prose">
+        <p className="muted">Newest first. Within one day the order follows the working log. Nothing here is drawn: the frames above show only what holds today.</p>
+        <ul className="hist">
+          {entries.map((e, i) => (
+            <li key={i}><time dateTime={e.date}>{e.date}</time><span>{e.text}</span></li>
+          ))}
+        </ul>
+      </div>
+    </>
+  );
+}
