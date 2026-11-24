@@ -220,7 +220,6 @@ struct VaultPasswordView: View {
     @State private var working = false
     @State private var problem: String?
     @State private var missing = false
-    @State private var confirmingSwitch = false
     @State private var otherFile: URL?
     @State private var explaining = false
     @State private var lost = false
@@ -329,8 +328,7 @@ struct VaultPasswordView: View {
         .sheet(isPresented: $explaining) { PasswordExplainerSheet() }
         .sheet(isPresented: $lost) {
             LostPasswordSheet(session: session, vaultName: vaultName,
-                              onOpenAnother: { lost = false; openAnother(afterSheet: true) },
-                              onForgotten: { vaultSource = ""; gate.markUnlocked() })
+                              onForgotten: { forgotten() })
         }
         .fileImporter(isPresented: $picking, allowedContentTypes: purpose == .keyFile ? [.data] : [.keePassVault, .data]) { result in
             guard let url = try? result.get() else { return }
@@ -358,12 +356,6 @@ struct VaultPasswordView: View {
         .sheet(item: $otherFile) { url in
             OpenVaultSheet(session: session, file: url) { gate.markUnlocked() }
         }
-        .alert("Leave \(vaultName)?", isPresented: $confirmingSwitch) {
-            Button("Choose a File…") { choose(.otherVault, afterDismissal: true) }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Psss created \(vaultName) and keeps it only on this device. Once you open another vault, this one can't be reopened from here. Export a copy first if you want to keep it.")
-        }
     }
 
     private var content: some View {
@@ -372,6 +364,7 @@ struct VaultPasswordView: View {
                        retry: { startBiometrics(automatic: false) }, context: lockContext)
             statusLine
             messageLine
+            vaultSelector
             if showForm {
                 form
             } else if !working {
@@ -392,18 +385,14 @@ struct VaultPasswordView: View {
         #endif
     }
 
-    /// The one line under the title. Progress takes its place while working, so nothing else moves.
+    /// The one line under the title. Face ID or Touch ID progress takes its place; the password check shows under the field instead.
     @ViewBuilder private var statusLine: some View {
-        if working {
-            if unlockingWithBiometrics {
-                HStack(spacing: 10) {
-                    ProgressView().controlSize(.small)
-                    Text("Opening your vault…")
-                }
-                .accessibilityElement(children: .combine)
-            } else {
-                WorkingNotice(text: "Checking your vault password…")
+        if working && unlockingWithBiometrics {
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text("Opening your vault…")
             }
+            .accessibilityElement(children: .combine)
         } else {
             Text(introLine).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
         }
@@ -438,6 +427,12 @@ struct VaultPasswordView: View {
                 .background(Self.fieldFill, in: RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8)
                     .strokeBorder(focused ? Color.accentColor : Color.secondary.opacity(0.4), lineWidth: focused ? 2 : 1))
+                .opacity(working ? 0.5 : 1)
+            // Under the field, where it was typed. No space is held for it, so the idle screen stays compact.
+            if working && !unlockingWithBiometrics {
+                WorkingNotice(text: "Checking your vault password…")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             keyFileRow
             if missing {
                 Button { choose(.relinkVault) } label: {
@@ -452,14 +447,13 @@ struct VaultPasswordView: View {
                 .disabled(working || (password.isEmpty && keyFile == nil))
                 .keyboardShortcut(.defaultAction)
             }
-            if !working {
-                HStack(spacing: 8) {
-                    Button("What Is This?") { explaining = true }
-                    Button("Forgot Password?") { lost = true }
-                }
-                .buttonStyle(.bordered)
-                .foregroundStyle(.primary)
+            HStack(spacing: 8) {
+                Button("Forgot Password") { lost = true }
+                Button("Help") { explaining = true }
             }
+            .buttonStyle(.bordered)
+            .foregroundStyle(.primary)
+            .disabled(working)
         }
         .onAppear { focused = true }
     }
@@ -517,14 +511,56 @@ struct VaultPasswordView: View {
         }
     }
 
-    private func openAnother(afterSheet: Bool) {
-        if session.reference?.managed == true {
-            // A vault Psss made cannot be reopened from here, so ask first.
-            if afterSheet { Task { @MainActor in try? await Task.sleep(for: .milliseconds(500)); confirmingSwitch = true } }
-            else { confirmingSwitch = true }
-        } else {
-            choose(.otherVault, afterDismissal: afterSheet)
+    /// After the forgotten vault: another remembered vault takes its place on this lock screen, or the welcome screen shows.
+    private func forgotten() {
+        if session.reference == nil { vaultSource = ""; gate.markUnlocked() } else { vaultChanged() }
+    }
+
+    /// The vault this screen opens changed (chosen in the selector, or the previous one was forgotten): start from a clean
+    /// form, say so at once when its file is gone, and ask for Face ID or Touch ID for the new vault.
+    private func vaultChanged() {
+        password = ""; keyFile = nil; keyFileName = nil
+        problem = nil; notRecognised = false; formRequested = false
+        gate.lockNotice = nil
+        missing = session.reference.map { !$0.isReachable } ?? false
+        if missing { problem = String(localized: "“\(vaultName)” can’t be found. Its file has moved or been deleted. Choose another vault above, locate the file, or forget this vault under Forgot Password.") }
+        #if os(macOS)
+        listener.stop()
+        #endif
+        startBiometrics(automatic: true)
+    }
+
+    /// "Unlock Vault:" and a pop-up of every available or remembered vault, with "Open Another Vault…" last. Shown on every lock
+    /// screen, also with one vault, because the last item is the way to a file that is not listed.
+    private var vaultSelector: some View {
+        HStack(spacing: 8) {
+            Text("Unlock Vault:").foregroundStyle(.secondary)
+            Menu {
+                Picker("Vault", selection: Binding(get: { session.reference?.id ?? UUID() },
+                                                   set: { id in session.switchTo(id); vaultChanged() })) {
+                    ForEach(session.knownVaults, id: \.id) { vault in
+                        Self.menuLabel(for: vault).tag(vault.id)
+                    }
+                }
+                .pickerStyle(.inline)
+                Divider()
+                Button("Open Another Vault…") { choose(.otherVault) }
+            } label: {
+                Text(vaultName)
+            }
+            .menuIndicator(.visible)
+            .buttonStyle(.bordered)
+            .foregroundStyle(.primary)
+            .fixedSize()
+            .disabled(working)
+            .accessibilityLabel(Text("Vault: \(vaultName)"))
+            .help("Choose a vault")
         }
+    }
+
+    private static func menuLabel(for vault: VaultReference) -> Text {
+        let note = vault.isReachable ? vault.menuLocation : String(localized: "Not found")
+        return Text("\(vault.name)  \(Text(note).foregroundStyle(.secondary))")
     }
 
     /// Mac and iPhone/iPad entry points. `automatic` is the screen appearing, the window becoming key or the scene becoming
@@ -773,7 +809,6 @@ struct PasswordExplainerSheet: View {
 struct LostPasswordSheet: View {
     let session: VaultSession
     let vaultName: String
-    let onOpenAnother: () -> Void
     let onForgotten: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var confirmsForget = false
@@ -802,10 +837,9 @@ struct LostPasswordSheet: View {
                     Label("An older copy of the vault, on another device or in a backup, may have an older password", systemImage: "doc.on.doc")
                 }
                 Section {
-                    Button("Open Another Vault…") { onOpenAnother() }
                     Button("Forget This Vault…", role: .destructive) { confirmsForget = true }
                 } header: {
-                    Text("Or move on")
+                    Text("Or let go of it")
                 } footer: {
                     Text(managed
                          ? forgetManagedFooter
@@ -813,7 +847,7 @@ struct LostPasswordSheet: View {
                 }
             }
             .formStyle(.grouped)
-            .navigationTitle("Forgot your password?")
+            .navigationTitle("Forgot Password")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .alert("Forget \(vaultName)?", isPresented: $confirmsForget) {
                 Button(managed ? "Delete Vault from This Device" : "Forget Vault", role: .destructive) {

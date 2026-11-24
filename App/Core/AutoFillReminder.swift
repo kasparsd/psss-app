@@ -24,8 +24,8 @@ enum AutoFillReading: Equatable, Sendable {
 /// The device word the copy uses.
 enum AutoFillDevice: Equatable, Sendable { case iPhone, iPad, mac }
 
-/// Whether a vault is open. The reminder shows for any open vault, the sample vault included.
-enum AutoFillVault: Equatable, Sendable { case none, real }
+/// Which vault is open. The reminder belongs to a real vault: the sample vault registers no logins, so nothing can be filled.
+enum AutoFillVault: Equatable, Sendable { case none, sample, real }
 
 /// What this device remembers, per device and never in the vault file: another device must not inherit any of it.
 struct AutoFillMemory: Codable, Equatable, Sendable {
@@ -69,9 +69,18 @@ struct AutoFillMemory: Codable, Equatable, Sendable {
 
 /// What the card and Setup show and do, from what is known now. Pure.
 struct AutoFillReminder: Equatable, Sendable {
+    enum Headline: Equatable, Sendable {
+        /// First time off.
+        case off
+        /// The system prompt was used and AutoFill is still off: the steps are in words.
+        case stillOff
+        /// It was on before and was turned off.
+        case offAgain
+    }
+
     enum Display: Equatable, Sendable {
         case nothing
-        case card
+        case card(Headline)
         case confirmation
     }
 
@@ -104,7 +113,8 @@ struct AutoFillReminder: Equatable, Sendable {
             return confirmationPending ? .confirmation : .nothing
         case .off:
             if memory.isSnoozed(at: now) { return .nothing }
-            return .card
+            if memory.promptUsed { return .card(.stillOff) }
+            return .card(memory.seenOn ? .offAgain : .off)
         case .notRead, .unreadable:
             return .nothing
         }
@@ -145,12 +155,23 @@ struct AutoFillCopy: Equatable, Sendable {
 
     // MARK: Card
 
-    /// One heading and one sentence for every time the card shows (owner, 2026-11-24): first time, after the system prompt, and
-    /// after AutoFill was turned off again. Only the button differs.
-    var title: String { String(localized: "Enable AutoFill") }
+    func title(_ headline: AutoFillReminder.Headline) -> String {
+        switch headline {
+        case .off: String(localized: "AutoFill is off")
+        case .stillOff: String(localized: "AutoFill is still off")
+        case .offAgain: String(localized: "AutoFill is off again")
+        }
+    }
 
-    var body: String {
-        String(localized: "For autocomplete in browsers, enable AutoFill for Psss in \(settingsName) under General › AutoFill & Passwords.")
+    func body(_ headline: AutoFillReminder.Headline) -> String {
+        switch headline {
+        case .off:
+            String(localized: "Psss keeps your logins. Your \(deviceName) fills them in Safari and apps, and it needs your OK once. Until then, nothing fills.")
+        case .stillOff:
+            String(localized: "Nothing fills yet. To turn it on yourself: \(steps).")
+        case .offAgain:
+            String(localized: "AutoFill was turned off in \(settingsName), so Psss cannot fill logins right now.")
+        }
     }
 
     var confirmationTitle: String { String(localized: "AutoFill is on") }

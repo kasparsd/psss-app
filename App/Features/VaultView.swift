@@ -1096,7 +1096,8 @@ struct VaultView: View {
                         VaultIdentities.remove()
                         session.forget()
                         showsSetup = false
-                        vaultSource = ""
+                        // Another remembered vault takes its place on the lock screen; with none left, the welcome screen shows.
+                        if session.reference == nil { vaultSource = "" } else { gate.lock() }
                     }
                     Button("Cancel", role: .cancel) {}
                 } message: {

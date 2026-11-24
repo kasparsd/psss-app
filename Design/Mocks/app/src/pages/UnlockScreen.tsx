@@ -2,9 +2,10 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Against, Approved, Clarity, Decisions, Frame, Frames, History, Page, Section } from '../components/page';
 import { IPad, IPhone, MacWindow } from '../components/devices';
 import { iconU, Mark } from './Logo';
+import { CheckIcon } from '../icons';
 
 type Bio = 'touch' | 'face' | 'none';
-type State = 'ready' | 'password' | 'inactive' | 'failed' | 'working';
+type State = 'ready' | 'password' | 'inactive' | 'failed' | 'working' | 'missing' | 'checking';
 
 /**
  * The app icon with the live biometric glyph on its corner, as Apple Passwords
@@ -41,20 +42,65 @@ const FaceGlyph = () => (
   </svg>
 );
 
+
+type VaultRow = { name: string; where: string; problem?: string };
+const vaults: VaultRow[] = [
+  { name: 'Personal', where: 'iCloud Drive' },
+  { name: 'Family', where: 'iCloud Drive' },
+  { name: 'Work', where: 'On this Mac' },
+  { name: 'Archive', where: 'Documents', problem: 'Not found' },
+];
+
+/**
+ * The vault selector: a standard pop-up button naming the vault that is about to open. Its menu lists every
+ * available or remembered vault (a checkmark on the current one, where it lives in secondary text, a problem
+ * in place of the location) and ends, after a separator, with "Open Another Vault…".
+ */
+function VaultPicker({ current, open: open0, onPick }: { current: string; open?: boolean; onPick: (v: string) => void }) {
+  const [open, setOpen] = useState(open0 ?? false);
+  return (
+    <span className="sortwrap lk-pick">
+      <span className="lk-line" style={{ marginRight: 8 }}>Unlock Vault:</span>
+      <button className="btn sq" aria-haspopup="menu" aria-expanded={open} aria-label={`Vault: ${current}`} data-tip={open ? undefined : 'Choose a vault'} onClick={() => setOpen(!open)}>
+        {current} <span style={{ opacity: 0.6 }}>⌃⌄</span>
+      </button>
+      {open && (
+        <div className="pop lk-menu" role="menu">
+          <div className="ph">Vault</div>
+          {vaults.map((v) => (
+            <button key={v.name} role="menuitemradio" aria-checked={v.name === current} onClick={() => { onPick(v.name); setOpen(false); }}>
+              <span className="chk">{v.name === current && <CheckIcon />}</span>
+              <span>{v.name}</span>
+              <span style={{ marginLeft: 'auto', paddingLeft: 18, color: v.problem ? 'var(--accent)' : 'var(--lab2)' }}>{v.problem ?? v.where}</span>
+            </button>
+          ))}
+          <div className="ph sepd" style={{ padding: 0 }} />
+          <button role="menuitem"><span className="chk" />Open Another Vault…</button>
+        </div>
+      )}
+    </span>
+  );
+}
+
 /** The lock screen body, shared by every device. Click "Use Password…" to see the password state. */
-function Lock({ bio, state: s0, vault = 'Personal', phone }: { bio: Bio; state: State; vault?: string; phone?: boolean }) {
+function Lock({ bio, state: s0, vault: vault0 = 'Personal', phone, menu }: { bio: Bio; state: State; vault?: string; phone?: boolean; menu?: boolean }) {
+  const [vault, setVault] = useState(vault0);
+  const missing = vaults.find((v) => v.name === vault)?.problem !== undefined;
   const initial: State = bio === 'none' && s0 === 'ready' ? 'password' : s0;
+  void missing;
   const [state, setState] = useState<State>(initial);
   // In the app the vault's list replaces this screen. The mock goes back to where it started, so it can be played again.
   useEffect(() => {
-    if (state !== 'working' || initial === 'working') return;
+    if ((state !== 'working' && state !== 'checking') || initial === state) return;
     const t = setTimeout(() => setState(initial), 2200);
     return () => clearTimeout(t);
   }, [state, initial]);
   const name = bio === 'touch' ? 'Touch ID' : 'Face ID';
-  const showPassword = state === 'password' || state === 'failed' || bio === 'none';
+  const isMissing = state === 'missing' || missing;
+  const showPassword = state === 'password' || state === 'failed' || state === 'checking' || bio === 'none' || isMissing;
   let line: ReactNode;
   if (state === 'working') line = 'Opening your vault…';
+  else if (isMissing) line = <>“{vault}” can’t be found. Its file has moved or been deleted. Choose another vault above, locate the file, or forget this vault under Forgot Password.</>;
   else if (bio === 'none') line = <>Enter the vault password to open “{vault}”.</>;
   else if (state === 'inactive') line = <>Click this window, then use {name} or enter the vault password.</>;
   else line = <>{bio === 'touch' ? 'Touch ID' : 'Use Face ID'} or enter the vault password to open “{vault}”.</>;
@@ -66,16 +112,25 @@ function Lock({ bio, state: s0, vault = 'Personal', phone }: { bio: Bio; state: 
       {state === 'failed' && (
         <div className="lk-line">{name} didn't recognise you. Try again, or enter the vault password.</div>
       )}
+      {state !== 'working' && <VaultPicker current={vault} open={menu} onPick={setVault} />}
       {!showPassword && state !== 'working' && (
         <button className="btn sq lk-use" onClick={() => setState('password')}>Use Password…</button>
       )}
       {showPassword && (
         <div className="lk-form">
-          <div className="lk-field">Vault Password</div>
-          <button className="btn pri wide" onClick={() => setState('working')}>Unlock</button>
+          <div className="lk-field" style={state === 'checking' ? { opacity: 0.5, borderColor: 'var(--sep)' } : undefined} aria-disabled={state === 'checking'}>{state === 'checking' ? '••••••••••••' : 'Vault Password'}</div>
+          {state === 'checking' && (
+            <div className="lk-progress">
+              <>
+                <div style={{ fontWeight: 600 }}>◌ Checking your vault password…</div>
+                <div className="lk-line">This takes a moment on purpose: it makes guessing your vault password very slow. Keep this window open.</div>
+              </>
+            </div>
+          )}
+          {isMissing ? <button className="btn pri wide">Locate Vault File…</button> : <button className="btn pri wide" disabled={state === 'checking'} onClick={() => setState('checking')}>Unlock</button>}
           <div className="lk-help">
-            <button className="btn sq">What Is This?</button>
-            <button className="btn sq">Forgot Password?</button>
+            <button className="btn sq">Forgot Password</button>
+            <button className="btn sq">Help</button>
           </div>
         </div>
       )}
@@ -95,7 +150,7 @@ export function UnlockScreen() {
           ['Which thing?', 'The vault named in the line (“Personal”). Psss stays locked until it is opened.'],
           ['What must they give?', 'A finger on Touch ID or a glance for Face ID. The vault password works at any time through “Use Password…”.'],
           ['What can go wrong?', 'Touch ID or Face ID does not recognise them; it is turned off or no longer matches the vault (changed elsewhere); the vault file is missing; they forgot the password.'],
-          ['How do they leave?', 'Quit, or open another vault from Forgot Password?. Nothing changes until the vault opens.'],
+          ['How do they leave?', 'Quit, or choose or open another vault from the selector under the line. Nothing changes until the vault opens.'],
         ]}
       />
 
@@ -131,7 +186,41 @@ export function UnlockScreen() {
         </Frame>
       </Frames>
 
-      <Section title="3. While the vault opens">
+      <Section title="3. Choosing another vault">
+        <p>The vault selector sits under the line that names the vault, on every lock screen and every device, even with one vault (its menu is where “Open Another Vault…” lives). It is a standard pop-up button: it shows the vault that will open, and its menu lists every available or remembered vault with a checkmark on the current one and where it lives in secondary text. After a separator, “Open Another Vault…” is the last item. Choosing a vault switches this screen to it at once; nothing is forgotten or opened until its own Touch ID, Face ID or password. Click the selector in any frame to try it.</p>
+      </Section>
+      <Frames>
+        <Frame label="K. Mac, menu open" caption="Items say the vault name and, in secondary text, where it lives (iCloud Drive, On this Mac, or a folder). A vault that cannot be reached says why in the same place, in the accent colour (here “Not found”). It stays in the list so it can still be chosen, read about and forgotten.">
+          <MacWindow><div className="lk-win" style={{ alignItems: 'start', paddingTop: 20, height: 560 }}><Lock bio="touch" state="ready" menu /></div></MacWindow>
+        </Frame>
+        <Frame phone label="L. iPhone, menu open" caption="The same menu, as a pull-down under the button.">
+          <IPhone><Lock bio="face" state="ready" phone menu /></IPhone>
+        </Frame>
+        <Frame label="M. iPad, menu open" caption="The same on iPad.">
+          <IPad><div className="lk-win ipad" style={{ alignItems: 'start', paddingTop: 30, height: 600 }}><Lock bio="face" state="ready" menu /></div></IPad>
+        </Frame>
+        <Frame label="N. Mac, vault not found" caption="Choosing “Archive” (or opening with it remembered) shows the password form and a line naming the vault, where its file was, and the two ways out: choose another vault here, or forget it under Forgot Password. Nothing is deleted by choosing it.">
+          <MacWindow><div className="lk-win"><Lock bio="touch" state="ready" vault="Archive" /></div></MacWindow>
+        </Frame>
+        <Frame phone label="O. iPhone, vault not found" caption="The same on iPhone. The selector stays, so the way out is always one tap away.">
+          <IPhone><Lock bio="face" state="ready" vault="Archive" phone /></IPhone>
+        </Frame>
+        <Frame label="P. iPad, vault not found" caption="The same on iPad.">
+          <IPad><div className="lk-win ipad"><Lock bio="face" state="ready" vault="Archive" /></div></IPad>
+        </Frame>
+
+        <Frame label="Q. Mac, checking the password" caption="Progress sits under the field with no space held for it beforehand, so the form is not pushed down when idle: the field stays where it was, locked and dimmed, the notice appears under it, and Unlock, which dims, moves down by the notice's height; and the selector and help buttons stay. The same slot is used on iPhone and iPad.">
+          <MacWindow><div className="lk-win"><Lock bio="touch" state="checking" /></div></MacWindow>
+        </Frame>
+        <Frame phone label="R. iPhone, checking the password" caption="Same place, under the field; the keyboard stays up.">
+          <IPhone><Lock bio="face" state="checking" phone /></IPhone>
+        </Frame>
+        <Frame label="S. iPad, checking the password" caption="Same place.">
+          <IPad><div className="lk-win ipad"><Lock bio="face" state="checking" /></div></IPad>
+        </Frame>
+      </Frames>
+
+      <Section title="4. While the vault opens">
         <p>The icon is the logo's field. Locked, it is hidden: a p and three dots. Once the finger or the face is accepted, or the vault password has been entered, the dots become “sss” one after another while the vault is opened, and then the vault's list replaces the screen. The icon here is drawn by the app, flat, so that it can change; it is not the glass icon from the Home Screen or the Dock. In any frame above, click the glyph on the icon, or Unlock in the password form, to play it; the mock then returns to where it started.</p>
       </Section>
       <Frames>
@@ -143,9 +232,27 @@ export function UnlockScreen() {
         </Frame>
       </Frames>
 
-      <Section title="4. Decisions to approve" />
+      <Section title="5. Decisions to approve" />
       <Decisions
         items={[
+          {
+            decision: <>While the vault password is checked, the progress (spinner, “Checking your vault password…”, the line that it takes a moment on purpose) shows under the password field, with no space held in advance, on every device: only Unlock and the help buttons move down while it shows.</>,
+            rejected: <>progress above the field (the field jumped down on Mac and iPad) and progress elsewhere on iPhone.</>,
+            why: <>The field the person just used must not move when Unlock is pressed. Space is not reserved for the notice (owner, 2026-11-24): holding it pushed Unlock too far down the idle screen. Face ID and Touch ID still use the “Opening your vault…” line, since there is no field then.</>,
+          },
+          {
+            decision: <>A vault selector on every lock screen: a standard pop-up button under the line naming the vault, listing every available or remembered vault, ending with “Open Another Vault…”.</>,
+            rejected: <>the selector above the title (it would sit before the thing it changes, and push the icon down); a segmented control or sidebar (does not scale past two or three vaults); keeping “Open Another Vault…” only inside “Forgot Password”, which hid the only way to switch vaults.</>,
+            why: <>A person who is locked out of, or simply opened, the wrong vault needs the way out on the screen, not behind a help button for forgotten passwords. Below the line it reads as “this one will open — or change it”. It is shown even with one vault so “Open Another Vault…” is always findable. Apple's guidelines use a pop-up button for choosing one of several options and allow an action after a separator (as font and location pickers do); Passwords itself has no selector because it has one library, so this is a Psss addition, not a conflict.</>,
+          },
+          {
+            decision: <>Menu items read “Name” plus where it lives in secondary text (iCloud Drive, On this Mac, or the folder). A missing or unreachable vault stays in the list with its problem (“Not found”, “Can't reach”) in that place.</>,
+            why: <>Two vaults can share a name; the location tells them apart and answers “where does it live?”. Keeping a missing vault listed lets the person see it, read the message and forget it, instead of it vanishing.</>,
+          },
+          {
+            decision: <>“Forgot Password” no longer has “Open Another Vault…”. It keeps the three things to try and “Forget This Vault…”.</>,
+            why: <>One place for one action. Two entries for the same action would make the help page look like the place to switch vaults, which is what hid it.</>,
+          },
           {
             decision: <>One calm lock screen on every device: icon with the biometric glyph, “Psss Is Locked”, one line naming the vault, and “Use Password…”.</>,
             rejected: <>a password-first screen with the help paragraph always shown; the system Touch ID dialog on Mac.</>,
@@ -160,7 +267,7 @@ export function UnlockScreen() {
           },
           {
             decision: <>The line names the vault and says “vault password”, not “your password”.</>,
-            why: <>“Your password” reads as the Mac login or Apple Account password. The vault password is a different thing, and “What Is This?” explains it.</>,
+            why: <>“Your password” reads as the Mac login or Apple Account password. The vault password is a different thing, and “Help” explains it.</>,
           },
           {
             decision: <>The icon on the lock screen is the logo's field. It is hidden (p and three dots) while locked and shows the name (psss) while the vault opens, on every device.</>,
@@ -178,6 +285,10 @@ export function UnlockScreen() {
 
       <History
         entries={[
+          { date: '2026-11-24', text: <>The selector is built. The vault-not-found line now reads as the app words it and the button there is “Locate Vault File…”; the progress notice uses the app's existing wording. Opening another vault keeps the one before it, so the old warning about Psss-created vaults is gone.</> },
+          { date: '2026-11-24', text: <>“What Is This?” is now “Help” and comes after “Forgot Password”; neither label has a question mark (owner request). Replaces “What Is This?” before “Forgot Password?”.</> },
+          { date: '2026-11-24', text: <>Password progress moved under the password field on every device, with no reserved space (frames Q to S); the field is shown locked and dimmed while it is checked. The selector gained the label “Unlock Vault:” before it on the same row. Replaces progress shown above the field on Mac and iPad and elsewhere on iPhone, which made the field jump.</> },
+          { date: '2026-11-24', text: <>Added the vault selector under the line naming the vault, on every lock screen (frames K to P, section 3). “Open Another Vault…” moved out of “Forgot Password” into the selector's menu, because hiding it there left no visible way to switch vaults once one was set up. Replaces: a lock screen with no selector (dropped 2026-11-23 along with the always-visible help paragraph).</> },
           { date: '2026-11-24', text: <>The icon also plays the switch once by itself, right after the lock screen shows and each time the app returns to the front, then rests on “psss”. Nothing waits for it. Added because with no Face ID on the device nothing else started it when the app was reopened.</> },
           { date: '2026-11-24', text: <>The switch now starts when an attempt starts, including while Face ID or Touch ID is asked, so it has more time to play. A hold until 0.75 s was tried and taken out the same day: the owner never wants the screen held, so a fast unlock may still cut it short. It replaces “the icon changes only once the person is accepted”.</> },
           { date: '2026-11-24', text: <>The switch is built. Two captions were corrected to what the app does: a wrong password shows the name while it is checked and then the dots return (before, the page said the dots stay), and with Face ID or Touch ID the vault opens so fast that the switch could not be seen (changed the same day, see the first entry). The lock screen icon is now drawn by the app, flat, on every device; before, it was a picture of the icon.</> },

@@ -2150,6 +2150,7 @@ do {  // Verification codes and the fill site (release rules for the AutoFill pr
 // MARK: Validation round 2: purge ages, odd times, all-or-nothing store, attachments, one time form, disabled bin
 
 failures += runTimeParserTests()
+failures += await runRememberedVaultTests()
 
 func runCapturing(_ args: [String], input: String = "") -> (status: Int32, out: String, err: String) {
     let process = Process()

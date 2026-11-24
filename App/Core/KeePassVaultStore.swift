@@ -122,6 +122,9 @@ struct VaultReference: Codable, Equatable, Sendable {
     func persist() {
         if Self.forgottenIDs.contains(id) { return }
         guard let data = try? JSONEncoder().encode(self) else { return }
+        // The vault that was active until now is remembered, not dropped, so opening or creating another one keeps it.
+        if let active = Self.load(), active.id != id { Self.park(active) }
+        Self.setRemembered(Self.remembered.filter { $0.id != id })
         Self.write(data, Self.defaultsKey, file: "vault-reference.json")
     }
 
@@ -137,11 +140,70 @@ struct VaultReference: Codable, Equatable, Sendable {
         return stored
     }
 
-    /// Removes the stored reference and remembers the vault as forgotten, for good: nothing writes it again.
+    /// Removes the vault's reference (the active one, or a remembered one) and remembers the vault as forgotten, for good: nothing
+    /// writes it again.
     static func forget(_ id: UUID) {
-        let remembered = (forgottenIDs.filter { $0 != id } + [id]).suffix(32).map(\.uuidString)
-        if let data = try? JSONEncoder().encode(Array(remembered)) { write(data, forgottenKey, file: "vault-reference-forgotten.json") }
-        remove(defaultsKey, file: "vault-reference.json")
+        let forgotten = (forgottenIDs.filter { $0 != id } + [id]).suffix(32).map(\.uuidString)
+        if let data = try? JSONEncoder().encode(Array(forgotten)) { write(data, forgottenKey, file: "vault-reference-forgotten.json") }
+        setRemembered(remembered.filter { $0.id != id })
+        if load()?.id == id { remove(defaultsKey, file: "vault-reference.json") }
+    }
+
+    // MARK: Remembered vaults
+
+    private static let rememberedKey = "rememberedVaults"
+
+    /// The vaults the person has used besides the active one, most recently left first. The lock screen's vault selector lists
+    /// them after the active vault. The AutoFill extension reads only the active reference, so it is not affected.
+    static var remembered: [VaultReference] {
+        let forgotten = forgottenIDs
+        return (read(rememberedKey, file: "vault-references-remembered.json")
+            .flatMap { try? JSONDecoder().decode([VaultReference].self, from: $0) } ?? [])
+            .filter { !forgotten.contains($0.id) }
+    }
+
+    private static func setRemembered(_ list: [VaultReference]) {
+        if list.isEmpty { remove(rememberedKey, file: "vault-references-remembered.json"); return }
+        if let data = try? JSONEncoder().encode(list) { write(data, rememberedKey, file: "vault-references-remembered.json") }
+    }
+
+    private static func park(_ reference: VaultReference) {
+        setRemembered([reference] + remembered.filter { $0.id != reference.id })
+    }
+
+    /// Makes a remembered vault the active one. The active vault is remembered in its place, so nothing is forgotten.
+    @discardableResult
+    static func activate(_ id: UUID) -> VaultReference? {
+        guard let chosen = remembered.first(where: { $0.id == id }) else { return load()?.id == id ? load() : nil }
+        guard let data = try? JSONEncoder().encode(chosen) else { return nil }
+        if let active = load() { park(active) }
+        setRemembered(remembered.filter { $0.id != id })
+        write(data, defaultsKey, file: "vault-reference.json")
+        return chosen
+    }
+
+    /// The remembered or active vault that is the file at `url`, if there is one. Opening a file again reuses it.
+    static func known(at url: URL) -> VaultReference? {
+        let path = url.resolvingSymlinksInPath().path
+        return ([load()].compactMap { $0 } + remembered).first { reference in
+            guard !reference.managed, let bookmark = reference.bookmark, let resolved = try? VaultFiles.resolve(bookmark) else { return false }
+            return resolved.url.resolvingSymlinksInPath().path == path
+        }
+    }
+
+    /// Whether the vault's file can be found now. A vault Psss created lives in its own folder; any other is found by its bookmark.
+    var isReachable: Bool {
+        if managed { return FileManager.default.fileExists(atPath: VaultFiles.managedURL(fileName: fileName).path) }
+        guard let bookmark, let resolved = try? VaultFiles.resolve(bookmark) else { return false }
+        return FileManager.default.fileExists(atPath: resolved.url.path)
+    }
+
+    /// Where the vault lives, for the lock screen's selector: "On this device" for a vault Psss created, otherwise the folder.
+    var menuLocation: String {
+        if managed { return String(localized: "On this device") }
+        guard let bookmark, let url = try? VaultFiles.resolve(bookmark).url else { return fileName }
+        let folder = url.deletingLastPathComponent().pathComponents.filter { $0 != "/" }.suffix(2).joined(separator: " › ")
+        return folder.isEmpty ? url.lastPathComponent : folder
     }
 
     static func clear() { remove(defaultsKey, file: "vault-reference.json") }
@@ -558,6 +620,19 @@ final class VaultSession {
 
     private(set) var store: KeePassVaultStore?
     private(set) var reference: VaultReference? = VaultReference.load()
+    /// The other vaults the person has used, most recently left first. Shown by the lock screen's vault selector.
+    private(set) var remembered: [VaultReference] = VaultReference.remembered
+
+    /// The active vault first, then the remembered ones: what the selector lists.
+    var knownVaults: [VaultReference] { (reference.map { [$0] } ?? []) + remembered }
+
+    /// Makes `id` the vault the lock screen opens. Only while locked. The vault left stays remembered.
+    func switchTo(_ id: UUID) {
+        guard id != reference?.id, let chosen = VaultReference.activate(id) else { return }
+        store = nil
+        reference = chosen
+        remembered = VaultReference.remembered
+    }
 
     var isOpen: Bool { store != nil }
 
@@ -574,6 +649,7 @@ final class VaultSession {
         try VaultFiles.write(data, to: url)
         reference.persist()
         self.reference = reference
+        remembered = VaultReference.remembered
         store = KeePassVaultStore(reference: reference, url: url, scoped: false, document: document, fileData: data)
     }
 
@@ -586,9 +662,16 @@ final class VaultSession {
             let name = document.databaseName.isEmpty ? picked.deletingPathExtension().lastPathComponent : document.databaseName
             var reference = VaultReference(name: name, managed: false, bookmark: try VaultFiles.bookmark(for: picked),
                                            fileName: picked.lastPathComponent)
+            // A file the person opened before keeps its identifier and settings (Face ID, key file), so it is not listed twice.
+            if let known = VaultReference.known(at: picked) {
+                var again = known
+                again.name = name; again.bookmark = reference.bookmark; again.fileName = reference.fileName
+                reference = again
+            }
             reference.record(credentials)
             reference.persist()
             self.reference = reference
+            remembered = VaultReference.remembered
             store = KeePassVaultStore(reference: reference, url: picked, scoped: scoped, document: document, fileData: data)
         } catch {
             if scoped { picked.stopAccessingSecurityScopedResource() }
@@ -769,6 +852,9 @@ final class VaultSession {
         reference = nil
         // Final: a copy of this reference that another process still holds cannot write it back.
         if let forgotten { VaultReference.forget(forgotten.id) } else { VaultReference.clear() }
+        // Another remembered vault takes its place, so the lock screen opens that one; with none left, the welcome screen shows.
+        if let next = VaultReference.remembered.first { reference = VaultReference.activate(next.id) }
+        remembered = VaultReference.remembered
     }
 }
 

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The one row layout of the All, Codes and Cards lists, on iPhone, iPad and Mac: the item's icon, the name over one secondary line,
-/// what a login has as quiet glyphs stacked at the trailing edge, and an optional accessory at the trailing edge (the system chevron on iPhone,
+/// what a login has as quiet glyphs in fixed columns, and an optional accessory at the trailing edge (the system chevron on iPhone,
 /// the code button on Codes, a card's number and expiry on Cards). Each list supplies only its own words and accessory, so the
 /// three read as one family: same icon size and place, same type sizes (body for both lines), same insets and row height
 /// (`itemRowInsets()`).
@@ -11,8 +11,8 @@ struct ItemListRow<Trailing: View>: View {
     var subtitle: Text?
     /// What VoiceOver reads in place of the second line, when the written form is not how it is spoken.
     var subtitleSpoken: String?
-    /// What the login has, as filled glyphs at the trailing end, only the ones it has, packed against the trailing edge
-    /// (passkey, then code last), so a row with one glyph ends where a row with two ends. Only the All list shows them. Empty for none.
+    /// What the login has, as filled glyphs at the trailing end, each in its own fixed-width column so they line up down the list
+    /// (passkey, then code last). Only the All list shows them. Empty for none: the row then reserves nothing.
     var glyphs: [ItemTrait] = []
     /// The glyph columns laid out when there are glyphs. A search result that shows the live code leaves the code column out.
     var glyphColumns: [ItemTrait] = ItemTrait.glyphColumns
@@ -44,8 +44,8 @@ struct ItemListRow<Trailing: View>: View {
     private var glyphBlock: some View {
         if !glyphs.isEmpty {
             HStack(spacing: 0) {
-                ForEach(glyphColumns.filter(glyphs.contains), id: \.self) { trait in
-                    TraitGlyph(trait: trait)
+                ForEach(glyphColumns, id: \.self) { trait in
+                    TraitGlyph(trait: trait, present: glyphs.contains(trait))
                 }
             }
             .layoutPriority(1)
@@ -113,18 +113,24 @@ extension ItemTrait {
     static let glyphColumns: [ItemTrait] = [.passkey, .code]
 }
 
-/// One glyph of the glyph block: a characteristic of a login as a quiet filled glyph, with its spoken label and, on Mac, a tooltip.
+/// One column of the glyph block: a characteristic of a login as a quiet filled glyph, with its spoken label and, on Mac, a tooltip;
+/// or an empty column of the same width, so the glyphs after it keep their place.
 private struct TraitGlyph: View {
     let trait: ItemTrait
+    let present: Bool
     @ScaledMetric(relativeTo: .body) private var width: CGFloat = 26
 
     var body: some View {
-        Image(systemName: trait.rowSymbol)
-            .imageScale(.large)
-            .foregroundStyle(.secondary)
-            .frame(width: width)
-            .accessibilityLabel(trait.badgeLabel)
-            .help(trait.badgeLabel)
+        if present {
+            Image(systemName: trait.rowSymbol)
+                .imageScale(.large)
+                .foregroundStyle(.secondary)
+                .frame(width: width)
+                .accessibilityLabel(trait.badgeLabel)
+                .help(trait.badgeLabel)
+        } else {
+            Color.clear.frame(width: width, height: 1).accessibilityHidden(true)
+        }
     }
 }
 

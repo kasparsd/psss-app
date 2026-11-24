@@ -319,3 +319,8 @@ table.cmp td,table.cmp th{border-top:1px solid var(--rule);padding:6px 12px 6px 
 .problem svg{flex:none;margin-top:2px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 .fbody .problem{flex:none;width:100%;margin-top:2px}
+
+.lk-pick{margin-top:8px;display:inline-block;position:relative}
+.lk-pick .lk-menu{left:50%;right:auto;transform:translateX(-50%);min-width:260px}
+.lk-pick{display:inline-flex;align-items:center;white-space:nowrap}
+.lk.onphone{box-sizing:border-box;width:100%}.lk.onphone .lk-form{width:100%}.lk.onphone .lk-help{flex-wrap:wrap}

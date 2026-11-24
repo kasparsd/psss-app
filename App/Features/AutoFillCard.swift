@@ -35,8 +35,8 @@ struct AutoFillCard: View {
             switch reminder.display {
             case .nothing:
                 EmptyView()
-            case .card:
-                card(title: copy.title, message: copy.body) {
+            case .card(let headline):
+                card(title: copy.title(headline), message: copy.body(headline)) {
                     Button(copy.buttonLabel(reminder.action)) { Task { await autoFill.performAction() } }
                         .buttonStyle(.borderedProminent)
                         .disabled(autoFill.working)
@@ -55,16 +55,6 @@ struct AutoFillCard: View {
             // Coming back from Settings changes the card in place, which VoiceOver would not announce by itself.
             if now == .confirmation { AccessibilityNotification.Announcement(copy.confirmationTitle).post() }
         }
-    }
-
-    /// iPhone and iPad: a system background, like the banners in Apple's own Settings (owner, 2026-11-24). Mac: the system fill,
-    /// because every system background there is the colour of the list column and the card would not show.
-    private static var cardBackground: Color {
-        #if os(iOS)
-        Color(.secondarySystemBackground)
-        #else
-        Color(nsColor: .quaternarySystemFill)
-        #endif
     }
 
     /// The words read as one element, then the buttons, all inside one group. The buttons sit side by side and stack when
@@ -88,7 +78,7 @@ struct AutoFillCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(Self.cardBackground, in: .rect(cornerRadius: 12))
+        .background(.quaternary, in: .rect(cornerRadius: 12))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(title)
     }
