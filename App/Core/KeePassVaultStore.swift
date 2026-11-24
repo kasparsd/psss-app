@@ -2,6 +2,10 @@ import CryptoKit
 import Foundation
 import Synchronization
 
+/// Where a new vault is kept. iCloud Drive is Psss's own public folder there, so the file survives deleting the app; the device
+/// location is the app's own storage and goes with the app.
+enum VaultLocation: Sendable { case iCloudDrive, thisDevice }
+
 /// Where a vault lives and how to find it again after a relaunch.
 struct VaultReference: Codable, Equatable, Sendable {
     var id = UUID()
@@ -109,6 +113,7 @@ struct VaultReference: Codable, Equatable, Sendable {
     var locationDescription: String? {
         guard !managed else { return nil }
         guard let bookmark, let url = try? VaultFiles.resolve(bookmark).url else { return fileName }
+        if VaultFiles.isInPsssFolder(url) { return "\(url.lastPathComponent) · \(VaultFiles.psssFolderLabel)" }
         let folder = url.deletingLastPathComponent().pathComponents
             .filter { $0 != "/" }
             .suffix(2)
@@ -202,6 +207,7 @@ struct VaultReference: Codable, Equatable, Sendable {
     var menuLocation: String {
         if managed { return String(localized: "On this device") }
         guard let bookmark, let url = try? VaultFiles.resolve(bookmark).url else { return fileName }
+        if VaultFiles.isInPsssFolder(url) { return VaultFiles.psssFolderLabel }
         // Sandbox plumbing (identifier folders, the File Provider copy) tells a person nothing.
         let parts = url.deletingLastPathComponent().pathComponents.filter { part in
             part != "/" && part != "File Provider Storage" && UUID(uuidString: part) == nil
@@ -249,6 +255,50 @@ enum VaultFiles {
     #endif
 
     static var managedDirectory: URL { storageRoot.appendingPathComponent("Vaults", isDirectory: true) }
+
+    /// How a vault in Psss's iCloud Drive folder is located in words: the folder is shown as "Psss" in Files and Finder.
+    static var psssFolderLabel: String { String(localized: "iCloud Drive › Psss") }
+
+    static let iCloudContainerID = "iCloud.app.psss"
+
+    /// Whether `url` is inside Psss's own iCloud Drive container, on this device or as another device's copy of it.
+    static func isInPsssFolder(_ url: URL) -> Bool {
+        url.path.contains("/Mobile Documents/iCloud~app~psss/")
+    }
+
+    /// Psss's folder in iCloud Drive (the container's Documents folder, shown as "Psss" in Files and Finder), created when it is
+    /// missing. Nil when iCloud Drive is off for Psss, the person is signed out of iCloud, or this build carries no iCloud
+    /// entitlement (an unsigned local Mac build). It can take a moment, so call it off the main thread.
+    static func iCloudFolder() -> URL? {
+        #if HOSTLESS_TESTS
+        // The test scripts stand in for iCloud Drive with a folder under the test root; unset means iCloud Drive is off.
+        guard let path = ProcessInfo.processInfo.environment["PSSS_TEST_ICLOUD_ROOT"], !path.isEmpty else { return nil }
+        let folder = URL(fileURLWithPath: path, isDirectory: true)
+        return (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil ? folder : nil
+        #else
+        guard let container = FileManager.default.url(forUbiquityContainerIdentifier: iCloudContainerID) else { return nil }
+        let folder = container.appendingPathComponent("Documents", isDirectory: true)
+        return (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil ? folder : nil
+        #endif
+    }
+
+    /// The file name without its extension that a vault called `name` gets: characters a file name cannot hold become dashes.
+    static func fileNameStem(_ name: String) -> String {
+        let cleaned = String(name.map { "/:\\".contains($0) ? "-" : $0 }).trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty || cleaned.hasPrefix(".") ? String(localized: "Passwords") : cleaned
+    }
+
+    /// "Name.kdbx", or "Name 2.kdbx" and so on when that file is already in the folder.
+    static func newFileName(for name: String, in folder: URL) -> String {
+        let base = fileNameStem(name)
+        var candidate = "\(base).kdbx"
+        var number = 2
+        while FileManager.default.fileExists(atPath: folder.appendingPathComponent(candidate).path) {
+            candidate = "\(base) \(number).kdbx"
+            number += 1
+        }
+        return candidate
+    }
 
     private static func backupDirectory(for id: UUID) -> URL {
         storageRoot.appendingPathComponent("Backups", isDirectory: true).appendingPathComponent(id.uuidString, isDirectory: true)
@@ -640,17 +690,37 @@ final class VaultSession {
 
     var isOpen: Bool { store != nil }
 
-    /// Creates the vault in the app's own storage with the recommended KDF and cipher, then opens it.
-    func create(name: String, credentials: KDBXCredentials, items: [VaultItem] = []) async throws {
+    /// Creates the vault with the recommended KDF and cipher, then opens it. In iCloud Drive it is a file in Psss's own folder
+    /// there, found again by a bookmark like any file opened in place, so Forget never deletes it and deleting the app keeps it.
+    /// On the device it goes in the app's own storage and is deleted with the app. Throws `iCloudUnavailable` when iCloud Drive
+    /// was asked for and is off; nothing is written then.
+    func create(name: String, credentials: KDBXCredentials, items: [VaultItem] = [], location: VaultLocation = .thisDevice) async throws {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? String(localized: "Passwords") : name
+        let folder: URL?
+        switch location {
+        case .iCloudDrive:
+            folder = await Task.detached { VaultFiles.iCloudFolder() }.value
+            if folder == nil { throw VaultStoreError.iCloudUnavailable }
+        case .thisDevice:
+            folder = nil
+        }
         let document = try await Task.detached { try KDBX.create(name: name, credentials: credentials) }.value
         document.upsert(items)
-        var reference = VaultReference(name: name, managed: true, bookmark: nil, fileName: "\(UUID().uuidString).kdbx")
-        reference.record(credentials)
-        try FileManager.default.createDirectory(at: VaultFiles.managedDirectory, withIntermediateDirectories: true)
-        let url = VaultFiles.managedURL(fileName: reference.fileName)
         let data = try KDBX.save(document)
-        try VaultFiles.write(data, to: url)
+        var reference: VaultReference
+        let url: URL
+        if let folder {
+            let fileName = VaultFiles.newFileName(for: name, in: folder)
+            url = folder.appendingPathComponent(fileName)
+            try VaultFiles.write(data, to: url)
+            reference = VaultReference(name: name, managed: false, bookmark: try VaultFiles.bookmark(for: url), fileName: fileName)
+        } else {
+            reference = VaultReference(name: name, managed: true, bookmark: nil, fileName: "\(UUID().uuidString).kdbx")
+            try FileManager.default.createDirectory(at: VaultFiles.managedDirectory, withIntermediateDirectories: true)
+            url = VaultFiles.managedURL(fileName: reference.fileName)
+            try VaultFiles.write(data, to: url)
+        }
+        reference.record(credentials)
         reference.persist()
         self.reference = reference
         remembered = VaultReference.remembered
@@ -902,6 +972,7 @@ extension VaultStoreError {
         case .itemUnavailable: String(localized: "This item is no longer available. Close the mapping and open the item again.")
         case .invalidFieldMapping(let message): message
         case .editedFieldsChanged: String(localized: "One or more fields changed since you started editing. Cancel and open Edit again to see their latest values.")
+        case .iCloudUnavailable: String(localized: "iCloud Drive is off for Psss, so the vault was not created there. Turn it on in Settings, or keep the vault on this device only.")
         }
     }
 }

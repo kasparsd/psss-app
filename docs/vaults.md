@@ -24,7 +24,7 @@ See [vault items](items.md) for the entry templates and preservation rules. Veri
 - The sample vault is in memory only. What is added to it is gone when Psss locks or quits, nothing from it is written to disk, and it offers no AutoFill.
 - Default to one vault, created without asking about files. Offer file-level options only in advanced settings. More vaults are supported; see [Multiple vaults](#multiple-vaults).
 
-- Support local and iCloud Drive storage. No hosted account is required.
+- Support local and iCloud Drive storage. No hosted account is required. A new vault is kept by default in the app's own public folder in iCloud Drive (shown as “Psss” in Files and Finder), so it survives deleting the app; “This device only” is the other choice and is deleted with the app. There is no folder picker at creation (2026-11-24). The create sheet's “Keep in” choice is `NewVaultSheet`; `VaultSession.create(location:)` writes the file into the folder and records it as an in-place vault with a bookmark, so Forget never deletes it. With iCloud Drive off, or in a build without the iCloud entitlement, the choice is dimmed and the vault stays on the device. Not yet built: listing the vaults found in the Psss folder after a reinstall (`docs/plans/icloud-vault-location.md`).
 - Keep independent encrypted backups of significant revisions and a visible restore path.
 - Use audited, standards-compatible primitives and independently generated fixtures. Treat parse limits, malformed input and extension memory budgets as release requirements.
 

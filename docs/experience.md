@@ -12,7 +12,7 @@ The [HTML prototype](../prototype/index.html) uses fictional accounts and simula
 | Retrieve a note or custom field | Search by title or tag → open the item → reveal protected fields on request. | Keep sensitive values out of list previews. |
 | Open Strongbox vault | Choose file → provide password and key file if needed → unlock → check entries → enable AutoFill. | Explain unsupported variants, wrong key or unavailability and keep the source safe. |
 | Import 1Password | Choose export → review counts, duplicates and unsupported items → choose vault → import → enable AutoFill. | Cancel before writing. Change duplicate choices or retry after failure. |
-| Start empty | Name vault → choose local or iCloud Drive → set vault password → add first item or enable AutoFill. | Offer local storage when iCloud is unavailable. |
+| Start empty | Name vault → Keep in: iCloud Drive (the default, in the Psss folder, so the vault survives deleting the app) or This device only → set vault password → add first item or enable AutoFill. No folder picker; see [Create a vault mock](../Design/Mocks/app/dist/index.html#/create-vault), approved 2026-11-24, built, device check open. | With iCloud Drive off, the choice is dimmed with the reason and Create keeps the vault on the device. |
 | Enable AutoFill | See provider setup → open system settings → enable Psss → test on a demo login. | Show verified browser support and installation steps for any extension needed. |
 | Offline or conflicting changes | Read the last available encrypted revision → stage an encrypted revision for sync → surface edits requiring review. | Keep both revisions recoverable while the user resolves conflicts. |
 

@@ -938,6 +938,29 @@ do {
     do { try await lifecycle.unlockWithBiometrics(); failures += 1; print("FAIL biometrics used after being turned off elsewhere") } catch BiometricKeyError.invalidated { print("ok   setting changed elsewhere is read") }
     lifecycle.forget()
 
+    // A vault kept in iCloud Drive is a file in Psss's folder there, found again by a bookmark. Forget never deletes it, a second
+    // vault of the same name gets its own file, and with iCloud Drive off nothing is created.
+    unsetenv("PSSS_TEST_ICLOUD_ROOT")
+    do { try await lifecycle.create(name: "Cloud", credentials: .init(password: "pw1"), location: .iCloudDrive); failures += 1; print("FAIL a vault was created with iCloud Drive off") } catch VaultStoreError.iCloudUnavailable { print("ok   iCloud Drive off: nothing is created") }
+    expect("no vault is open after the refusal", !lifecycle.isOpen && lifecycle.reference == nil)
+    let cloudRoot = VaultFiles.storageRoot.appendingPathComponent("icloud-stand-in", isDirectory: true)
+    setenv("PSSS_TEST_ICLOUD_ROOT", cloudRoot.path, 1)
+    try await lifecycle.create(name: "Cloud/Vault", credentials: .init(password: "pw1"), location: .iCloudDrive)
+    let cloudURL = cloudRoot.appendingPathComponent("Cloud-Vault.kdbx")
+    expect("the vault is a file in the iCloud folder, named after the vault", FileManager.default.fileExists(atPath: cloudURL.path))
+    expect("it is opened in place, not in the app's own storage", lifecycle.reference?.managed == false && lifecycle.isOpen)
+    expect("its bookmark finds the file", (try? VaultFiles.resolve(lifecycle.reference!.bookmark!).url.resolvingSymlinksInPath().path) == cloudURL.resolvingSymlinksInPath().path)
+    lifecycle.lock()
+    try await lifecycle.unlock(credentials: .init(password: "pw1"))
+    expect("it unlocks again with the password", lifecycle.isOpen)
+    lifecycle.forget()
+    expect("Forget leaves the file in iCloud Drive", FileManager.default.fileExists(atPath: cloudURL.path))
+    try await lifecycle.create(name: "Cloud/Vault", credentials: .init(password: "pw2"), location: .iCloudDrive)
+    expect("a second vault of the same name gets its own file", FileManager.default.fileExists(atPath: cloudRoot.appendingPathComponent("Cloud-Vault 2.kdbx").path) && lifecycle.reference?.fileName == "Cloud-Vault 2.kdbx")
+    expect("the first file was not touched", (try? KDBX.open(Data(contentsOf: cloudURL), credentials: .init(password: "pw1"))) != nil)
+    lifecycle.forget()
+    unsetenv("PSSS_TEST_ICLOUD_ROOT")
+
     // The password is changed elsewhere while Face ID is on: the app locks with a notice, the person unlocks with the new
     // password, and the next Face ID unlock must work without another password.
     try await lifecycle.create(name: "Changed elsewhere", credentials: .init(password: "pw1"), items: [])

@@ -86,14 +86,31 @@ struct NewVaultSheet: View {
     @State private var keyFile: Data?
     @State private var working = false
     @State private var problem: String?
+    /// Whether Psss's folder in iCloud Drive can be used right now. Nil until asked, which can take a moment.
+    @State private var iCloudAvailable: Bool?
+    @State private var location = VaultLocation.iCloudDrive
 
     private var canCreate: Bool { !password.isEmpty && password == confirmation && !working }
+    /// iCloud Drive is the default and what is drawn until the answer arrives; without it the vault stays on the device.
+    private var effectiveLocation: VaultLocation { iCloudAvailable == false ? .thisDevice : location }
+
+    private var locationNote: String {
+        if iCloudAvailable == false {
+            return String(localized: "iCloud Drive is off for Psss, so this vault stays on this device and is deleted with Psss. Turn on iCloud Drive for Psss in Settings to keep it there instead.")
+        }
+        switch location {
+        case .iCloudDrive:
+            return String(localized: "Saved as \(VaultFiles.fileNameStem(name)).kdbx in the Psss folder in iCloud Drive. It is still there if you delete Psss or get a new device. Only the encrypted file is stored.")
+        case .thisDevice:
+            return String(localized: "The file stays on this device and is deleted if you delete Psss. Save a copy somewhere safe.")
+        }
+    }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    Text("Your logins, passkeys, codes, cards and notes are kept in one encrypted file on this device. Nothing is uploaded.")
+                    Text("Your logins, passkeys, codes, cards and notes are kept in one encrypted file. Psss cannot read it without the vault password.")
                         .foregroundStyle(.secondary)
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
@@ -102,13 +119,20 @@ struct NewVaultSheet: View {
                     LabeledContent("Name") {
                         TextField("Name", text: $name).multilineTextAlignment(.trailing)
                     }
+                    Picker("Keep in", selection: Binding(get: { effectiveLocation }, set: { location = $0 })) {
+                        Text("iCloud Drive").tag(VaultLocation.iCloudDrive)
+                        Text("This device only").tag(VaultLocation.thisDevice)
+                    }
+                    .disabled(iCloudAvailable == false)
+                } footer: {
+                    Text(locationNote)
                 }
                 Section {
                     CredentialFields(password: $password, confirmation: $confirmation, keyFile: $keyFile, confirms: true)
                 } header: {
                     Text("Vault Password")
                 } footer: {
-                    Text("You enter it each time the vault unlocks. Psss cannot reset it, so keep a copy somewhere safe.")
+                    Text("You enter it each time the vault unlocks. Psss cannot reset it, so keep a copy somewhere safe. You also need it if you reinstall Psss: Face ID and Touch ID are set up again afterwards.")
                 }
                 if !password.isEmpty, !confirmation.isEmpty, password != confirmation {
                     ProblemText(text: String(localized: "The passwords do not match."))
@@ -131,6 +155,7 @@ struct NewVaultSheet: View {
             }
         }
         .modifier(VaultSheetSize())
+        .task { iCloudAvailable = await Task.detached { VaultFiles.iCloudFolder() != nil }.value }
     }
 
     private func create() {
@@ -138,7 +163,7 @@ struct NewVaultSheet: View {
         problem = nil
         Task {
             do {
-                try await session.create(name: name, credentials: .init(password: password, keyFile: keyFile), items: importing)
+                try await session.create(name: name, credentials: .init(password: password, keyFile: keyFile), items: importing, location: effectiveLocation)
                 password = ""; confirmation = ""; keyFile = nil
                 dismiss()
                 onCreated()

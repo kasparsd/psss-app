@@ -52,6 +52,8 @@ enum VaultStoreError: Error, Equatable {
     case editedFieldsChanged
     /// The vault file exists but could not be read, so the check for changes cannot be made and nothing was written.
     case unreadable
+    /// A vault was to be kept in iCloud Drive, which is off for Psss or not signed in. Nothing was written.
+    case iCloudUnavailable
 }
 
 /// The compiled-in sample vault. It lives in memory only: what the person adds or edits while trying it is gone when the
