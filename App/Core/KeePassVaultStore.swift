@@ -202,8 +202,12 @@ struct VaultReference: Codable, Equatable, Sendable {
     var menuLocation: String {
         if managed { return String(localized: "On this device") }
         guard let bookmark, let url = try? VaultFiles.resolve(bookmark).url else { return fileName }
-        let folder = url.deletingLastPathComponent().pathComponents.filter { $0 != "/" }.suffix(2).joined(separator: " › ")
-        return folder.isEmpty ? url.lastPathComponent : folder
+        // Sandbox plumbing (identifier folders, the File Provider copy) tells a person nothing.
+        let parts = url.deletingLastPathComponent().pathComponents.filter { part in
+            part != "/" && part != "File Provider Storage" && UUID(uuidString: part) == nil
+        }
+        let folder = parts.suffix(2).joined(separator: " › ")
+        return folder.isEmpty ? String(localized: "In the Files app") : folder
     }
 
     static func clear() { remove(defaultsKey, file: "vault-reference.json") }

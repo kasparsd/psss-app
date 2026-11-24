@@ -454,6 +454,15 @@ struct VaultPasswordView: View {
             .buttonStyle(.bordered)
             .foregroundStyle(.primary)
             .disabled(working)
+            // The screen is centred, so the notice appearing under the field would move the field up. An invisible copy of the
+            // notice below the buttons holds the same height until the notice takes its place, so the field never moves while
+            // Unlock stays where it is when nothing is happening.
+            if !(working && !unlockingWithBiometrics) {
+                WorkingNotice(text: "Checking your vault password…")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .hidden()
+                    .accessibilityHidden(true)
+            }
         }
         .onAppear { focused = true }
     }
