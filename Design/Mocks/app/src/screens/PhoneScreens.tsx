@@ -47,8 +47,10 @@ export function PhoneAll({ type = 'all', feats = [], sort = 'used', menuOpen, so
         left={<button className="ibtn flat" aria-label="Setup" data-tip="Setup"><GearIcon /></button>}
         right={
           <span className="navend">
-            <SortMenu value={choice.sort} onChange={(k) => setChoice({ ...choice, sort: k })} open={sortOpen} />
-            <FilterMenu value={choice} onChange={(v) => setChoice({ ...choice, ...v })} open={menuOpen} />
+            <span className="viewopts">
+              <SortMenu value={choice.sort} onChange={(k) => setChoice({ ...choice, sort: k })} open={sortOpen} />
+              <FilterMenu value={choice} onChange={(v) => setChoice({ ...choice, ...v })} open={menuOpen} />
+            </span>
             <Add />
           </span>
         }

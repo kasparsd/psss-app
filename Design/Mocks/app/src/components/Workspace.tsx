@@ -173,6 +173,8 @@ export function Workspace({ device, init = {}, empty = false }: { device: 'mac' 
           <div className="tbar">
             {!showSide && <button className="ibtn" aria-label="Show sidebar" data-tip="Show sidebar" onClick={() => setShowSide(true)}><SidebarIcon /></button>}
             <span className="sp" />
+            {/* Sort and Filter share one capsule: both change how the list is shown. + Add stands apart. */}
+            <span className="viewopts">
             {(q || sortable(side)) && <SortMenu value={sort} onChange={setSort} open={init.sortOpen} />}
             {(sortable(side) || !showSide) && !inDeleted && (
               <FilterMenu
@@ -184,6 +186,7 @@ export function Workspace({ device, init = {}, empty = false }: { device: 'mac' 
                 onDeleted={() => go('deleted')}
               />
             )}
+            </span>
             <button className="btn glass">+ Add</button>
           </div>
           <div className="lh">{listTitle}<span> · {rows.length} {noun}{rows.length === 1 ? '' : 's'}</span>{line && <div className="s">{line}</div>}</div>

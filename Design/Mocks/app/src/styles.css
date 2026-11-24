@@ -286,3 +286,9 @@ table.cmp td,table.cmp th{border-top:1px solid var(--rule);padding:6px 12px 6px 
 .mono,.efield input.mono{font-family:ui-monospace,"SF Mono",Menlo,monospace}
 /* the one prominent button of the item column: Edit, and Save while editing */
 .btn.main{padding-left:20px;padding-right:20px}
+/* Sort and Filter in one capsule; the Filter glyph turns accent while the list is narrowed */
+.viewopts{display:inline-flex;align-items:center;border-radius:17px;background:var(--glass);box-shadow:0 1px 4px rgba(0,0,0,.12)}
+.viewopts:empty{display:none}
+.viewopts .ibtn{background:none;box-shadow:none}
+.viewopts .ibtn.active{background:none;color:var(--accent)}
+.phone .navend .viewopts .sortwrap:first-child .pop{right:-92px}
