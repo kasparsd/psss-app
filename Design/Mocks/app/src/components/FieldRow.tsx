@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { CheckIcon, CopyIcon, EyeIcon, EyeOffIcon } from '../icons';
 import { DOTS, type Field } from '../data';
 import { useCopied } from './copy';
+import { Problem } from './Problem';
 
 interface FieldRowProps extends Field {
   /** Start with the value shown. */
@@ -14,6 +15,8 @@ interface FieldRowProps extends Field {
   noCopy?: boolean;
   /** Labelled buttons under the field they act on. */
   action?: ReactNode;
+  /** A problem with this field's value, written under it. */
+  notice?: ReactNode;
 }
 
 /**
@@ -21,7 +24,7 @@ interface FieldRowProps extends Field {
  * (its inset equals the row's leading padding), hidden values as a fixed
  * mask followed inline by an eye.
  */
-export function FieldRow({ label, value, secret, mask = DOTS, shown: shown0 = false, copied: copied0 = false, display, noCopy, action }: FieldRowProps) {
+export function FieldRow({ label, value, secret, mask = DOTS, shown: shown0 = false, copied: copied0 = false, display, noCopy, action, notice }: FieldRowProps) {
   const [shown, setShown] = useState(shown0);
   const [copied, setCopied] = useState(copied0);
   const notify = useCopied();
@@ -54,6 +57,7 @@ export function FieldRow({ label, value, secret, mask = DOTS, shown: shown0 = fa
             </button>
           )}
         </div>
+        {notice && <Problem>{notice}</Problem>}
         {action && <div className="fact">{action}</div>}
       </div>
       {!noCopy && (

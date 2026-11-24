@@ -12,6 +12,7 @@ const aliases: Record<string, string> = {
   'one-list': 'filter-and-sort',
   'rows-filter-sort': 'list-rows',
   'toolbar-and-edit': 'item-page',
+  'keepass-field-mapping': 'field-mapping',
 };
 
 /** A small hash router: `#/slug`. Works from file:// with no server. */

@@ -5,7 +5,7 @@ An Apple-native password manager that is as easy as Apple Passwords and also hol
 - [Product and engineering documentation](docs/README.md)
 - [Roadmap and current status](docs/roadmap.md): the encrypted vault, Face ID unlock and AutoFill from the vault on iPhone work in the simulator. The Mac provider is not built and nothing has run on a signed device. Use disposable vaults and fictional data only.
 - Deleting an item never removes it outright: it moves to Recently Deleted for 30 days, with a 10-second Undo, and only a confirmed Delete Now… or Delete All… removes it for good ([items](docs/items.md)).
-- Opened KeePass entries show their custom fields. Use **Edit** to change values or **Map fields…** to assign Card or Login roles in the same vault. [KeePass field mapping](docs/items.md#showing-and-mapping-keepass-fields)
+- Opened KeePass entries show their custom fields. Use **Edit** to change values or **Show as Card or Login…** to assign Card or Login roles in the same vault. [KeePass field mapping](docs/items.md#showing-and-mapping-keepass-fields)
 - [Frozen HTML prototype](prototype/index.html) of the early flows, kept for reference.
 
 ## Run the native prototype

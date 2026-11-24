@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { deletedItems, items as sampleItems, type Item } from '../data';
 import { GearIcon, SearchIcon, SidebarIcon } from '../icons';
 import { ItemCard } from './ItemCard';
@@ -64,9 +64,20 @@ function listFor(entries: Entry[], side: SideKey): Entry[] {
  * The Mac and iPad window: three columns, a toolbar per column. Interactive;
  * `init` draws any state without a click.
  */
-export function Workspace({ device, init = {}, empty = false }: { device: 'mac' | 'ipad'; init?: WorkspaceInit; empty?: boolean }) {
+/** A page that draws its own item column: the body, whether it is being edited, and a sheet over the window. */
+export interface WorkspaceCustom { body: ReactNode; editing?: boolean; overlay?: ReactNode }
+
+export function Workspace({ device, init = {}, empty = false, extra, custom }: {
+  device: 'mac' | 'ipad';
+  init?: WorkspaceInit;
+  empty?: boolean;
+  /** Items this page adds to the sample vault. */
+  extra?: Item[];
+  custom?: WorkspaceCustom;
+}) {
   const [entries, setEntries] = useState<Entry[]>(() => [
     ...sampleItems.map((i) => ({ ...i })),
+    ...(extra ?? []).map((i) => ({ ...i })),
     ...deletedItems.map((d) => ({ ...d, gone: d.deletedAgo })),
   ]);
   const [side, setSide] = useState<SideKey>(init.side ?? 'all');
@@ -132,6 +143,7 @@ export function Workspace({ device, init = {}, empty = false }: { device: 'mac' 
   const noun = q ? 'item' : side === 'codes' ? 'code' : side === 'cards' ? 'card' : 'item';
   const listTitle = q ? 'Search results' : titles[side];
   const mac = device === 'mac';
+  const isEditing = custom ? !!custom.editing : editing;
   const inDeleted = side === 'deleted' && !q;
   const line = !q && sortable(side) ? featLine(feats, oneType(side)) : '';
   const codesList = side === 'codes' && !q;
@@ -150,7 +162,7 @@ export function Workspace({ device, init = {}, empty = false }: { device: 'mac' 
   const mainRows = cardsList ? rows.filter((r) => !r.expired) : rows;
 
   return (
-    <div className={`ws dt${showSide ? '' : ' noside'}${editing ? ' editing' : ''}${mac ? '' : ' ipadws'}`}>
+    <div className={`ws dt${showSide ? '' : ' noside'}${isEditing ? ' editing' : ''}${mac ? '' : ' ipadws'}`}>
       <div className="ws-grid">
         <div className="col side" data-bounds>
           <div className="tbar">
@@ -219,7 +231,7 @@ export function Workspace({ device, init = {}, empty = false }: { device: 'mac' 
 
         <div className="col det" data-bounds>
           <div className="tbar">
-            {sel && (editing ? (
+            {sel && (isEditing ? (
               <>
                 <button className="btn glass" onClick={() => setEditing(false)}>Cancel</button>
                 <button className="btn pri main" onClick={save}>Save</button>
@@ -235,7 +247,9 @@ export function Workspace({ device, init = {}, empty = false }: { device: 'mac' 
             </label>
           </div>
           <div className="scroll">
-            {sel ? (
+            {custom ? (
+              <div className="dbody">{custom.body}</div>
+            ) : sel ? (
               <div className="dbody">
                 <ItemCard
                   key={`${sel.id}-${editing}`}
@@ -256,6 +270,7 @@ export function Workspace({ device, init = {}, empty = false }: { device: 'mac' 
           </div>
         </div>
       </div>
+      {custom?.overlay}
       {undo && (
         <UndoBanner
           text={`“${undo.name}” moved to Recently Deleted`}

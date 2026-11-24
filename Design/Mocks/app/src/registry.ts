@@ -8,6 +8,7 @@ import { CopyIcons } from './pages/CopyIcons';
 import { InlineHelp } from './pages/InlineHelp';
 import { UnlockScreen } from './pages/UnlockScreen';
 import { Logo } from './pages/Logo';
+import { FieldMapping } from './pages/FieldMapping';
 
 export interface PageEntry {
   slug: string;
@@ -33,4 +34,5 @@ export const pages: PageEntry[] = [
   { slug: 'inline-help', short: 'Inline help', title: 'Inline help', oldFile: 'inline-help.html', status: 'Approved by the owner, 2026-11-23', summary: 'An info button that opens a short bubble: the clipboard line, the setup key in the editor, Mac and iPad popovers, and the rules for what a bubble may hold.', component: InlineHelp },
   { slug: 'unlock-screen', short: 'Unlock', title: 'Unlock screen', oldFile: '', status: 'Approved by the owner, 2026-11-23', summary: 'Passwords-style lock screen on every device: icon with the live Touch ID or Face ID glyph, one line, Use Password…; Touch ID listens while the Mac window is in front.', component: UnlockScreen },
   { slug: 'logo', short: 'Logo', title: 'Logo: one field, shown and hidden', oldFile: '', status: 'Approved by the owner, 2026-11-24; app icon and lock screen not built', summary: 'The logo as one password field in two states: hidden it is a p and three dots, shown it reads psss. It rests hidden and shows the name on hover; the reverse is kept. Varela Round letters a little heavier than the outline, sizes from page to icon, and the decisions.', component: Logo },
+  { slug: 'field-mapping', short: 'Field mapping', title: 'KeePass field mapping', oldFile: 'keepass-field-mapping.html', status: 'Approved by the owner, 2026-11-24; native sheet not rebuilt yet', summary: 'A custom item\'s page and its one button, Edit, and the Show as sheet: stored fields on the left, what each is used as on the right, a missing card number, and Custom item.', component: FieldMapping },
 ];

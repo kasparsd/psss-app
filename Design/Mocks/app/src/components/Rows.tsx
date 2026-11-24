@@ -43,8 +43,8 @@ function CardEnd({ item }: { item: Item }) {
   const expiry = item.fields.find((f) => f.label === 'Expiry')?.value;
   return (
     <span className="cardend">
-      <span>•• {item.last4}</span>
-      <span className="s">{expiry}</span>
+      {item.last4 && <span>•• {item.last4}</span>}
+      {expiry && <span className="s">{expiry}</span>}
     </span>
   );
 }
