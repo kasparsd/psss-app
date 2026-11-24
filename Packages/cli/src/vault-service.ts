@@ -26,6 +26,7 @@ import { ImportInterrupted, VaultError, createVault, openVault, parseKeyFile } f
 import type { Unlock, Vault } from '../../vault/src/index.ts';
 import { ValidationError } from './errors.ts';
 import { nearTitles } from './near.ts';
+import { matchesSearch, searchTerm } from './search.ts';
 import type {
   Candidate,
   CreateRequest,
@@ -34,8 +35,11 @@ import type {
   Failure,
   FieldValue,
   ItemSelector,
+  CodeOutcome,
   ExportRequest,
   ExportResult,
+  HistoryOutcome,
+  HistoryRequest,
   ImportRequest,
   ImportResult,
   ItemSummary,
@@ -45,6 +49,8 @@ import type {
   LocationInfo,
   OpenedVault,
   Result,
+  SearchQuery,
+  SearchResult,
   ServiceOptions,
   SetOutcome,
   SyncReport,
@@ -604,6 +610,86 @@ class RealVaultService implements VaultService {
       if (got.kind === 'value') return { ok: true as const, value: { item, field: got.field, value: got.value } };
       return { ok: false, kind: 'notFound', what: 'field', name: field, vault: this.name, item: item.title, fields: item.fields } as Failure;
     })) as Result<FieldValue>;
+  }
+
+  async search(query: SearchQuery): Promise<Result<SearchResult>> {
+    const v = this.use();
+    if ('ok' in v) return v;
+    return (await this.guard<SearchResult>(() => {
+      const wanted = query.group ?? this.opts.group;
+      let group: { id: string; name: string } | undefined;
+      if (wanted !== undefined) {
+        group = this.groupNamed(v, wanted);
+        if (!group) return { ok: false, kind: 'notFound', what: 'group', name: wanted, vault: this.name } as Failure;
+      }
+      const scope: Scope = query.deleted ? 'deleted' : 'live';
+      const all = v.list({ scope, ...(group ? { group: `id:${group.id}` } : {}) });
+      const term = searchTerm(query.text);
+      const hits = all.filter((i) => matchesSearch(i, term)).sort(byTitle);
+      const items = hits.map((s) => this.summary(v, s, scope));
+      const hints = hits.length === 0 ? nearTitles(query.text.trim(), all.map((i) => i.title)) : [];
+      return { ok: true as const, value: { items, hints } };
+    })) as Result<SearchResult>;
+  }
+
+  async history(selector: ItemSelector, request: HistoryRequest): Promise<Result<HistoryOutcome>> {
+    const v = this.use();
+    if ('ok' in v) return v;
+    return (await this.guard<HistoryOutcome>(() => {
+      // a live item first; one that is only in Recently Deleted still has a history
+      let scope: Scope = 'live';
+      let r = this.pick(v, selector, scope);
+      if ('none' in r) {
+        scope = 'deleted';
+        const again = this.pick(v, selector, scope);
+        if ('none' in again) {
+          const n = this.nameOfSelector(selector);
+          return this.missing(v, n.name, n.by, 'live');
+        }
+        r = again;
+      }
+      if ('ok' in r) return r;
+      const item = this.summary(v, r.item, scope);
+      const ref = { item: { id: r.item.id }, field: request.field ?? 'title' };
+      if (request.field === undefined) {
+        const got = v.changes(ref);
+        if (got.kind !== 'changes') return failed('Psss could not read the history of that item.');
+        return { ok: true as const, value: { mode: 'item' as const, item, changes: got.entries.map((c) => ({ at: c.at, kind: c.kind, fields: [...c.fields] })) } };
+      }
+      const got = v.history(ref);
+      if (got.kind === 'history') {
+        const earlier = got.entries.map((h) => ({ replaced: h.replaced, ...(request.show === true ? { value: h.value } : {}) }));
+        return { ok: true as const, value: { mode: 'field' as const, item, field: got.field, earlier } };
+      }
+      return { ok: false, kind: 'notFound', what: 'field', name: request.field, vault: this.name, item: item.title, fields: item.fields } as Failure;
+    })) as Result<HistoryOutcome>;
+  }
+
+  async code(selector: ItemSelector): Promise<Result<CodeOutcome>> {
+    const v = this.use();
+    if ('ok' in v) return v;
+    return (await this.guard<CodeOutcome>(() => {
+      const r = this.pick(v, selector, 'live');
+      if ('ok' in r) return r;
+      if ('none' in r) {
+        const n = this.nameOfSelector(selector);
+        return this.missing(v, n.name, n.by, 'live');
+      }
+      const item = this.summary(v, r.item, 'live');
+      let got: ReturnType<Vault['get']>;
+      try {
+        got = v.get({ item: { id: r.item.id }, field: 'code' });
+      } catch (e) {
+        // the library says why in its own words (`unknown algorithm 7`); the setup key is never in them
+        const why = /unknown algorithm (\d+)/.exec(e instanceof Error ? e.message : '');
+        return failed(`The verification code of "${printable(item.title)}" cannot be made${why ? `: its setup key asks for an algorithm Psss does not support (${why[1]})` : ''}.`);
+      }
+      // a stored field that happens to be called "code" is a value, not a verification code: only a computed one has seconds left
+      if (got.kind === 'value' && got.expiresInSeconds !== undefined && got.period !== undefined) {
+        return { ok: true as const, value: { item, code: got.value, period: got.period, remaining: got.expiresInSeconds } };
+      }
+      return { ok: false, kind: 'notFound', what: 'field', name: 'code', vault: this.name, item: item.title, fields: item.fields } as Failure;
+    })) as Result<CodeOutcome>;
   }
 
   // ------------------------------------------------------------------ writing

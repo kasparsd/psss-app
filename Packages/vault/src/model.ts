@@ -3,7 +3,8 @@ import { hex } from '../../format/src/bytes.ts';
 import type { CborValue, CMap } from '../../format/src/cbor.ts';
 import type { Entry } from '../../format/src/fold.ts';
 import type { GroupView } from '../../format/src/group.ts';
-import { viewItem, type Fields, type ItemView } from '../../format/src/schema.ts';
+import { compareKeys, type OrderKey } from '../../format/src/record.ts';
+import { classifyName, viewItem, type Fields, type ItemView } from '../../format/src/schema.ts';
 import type { Candidate } from './errors.ts';
 import { totp } from './totp.ts';
 
@@ -46,6 +47,16 @@ export interface HistoryEntry {
   /** milliseconds: when the value was replaced (the clock of the write that replaced it, or the date an import gave) */
   replaced: number;
   from: 'writes' | 'import';
+}
+
+/** One change of an item, as a person reads it: when, and which fields. Never a value. */
+export interface ChangeEntry {
+  /** milliseconds: the clock of the write */
+  at: number;
+  /** `added` for the write that made the item, `deleted` and `restored` for a move to and out of Recently Deleted, otherwise `changed` */
+  kind: 'added' | 'changed' | 'deleted' | 'restored';
+  /** the fields the write touched, named as a reference names them (`password`, `url`, `code`, a custom field's label); empty for `deleted` and `restored` */
+  fields: string[];
 }
 
 export interface GroupCtx {
@@ -179,6 +190,60 @@ export function historyOf(entry: ItemEntry, target: FieldTarget): HistoryEntry[]
   }
   return out;
 }
+
+// ---------------------------------------------------------------- changes
+
+const FIXED_LABELS: Record<string, string> = {
+  type: 'type', title: 'title', username: 'username', password: 'password', password_rules: 'password rules', otp: 'code', passkey: 'passkey',
+  cardholder: 'cardholder', card: 'card', card_code: 'card_code', card_pin: 'card_pin', notes: 'notes',
+};
+const LABEL_ORDER = ['title', 'username', 'password', 'url', 'code', 'passkey', 'cardholder', 'card', 'card_code', 'card_pin', 'notes', 'password rules', 'type', 'tags', 'attachments'];
+const keyId = (k: OrderKey) => `${k[0]}:${k[1]}:${hex(k[2])}:${hex(k[3])}:${k[4]}`;
+
+/** What happened to an item, newest first, one entry per record that changed something a person sees. Fields written in one record are one entry.
+ *  Held writes only: a checkpoint keeps the winner of each field and the writes the previous passwords need, so older changes may be missing.
+ *  Bookkeeping fields (dates, the source of an import, the marker of Clear Previous Passwords) are not changes. Values never appear. */
+export function changesOf(entry: ItemEntry): ChangeEntry[] {
+  interface Group { key: OrderKey; labels: Set<string>; added: boolean; deleted: boolean; restored: boolean }
+  const groups = new Map<string, Group>();
+  for (const [name, list] of entry.fields) {
+    const c = classifyName(name);
+    if (c.kind === 'invalid' || !c.known) continue;
+    list.forEach((w, i) => {
+      let label: string | undefined;
+      let special: 'added' | 'deleted' | undefined;
+      if (c.kind === 'fixed') {
+        if (name === 'created') special = 'added';
+        else if (name === 'deleted') special = 'deleted';
+        else label = FIXED_LABELS[name];
+      } else if (c.family === 'web') label = 'url';
+      else if (c.family === 't') label = 'tags';
+      else if (c.family === 'a') label = 'attachments';
+      else if (c.family === 'f') {
+        const labelOf = (e: Entry | undefined) => (e && !e.cleared && e.value instanceof Map && typeof e.value.get(1) === 'string' ? (e.value.get(1) as string) : undefined);
+        label = labelOf(w) ?? [...list.slice(0, i)].reverse().map(labelOf).find((l) => l !== undefined) ?? 'custom field';
+      }
+      if (label === undefined && special === undefined) return;
+      const id = keyId(w.key);
+      let g = groups.get(id);
+      if (!g) groups.set(id, (g = { key: w.key, labels: new Set(), added: false, deleted: false, restored: false }));
+      if (label !== undefined) g.labels.add(label);
+      if (special === 'added' && !w.cleared) g.added = true;
+      if (special === 'deleted') { if (w.cleared) g.restored = true; else g.deleted = true; }
+    });
+  }
+  const rank = (l: string) => { const i = LABEL_ORDER.indexOf(l); return i < 0 ? LABEL_ORDER.length : i; };
+  const out: { key: OrderKey; entry: ChangeEntry }[] = [];
+  for (const g of groups.values()) {
+    const fields = [...g.labels].sort((a, b) => rank(a) - rank(b) || (a < b ? -1 : a > b ? 1 : 0));
+    if (g.added) out.push({ key: g.key, entry: { at: g.key[0], kind: 'added', fields } });
+    else if (fields.length > 0) out.push({ key: g.key, entry: { at: g.key[0], kind: 'changed', fields } });
+    if (g.deleted) out.push({ key: g.key, entry: { at: g.key[0], kind: 'deleted', fields: [] } });
+    if (g.restored) out.push({ key: g.key, entry: { at: g.key[0], kind: 'restored', fields: [] } });
+  }
+  return out.sort((a, b) => compareKeys(b.key, a.key) || KIND_ORDER[b.entry.kind] - KIND_ORDER[a.entry.kind]).map((o) => o.entry);
+}
+const KIND_ORDER = { added: 0, changed: 1, restored: 2, deleted: 3 } as const;
 
 // ---------------------------------------------------------------- search
 

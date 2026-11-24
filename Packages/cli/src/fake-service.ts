@@ -3,8 +3,17 @@
 
 import path from 'node:path';
 import { nearTitles } from './near.ts';
+import { matchesSearch, searchTerm } from './search.ts';
+import { printable } from './text.ts';
 import type {
   Candidate,
+  ChangeEvent,
+  CodeOutcome,
+  EarlierValue,
+  HistoryOutcome,
+  HistoryRequest,
+  SearchQuery,
+  SearchResult,
   CreateRequest,
   Delivery,
   CreatedVault,
@@ -41,6 +50,10 @@ export interface FakeItem {
   /** Field name to value. `username` and `url` are separate properties and are also readable as fields. */
   fields?: Record<string, string>;
   deleted?: boolean;
+  /** Changes of the item, newest first. Default: one `added` change. */
+  changes?: ChangeEvent[];
+  /** Earlier values per field, newest first. A `set` adds to it. */
+  earlier?: Record<string, Array<{ replaced: number; value: string }>>;
 }
 
 export interface FakeScenario {
@@ -70,6 +83,12 @@ export interface FakeScenario {
   kdbxFiles?: Record<string, FakeKdbxFile>;
   /** What a write leaves undelivered: reported by `delivery`, and `info` counts it. Default: nothing. */
   delivery?: Delivery;
+  /** The clock of the fake: when a `set` says it replaced a value. Default 2026-11-24 12:00 UTC. */
+  now?: number;
+  /** Seconds the current verification code of every item with a `code` field is still valid. Default 21. */
+  codeRemaining?: number;
+  /** Titles whose code cannot be made (an unsupported algorithm). */
+  codeUnsupported?: string[];
   /** What an export finds and reports. */
   kdbxExport?: { items?: number; deleted?: number; attachments?: number; groups?: number; doesNotTravel?: string[]; issues?: ImportIssue[]; existing?: string[] };
 }
@@ -98,6 +117,8 @@ interface Row {
   fields: Record<string, string>;
   deleted: boolean;
   previous: Record<string, string[]>;
+  changes: ChangeEvent[];
+  earlier: Record<string, Array<{ replaced: number; value: string }>>;
 }
 
 export class FakeVaultService implements VaultService {
@@ -125,6 +146,8 @@ export class FakeVaultService implements VaultService {
       fields: { ...(i.fields ?? {}) },
       deleted: i.deleted ?? false,
       previous: {},
+      changes: i.changes ? i.changes.map((c) => ({ ...c, fields: [...c.fields] })) : [{ at: Date.UTC(2026, 9, 2, 8, 0), kind: 'added' as const, fields: [] }],
+      earlier: Object.fromEntries(Object.entries(i.earlier ?? {}).map(([k, v]) => [k, v.map((e) => ({ ...e }))])),
     }));
   }
 
@@ -321,6 +344,63 @@ export class FakeVaultService implements VaultService {
     return { ok: true, value: { item: this.summary(item), field, value } };
   }
 
+  private clock(): number {
+    return this.scenario.now ?? Date.UTC(2026, 10, 24, 12, 0);
+  }
+
+  async search(query: SearchQuery): Promise<Result<SearchResult>> {
+    this.calls.push('search');
+    const problem = this.locked();
+    if (problem) return problem;
+    const group = query.group ?? this.options.group;
+    if (group !== undefined && !this.groups().includes(group)) {
+      return { ok: false, kind: 'notFound', what: 'group', name: group, vault: this.vaultName };
+    }
+    const term = searchTerm(query.text);
+    const scoped = this.rows().filter((i) => i.deleted === (query.deleted ?? false) && (group === undefined || i.group === group));
+    const items = scoped
+      .filter((i) => matchesSearch(i, term))
+      .map((i) => this.summary(i))
+      .sort((a, b) => a.title.localeCompare(b.title, 'en') || a.id.localeCompare(b.id));
+    const hints = items.length === 0 ? nearTitles(query.text.trim(), scoped.map((i) => i.title)) : [];
+    return { ok: true, value: { items, hints } };
+  }
+
+  async history(selector: ItemSelector, request: HistoryRequest): Promise<Result<HistoryOutcome>> {
+    this.calls.push('history');
+    const problem = this.locked();
+    if (problem) return problem;
+    let r = this.resolve(selector, {});
+    if (r.ok && r.value === null) {
+      const again = this.resolve(selector, { deleted: true });
+      if (again.ok && again.value !== null) r = again;
+    }
+    if (!r.ok) return r;
+    if (r.value === null) return this.missing('title' in selector ? selector.title : selector.id, 'title' in selector ? 'title' : 'id');
+    const item = r.value;
+    if (request.field === undefined) return { ok: true, value: { mode: 'item', item: this.summary(item), changes: item.changes.map((c) => ({ ...c, fields: [...c.fields] })) } };
+    const key = Object.keys(item.fields).find((k) => k.toLowerCase() === request.field!.toLowerCase());
+    const named = ['username', 'url'].includes(request.field.toLowerCase()) ? request.field.toLowerCase() : key;
+    if (named === undefined) return { ok: false, kind: 'notFound', what: 'field', name: request.field, vault: this.vaultName, item: item.title, fields: Object.keys(item.fields) };
+    const earlier: EarlierValue[] = (item.earlier[named] ?? []).map((e) => ({ replaced: e.replaced, ...(request.show === true ? { value: e.value } : {}) }));
+    return { ok: true, value: { mode: 'field', item: this.summary(item), field: named, earlier } };
+  }
+
+  async code(selector: ItemSelector): Promise<Result<CodeOutcome>> {
+    this.calls.push('code');
+    const problem = this.locked();
+    if (problem) return problem;
+    const r = this.resolve(selector, {});
+    if (!r.ok) return r;
+    if (r.value === null) return this.missing('title' in selector ? selector.title : selector.id, 'title' in selector ? 'title' : 'id');
+    const item = r.value;
+    if (Object.hasOwn(item.fields, 'code') && (this.scenario.codeUnsupported ?? []).includes(item.title)) {
+      return { ok: false, kind: 'failed', message: `The verification code of "${printable(item.title)}" cannot be made: its setup key asks for an algorithm Psss does not support (7).` };
+    }
+    if (!Object.hasOwn(item.fields, 'code')) return { ok: false, kind: 'notFound', what: 'field', name: 'code', vault: this.vaultName, item: item.title, fields: Object.keys(item.fields) };
+    return { ok: true, value: { item: this.summary(item), code: item.fields.code, period: 30, remaining: this.scenario.codeRemaining ?? 21 } };
+  }
+
   async set(selector: ItemSelector, field: string, value: string, options: { create: boolean }): Promise<Result<SetOutcome>> {
     this.calls.push('set');
     const problem = this.locked();
@@ -334,11 +414,15 @@ export class FakeVaultService implements VaultService {
       if (!options.create) return this.missing(selector.title);
       itemCreated = true;
       const group = r.group ?? this.groups()[0];
-      item = { id: this.newId(), title: selector.title, group, fields: {}, deleted: false, previous: {} };
+      item = { id: this.newId(), title: selector.title, group, fields: {}, deleted: false, previous: {}, changes: [{ at: this.clock(), kind: 'added', fields: [field] }], earlier: {} };
       this.rows().push(item);
     }
     const previousKept = Object.hasOwn(item.fields, field);
-    if (previousKept) (item.previous[field] ??= []).push(item.fields[field]);
+    if (previousKept) {
+      (item.previous[field] ??= []).push(item.fields[field]);
+      (item.earlier[field] ??= []).unshift({ replaced: this.clock(), value: item.fields[field] });
+    }
+    if (!itemCreated) item.changes.unshift({ at: this.clock(), kind: 'changed', fields: [field] });
     item.fields[field] = value;
     return { ok: true, value: { item: this.summary(item), field, itemCreated, previousKept } };
   }
@@ -351,6 +435,7 @@ export class FakeVaultService implements VaultService {
     if (!r.ok) return r;
     if (r.value === null) return this.missing('title' in selector ? selector.title : selector.id, 'title' in selector ? 'title' : 'id');
     r.value.deleted = true;
+    r.value.changes.unshift({ at: this.clock(), kind: 'deleted', fields: [] });
     return { ok: true, value: this.summary(r.value) };
   }
 
@@ -362,6 +447,7 @@ export class FakeVaultService implements VaultService {
     if (!r.ok) return r;
     if (r.value === null) return this.missing('title' in selector ? selector.title : selector.id, 'title' in selector ? 'title' : 'id');
     r.value.deleted = false;
+    r.value.changes.unshift({ at: this.clock(), kind: 'restored', fields: [] });
     return { ok: true, value: this.summary(r.value) };
   }
 

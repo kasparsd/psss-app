@@ -1,6 +1,7 @@
 import { ValidationError } from '../errors.ts';
 import { hasJson, jsonOption } from './command.ts';
 import type { Command } from './command.ts';
+import { itemJson, itemLines } from './item-lines.ts';
 import { jsonName } from './kdbx-report.ts';
 
 const list: Command = {
@@ -26,14 +27,7 @@ const list: Command = {
 
     if (hasJson(ctx.values)) {
       ctx.json({
-        items: items.map((i) => ({
-          id: i.id,
-          title: jsonName(i.title),
-          ...(i.username !== undefined ? { username: i.username } : {}),
-          ...(i.url !== undefined ? { url: i.url } : {}),
-          group: jsonName(i.group),
-          fields: i.fields.map(jsonName),
-        })),
+        items: items.map((i) => itemJson(i, jsonName)),
       });
       return 0;
     }
@@ -45,22 +39,7 @@ const list: Command = {
       );
       return 0;
     }
-    // Items that share a title cannot be told apart by name, so they show an id that works in a reference.
-    const key = (t: string) => t.normalize('NFC').toLowerCase();
-    const seen = new Map<string, number>();
-    for (const i of items) seen.set(key(i.title), (seen.get(key(i.title)) ?? 0) + 1);
-    const shared = (i: { title: string }) => (seen.get(key(i.title)) ?? 0) > 1;
-    const anyShared = items.some(shared);
-    const titleW = Math.max(...items.map((i) => i.title.length)) + 3;
-    const userW = Math.max(...items.map((i) => (i.username ?? '').length));
-    const idW = anyShared ? 'id:'.length + Math.max(...items.filter(shared).map((i) => i.id.slice(0, 8).length)) + 3 : 0;
-    let text = '';
-    for (const i of items) {
-      const user = userW > 0 ? (i.username ?? '').padEnd(userW + 4) : '';
-      const id = anyShared ? (shared(i) ? `id:${i.id.slice(0, 8)}` : '').padEnd(idW) : '';
-      text += `${i.title.padEnd(titleW)}${user}${id}${i.fields.join(', ')}`.trimEnd() + '\n';
-    }
-    ctx.out(text);
+    ctx.out(itemLines(items));
     return 0;
   },
 };

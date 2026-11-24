@@ -34,8 +34,9 @@ vault.list({group?, scope?}): ItemSummary[]            // scope: 'live' | 'delet
 vault.search(text, {group?, scope?}): ItemSummary[]    // title, username, urls, tags, custom labels; never values
 vault.find(ref): FindResult                            // found | ambiguous (with candidates) | missing
 vault.show(ref): ShowResult                            // the item, concealed values left out
-vault.get(ref): GetResult                              // one field's value, or a TOTP code
+vault.get(ref): GetResult                              // one field's value, or a TOTP code (with `expiresInSeconds` and `period`)
 vault.history(ref): HistoryResult                      // earlier values, newest first
+vault.changes(ref): ChangesResult                      // what happened to an item, newest first: when, kind, which fields; never a value
 vault.setField(ref, value, {concealed?}): WriteResult
 vault.addItem(spec): { id; item; write }
 vault.editItem(ref, edits): WriteResult

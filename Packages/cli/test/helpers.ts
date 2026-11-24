@@ -74,6 +74,8 @@ export interface RunOptions {
   typed?: string;
   /** Standard output is a terminal. */
   stdoutTty?: boolean;
+  /** Standard error is a terminal. */
+  stderrTty?: boolean;
   env?: Record<string, string | undefined>;
   fake?: FakeVaultService;
   scenario?: Partial<FakeScenario>;
@@ -107,7 +109,7 @@ export async function runCli(argv: string[], options: RunOptions): Promise<Outco
     stderr: { write: (s) => ((stderr += s), (combined += s), true) },
     cwd: box.cwd,
     env: { HOME: box.home, ...(options.env ?? {}) },
-    isTTY: { stdin: tty !== undefined, stdout: options.stdoutTty === true },
+    isTTY: { stdin: tty !== undefined, stdout: options.stdoutTty === true, stderr: options.stderrTty === true },
     platform: options.platform ?? 'linux',
     ...(options.noService
       ? {}

@@ -5,11 +5,8 @@ import { CliError, EXIT_FAILED } from '../errors.ts';
 import type { Command } from './command.ts';
 
 const PLANNED: Array<[name: string, summary: string, usage: string]> = [
-  ['search', 'Find items by text', 'search <text>'],
-  ['code', 'Print a verification code', 'code <reference>'],
   ['generate', "Make a password with the app's generator", 'generate'],
   ['doctor', 'Check permissions, the clock, the key and the locations', 'doctor'],
-  ['history', "Show an item's previous values, with dates", 'history <reference>'],
   ['item', 'Add, edit, show and purge items', 'item <add|edit|show|purge>'],
   ['file', 'Get and put attachments', 'file <get|put>'],
   ['vault', 'Back up and restore a vault', 'vault <backup|restore>'],

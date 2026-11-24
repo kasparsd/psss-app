@@ -10,6 +10,7 @@ import { failureError } from './commands/command.ts';
 import { CliError, EXIT_FAILED, EXIT_LOCKED, EXIT_NOT_FOUND, EXIT_OK, EXIT_USAGE, ValidationError } from './errors.ts';
 import { commandHelp, rootHelp } from './help.ts';
 import { displayPath, homeOf, isInteractive } from './io.ts';
+import { printable } from './text.ts';
 import type { CliIo } from './io.ts';
 import type { Failure, OpenedVault, Result, VaultService } from './service.ts';
 
@@ -22,17 +23,19 @@ export const VERSION = '0.0.0';
 const VALUE_FLAGS = new Set(GLOBAL_OPTIONS.filter((o) => o.type === 'string').map((o) => `--${o.flag}`));
 
 /** Commands that read or write values and so say when the vault has a problem or the key file is open to others (frame A11). */
-const WARNING_COMMANDS = new Set(['get', 'list', 'set', 'status', 'run']);
+const WARNING_COMMANDS = new Set(['get', 'list', 'set', 'status', 'run', 'search', 'history', 'code']);
 
 /** What the one warning says the problem touched, by command: `the value above` for get and set (frame A11). */
 function problemWarning(command: string, vault: string): string {
-  const head = `warning: "${vault}" has a problem, so`;
+  const head = `warning: "${printable(vault)}" has a problem, so`;
   const tail = 'Run psss verify to see what is wrong.';
   switch (command) {
     case 'run':
       return `${head} the program ran with a value\nthat may be out of date. ${tail}\n`;
     case 'list':
     case 'status':
+    case 'search':
+    case 'history':
       return `${head} the result above may be\nout of date. ${tail}\n`;
     case 'set':
       return `${head} the new value may not show up\nuntil it is fixed. ${tail}\n`;
@@ -167,7 +170,9 @@ export async function run(argv: string[], io: CliIo): Promise<number> {
       const hint =
         command.name === 'set'
           ? ' A value is never an argument: pipe it in, or type it when asked.'
-          : positionals.some((p) => p.startsWith('psss://'))
+          : command.name === 'search'
+            ? ' Put text with spaces in quotes, as in: psss search "example api"'
+            : positionals.some((p) => p.startsWith('psss://'))
             ? ' If a reference has spaces, put it in quotes, as in "psss://Example API/token".'
             : '';
       throw new ValidationError(`psss ${command.name} takes ${allowed}, but ${more} more ${more === 1 ? 'was' : 'were'} not expected.${hint}`);

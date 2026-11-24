@@ -10,16 +10,16 @@ Commands:
   get       Print one value, bare, so it can fill a variable or a file
   set       Save one value, read from standard input or typed without echo
   list      List item names, accounts and field names, never values
-  search    (planned) Find items by text
+  search    Find items by name, account or website, never by value
   rm        Move an item to Recently Deleted (restore brings it back)
   restore   Bring an item back from Recently Deleted
   run       Run a program with secrets in its environment and nowhere else
-  code      (planned) Print a verification code
+  code      Print the current verification code of an item
   generate  (planned) Make a password with the app's generator
   sync      Merge with every place the vault is kept
   verify    Check every record and report; exit 2 if anything is wrong
   doctor    (planned) Check permissions, the clock, the key and the locations
-  history   (planned) Show an item's previous values, with dates
+  history   Show an item's changes, or the earlier values of one field, with dates
   import    Bring in a KeePass file
   export    Write a copy as a KeePass file
   item      (planned) Add, edit, show and purge items

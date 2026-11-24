@@ -4,7 +4,7 @@
 // Rules for an implementation:
 // - A call never prints, prompts or reads standard input. The command does that.
 // - An expected failure is returned as data (a Failure), never thrown. A throw is a bug or an I/O error and exits 1.
-// - Only `get` returns a stored value. Nothing else may put one in a result, a message or a log.
+// - Only `get`, `code` (a computed code) and `history` with `show` set return a stored value. Nothing else may put one in a result, a message or a log.
 
 /** What the command resolved from flags, environment and config files. Secrets are only ever here, never in arguments. */
 export interface ServiceOptions {
@@ -202,6 +202,57 @@ export interface ListQuery {
   deleted?: boolean;
 }
 
+export interface SearchQuery {
+  /** The text to find, as typed (the service trims it). Never empty. */
+  text: string;
+  group?: string;
+  /** Search Recently Deleted instead of live items. */
+  deleted?: boolean;
+}
+
+export interface SearchResult {
+  /** The items whose title, username or website holds the text, by title. Never a value. */
+  items: ItemSummary[];
+  /** When nothing matched: titles that are close to the text, for a "Did you mean" line. Text for a person, never a result. */
+  hints: string[];
+}
+
+/** One change of an item: when, and which fields. Never a value. */
+export interface ChangeEvent {
+  /** Milliseconds since 1970. */
+  at: number;
+  kind: 'added' | 'changed' | 'deleted' | 'restored';
+  /** The fields the change touched, named as a reference names them; empty for `deleted` and `restored`. */
+  fields: string[];
+}
+
+/** An earlier value of one field and when it was replaced. `value` is only there when `show` was asked for. */
+export interface EarlierValue {
+  replaced: number;
+  value?: string;
+}
+
+export type HistoryOutcome =
+  | { mode: 'item'; item: ItemSummary; changes: ChangeEvent[] }
+  | { mode: 'field'; item: ItemSummary; field: string; earlier: EarlierValue[] };
+
+export interface HistoryRequest {
+  /** One field: its earlier values. Absent: the changes of the whole item. */
+  field?: string;
+  /** Put the earlier values in the result. Only with a field. */
+  show?: boolean;
+}
+
+export interface CodeOutcome {
+  item: ItemSummary;
+  /** The current verification code. The setup key behind it never leaves the service. */
+  code: string;
+  /** Seconds a code lasts. */
+  period: number;
+  /** Seconds this code is still valid, 1 to `period`. */
+  remaining: number;
+}
+
 export interface FieldValue {
   item: ItemSummary;
   field: string;
@@ -339,6 +390,12 @@ export interface VaultService {
   /** Resolves a selector to exactly one item. `deleted` looks in Recently Deleted instead. */
   find(selector: ItemSelector, scope?: { deleted?: boolean }): Promise<Result<ItemSummary>>;
   get(selector: ItemSelector, field: string): Promise<Result<FieldValue>>;
+  /** Items whose title, username or website holds the text (case, accents and Unicode form ignored), as the apps' search does. Notes, tags and secrets are never searched. */
+  search(query: SearchQuery): Promise<Result<SearchResult>>;
+  /** The changes of one live item, or of one field with its earlier values, newest first. An item that is only in Recently Deleted is found there. */
+  history(selector: ItemSelector, request: HistoryRequest): Promise<Result<HistoryOutcome>>;
+  /** The current verification code of one live item. `notFound` (field `code`) when it has none. */
+  code(selector: ItemSelector): Promise<Result<CodeOutcome>>;
   /** What the writes of this run left undelivered. Called by every command that writes, after it has written. */
   delivery(): Promise<Result<Delivery>>;
   /** Writes one field. A title that does not exist is `notFound` unless `create` is true, which adds the item. */

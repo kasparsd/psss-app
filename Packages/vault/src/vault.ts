@@ -29,8 +29,8 @@ import { blobPath } from '../../format/src/folder.ts';
 import { buildKeepass, contentHash, contentOf, nameOf, readKeepass, specView, type BuiltExport, type ContentView, type ExportItem, type ItemSpec, type ReportIssue } from './keepass.ts';
 import type { KdbxDatabase } from '../../kdbx/src/index.ts';
 import { listGroupIds, listSlots, listWraps, probe, readSegments, supportFiles, type Probe } from './location.ts';
-import { ZERO_ITEM, buildEntries, builtinField, candidateOf, compareEntries, detail, fieldTarget, historyOf, matchesText, summarize, titleOf,
-         type GroupCtx, type HistoryEntry, type ItemDetail, type ItemEntry, type ItemSummary } from './model.ts';
+import { ZERO_ITEM, buildEntries, changesOf, builtinField, candidateOf, compareEntries, detail, fieldTarget, historyOf, matchesText, summarize, titleOf,
+         type ChangeEntry, type GroupCtx, type HistoryEntry, type ItemDetail, type ItemEntry, type ItemSummary } from './model.ts';
 import { parseReference, type Reference, type Selector } from './reference.ts';
 import { systemRandom, type Random } from './random.ts';
 import { DeviceState } from './state.ts';
@@ -156,12 +156,16 @@ export type FindResult =
   | { kind: 'notFound'; reference: string };
 export type ShowResult = { kind: 'found'; item: ItemDetail } | Exclude<FindResult, { kind: 'found' }>;
 export type GetResult =
-  | { kind: 'value'; value: string; field: string; item: ItemSummary; expiresInSeconds?: number }
+  | { kind: 'value'; value: string; field: string; item: ItemSummary; expiresInSeconds?: number; period?: number }
   | { kind: 'noField'; field: string; item: ItemSummary }
   | Exclude<FindResult, { kind: 'found' }>;
 export type HistoryResult =
   | { kind: 'history'; field: string; item: ItemSummary; entries: HistoryEntry[] }
   | { kind: 'noField'; field: string; item: ItemSummary }
+  | Exclude<FindResult, { kind: 'found' }>;
+
+export type ChangesResult =
+  | { kind: 'changes'; item: ItemSummary; entries: ChangeEntry[] }
   | Exclude<FindResult, { kind: 'found' }>;
 
 export interface ItemEdits {
@@ -797,7 +801,7 @@ export class Vault {
     if (ref.field.toLowerCase() === 'code' && entry.view.otp) {
       if (ref.previous !== undefined) return { kind: 'noField', field: ref.field, item };
       const c = totp(entry.view.otp, this.now());
-      return { kind: 'value', value: c.code, field: 'code', item, expiresInSeconds: c.expiresInSeconds };
+      return { kind: 'value', value: c.code, field: 'code', item, expiresInSeconds: c.expiresInSeconds, period: entry.view.otp.period };
     }
     const target = fieldTarget(entry.view, ref.field);
     if (!target) return { kind: 'noField', field: ref.field, item };
@@ -817,6 +821,14 @@ export class Vault {
     const target = fieldTarget(r.entry.view, r.ref.field);
     if (!target) return { kind: 'noField', field: r.ref.field, item };
     return { kind: 'history', field: target.label, item, entries: historyOf(r.entry, target) };
+  }
+
+  /** What happened to an item, newest first, with the fields each change touched and never a value. The field of the reference is not looked at.
+   *  Held writes only: a checkpoint drops older ones. */
+  changes(reference: string | Reference, opts: { scope?: Scope } = {}): ChangesResult {
+    const r = this.resolve(reference, opts.scope ?? 'all');
+    if (r.kind !== 'found') return r;
+    return { kind: 'changes', item: summarize(r.entry), entries: changesOf(r.entry) };
   }
 
   /** What every device must agree on after syncing: the folded items with every field's winner and earlier writes. For tests and `doctor`. */
