@@ -146,6 +146,9 @@ struct VaultView: View {
     @State private var importProblem: String?
     @Environment(UnlockGate.self) private var gate
     @Environment(AutoFillStatus.self) private var autoFill
+    #if os(macOS)
+    @Environment(SafariExtensionStatus.self) private var safariExtension
+    #endif
     @AppStorage("lockTiming") private var lockTiming = LockTiming.oneMinute.rawValue
     @State private var columns: NavigationSplitViewVisibility = .all
     @State private var compactColumn: NavigationSplitViewColumn = .content
@@ -577,7 +580,7 @@ struct VaultView: View {
         ScrollView {
             VStack(spacing: 24) {
                 // A new vault is where a new person learns about AutoFill, so the card sits above the empty state.
-                if showsAutoFillCard { AutoFillCard(vault: autoFillVault) }
+                if showsAutoFillCard { ReminderCards(vault: autoFillVault) }
                 VStack(spacing: 8) {
                     Image(systemName: "tray").font(.system(size: 40)).foregroundStyle(.secondary).accessibilityHidden(true)
                     Text("Your vault is empty").font(.title2.weight(.semibold))
@@ -1236,14 +1239,20 @@ struct VaultView: View {
     /// A vault is open on every screen that asks, the sample vault included.
     private var autoFillVault: AutoFillVault { .real }
 
-    private var showsAutoFillCard: Bool { autoFill.reminder(for: autoFillVault).display != .nothing }
+    /// Any reminder card: AutoFill, and on Mac the Safari extension once AutoFill is on.
+    private var showsAutoFillCard: Bool {
+        #if os(macOS)
+        if SafariExtensionCard.isShown(safariExtension, autoFill) { return true }
+        #endif
+        return autoFill.reminder(for: autoFillVault).display != .nothing
+    }
 
     /// The card is the first row of the list, above the title line on Mac and iPad, so it scrolls away with it and never covers a row. An empty vault shows it
     /// above its own text instead, and a search or a filter with nothing to list has no room for it.
     @ViewBuilder
     private func autoFillRow(_ results: [VaultItem]) -> some View {
         if showsAutoFillCard, !results.isEmpty, !isSearching {
-            AutoFillCard(vault: autoFillVault)
+            ReminderCards(vault: autoFillVault)
                 #if os(iOS)
                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                 #else

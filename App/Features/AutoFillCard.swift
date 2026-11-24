@@ -36,7 +36,7 @@ struct AutoFillCard: View {
             case .nothing:
                 EmptyView()
             case .card:
-                card(title: copy.title, message: copy.body) {
+                ReminderCard(title: copy.title, message: copy.body) {
                     Button(copy.buttonLabel(reminder.action)) { Task { await autoFill.performAction() } }
                         .buttonStyle(.borderedProminent)
                         .disabled(autoFill.working)
@@ -44,7 +44,7 @@ struct AutoFillCard: View {
                         .buttonStyle(.borderless)
                 }
             case .confirmation:
-                card(title: copy.confirmationTitle, message: copy.confirmationBody) {
+                ReminderCard(title: copy.confirmationTitle, message: copy.confirmationBody) {
                     Button(copy.doneLabel) { autoFill.dismissConfirmation() }
                         .buttonStyle(.borderedProminent)
                 }
@@ -56,6 +56,13 @@ struct AutoFillCard: View {
             if now == .confirmation { AccessibilityNotification.Announcement(copy.confirmationTitle).post() }
         }
     }
+}
+
+/// The card shared by the AutoFill and Safari extension reminders: a title, one sentence and the buttons.
+struct ReminderCard<Buttons: View>: View {
+    let title: String
+    let message: String
+    @ViewBuilder let buttons: () -> Buttons
 
     /// iPhone and iPad: a system background, like the banners in Apple's own Settings (owner, 2026-11-24). Mac: the system fill,
     /// because every system background there is the colour of the list column and the card would not show.
@@ -69,9 +76,9 @@ struct AutoFillCard: View {
 
     /// The words read as one element, then the buttons, all inside one group. The buttons sit side by side and stack when
     /// the text size is large, so no label is cut off.
-    private func card<Buttons: View>(title: String, message: String, @ViewBuilder buttons: () -> Buttons) -> some View {
+    var body: some View {
         let actions = buttons()
-        return VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.headline).accessibilityAddTraits(.isHeader)
                 Text(message)

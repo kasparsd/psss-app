@@ -41,7 +41,7 @@ DEVELOPMENT_TEAM = ABCDE12345
 PSSS_MAC_ENTITLEMENTS_SUFFIX =
 ```
 
-All targets use automatic signing, so with `-allowProvisioningUpdates` Xcode registers the App IDs (`app.psss.Psss`, `app.psss.Psss.CredentialProvider`, `app.psss.Psss.Safari`), the iOS App Group `group.app.psss` and development profiles for the team, and adds the connected device to the iOS profiles. Nothing else in the developer account changes. Always build through `scripts/xcb.sh`, which takes the `xcodebuild` arguments, runs one job at a time and keeps this Mac from running out of memory.
+All targets use automatic signing, so with `-allowProvisioningUpdates` Xcode registers the App IDs (`app.psss.Psss`, `app.psss.Psss.CredentialProvider`, `app.psss.Psss.Safari` (Mac only)), the iOS App Group `group.app.psss` and development profiles for the team, and adds the connected device to the iOS profiles. Nothing else in the developer account changes. Always build through `scripts/xcb.sh`, which takes the `xcodebuild` arguments, runs one job at a time and keeps this Mac from running out of memory.
 
 ```sh
 scripts/xcb.sh -project Psss.xcodeproj -scheme Psss-macOS -configuration Debug \
@@ -102,7 +102,7 @@ The interface mocks are being moved from hand-written pages into one React app, 
 
 ## Browser extension
 
-`Extensions/Browser` holds the shared WebExtension (`src`, one flat folder), the native host and `build.py` (standard library only, output in `build/browser`). The Safari extension is built by Xcode: targets `SafariExtension-macOS` and `SafariExtension-iOS` bundle `Extensions/Browser/src` and `Extensions/Safari`, and both schemes embed them. Chrome and Firefox archives, the host and the tests come from `build.py` and `Extensions/Browser/tests`. `App/Core/BrowserProtocol.swift` answers extension requests for both the host and the Safari handler. Run `python3 Extensions/Browser/build.py check` after any change to the extension, and see [browser extension](browser-extension.md#build-and-try-it) for building, loading and tests (unit, host, and end-to-end suites for Chrome and Firefox; they need Node 22 or later and Python 3).
+`Extensions/Browser` holds the shared WebExtension (`src`, one flat folder), the native host and `build.py` (standard library only, output in `build/browser`). The Safari extension is built by Xcode: target `SafariExtension-macOS` bundles `Extensions/Browser/src` and `Extensions/Safari`, and the Mac scheme embeds it (the iOS app has no Safari extension). Chrome and Firefox archives, the host and the tests come from `build.py` and `Extensions/Browser/tests`. `App/Core/BrowserProtocol.swift` answers extension requests for both the host and the Safari handler. Run `python3 Extensions/Browser/build.py check` after any change to the extension, and see [browser extension](browser-extension.md#build-and-try-it) for building, loading and tests (unit, host, and end-to-end suites for Chrome and Firefox; they need Node 22 or later and Python 3).
 
 ## Decisions
 

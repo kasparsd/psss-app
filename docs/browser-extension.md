@@ -1,6 +1,6 @@
 # Browser extension
 
-Psss fills in Safari and native apps through the system AutoFill provider. Other browsers need their own route, so there is one shared WebExtension (a flat folder, `Extensions/Browser/src`), one native host for Chrome and Firefox, and a Safari app extension that bundles the same files with the apps. The Safari extension is part of the app targets, not a separate download. Chrome and Firefox remain a prototype outside 1.0 (see [roadmap](roadmap.md)).
+Psss fills in Safari and native apps through the system AutoFill provider. Other browsers need their own route, so there is one shared WebExtension (a flat folder, `Extensions/Browser/src`), one native host for Chrome and Firefox, and a Safari app extension that bundles the same files with the Mac app. The Safari extension is part of the Mac app, not a separate download. iPhone and iPad have none (since 2026-11-24, see below). Chrome and Firefox remain a prototype outside 1.0 (see [roadmap](roadmap.md)).
 
 ## Does system AutoFill reach other browsers?
 
@@ -11,7 +11,7 @@ Psss fills in Safari and native apps through the system AutoFill provider. Other
 
 ## Safari: bundled with the app
 
-The Safari extension ships inside Psss-macOS and Psss-iOS (targets `SafariExtension-macOS` and `SafariExtension-iOS`, embedded next to the credential provider). Its web files are the shared `Extensions/Browser/src` folder with no overlay: the Safari manifest is the base manifest, which `build.py check` verifies. Its native half is `Extensions/Safari/SafariWebExtensionHandler.swift`, which answers the same protocol as the Chrome and Firefox host through `App/Core/BrowserProtocol.swift`. The settings page is left out of the Safari bundle because Safari has no browser save prompt to switch off. The extension folder is flat because Xcode's synchronized folders flatten resources into the bundle.
+The Safari extension ships inside Psss-macOS only (target `SafariExtension-macOS`, embedded next to the credential provider). Psss-iOS embeds the credential provider alone: the `SafariExtension-iOS` target was removed on 2026-11-24 (decision below). Its web files are the shared `Extensions/Browser/src` folder with no overlay: the Safari manifest is the base manifest, which `build.py check` verifies. Its native half is `Extensions/Safari/SafariWebExtensionHandler.swift`, which answers the same protocol as the Chrome and Firefox host through `App/Core/BrowserProtocol.swift`. The settings page is left out of the Safari bundle because Safari has no browser save prompt to switch off. The extension folder is flat because Xcode's synchronized folders flatten resources into the bundle.
 
 The system AutoFill provider already does most of the work in Safari, so the extension adds a small, specific set of things:
 
@@ -19,15 +19,25 @@ The system AutoFill provider already does most of the work in Safari, so the ext
 | --- | --- | --- |
 | Fill a saved login | Yes, on iPhone, iPad and Mac, through the keyboard suggestion or the picker, which lists all logins | The same fill from a toolbar popup and the ⌘⇧P shortcut on Mac. No new capability. |
 | Passkeys and verification codes | Yes | Nothing yet: the popup fills logins only |
-| Generate a password on a sign-up form | iPhone and iPad on iOS 26.2 or later (system "Use Strong Password"). **Not on Mac**: macOS has no API for it | **Mac: "Generate password, fill and save"** fills the password and its confirmation. On iPhone and iPad it duplicates the system prompt |
+| Generate a password on a sign-up form | iPhone and iPad on iOS 26.2 or later (system "Use Strong Password"). **Not on Mac**: macOS has no API for it | **Mac: "Generate password, fill and save"** fills the password and its confirmation |
 | Save a new login or update a password | iPhone and iPad on iOS 26.2 or later. **Not on Mac** | **Mac: the generate button saves the login** (or updates the saved one for that account). There is no save-on-submit capture yet, so a typed password the person chose is not saved |
 | Find a login for a site the auto-match missed | The picker lists all logins | A search field in the popup, with a warning before a login is filled into a site it was not saved for. Same result, second place to do it |
 | Toolbar button, keyboard shortcut | None | Yes |
-| Setup | Enable Psss under AutoFill & Passwords | Also enable the extension in Safari settings, once per device, and allow it on sites |
+| Setup | Enable Psss under AutoFill & Passwords | Mac: also enable the extension in Safari Settings, Extensions, once, and allow it on sites. The app shows a card for it (below) |
 
 In short: the prototype pairs generate and save on sign-up forms. The shared extension can also fill a checkout from a selected sample card through the prototype host. Connecting the real encrypted vault to the bundled Safari extension and external browser host remains open, as do save-on-submit and detection when a password is typed by hand.
 
-Status: both targets build unsigned with the apps, the embedded resources are complete, and Apple's packager reports no unsupported keys. It has not been run in Safari (needs a signed build and enabling the extension), and in an unsigned build the App Group is unavailable, so a save from the extension does not persist.
+### Why iPhone and iPad have no Safari extension (2026-11-24)
+
+On iPhone and iPad the extension duplicated what system AutoFill already does (fill, Strong Password, save on iOS 26.2 and later, passkeys, codes), added a second setup step and a permission prompt asking to read every website, and its handler is the least protected code in the app (see [architecture](architecture.md)). It also showed up in Safari's Manage Extensions list, which Safari cannot hide for an embedded extension. The owner chose to remove it from the iOS builds for 1.0 and keep it on Mac, where it fills a real gap (macOS has no generate or save API).
+
+**Critical, later: fill cards and identities in Safari on iPhone and iPad.** iOS has no third-party AutoFill for payment cards or addresses, so this is the one thing an iOS Safari extension could do that the system cannot, and the owner wants it (priority set 2026-11-24). It needs the iOS target back, a popup that lists cards and identities for the page, and the handler relaying to the unlocked app instead of answering `unsupported`. Tracked on the [roadmap](roadmap.md) under M2.
+
+### The enable-it card (Mac)
+
+While the extension is switched off in Safari, the vault list shows a card like the AutoFill one: "Turn on the Safari extension", one sentence naming the place (Safari Settings, Extensions), the button "Open Safari Settings…" (opens the Extensions page with Psss selected) and Later (snoozes a week, like AutoFill). It waits until AutoFill is on, so there is never more than one reminder, and it reads the state with `SFSafariExtensionManager` at launch, after unlock and when the app becomes active. Logic: `App/Core/SafariExtensionReminder.swift`, view `App/Features/SafariExtensionCard.swift`, checks in `Tests/KDBX`. **The card is switched off for now** (`SafariExtensionReminder.extensionWorks`): the handler answers every request `unsupported`, so a card would send people to a switch that changes nothing. Flip the constant when the handler reaches the real vault and the extension has run in a signed Safari. Drawn in [autofill-setup mock](../Design/Mocks/autofill-setup.html), section 14.
+
+Status: the Mac target builds unsigned with the app, the embedded resources are complete, and Apple's packager reports no unsupported keys. It has not been run in Safari (needs a signed build and enabling the extension), and in an unsigned build the App Group is unavailable, so a save from the extension does not persist.
 
 ## Design
 
@@ -64,7 +74,7 @@ Prototype finding: Chrome starts a new host process for every `sendNativeMessage
 | --- | --- | --- | --- |
 | Chromium zip | `build.py package -t chromium` | Chrome Web Store (Chrome, Brave, Arc, Vivaldi, Opera install from it) and Edge Add-ons | Developer accounts, permission justifications for each of the three permissions, single-purpose statement, privacy policy URL, screenshots. Store review decides the extension ID. |
 | Firefox xpi | `build.py package -t firefox` | addons.mozilla.org, listed or unlisted (signed by Mozilla) | `gecko.id`, `data_collection_permissions` (declared `none`), Firefox 140 or later. No source upload is needed because nothing is minified or bundled. |
-| Safari app extension | Xcode, as targets of `Psss.xcodeproj` (`build.py safari-project` only checks the manifest with Apple's packager) | Mac App Store and iOS App Store, inside the app | Nothing extra: it is signed and reviewed with the app. Needs the App Group on both platforms for shared saves. |
+| Safari app extension | Xcode, as targets of `Psss.xcodeproj` (`build.py safari-project` only checks the manifest with Apple's packager) | Mac App Store, inside the Mac app (none on iOS) | Nothing extra: it is signed and reviewed with the app. Needs the App Group for shared saves. |
 | Native host and manifests | `build.py host`, `build.py install-host` | Mac, outside the Mac App Store | Developer ID signature with hardened runtime, notarization, and a first-run step that writes the per-browser manifests. |
 
 The Chromium manifest in a store build has no `key`. `package --dev` adds a generated dev key so the extension ID is stable for the host's `allowed_origins`, and never writes a store archive. A store build has the ID the store assigns, which goes into the host's allowed origins and `allowed-callers.txt` at release.

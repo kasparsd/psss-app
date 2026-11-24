@@ -3617,6 +3617,43 @@ func reminderDisplay(_ vault: AutoFillVault, _ reading: AutoFillReading, _ memor
 }
 await autoFillReminderChecks()
 
+@MainActor func safariExtensionReminderChecks() async {
+    func shows(_ reading: SafariExtensionReading, autoFill: AutoFillReading = .on, memory: SafariExtensionMemory = SafariExtensionMemory(),
+               at now: Date = Date(), works: Bool = true) -> Bool {
+        SafariExtensionReminder(reading: reading, memory: memory, autoFill: autoFill, now: now, extensionWorks: works).showsCard
+    }
+    let laterAt = Date(timeIntervalSince1970: 1_800_000_000), week = AutoFillReminder.snoozeInterval
+    expect("safari extension: the card is off until the extension works", !SafariExtensionReminder.extensionWorks && !SafariExtensionReminder(reading: .off, memory: SafariExtensionMemory(), autoFill: .on).showsCard)
+    expect("safari extension: shows while the extension is off and AutoFill is on", shows(.off))
+    expect("safari extension: not while AutoFill is not on (one card at a time)", ![AutoFillReading.off, .notRead, .unreadable].contains { shows(.off, autoFill: $0) })
+    expect("safari extension: nothing when it is on, unread or unreadable", ![SafariExtensionReading.on, .notRead, .unreadable].contains { shows($0) })
+    expect("safari extension: Later hides it until the interval has passed", !shows(.off, memory: SafariExtensionMemory(snoozedAt: laterAt), at: laterAt)
+        && !shows(.off, memory: SafariExtensionMemory(snoozedAt: laterAt), at: laterAt.addingTimeInterval(week - 1))
+        && shows(.off, memory: SafariExtensionMemory(snoozedAt: laterAt), at: laterAt.addingTimeInterval(week)))
+    var memory = SafariExtensionMemory(snoozedAt: laterAt)
+    memory.observe(.off)
+    expect("safari extension: off keeps the snooze", memory.snoozedAt == laterAt)
+    memory.observe(.on)
+    expect("safari extension: on clears the snooze", memory.snoozedAt == nil)
+
+    final class Saved: @unchecked Sendable { var memory: SafariExtensionMemory? }
+    struct Stub: SafariExtensionSystem {
+        let enabled: Bool?
+        func isEnabled() async -> Bool? { enabled }
+        func openSettings() async -> Bool { true }
+    }
+    let saved = Saved()
+    let status = SafariExtensionStatus(system: Stub(enabled: false), save: { saved.memory = $0 }, clock: { laterAt })
+    await status.refresh()
+    check("safari extension: reads off", "\(status.reading)", "off")
+    status.snooze()
+    expect("safari extension: Later is remembered", saved.memory?.snoozedAt == laterAt)
+    let standIn = SafariExtensionStatus.live()
+    await standIn.refresh()
+    check("safari extension: the hostless default cannot read the real state", "\(standIn.reading)", "unreadable")
+}
+await safariExtensionReminderChecks()
+
 // MARK: Package A: Recently Deleted text, Delete as a move, no-op saves, the key file flag
 
 do {  // The words and dates of Recently Deleted

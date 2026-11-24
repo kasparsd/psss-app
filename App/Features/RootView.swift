@@ -9,6 +9,8 @@ struct RootView: View {
     @State private var sample = SampleVaultStore()
     /// What the system says about AutoFill, read here so every screen shows the same answer.
     @State private var autoFill = AutoFillStatus.live()
+    /// Mac only: whether the bundled Safari extension is switched on. Reads nothing on iPhone and iPad, which have no extension.
+    @State private var safariExtension = SafariExtensionStatus.live()
     @AppStorage("vaultSource") private var vaultSource = ""
     @AppStorage("lockTiming") private var lockTiming = LockTiming.oneMinute.rawValue
     @Environment(\.scenePhase) private var scenePhase
@@ -42,21 +44,22 @@ struct RootView: View {
         .environment(gate)
         .environment(session)
         .environment(autoFill)
+        .environment(safariExtension)
         // Locking drops the keys and the decrypted vault, after writing anything pending.
         .onChange(of: gate.isUnlocked) { _, unlocked in
-            if unlocked { Task { await autoFill.refresh() } } else { session.lock(); sample = SampleVaultStore() }
+            if unlocked { Task { await autoFill.refresh(); await safariExtension.refresh() } } else { session.lock(); sample = SampleVaultStore() }
         }
         .focusedSceneValue(\.lockVault, gate.isUnlocked ? { gate.lock() } : nil)
         .task { if !vaultSource.isEmpty { await gate.didBecomeActive(after: timing, prompt: usesDeviceAuth) } }
         // AutoFill has no change notification, so it is read at launch, after unlock and whenever the app becomes active.
-        .task { await autoFill.refresh() }
+        .task { await autoFill.refresh(); await safariExtension.refresh() }
         #if os(macOS)
         // Like Apple Passwords, a sleeping display or a locked screen locks the vault.
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.screensDidSleepNotification)) { _ in gate.lock() }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)) { _ in gate.lock() }
         .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("com.apple.screenIsLocked"))) { _ in gate.lock() }
         // Coming back from System Settings: the window's scene phase does not always say so on a Mac.
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in Task { await autoFill.refresh() } }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in Task { await autoFill.refresh(); await safariExtension.refresh() } }
         #endif
         .onChange(of: scenePhase) { _, phase in
             switch phase {

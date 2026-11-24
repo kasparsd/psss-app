@@ -4,7 +4,7 @@ Milestones, exit criteria and cuts live in the [roadmap](roadmap.md). This docum
 
 ## Decisions
 
-- Use Xcode targets for macOS, iOS and their credential provider extensions. The Safari web extension is an embedded app extension (`SafariExtension-macOS`, `SafariExtension-iOS`), signed and reviewed with the app. Its web files are `Extensions/Browser/src`.
+- Use Xcode targets for macOS, iOS and their credential provider extensions. The Safari web extension is an embedded app extension of the Mac app (`SafariExtension-macOS`), signed and reviewed with it. iPhone and iPad have none. Its web files are `Extensions/Browser/src`.
 - Plan App Sandbox, provisioning, signing, Keychain access groups, App Groups and iCloud capabilities from the first signed spike.
 - Chrome and Firefox are out of 1.0. Their store listings (Chrome Web Store and Edge Add-ons share one archive, Firefox AMO is another) are separate artifacts built by `Extensions/Browser/build.py`, and the Safari extension ships inside the app. Confirm sandbox-compatible native host onboarding first. Notarized direct distribution is the alternative if the Mac App Store blocks it. Requirements and formats: [browser extension](browser-extension.md#distribution-formats).
 
