@@ -3328,7 +3328,7 @@ func reminderDisplay(_ vault: AutoFillVault, _ reading: AutoFillReading, _ memor
 
 @MainActor func autoFillReminderChecks() async {
     // The pure rules.
-    expect("autofill: a real vault with AutoFill off shows the first card", reminderDisplay(.real, .off) == .card(.off))
+    expect("autofill: a real vault with AutoFill off shows the first card", reminderDisplay(.real, .off) == .card)
     for vault in [AutoFillVault.none] {
         for reading in [AutoFillReading.notRead, .on, .off, .unreadable] {
             expect("autofill: no card or confirmation for \(vault) while \(reading)", reminderDisplay(vault, reading, confirming: true) == .nothing)
@@ -3338,7 +3338,7 @@ func reminderDisplay(_ vault: AutoFillVault, _ reading: AutoFillReading, _ memor
     expect("autofill: nothing claimed when the state cannot be read", reminderDisplay(.real, .unreadable) == .nothing)
     expect("autofill: on shows nothing unless the confirmation is pending", reminderDisplay(.real, .on) == .nothing)
     expect("autofill: on with the confirmation pending shows it", reminderDisplay(.real, .on, confirming: true) == .confirmation)
-    expect("autofill: a pending confirmation is not shown while it is off", reminderDisplay(.real, .off, confirming: true) == .card(.off))
+    expect("autofill: a pending confirmation is not shown while it is off", reminderDisplay(.real, .off, confirming: true) == .card)
     expect("autofill: Later removes the card", reminderDisplay(.real, .off, AutoFillMemory(snoozedAt: Date())) == .nothing)
     // Later snoozes: hidden right after, hidden just before the interval, shown at and after it, never while AutoFill is on.
     let laterAt = Date(timeIntervalSince1970: 1_800_000_000), week = AutoFillReminder.snoozeInterval
@@ -3348,15 +3348,13 @@ func reminderDisplay(_ vault: AutoFillVault, _ reading: AutoFillReading, _ memor
     check("autofill: the snooze is seven days", "\(week)", "\(7.0 * 24 * 60 * 60)")
     expect("autofill: hidden right after Later", laterDisplay(after: 0) == .nothing)
     expect("autofill: hidden just before the interval", laterDisplay(after: week - 1) == .nothing)
-    expect("autofill: shown when the interval has passed", laterDisplay(after: week) == .card(.off))
-    expect("autofill: shown long after the interval", laterDisplay(after: week * 5) == .card(.off))
-    expect("autofill: a clock set back before Later does not hide it", laterDisplay(after: -60) == .card(.off))
+    expect("autofill: shown when the interval has passed", laterDisplay(after: week) == .card)
+    expect("autofill: shown long after the interval", laterDisplay(after: week * 5) == .card)
+    expect("autofill: a clock set back before Later does not hide it", laterDisplay(after: -60) == .card)
     expect("autofill: never shown once AutoFill is on", laterDisplay(after: week * 2, .on) == .nothing && laterDisplay(after: 0, .on) == .nothing)
     expect("autofill: the empty vault line follows the snooze", !AutoFillReminder(vault: .real, reading: .off, memory: AutoFillMemory(snoozedAt: laterAt), confirmationPending: false, now: laterAt).emptyVaultOffersSaving
         && AutoFillReminder(vault: .real, reading: .off, memory: AutoFillMemory(snoozedAt: laterAt), confirmationPending: false, now: laterAt.addingTimeInterval(week)).emptyVaultOffersSaving)
-    expect("autofill: after the system prompt the card gives the steps", reminderDisplay(.real, .off, AutoFillMemory(promptUsed: true)) == .card(.stillOff))
-    expect("autofill: seen on before reads off again", reminderDisplay(.real, .off, AutoFillMemory(seenOn: true)) == .card(.offAgain))
-    expect("autofill: the steps win over off again", reminderDisplay(.real, .off, AutoFillMemory(promptUsed: true, seenOn: true)) == .card(.stillOff))
+    expect("autofill: the card shows the same after the system prompt and after AutoFill was seen on", reminderDisplay(.real, .off, AutoFillMemory(promptUsed: true)) == .card && reminderDisplay(.real, .off, AutoFillMemory(seenOn: true)) == .card)
     expect("autofill: ask the system first", AutoFillReminder.action(reading: .off, promptUsed: false) == .askSystem)
     expect("autofill: Settings once the prompt was used", AutoFillReminder.action(reading: .off, promptUsed: true) == .openSettings)
     expect("autofill: Setup opens Settings while on", AutoFillReminder.action(reading: .on, promptUsed: false) == .openSettings)
@@ -3382,9 +3380,11 @@ func reminderDisplay(_ vault: AutoFillVault, _ reading: AutoFillReading, _ memor
     let mac = AutoFillCopy(device: .mac), phone = AutoFillCopy(device: .iPhone), pad = AutoFillCopy(device: .iPad)
     expect("autofill copy: Mac steps", mac.steps.contains("System Settings") && mac.steps.contains("choose General") && mac.steps.contains("AutoFill & Passwords"))
     expect("autofill copy: iPhone steps", phone.steps.contains("open Settings") && phone.steps.contains("tap General") && !phone.steps.contains("System"))
-    check("autofill copy: iPad is named", pad.body(.off).contains("Your iPad fills them") ? "yes" : pad.body(.off), "yes")
-    expect("autofill copy: Mac is named", mac.body(.off).contains("Your Mac fills them"))
-    expect("autofill copy: still off carries the steps", phone.body(.stillOff).hasSuffix("then switch on Psss."))
+    check("autofill copy: the heading", phone.title, "Enable AutoFill")
+    check("autofill copy: iPhone and iPad name Settings", phone.body + "|" + pad.body,
+          "For autocomplete in browsers, enable AutoFill for Psss in Settings under General › AutoFill & Passwords.|For autocomplete in browsers, enable AutoFill for Psss in Settings under General › AutoFill & Passwords.")
+    check("autofill copy: Mac names System Settings", mac.body,
+          "For autocomplete in browsers, enable AutoFill for Psss in System Settings under General › AutoFill & Passwords.")
     expect("autofill copy: Mac confirmation says click", mac.confirmationBody.contains("click the password field"))
     expect("autofill copy: iPhone confirmation says tap", phone.confirmationBody.contains("tap the password field"))
     check("autofill copy: the two buttons", phone.buttonLabel(.askSystem) + "|" + phone.buttonLabel(.openSettings), "Turn On AutoFill|Open AutoFill Settings…")
@@ -3404,7 +3404,7 @@ func reminderDisplay(_ vault: AutoFillVault, _ reading: AutoFillReading, _ memor
     expect("autofill: nothing before the first reading", status.reminder(for: .real).display == .nothing)
 
     await status.refresh()
-    expect("autofill: off shows the first card", status.reminder(for: .real).display == .card(.off))
+    expect("autofill: off shows the first card", status.reminder(for: .real).display == .card)
     expect("autofill: the first press asks the system", status.action == .askSystem)
 
     // While Apple's prompt is up the card keeps its words and the button does not fire twice. Only the answer changes the card.
@@ -3423,13 +3423,13 @@ func reminderDisplay(_ vault: AutoFillVault, _ reading: AutoFillReading, _ memor
     // The person says No to Apple's prompt: the card gives the steps, and the next press opens Settings, never a second prompt.
     await status.performAction()
     system.whilePromptIsUp = nil
-    expect("autofill: in flight the card keeps the first text", seen.display == .card(.off))
+    expect("autofill: in flight the card keeps the first text", seen.display == .card)
     expect("autofill: in flight the button is busy", seen.working)
     expect("autofill: in flight the prompt is not yet counted as used", seen.memory?.promptUsed == false)
     check("autofill: a second press during the prompt asks nothing", "\(seen.requestsAfterSecondPress)", "1")
     check("autofill: one request", "\(system.requests)", "1")
     check("autofill: the prompt does not open Settings by itself", "\(system.settingsOpened)", "0")
-    expect("autofill: declined shows the steps", status.reminder(for: .real).display == .card(.stillOff))
+    expect("autofill: declined shows the steps", status.reminder(for: .real).display == .card)
     expect("autofill: the prompt use is kept on this device", device.load().promptUsed)
     await status.performAction()
     check("autofill: still one request", "\(system.requests)", "1")
@@ -3458,7 +3458,7 @@ func reminderDisplay(_ vault: AutoFillVault, _ reading: AutoFillReading, _ memor
     await status.refresh()
     expect("autofill: a new launch keeps the snooze", status.reminder(for: .real).display == .nothing)
     testClock.now = testClock.now.addingTimeInterval(1)
-    expect("autofill: the card returns when the interval has passed", status.reminder(for: .real).display == .card(.stillOff))
+    expect("autofill: the card returns when the interval has passed", status.reminder(for: .real).display == .card)
     status.snooze()
     expect("autofill: a second Later snoozes again", status.reminder(for: .real).display == .nothing)
 
@@ -3480,7 +3480,7 @@ func reminderDisplay(_ vault: AutoFillVault, _ reading: AutoFillReading, _ memor
     // Turned off later: the card returns with the calm wording, and may ask the system once more.
     system.enabled = false
     await status.refresh()
-    expect("autofill: off again returns the card", status.reminder(for: .real).display == .card(.offAgain))
+    expect("autofill: off again returns the card", status.reminder(for: .real).display == .card)
     expect("autofill: off again may ask the system", status.action == .askSystem)
 
     // Yes to the prompt: the confirmation follows at once.

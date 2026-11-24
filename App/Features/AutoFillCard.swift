@@ -35,8 +35,8 @@ struct AutoFillCard: View {
             switch reminder.display {
             case .nothing:
                 EmptyView()
-            case .card(let headline):
-                card(title: copy.title(headline), message: copy.body(headline)) {
+            case .card:
+                card(title: copy.title, message: copy.body) {
                     Button(copy.buttonLabel(reminder.action)) { Task { await autoFill.performAction() } }
                         .buttonStyle(.borderedProminent)
                         .disabled(autoFill.working)
@@ -57,13 +57,13 @@ struct AutoFillCard: View {
         }
     }
 
-    /// A system background, not a fill: the card is content on the list, like the banners in Apple's own Settings and Wallet
-    /// (owner, 2026-11-24).
+    /// iPhone and iPad: a system background, like the banners in Apple's own Settings (owner, 2026-11-24). Mac: the system fill,
+    /// because every system background there is the colour of the list column and the card would not show.
     private static var cardBackground: Color {
         #if os(iOS)
         Color(.secondarySystemBackground)
         #else
-        Color(nsColor: .controlBackgroundColor)
+        Color(nsColor: .quaternarySystemFill)
         #endif
     }
 
