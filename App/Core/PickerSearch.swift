@@ -28,19 +28,33 @@ enum PickerSearch {
         }
     }
 
-    /// Items whose name, account or saved site contains `query`, A to Z by name. An empty query matches every item. A saved site
-    /// matches on its text and on its host, so the address a person remembers finds the login.
-    static func matches(_ items: [VaultItem], query: String) -> [VaultItem] {
+    /// The fields of `item` that contain `query`: the app's rule (`ItemSearch`), and the website too when the query is part of
+    /// the saved site's host, so the address a person remembers finds the login.
+    static func fields(of item: VaultItem, query: String) -> Set<SearchField> {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        var found = ItemSearch.fields(of: item, query: query)
+        if !query.isEmpty, SharedVault.host(item.website).localizedStandardContains(query) { found.insert(.website) }
+        return found
+    }
+
+    /// Items whose name, username or saved site contains `query`, A to Z by name. An empty query matches every item. With pills
+    /// chosen (`chosen`), only items that have the text in one of those fields; none chosen means any field.
+    static func matches(_ items: [VaultItem], query: String, in chosen: Set<SearchField> = []) -> [VaultItem] {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         return offerable(items)
             .filter { item in
-                query.isEmpty
-                    || item.displayTitle.localizedStandardContains(query)
-                    || item.account.localizedStandardContains(query)
-                    || item.website.localizedStandardContains(query)
-                    || SharedVault.host(item.website).localizedStandardContains(query)
+                if query.isEmpty { return true }
+                let found = fields(of: item, query: query)
+                return chosen.isEmpty ? !found.isEmpty : !found.isDisjoint(with: chosen)
             }
             .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
+    }
+
+    /// How many offerable items have the text in each field, for the pills. One item can count in two fields.
+    static func counts(_ items: [VaultItem], query: String) -> [SearchField: Int] {
+        var counts = Dictionary(uniqueKeysWithValues: SearchField.allCases.map { ($0, 0) })
+        for item in offerable(items) { for field in fields(of: item, query: query) { counts[field, default: 0] += 1 } }
+        return counts
     }
 
     /// The values `item` can give, in the order the screen lists them. A value the item does not have is not listed.
@@ -76,5 +90,20 @@ extension ReleaseCheck {
     static func value(item: VaultItem, role: FieldRole, at date: Date = .now) -> String? {
         guard PickerSearch.values(of: item).contains(where: { $0.role == role }) else { return nil }
         return item.fillValue(for: role, at: date)
+    }
+}
+
+/// The second line of a picker row (mock `#/autofill`): the account, and the website when the name is the account or the login has
+/// no account, so a row never repeats its own title and never has an empty line when the login has a site. A list that shows other
+/// sites' logins (`showsSite`) always adds the website after the account. Everything is made safe for one line.
+enum RowLine {
+    static func text(for item: VaultItem, showsSite: Bool) -> String? {
+        let title = DisplayText.title(of: item)
+        let account = DisplayText.safe(item.account, empty: "")
+        let site = HostDisplay.shown(SharedVault.host(item.website))
+        var parts: [String] = []
+        if !account.isEmpty, account != title { parts.append(account) }
+        if !site.isEmpty, site != title, showsSite || parts.isEmpty { parts.append(site) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }

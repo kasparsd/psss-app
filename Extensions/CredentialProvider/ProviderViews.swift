@@ -7,9 +7,57 @@ import SwiftUI
 
 /// A button the screen scaffold places for the platform.
 struct ProviderAction {
-    let title: LocalizedStringKey
+    /// A `Text`, so a title built at run time (“Update Gitforge (sam.r)”) can be shown verbatim: as a `LocalizedStringKey` it is
+    /// read as Markdown, and the device showed the account in link colour, invisible on the prominent button.
+    let title: Text
     var isEnabled = true
     let run: () -> Void
+
+    init(title: LocalizedStringKey, isEnabled: Bool = true, run: @escaping () -> Void) {
+        self.title = Text(title); self.isEnabled = isEnabled; self.run = run
+    }
+
+    init(verbatim title: String, isEnabled: Bool = true, run: @escaping () -> Void) {
+        self.title = Text(verbatim: title); self.isEnabled = isEnabled; self.run = run
+    }
+}
+
+/// What a screen needs to show the Vault row (owner, 2026-11-24, mock `#/autofill`): the session, the current vault's state, what
+/// to do when another vault is chosen and, for a locked vault, what Unlock does. Nil on a screen with fewer than two vaults.
+struct ProviderVaultSwitch {
+    let session: VaultSession
+    let state: VaultState
+    let choose: (UUID) -> Void
+    /// The Unlock button at the row's trailing end; nil leaves it out (an open vault, a vault that is not available).
+    var unlock: (() -> Void)?
+
+    /// The current vault's name, safe inside a sentence.
+    @MainActor var name: String { VaultName.sentence(session.reference?.name ?? "") }
+}
+
+/// The shared Vault row above every AutoFill screen's content: the label "Vault" on the left, the current vault's name with a chevron
+/// on the right (the app's vault menu), and a labeled Unlock button at the trailing end while the vault is locked. Adding a vault
+/// happens in the app, so there is no Add Vault row here.
+private struct ProviderVaultRow: View {
+    let vaults: ProviderVaultSwitch
+
+    var body: some View {
+        VaultRow(session: vaults.session, state: vaults.state, choose: vaults.choose, unlock: vaults.unlock)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+    }
+}
+
+/// Where the search field sits: at the foot of the screen on iPhone (the system's), under the Vault row on iPad and Mac, with the
+/// Name, Website and Username pills directly under it.
+enum ProviderLayout {
+    static var inlineSearch: Bool {
+        #if os(macOS)
+        true
+        #else
+        UIDevice.current.userInterfaceIdiom == .pad
+        #endif
+    }
 }
 
 /// The frame every provider screen sits in.
@@ -23,41 +71,50 @@ struct ProviderScreen<Content: View>: View {
     var primary: ProviderAction?
     /// Mac only: a button at the leading edge of the footer, to leave a second level.
     var back: ProviderAction?
+    /// The vault switcher: the Vault row above the content, on every platform.
+    var vaults: ProviderVaultSwitch?
     @ViewBuilder var content: Content
 
     var body: some View {
         #if os(iOS)
         NavigationStack {
-            content
+            VStack(spacing: 0) {
+                if let vaults { ProviderVaultRow(vaults: vaults) }
+                content
+            }
                 .navigationTitle(heading ?? "")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     if let cancel {
-                        ToolbarItem(placement: .cancellationAction) { Button(cancel.title, action: cancel.run) }
+                        ToolbarItem(placement: .cancellationAction) { Button(action: cancel.run) { cancel.title } }
                     }
                 }
         }
         #else
         VStack(spacing: 0) {
             if let heading {
-                Text(heading).font(.title2.bold()).frame(maxWidth: .infinity, alignment: .leading)
-                    .padding([.horizontal, .top], 20).padding(.bottom, 8)
+                HStack {
+                    Text(heading).font(.title2.bold())
+                    Spacer(minLength: 0)
+                }
+                .padding([.horizontal, .top], 20).padding(.bottom, 8)
             }
+            if let vaults { ProviderVaultRow(vaults: vaults) }
             content.frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
             HStack {
                 // Escape is `.cancelAction` on exactly one visible button: Back when the screen has one, else Cancel.
                 // A screen with only a main button also closes on Escape, through a hidden twin of that button.
-                if let back { Button(back.title, action: back.run).keyboardShortcut(.cancelAction) }
+                if let back { Button(action: back.run) { back.title }.keyboardShortcut(.cancelAction) }
                 Spacer()
                 if let cancel {
-                    if back == nil { Button(cancel.title, action: cancel.run).keyboardShortcut(.cancelAction) }
-                    else { Button(cancel.title, action: cancel.run) }
+                    if back == nil { Button(action: cancel.run) { cancel.title }.keyboardShortcut(.cancelAction) }
+                    else { Button(action: cancel.run) { cancel.title } }
                 }
                 if let primary {
-                    Button(primary.title, action: primary.run).keyboardShortcut(.defaultAction).disabled(!primary.isEnabled)
+                    Button(action: primary.run) { primary.title }.keyboardShortcut(.defaultAction).disabled(!primary.isEnabled)
                     if cancel == nil, back == nil {
-                        Button(primary.title, action: primary.run).keyboardShortcut(.cancelAction)
+                        Button(action: primary.run) { primary.title }.keyboardShortcut(.cancelAction)
                             .opacity(0).frame(width: 0).accessibilityHidden(true)
                     }
                 }
@@ -70,87 +127,39 @@ struct ProviderScreen<Content: View>: View {
 }
 
 /// The main button of a screen. On iOS it sits in the content. On the Mac the screen's footer carries it, so this is empty.
-private struct InlinePrimary: View {
-    let title: LocalizedStringKey
+struct InlinePrimary: View {
+    let title: Text
     var isEnabled = true
     let action: () -> Void
 
+    init(title: LocalizedStringKey, isEnabled: Bool = true, action: @escaping () -> Void) {
+        self.title = Text(title); self.isEnabled = isEnabled; self.action = action
+    }
+
+    init(verbatim title: String, isEnabled: Bool = true, action: @escaping () -> Void) {
+        self.title = Text(verbatim: title); self.isEnabled = isEnabled; self.action = action
+    }
+
     var body: some View {
         #if os(iOS)
-        Button(action: action) { Text(title).frame(maxWidth: .infinity) }
+        Button(action: action) { title.frame(maxWidth: .infinity).multilineTextAlignment(.center) }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .disabled(!isEnabled)
+            .fixedSize(horizontal: false, vertical: true)
         #else
         EmptyView()
         #endif
     }
 }
 
-/// The label above a group of rows: body-size secondary text, not the system's smaller header size.
-private struct GroupLabel: View {
+/// The heading above a card of rows, outside the card (mock `#/autofill`: "For gitforge.example"): body-size secondary text, not
+/// the system's smaller header size, in the system's section header position.
+private struct SectionHead: View {
     let text: String
     var body: some View {
-        Text(verbatim: text).foregroundStyle(.secondary).listRowSeparator(.hidden)
+        Text(verbatim: text).font(.body).foregroundStyle(.secondary).textCase(nil)
             .accessibilityAddTraits(.isHeader)
-    }
-}
-
-/// Why AutoFill cannot open the vault.
-enum NotReadyReason {
-    /// No vault has been created.
-    case noVault
-    /// The saved key is off (the person turned it off) or gone.
-    case biometryOff
-    /// The device has no passcode, so the system keeps no key.
-    case noPasscode
-    /// The vault file cannot be found.
-    case fileMissing
-    /// The key exists but biometry cannot be used right now (a lockout, biometry unavailable, a busy Keychain).
-    case unavailableNow
-    /// The vault could not be opened for a reason that has nothing to do with biometry (a damaged or unreadable file).
-    case vaultUnreadable
-
-    var title: String {
-        switch self {
-        case .noVault: String(localized: "No vault yet")
-        default: String(localized: "Can’t open your vault here")
-        }
-    }
-
-    var sentence: String {
-        switch self {
-        case .noVault:
-            String(localized: "Open Psss and create a vault. Then come back here to fill your logins. The sample vault is not available for AutoFill.")
-        case .biometryOff:
-            String(localized: "Open Psss, unlock with your vault password and turn on Unlock with \(BiometryKind.unlockName) in Setup.")
-        case .noPasscode:
-            String(localized: "AutoFill needs a passcode on this device. Set one in Settings, then open Psss and unlock with your vault password.")
-        case .fileMissing:
-            String(localized: "Psss cannot find the vault file. Open Psss to locate it.")
-        case .unavailableNow:
-            String(localized: "\(BiometryKind.unlockName) is not available right now. Open Psss and unlock with your vault password, then try again.")
-        case .vaultUnreadable:
-            String(localized: "Psss could not open your vault. Open Psss to see what is wrong.")
-        }
-    }
-}
-
-/// Shown when AutoFill cannot open the vault: Face ID or Touch ID unlock is off, was reset, or the vault file is out of reach.
-struct NotReady: View {
-    let reason: NotReadyReason
-    let close: () -> Void
-
-    var body: some View {
-        ProviderScreen(primary: ProviderAction(title: "Close", run: close)) {
-            VStack(spacing: 16) {
-                Text(verbatim: reason.title).font(.title2.bold()).multilineTextAlignment(.center)
-                Text(verbatim: reason.sentence).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                InlinePrimary(title: "Close", action: close)
-            }
-            .padding(24)
-            .frame(maxHeight: .infinity)
-        }
     }
 }
 
@@ -184,42 +193,43 @@ struct SaveFailed: View {
     }
 }
 
-/// One login or card in a list: its name and account, a button for the action, and the way to its values. The button is a real
-/// button (bordered), not a word in the accent color. Tapping the name opens the item's values when `openValues` is set, else it
-/// does what the button does.
+/// One login or card in a list, in the app's list row (icon, name, one line under it, the passkey glyph) with its button at the
+/// trailing end (owner, 2026-11-24, mock `#/autofill`). The button is a real, bordered button, not a word in the accent
+/// color; the default one is prominent. Tapping the name opens the item's values when `openValues` is set, else it does what the
+/// button does.
 private struct LoginRow: View {
     let item: VaultItem
     /// Shown after the account, so a login for another site says which site it belongs to.
     var showsSite = false
     let verb: LocalizedStringKey
     var isDefault = false
+    /// The line under the name when the list supplies its own (a search result with the match in bold). Nil: the account.
+    var subtitle: Text?
+    /// A supplied line may take two lines ("Saved for <site>" names a site that must be read in full).
+    var subtitleLines = 1
+    /// The text searched for: the part of the name that holds it is in bold.
+    var titleHighlight = ""
     var openValues: (() -> Void)?
     let action: () -> Void
 
-    private var account: String { DisplayText.safe(item.account, empty: "") }
-    /// The saved site, unless it is already the name (an item with no name is called by its site, and saying it twice is noise).
-    private var site: String {
-        guard showsSite else { return "" }
-        let shown = HostDisplay.shown(SharedVault.host(item.website))
-        return shown == DisplayText.title(of: item) ? "" : shown
+    /// The second line, as the app's list draws it: the account, and the website when the name is the account (or the login has no
+    /// account). A list that shows other sites' logins (`showsSite`) always adds the website after the account.
+    private var line: Text? {
+        if let subtitle { return subtitle }
+        guard let text = RowLine.text(for: item, showsSite: showsSite) else { return nil }
+        return Text(verbatim: text)
     }
 
     var body: some View {
-        HStack {
-            Button(action: openValues ?? action) {
-                VStack(alignment: .leading) {
-                    Text(verbatim: DisplayText.title(of: item))
-                    // The account and the site are separate lines, so neither can run into the other.
-                    if !account.isEmpty { Text(verbatim: account).foregroundStyle(.secondary) }
-                    if !site.isEmpty { Text(verbatim: site).foregroundStyle(.secondary) }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+        ItemListRow(item: item, subtitle: line, subtitleLines: subtitleLines, titleHighlight: titleHighlight,
+                    glyphs: item.passkey == nil ? [] : [.passkey], glyphColumns: [.passkey],
+                    open: openValues ?? action) {
+            let button = Button(verb, action: action)
+            if isDefault {
+                button.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+            } else {
+                button.buttonStyle(.bordered)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.primary)
-            let button = Button(verb, action: action).buttonStyle(.bordered)
-            if isDefault { button.keyboardShortcut(.defaultAction) } else { button }
         }
     }
 }
@@ -244,7 +254,8 @@ private struct ValueRow: View {
 
 /// The values of one item, to fill the whole login or to use one value. For a login from another site, or on a page that is not
 /// encrypted, `lines` names the two sites (and the network warning) above the buttons: this screen is the confirmation, so the
-/// person sees the mismatch before choosing. `fill` is nil for a card, which has no login to fill.
+/// person sees the mismatch before choosing. `fill` is nil for a card, which has no login to fill. The Vault row is on this
+/// screen too; choosing another vault there returns to that vault's list.
 private struct ItemValues: View {
     let item: VaultItem
     let lines: [ConfirmLine]
@@ -254,6 +265,7 @@ private struct ItemValues: View {
     let use: (PickerValue) -> Void
     let cancel: () -> Void
     let back: () -> Void
+    var vaults: ProviderVaultSwitch?
 
     private var values: [PickerValue] { PickerSearch.values(of: item) }
     private var fillTitle: LocalizedStringKey { "Fill Username and Password" }
@@ -281,19 +293,24 @@ private struct ItemValues: View {
             }
             #endif
             Section {
-                GroupLabel(text: fill == nil ? String(localized: "Use one value") : String(localized: "Or use one value"))
                 ForEach(values) { value in ValueRow(value: value, verb: verb) { use(value) } }
+            } header: {
+                SectionHead(text: fill == nil ? String(localized: "Use one value") : String(localized: "Or use one value"))
             }
         }
     }
 
     var body: some View {
         #if os(iOS)
-        list.navigationTitle(DisplayText.title(of: item)).navigationBarTitleDisplayMode(.inline)
+        VStack(spacing: 0) {
+            if let vaults { ProviderVaultRow(vaults: vaults) }
+            list
+        }
+        .navigationTitle(DisplayText.title(of: item)).navigationBarTitleDisplayMode(.inline)
         #else
         ProviderScreen(cancel: ProviderAction(title: "Cancel", run: cancel),
                        primary: fill.map { ProviderAction(title: fillTitle, run: $0) },
-                       back: ProviderAction(title: "Back", run: back)) { list }
+                       back: ProviderAction(title: "Back", run: back), vaults: vaults) { list }
         #endif
     }
 }
@@ -362,15 +379,72 @@ private struct ListFooter: View {
     }
 }
 
+/// The search field and its pills where the screen has them in line: under the Vault row on iPad and Mac, with the pills directly
+/// under the field. On iPhone the system's search field sits at the foot and `PickerPills` alone is under the Vault row.
+private struct InlineSearchField: View {
+    @Binding var text: String
+    var focused: FocusState<Bool>.Binding
+    /// The pills follow directly, so the field leaves less room below it.
+    let hasPills: Bool
+
+    var body: some View {
+        TextField("Search all items", text: $text).textFieldStyle(.roundedBorder)
+            .searchInput()
+            .padding(.horizontal, 16).padding(.bottom, hasPills ? 8 : 12)
+            .focused(focused)
+            // Once, when the field first appears. Setting focus again later (a screen redraw) must not move the caret under typing.
+            .task { if !focused.wrappedValue { focused.wrappedValue = true } }
+    }
+}
+
+extension View {
+    /// A search for names, sites and accounts: never capitalised (“Work”, “E”) and never corrected into another word.
+    func searchInput() -> some View {
+        #if os(iOS)
+        self.textInputAutocapitalization(.never).autocorrectionDisabled()
+        #else
+        self.autocorrectionDisabled()
+        #endif
+    }
+
+    /// No gap between the pills above and the first heading of the list.
+    @ViewBuilder fileprivate func flushTop(_ on: Bool) -> some View {
+        if on { contentMargins(.top, 0, for: .scrollContent) } else { self }
+    }
+
+    /// The system's search field at the foot of the screen, on iPhone only; iPad and Mac put an `InlineSearchField` in the content.
+    @ViewBuilder fileprivate func footSearch(_ text: Binding<String>, focused: FocusState<Bool>.Binding? = nil) -> some View {
+        #if os(iOS)
+        if ProviderLayout.inlineSearch {
+            self
+        } else if let focused {
+            self.searchable(text: text, prompt: "Search all items")
+                .searchFocused(focused)
+                .searchInput()
+                .searchPresentationToolbarBehavior(.avoidHidingContent)
+                // The search field has focus when the picker opens, so the person can type at once.
+                .task { if !focused.wrappedValue { focused.wrappedValue = true } }
+        } else {
+            self.searchable(text: text, prompt: "Search all items")
+                .searchInput()
+                .searchPresentationToolbarBehavior(.avoidHidingContent)
+        }
+        #else
+        self
+        #endif
+    }
+}
+
 /// Shown when the person taps the key in the keyboard bar or chooses Passwords from AutoFill. Also the list for a page with a
-/// passkey request pending (sites such as Google ask for a passkey first): the passkeys for the request come first, then the
-/// same logins and the same search, with the same confirmations.
+/// passkey request pending (sites such as Google ask for a passkey first): the passkeys for the request come first under
+/// "Passkeys for <site>" with Sign In, then the same logins under "Logins", with the same search and the same confirmations.
 ///
 /// One screen. Logins saved for the site come first, each with a Fill button, and when exactly one matches it is the default
-/// action. A search field (bottom on iPhone and iPad, top on Mac) searches the whole vault by name, account and saved site; other
-/// items appear only once the person types, and filling one from another site asks for a confirmation that names both sites.
-/// Tapping a name opens the item's values (fill one field). On a plain `http` page no login is offered automatically: the
-/// page's own logins are behind a button and ask for confirmation too. When the site is unknown, every login is "other".
+/// action. A search field (bottom on iPhone, under the Vault row on iPad and Mac) searches the whole vault by name, account and
+/// saved site; other items appear only once the person types, and filling one from another site asks for a confirmation that
+/// names both sites. Tapping a name opens the item's values (fill one field). On a plain `http` page no login is offered
+/// automatically: the page's own logins are behind a button and ask for confirmation too. When the site is unknown, every login is
+/// "other". With two or more vaults, a site with nothing in this vault says so under its heading and points to the Vault row.
 struct FillList: View {
     let site: FillSite
     /// Every item the picker can offer (`PickerSearch.offerable`).
@@ -382,17 +456,22 @@ struct FillList: View {
     /// then copied.
     let insert: ((VaultItem, String) -> Void)?
     let cancel: () -> Void
+    /// The Vault row, when there are two or more vaults.
+    var vaults: ProviderVaultSwitch?
 
     @State private var showSiteLogins = false
     @State private var search = ""
+    @State private var chosenFields: Set<SearchField> = []
+    @FocusState private var searchFocused: Bool
     @State private var pending: Pending?
     @State private var detail: VaultItem?
     @State private var copied: PickerValue?
 
     init(site: FillSite, items: [VaultItem], passkeys: PasskeyChoice? = nil,
+         vaults: ProviderVaultSwitch? = nil,
          choose: @escaping (VaultItem) -> Void, insert: ((VaultItem, String) -> Void)? = nil, cancel: @escaping () -> Void) {
         self.site = site; self.items = items; self.passkeys = passkeys; self.choose = choose; self.insert = insert
-        self.cancel = cancel
+        self.cancel = cancel; self.vaults = vaults
     }
 
     /// A choice waiting for the confirmation.
@@ -409,17 +488,12 @@ struct FillList: View {
 
     private var query: String { search.trimmingCharacters(in: .whitespacesAndNewlines) }
 
-    /// "Choose a Login or Passkey" when passkeys are listed, else "Choose a Login".
-    private var heading: LocalizedStringKey { passkeyItems.isEmpty ? "Choose a Login" : "Choose a Login or Passkey" }
+    /// "Sign In" for a passkey request that has passkeys to offer, else "Choose a Login".
+    private var heading: LocalizedStringKey { passkeyItems.isEmpty ? "Choose a Login" : "Sign In" }
 
-    /// The label above the site's logins. In a passkey request it says "Logins", so it cannot be read as the passkeys' label.
+    /// The heading above the site's logins. Under a passkey section it says "Logins", so it cannot be read as the passkeys' heading.
     private func siteLabel(_ host: String) -> String {
-        passkeys == nil ? String(localized: "For \(HostDisplay.shown(host))") : String(localized: "Logins for \(HostDisplay.shown(host))")
-    }
-
-    /// Only in a passkey request: a page that wants a passkey and nothing else will not take a login.
-    @ViewBuilder private var passkeyOnlyNote: some View {
-        if passkeys != nil { Text(PasskeyRequestList.passkeyOnlyNote).foregroundStyle(.secondary) }
+        passkeyItems.isEmpty ? String(localized: "For \(HostDisplay.shown(host))") : String(localized: "Logins")
     }
 
     private var siteLogins: [VaultItem] {
@@ -450,10 +524,9 @@ struct FillList: View {
 
     @ViewBuilder private var screen: some View {
         #if os(iOS)
-        ProviderScreen(heading: heading, cancel: ProviderAction(title: "Cancel", run: cancel)) {
+        ProviderScreen(heading: heading, cancel: ProviderAction(title: "Cancel", run: cancel), vaults: vaults) {
             mainContent
-                .searchable(text: $search, prompt: "Search all items")
-                .searchPresentationToolbarBehavior(.avoidHidingContent)
+                .footSearch($search, focused: $searchFocused)
                 .navigationDestination(isPresented: Binding(get: { detail != nil }, set: { if !$0 { detail = nil } })) {
                     if let detail { detailView(detail) }
                 }
@@ -462,7 +535,7 @@ struct FillList: View {
         if let detail {
             detailView(detail)
         } else {
-            ProviderScreen(heading: heading, cancel: ProviderAction(title: "Cancel", run: cancel)) { mainContent }
+            ProviderScreen(heading: heading, cancel: ProviderAction(title: "Cancel", run: cancel), vaults: vaults) { mainContent }
         }
         #endif
     }
@@ -471,9 +544,14 @@ struct FillList: View {
 
     private var mainContent: some View {
         VStack(spacing: 0) {
-            #if os(macOS)
-            TextField("Search all items", text: $search).textFieldStyle(.roundedBorder).padding([.horizontal, .bottom], 16)
-            #endif
+            if ProviderLayout.inlineSearch {
+                InlineSearchField(text: $search, focused: $searchFocused, hasPills: !query.isEmpty)
+            }
+            // Where the text was found, and how many results found it there: directly under the Vault row on iPhone, directly
+            // under the search field on iPad and Mac, and no gap above the list.
+            if !query.isEmpty {
+                SearchFieldPills(counts: PickerSearch.counts(items, query: query), chosen: $chosenFields)
+            }
             List {
                 if !query.isEmpty {
                     resultsSection
@@ -481,15 +559,31 @@ struct FillList: View {
                     browseSections
                 }
             }
+            .flushTop(!query.isEmpty)
         }
+    }
+
+    /// The line under a heading when this vault has nothing for the page: with two or more vaults it names the site and the vault and
+    /// points to the Vault row, because the person may not know the login is in the other one.
+    private func emptyLine(host: String, passkeysToo: Bool) -> String {
+        let shown = HostDisplay.shown(host)
+        if let vaults {
+            return passkeysToo
+                ? String(localized: "No passkeys or logins for \(shown) in \(vaults.name). Choose another vault above.")
+                : String(localized: "No logins for \(shown) in \(vaults.name). Choose another vault above.")
+        }
+        return passkeysToo
+            ? String(localized: "No passkeys or logins are saved for \(shown). Search to use another item.")
+            : String(localized: "No logins are saved for \(shown). Search to use another item.")
     }
 
     /// With nothing typed: the passkeys, then the site's logins, never another site's.
     @ViewBuilder private var browseSections: some View {
         if let passkeys, !passkeys.items.isEmpty {
             Section {
-                GroupLabel(text: String(localized: "Passkeys for \(HostDisplay.shown(passkeys.rpID))"))
-                ForEach(passkeys.items) { item in LoginRow(item: item, verb: "Sign in") { passkeys.choose(item) } }
+                ForEach(passkeys.items) { item in LoginRow(item: item, verb: "Sign In", isDefault: passkeys.items.count == 1) { passkeys.choose(item) } }
+            } header: {
+                SectionHead(text: String(localized: "Passkeys for \(HostDisplay.shown(passkeys.rpID))"))
             }
         }
         switch site {
@@ -498,19 +592,17 @@ struct FillList: View {
                 // With passkeys listed above, an empty login section would only repeat what the list already shows.
                 if passkeyItems.isEmpty {
                     Section {
-                        if passkeys == nil {
-                            Text("No logins are saved for \(HostDisplay.shown(host)). Search to use another item.").foregroundStyle(.secondary)
-                        } else {
-                            Text("No passkeys or logins are saved for \(HostDisplay.shown(host)). Search to use another item.").foregroundStyle(.secondary)
-                        }
+                        Text(verbatim: emptyLine(host: host, passkeysToo: passkeys != nil)).foregroundStyle(.secondary)
+                    } header: {
+                        SectionHead(text: String(localized: "For \(HostDisplay.shown(host))"))
                     }
                 }
             } else {
                 Section {
-                    GroupLabel(text: siteLabel(host))
-                    passkeyOnlyNote
                     // Return fills the one login only when no passkey sits beside it.
                     ForEach(siteLogins) { row($0, isDefault: siteLogins.count == 1 && passkeyItems.isEmpty) }
+                } header: {
+                    SectionHead(text: siteLabel(host))
                 } footer: {
                     ListFooter(shown: siteLogins.count, total: siteLogins.count, fallback: "Tap a name to use one value instead.")
                 }
@@ -526,9 +618,9 @@ struct FillList: View {
             }
             if showSiteLogins {
                 Section {
-                    GroupLabel(text: siteLabel(host))
-                    passkeyOnlyNote
                     ForEach(siteLogins) { row($0) }
+                } header: {
+                    SectionHead(text: siteLabel(host))
                 } footer: {
                     ListFooter(shown: siteLogins.count, total: siteLogins.count, fallback: "Tap a name to use one value instead.")
                 }
@@ -540,13 +632,15 @@ struct FillList: View {
 
     /// With text typed: every item in the vault that matches, A to Z, each naming its saved site.
     @ViewBuilder private var resultsSection: some View {
-        let found = PickerSearch.matches(items, query: query)
+        let found = PickerSearch.matches(items, query: query, in: chosenFields)
         Section {
             if found.isEmpty {
                 Text("No items match “\(query)”.").foregroundStyle(.secondary)
             } else {
-                ForEach(found.prefix(PickerSearch.limit)) { row($0, showsSite: true) }
+                ForEach(found.prefix(PickerSearch.limit)) { row($0, searchLine: resultLine(for: $0)) }
             }
+        } header: {
+            SectionHead(text: String(localized: "Search results"))
         } footer: {
             if !found.isEmpty {
                 ListFooter(shown: min(found.count, PickerSearch.limit), total: found.count, fallback: "Tap a name to use one value instead.")
@@ -564,7 +658,7 @@ struct FillList: View {
                           fill: item.kind == .login ? { detail = nil; choose(item) } : nil,
                           verb: insert == nil ? "Copy" : "Use",
                           use: { useValue($0, of: item) },
-                          cancel: cancel, back: { detail = nil })
+                          cancel: cancel, back: { detail = nil }, vaults: vaults)
     }
 
     /// Releases the one chosen value: inserted into the tapped field where the system allows, else copied.
@@ -578,10 +672,21 @@ struct FillList: View {
         }
     }
 
-    private func row(_ item: VaultItem, showsSite: Bool = false, isDefault: Bool = false) -> some View {
+    /// A result's second line: the field that matched with the matching part in bold, and “Saved for” in front of a site that is not
+    /// the page's own, so a website hit on another site's login is never taken for this site.
+    private func resultLine(for item: VaultItem) -> (text: Text, savedFor: Bool) {
+        let line = searchSubtitle(item, query: query, chosen: chosenFields)
+        let field = ItemSearch.shownField(of: item, query: query, chosen: chosenFields)
+        if field == .website, !isOwnSite(item) { return (Text("Saved for \(line)"), true) }
+        return (line, false)
+    }
+
+    private func row(_ item: VaultItem, searchLine: (text: Text, savedFor: Bool)? = nil, isDefault: Bool = false) -> some View {
         let isLogin = item.kind == .login
         let verb: LocalizedStringKey = !isLogin ? "Choose" : (isOwnSite(item) && !plainHTTP ? "Fill" : "Fill…")
-        return LoginRow(item: item, showsSite: showsSite, verb: verb, isDefault: isDefault && isLogin,
+        return LoginRow(item: item, verb: verb, isDefault: isDefault && isLogin, subtitle: searchLine?.text,
+                        subtitleLines: searchLine?.savedFor == true ? 2 : 1,
+                        titleHighlight: searchLine == nil ? "" : query,
                         openValues: { detail = item }) {
             if isLogin { select(item) } else { detail = item }
         }
@@ -635,43 +740,47 @@ struct FillList: View {
 /// item the picker can offer. Choosing an item opens its values, and Use inserts that one value into the field the person tapped.
 struct TextPicker: View {
     let items: [VaultItem]
+    var vaults: ProviderVaultSwitch?
     let insert: (VaultItem, String) -> Void
     let cancel: () -> Void
 
     @State private var search = ""
     @State private var detail: VaultItem?
+    @FocusState private var searchFocused: Bool
 
     private var query: String { search.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
         let found = PickerSearch.matches(items, query: query)
-        ProviderScreen(heading: "Choose Text to Insert", cancel: ProviderAction(title: "Cancel", run: cancel)) {
-            List {
-                Section {
-                    if found.isEmpty {
-                        if query.isEmpty {
-                            Text("No logins or cards are saved yet.").foregroundStyle(.secondary)
+        ProviderScreen(heading: "Choose Text to Insert", cancel: ProviderAction(title: "Cancel", run: cancel), vaults: vaults) {
+            VStack(spacing: 0) {
+                if ProviderLayout.inlineSearch { InlineSearchField(text: $search, focused: $searchFocused, hasPills: false) }
+                List {
+                    Section {
+                        if found.isEmpty {
+                            if query.isEmpty {
+                                Text("No logins or cards are saved yet.").foregroundStyle(.secondary)
+                            } else {
+                                Text("No items match “\(query)”.").foregroundStyle(.secondary)
+                            }
                         } else {
-                            Text("No items match “\(query)”.").foregroundStyle(.secondary)
+                            ForEach(found.prefix(PickerSearch.limit)) { item in
+                                LoginRow(item: item, showsSite: true, verb: "Choose") { detail = item }
+                            }
                         }
-                    } else {
-                        ForEach(found.prefix(PickerSearch.limit)) { item in
-                            LoginRow(item: item, showsSite: true, verb: "Choose") { detail = item }
+                    } footer: {
+                        if !found.isEmpty {
+                            ListFooter(shown: min(found.count, PickerSearch.limit), total: found.count, fallback: "Choose an item, then the value.")
                         }
-                    }
-                } footer: {
-                    if !found.isEmpty {
-                        ListFooter(shown: min(found.count, PickerSearch.limit), total: found.count, fallback: "Choose an item, then the value.")
                     }
                 }
             }
-            .searchable(text: $search, prompt: "Search all items")
-            .searchPresentationToolbarBehavior(.avoidHidingContent)
+            .footSearch($search)
             .navigationDestination(isPresented: Binding(get: { detail != nil }, set: { if !$0 { detail = nil } })) {
                 if let item = detail {
                     ItemValues(item: item, lines: [], fill: nil, verb: "Use", use: { value in
                         if let text = ReleaseCheck.value(item: item, role: value.role) { insert(item, text) }
-                    }, cancel: cancel, back: { detail = nil })
+                    }, cancel: cancel, back: { detail = nil }, vaults: vaults)
                 }
             }
         }
@@ -772,111 +881,197 @@ private struct ConfirmSheet: View {
     }
 }
 
+
 /// Shown when the person asks for a verification code. Only logins that have a code and belong to the site are listed: there is
-/// no way to choose a code for another site.
+/// no way to choose a code for another site without the search and a confirmation that names both sites. The Vault row is on
+/// this screen with two or more vaults (mock `#/autofill`, frame V).
 struct CodeList: View {
     /// The requesting site, nil when it could not be read.
     let host: String?
     /// The logins that passed `ReleaseCheck.oneTimeCode` for this site.
     let items: [VaultItem]
+    /// Every item with a readable code, for the search. A person who opened this list by hand may choose a login saved for
+    /// another site, as in the login list; the choice names both sites and asks first. Automatic suggestions never come here.
+    var others: [VaultItem] = []
+    /// The Vault row, when there are two or more vaults.
+    var vaults: ProviderVaultSwitch?
     let choose: (VaultItem) -> Void
     let cancel: () -> Void
 
+    @State private var search = ""
+    @State private var pending: VaultItem?
+    @FocusState private var searchFocused: Bool
+
+    private var query: String { search.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    /// Items whose name, account or saved site contains the query, A to Z by name.
+    private var found: [VaultItem] {
+        others
+            .filter { item in
+                item.displayTitle.localizedStandardContains(query)
+                    || item.account.localizedStandardContains(query)
+                    || item.website.localizedStandardContains(query)
+                    || SharedVault.host(item.website).localizedStandardContains(query)
+            }
+            .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
+    }
+
+    private func isOwnSite(_ item: VaultItem) -> Bool {
+        host.map { SharedVault.matches(item, host: $0) } ?? false
+    }
+
+    private func select(_ item: VaultItem) {
+        if isOwnSite(item) { choose(item) } else { pending = item }
+    }
+
+    /// The saved site, the site being signed in to, the login, then the warning: the same lines as the login list.
+    private func lines(for item: VaultItem) -> [ConfirmLine] {
+        let website = item.website.trimmingCharacters(in: .whitespacesAndNewlines)
+        let saved = HostDisplay.shown(SharedVault.host(item.website))
+        let savedValue = website.isEmpty ? String(localized: "no website") : (saved.isEmpty ? String(localized: "a site Psss could not read") : saved)
+        let pageValue = host.map { HostDisplay.shown($0) } ?? String(localized: "an unknown site")
+        var lines = [
+            ConfirmLine(String(localized: "Saved for:"), savedValue),
+            ConfirmLine(String(localized: "You are signing in to:"), pageValue),
+            ConfirmLine(String(localized: "Login:"), DisplayText.quoted(DisplayText.title(of: item)))
+        ]
+        let account = DisplayText.safe(item.account, empty: "")
+        if !account.isEmpty { lines.append(ConfirmLine(String(localized: "Account:"), DisplayText.quoted(account))) }
+        lines.append(ConfirmLine(String(localized: "Only continue if you trust this page.")))
+        return lines
+    }
+
+    /// The line under the heading when this vault has no code for the page.
+    private func emptyLine(_ host: String) -> String {
+        let shown = HostDisplay.shown(host)
+        if let vaults {
+            return String(localized: "No verification codes for \(shown) in \(vaults.name). Choose another vault above, or search to use a code from another login.")
+        }
+        return String(localized: "No verification codes are saved for \(shown). Search to use a code from another login.")
+    }
+
     var body: some View {
-        ProviderScreen(heading: "Choose a Code", cancel: ProviderAction(title: "Cancel", run: cancel)) {
-            List {
-                if let host {
-                    if items.isEmpty {
-                        Text("No verification codes are saved for \(HostDisplay.shown(host)).").foregroundStyle(.secondary)
-                    } else {
+        ProviderScreen(heading: "Choose a Code", cancel: ProviderAction(title: "Cancel", run: cancel), vaults: vaults) {
+            VStack(spacing: 0) {
+                if ProviderLayout.inlineSearch { InlineSearchField(text: $search, focused: $searchFocused, hasPills: false) }
+                List {
+                    if !query.isEmpty {
                         Section {
-                            GroupLabel(text: String(localized: "For \(HostDisplay.shown(host))"))
-                            ForEach(items) { item in LoginRow(item: item, verb: "Use Code", isDefault: items.count == 1) { choose(item) } }
+                            if found.isEmpty {
+                                Text("No logins with a code match “\(query)”.").foregroundStyle(.secondary)
+                            } else {
+                                ForEach(found.prefix(PickerSearch.limit)) { item in
+                                    LoginRow(item: item, showsSite: true, verb: isOwnSite(item) ? "Use Code" : "Use Code…") { select(item) }
+                                }
+                            }
                         }
+                    } else if let host {
+                        if items.isEmpty {
+                            Section {
+                                Text(verbatim: emptyLine(host)).foregroundStyle(.secondary)
+                            } header: {
+                                SectionHead(text: String(localized: "For \(HostDisplay.shown(host))"))
+                            }
+                        } else {
+                            Section {
+                                ForEach(items) { item in LoginRow(item: item, verb: "Use Code", isDefault: items.count == 1) { choose(item) } }
+                            } header: {
+                                SectionHead(text: String(localized: "For \(HostDisplay.shown(host))"))
+                            }
+                        }
+                    } else {
+                        Text("Psss could not tell which site this is. Search to use a code from another login.").foregroundStyle(.secondary)
                     }
-                } else {
-                    Text("Psss could not tell which site this is.").foregroundStyle(.secondary)
                 }
             }
+            .footSearch($search)
+        }
+        .sheet(item: $pending) { item in
+            ConfirmSheet(title: "Use a code from another site?", lines: lines(for: item), confirmTitle: "Use Code Anyway",
+                         confirm: { pending = nil; choose(item) }, cancel: { pending = nil })
         }
     }
 }
 
-/// Shown when a suggestion in the keyboard bar or the AutoFill menu was chosen and the system needs our interface, which
-/// unlocked first.
-struct FillConfirm: View {
-    let item: VaultItem
-    var verb: LocalizedStringKey = "Fill"
-    let fill: () -> Void
-    let cancel: () -> Void
+/// The save screens (mock `#/autofill`, frames W to Z): "Save Password" and "Create Passkey". What is saved is shown and cannot be
+/// edited here: the name comes from the site, and the website, username and password (or the new passkey) are the request's.
+/// With two or more vaults the Vault row is at the top, so the person sees where it goes and can change it; a destination that is
+/// locked or not available shows its notice and Save stays dimmed until the vault is open. The button names what it will change:
+/// "Save", or "Update Gitforge (sam.r)" when the same website and username are already there (the password changes, nothing else).
+struct SaveForm: View {
+    enum Kind { case password, passkey }
 
-    /// The site the login was saved for.
-    private var site: String { HostDisplay.shown(SharedVault.host(item.website)) }
-
-    var body: some View {
-        ProviderScreen(cancel: ProviderAction(title: "Cancel", run: cancel), primary: ProviderAction(title: verb, run: fill)) {
-            VStack(spacing: 16) {
-                Spacer()
-                Text(verbatim: DisplayText.title(of: item)).font(.title2.bold()).multilineTextAlignment(.center)
-                Text(verbatim: DisplayText.safe(item.account, empty: "")).foregroundStyle(.secondary)
-                if !site.isEmpty { Text("for \(site)").foregroundStyle(.secondary) }
-                InlinePrimary(title: verb, action: fill).padding(.horizontal)
-                Spacer()
-            }
-            .padding(24)
-        }
-    }
-}
-
-#if os(iOS)
-/// The save prompt: site, account and name are already filled in, and nothing asks where to store it. The system sends save
-/// requests to providers on iOS only.
-struct SaveLogin: View {
+    let kind: Kind
     let host: String
     let account: String
-    let password: String
-    @State var title: String
+    /// The login the save would change: same website and username in the destination vault. Nil: a new login is made.
     let existing: VaultItem?
-    let save: (String) -> Void
+    var vaults: ProviderVaultSwitch?
+    /// Set while the destination vault is locked or not available. Save is dimmed.
+    var notice: ProviderNotice?
+    /// A password already saved as it is: there is nothing to update.
+    var alreadySaved = false
+    let save: () -> Void
     let cancel: () -> Void
 
-    init(host: String, account: String, password: String, title: String, existing: VaultItem?,
-         save: @escaping (String) -> Void, cancel: @escaping () -> Void) {
-        self.host = host; self.account = account; self.password = password
-        _title = State(initialValue: existing?.title ?? "")
-        self.existing = existing; self.save = save; self.cancel = cancel
+    /// True from the first tap on Save. The write can take seconds (Face ID has already been answered; the vault file and the
+    /// system's suggestion list are still to do), and a second tap used to save the login twice. Once set, the button is dimmed and
+    /// reads “Saving…”, and further taps do nothing; the sheet closes when the request completes or the failure screen replaces it.
+    @State private var saving = false
+
+    private var canSave: Bool { notice == nil && !alreadySaved && !saving }
+
+    private var buttonTitle: String {
+        if saving { return String(localized: "Saving…") }
+        return kind == .password ? SaveWords.passwordButton(existing: existing) : SaveWords.passkeyButton(existing: existing)
     }
 
-    private var isUpdate: Bool { existing != nil }
-    private var passwordChanged: Bool { existing.map { $0.secret != password } ?? false }
+    /// The only way to the save closure: once.
+    private func saveOnce() {
+        guard canSave else { return }
+        saving = true
+        save()
+    }
 
-    var body: some View {
-        NavigationStack {
-            Form {
+    /// "Update Password" when the same website and username are already in the destination vault (the button says the same).
+    private var heading: LocalizedStringKey {
+        kind == .password ? (existing != nil ? "Update Password" : "Save Password") : "Create Passkey"
+    }
+
+    private var content: some View {
+        List {
+            if let notice {
                 Section {
-                    TextField("Name", text: $title, prompt: Text(verbatim: HostDisplay.shown(host)))
-                    LabeledContent("Website", value: HostDisplay.shown(host))
-                    LabeledContent("Username", value: DisplayText.safe(account, empty: ""))
-                    LabeledContent("Password", value: "••••••••••")
+                    ProviderNoticeView(notice: notice, carriesUnlock: vaults == nil)
                 }
-                if isUpdate && !passwordChanged {
-                    Section { Text("This login is already saved.").foregroundStyle(.secondary) }
-                }
-                Section {
-                    Button { save(title) } label: {
-                        Text(isUpdate ? "Update login" : "Save login").frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets())
-                    .disabled(isUpdate && !passwordChanged)
-                }
+                .listRowBackground(Color.clear).listRowInsets(EdgeInsets())
             }
-            .navigationTitle(isUpdate ? "Update password" : "Save password")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Not now", action: cancel) } }
+            Section {
+                LabeledContent("Website", value: HostDisplay.shown(host))
+                LabeledContent("Username", value: DisplayText.safe(account, empty: ""))
+                if kind == .password {
+                    LabeledContent("Password", value: "••••••••••")
+                } else {
+                    LabeledContent("Passkey", value: String(localized: "New"))
+                }
+            } header: {
+                SectionHead(text: kind == .password ? String(localized: "To save") : String(localized: "To create"))
+            }
+            if alreadySaved {
+                Section { Text("This login is already saved with this password.").foregroundStyle(.secondary) }
+            }
+            #if os(iOS)
+            Section {
+                InlinePrimary(verbatim: buttonTitle, isEnabled: canSave, action: saveOnce)
+            }
+            .listRowBackground(Color.clear).listRowInsets(EdgeInsets())
+            #endif
         }
     }
+
+    var body: some View {
+        ProviderScreen(heading: heading, cancel: ProviderAction(title: "Cancel", run: cancel),
+                       primary: ProviderAction(verbatim: buttonTitle, isEnabled: canSave, run: saveOnce),
+                       vaults: vaults) { content }
+    }
 }
-#endif

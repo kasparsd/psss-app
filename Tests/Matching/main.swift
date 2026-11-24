@@ -312,7 +312,6 @@ do {
     expect("google: no automatic sign-in", r.signsInWithoutList, false)
     same("google: site is the page host", r.site.host, "accounts.google.com")
 }
-expect("passkey request note is one plain line", PasskeyRequestList.passkeyOnlyNote == "If this page only accepts a passkey, a login will not sign you in.", true)
 do {
     let pk = passkeyItem("google.com"), lg = login("google.com")
     let r = request([pk, lg], accounts)
@@ -371,6 +370,52 @@ do {
     expect("plain http page: the pages login is still found, behind the lists own confirmation", r.siteLogins.count == 1, true)
 }
 
+// Search counts and highlighting: every field that holds the text counts, a row's shown name included (device test: "loc" against
+// "localhost" gave Name 0).
+do {
+    func counts(_ item: VaultItem, _ q: String) -> String {
+        let c = PickerSearch.counts([item], query: q)
+        return SearchField.allCases.map { "\($0.label)=\(c[$0] ?? 0)" }.joined(separator: ",")
+    }
+    let named = VaultItem(kind: .login, title: "localhost", account: "sam@example.com", website: "localhost", secret: "pw")
+    same("search: name equals website, counts in both", counts(named, "loc"), "Name=1,Website=1,Username=0")
+    let sameAsAccount = VaultItem(kind: .login, title: "sam@example.com", account: "sam@example.com", website: "gitforge.example", secret: "pw")
+    same("search: name equals account, counts in both", counts(sameAsAccount, "sam@"), "Name=1,Website=0,Username=1")
+    let nameless = VaultItem(kind: .login, title: "", account: "sam@example.com", website: "localhost", secret: "pw")
+    same("search: a nameless imported login counts under Website only (owner rule)", counts(nameless, "loc"), "Name=0,Website=1,Username=0")
+    same("save: a login saved from a page is named by the site when the page has no title", SaveWords.newTitle(requestTitle: "  ", host: "localhost"), "localhost")
+    same("save: the page's title wins", SaveWords.newTitle(requestTitle: "Gitforge", host: "gitforge.example"), "Gitforge")
+    let old = VaultItem(kind: .login, title: "localhost", account: "alex@example.net", website: "localhost", secret: "old")
+    let other = VaultItem(kind: .login, title: "Elsewhere", account: "alex@example.net", website: "elsewhere.example", secret: "x")
+    func submitted(_ r: SaveMatch.Submitted) -> String {
+        switch r { case .alreadySaved: return "saved"; case .update(let i): return "update \(i.secret)"; case .completePending(let i): return "pending \(i.secret)"; case .new: return "new" }
+    }
+    same("save: generated password, username known and its login exists: nothing now, the submit asks to Update", SaveMatch.generated(in: [old, other], host: "localhost", user: "alex@example.net", password: "gen") == .nothing ? "nothing" : "saveNew", "nothing")
+    same("save: generated password, new username: saved now", SaveMatch.generated(in: [old], host: "localhost", user: "kim@example.net", password: "gen") == .saveNew ? "saveNew" : "nothing", "saveNew")
+    same("save: generated password, no username yet: saved now", SaveMatch.generated(in: [old], host: "localhost", user: "", password: "gen") == .saveNew ? "saveNew" : "nothing", "saveNew")
+    let pendingLogin = VaultItem(kind: .login, title: "localhost", account: "", website: "localhost", secret: "gen")
+    same("save: generated password already saved: nothing", SaveMatch.generated(in: [pendingLogin], host: "localhost", user: "", password: "gen") == .nothing ? "nothing" : "saveNew", "nothing")
+    same("save: submit with an existing username updates it", submitted(SaveMatch.submitted(in: [other, old], host: "localhost", user: "alex@example.net", password: "gen")), "update old")
+    same("save: submit after a generated save without username completes that login", submitted(SaveMatch.submitted(in: [old, pendingLogin], host: "localhost", user: "kim@example.net", password: "gen")), "pending gen")
+    var genWithUser = pendingLogin; genWithUser.account = "kim@example.net"
+    same("save: submit when the login already holds this password asks nothing", submitted(SaveMatch.submitted(in: [VaultItem(kind: .login, title: "k", account: "kim@example.net", website: "localhost", secret: "older"), genWithUser], host: "localhost", user: "kim@example.net", password: "gen")), "saved")
+    same("save: submit with an unknown username and no pending login is new", submitted(SaveMatch.submitted(in: [old], host: "localhost", user: "kim@example.net", password: "other")), "new")
+    same("save: another site's login is never updated", submitted(SaveMatch.submitted(in: [other], host: "localhost", user: "alex@example.net", password: "gen")), "new")
+    var saved = VaultItem(kind: .login, title: SaveWords.newTitle(requestTitle: "", host: "localhost"), account: "sam@example.com", website: "localhost", secret: "pw")
+    same("search: a login saved from a page counts under Name and Website", counts(saved, "loc"), "Name=1,Website=1,Username=0")
+    saved.title = ""
+    same("search: the list rule counts the same", ItemSearch.counts([named], query: "LOC").map { "\($0.key.label)=\($0.value)" }.sorted().joined(separator: ","), "Name=1,Username=0,Website=1")
+    same("search: a chosen Name pill keeps the item", String(PickerSearch.matches([named], query: "loc", in: [.name]).count), "1")
+    same("search: a chosen Name pill drops a nameless login", String(PickerSearch.matches([nameless], query: "loc", in: [.name]).count), "0")
+    let hit = ItemSearch.hit(of: named, query: "loc", chosen: [.name])
+    same("search: Name pill chosen, the name is the hit", hit.map { "\($0.field.label) \($0.text) \($0.range.map { "\($0.lowerBound)..<\($0.upperBound)" } ?? "-")" }, "Name localhost 0..<3")
+    same("search: bold in the name when Name counts the match", ItemSearch.nameHighlight(of: named, query: "loc"), "loc")
+    same("search: a nameless login's made-up name gets no bold (not a Name match)", ItemSearch.nameHighlight(of: nameless, query: "loc"), "")
+    same("search: no bold in the name when only the account matched", ItemSearch.nameHighlight(of: named, query: "sam@"), "")
+    let hit2 = ItemSearch.hit(of: named, query: "loc", chosen: [])
+    same("search: no pill, an account without the text leaves the next field", hit2.map { $0.field.label }, "Website")
+}
+
 // The picker search and one-value release.
 func card(_ number: String, name: String = "", holder: String = "Kid Example", expiry: String = "08/29", code: String = "123") -> VaultItem {
     VaultItem(kind: .creditCard, title: name, account: holder, secret: number, expiry: expiry, securityCode: code)
@@ -417,9 +462,9 @@ do {
         BrowserProtocol.handle(["v": BrowserProtocol.version, "id": "t", "type": type].merging(fields) { $1 })
     }
     func search(_ query: String, fields: [String] = []) -> [String: Any] { ask("search", ["origin": "https://example.org", "query": query, "fields": fields]) }
-    func names(_ reply: [String: Any]) -> String { ((reply["vaults"] as? [[String: Any]]) ?? []).map { "\($0["name"] ?? ""):\($0["active"] ?? ""):\($0["locked"] ?? "")" }.joined(separator: ",") }
+    func names(_ reply: [String: Any]) -> String { ((reply["vaults"] as? [[String: Any]]) ?? []).map { "\($0["name"] ?? ""):\($0["active"] ?? ""):\($0["state"] ?? "")" }.joined(separator: ",") }
 
-    expect("protocol is version 2", BrowserProtocol.version == 2, true)
+    expect("protocol is version 3", BrowserProtocol.version == 3, true)
     same("an old version is refused", ask("ping", ["v": 1])["error"] as? String, "unsupported")
     let all = search("studio north")
     let counts = all["counts"] as? [String: Int] ?? [:]
@@ -431,20 +476,146 @@ do {
     same("a blank search finds nothing", "\((search("  ")["results"] as? [Any])?.count ?? -1)", "0")
     expect("a result for another site says so", rows.allSatisfy { $0["matches"] as? Bool == false }, true)
 
-    same("vaults: three, Passwords open", names(ask("vaults")), "Passwords:true:false,Work:false:true,Archive:false:true")
-    same("switching to Work opens it and lists it first", names(ask("switch-vault", ["vault": "work"])), "Work:true:false,Passwords:false:true,Archive:false:true")
-    same("Work serves its own logins", ((ask("candidates", ["origin": "https://gitforge.example"])["candidates"] as? [[String: Any]]) ?? []).map { "\($0["title"] ?? "")" }.joined(separator: ","), "Gitforge (work)")
-    let refused = ask("save", ["origin": "https://gitforge.example", "account": "a@b.c", "secret": "pw"])
-    same("a save outside the first vault is refused", refused["error"] as? String, "unsupported")
-    let locked = ask("switch-vault", ["vault": "archive"])
-    same("a vault that does not open: chosen, locked, with the new list", "\(locked["error"] ?? "") \(names(locked))", "locked Archive:true:true,Passwords:false:true,Work:false:true")
+    func ids(_ reply: [String: Any]) -> [String] { ((reply["vaults"] as? [[String: Any]]) ?? []).map { "\($0["id"] ?? "")" } }
+    func state(_ reply: [String: Any], _ id: String) -> String {
+        (((reply["vaults"] as? [[String: Any]]) ?? []).first { $0["id"] as? String == id }).map { "\($0["state"] ?? "")/\($0["reason"] ?? "-")" } ?? "none"
+    }
+    let listed = ask("vaults")
+    same("vaults: Passwords open, then each state", names(listed),
+         "Passwords:true:open,Work:false:locked,Archive:false:locked,Family:false:needs-password,Travel:false:not-downloaded,Taxes:false:unreadable,Old:false:not-found")
+    same("a vault that needs its password says why", state(listed, "family"), "needs-password/off")
+    expect("an unlock of the open vault is a no-op", ask("unlock-vault", ["vault": "passwords"])["ok"] as? Bool == true, true)
+    same("switching to Work makes it current and locks Passwords, without unlocking", names(ask("switch-vault", ["vault": "work"])),
+         "Work:true:locked,Passwords:false:locked,Archive:false:locked,Family:false:needs-password,Travel:false:not-downloaded,Taxes:false:unreadable,Old:false:not-found")
     same("a locked vault serves nothing", ask("candidates", ["origin": "https://gitforge.example"])["error"] as? String, "locked")
     same("a locked vault searches nothing", search("studio")["error"] as? String, "locked")
+    same("a locked vault is not saved into", ask("save", ["origin": "https://gitforge.example", "account": "a@b.c", "secret": "pw", "vault": "work"])["error"] as? String, "locked")
+    same("unlock of a vault that is not current is refused", ask("unlock-vault", ["vault": "passwords"])["error"] as? String, "forbidden")
+    same("unlock of an unknown vault", ask("unlock-vault", ["vault": "nope"])["error"] as? String, "not-found")
+    same("unlock with no vault", ask("unlock-vault")["error"] as? String, "not-found")
+    same("unlock with a vault id over 64 characters", ask("unlock-vault", ["vault": String(repeating: "x", count: 65)])["error"] as? String, "not-found")
+    expect("Touch ID unlocks Work", names(ask("unlock-vault", ["vault": "work"])).hasPrefix("Work:true:open"), true)
+    same("Work serves its own logins", ((ask("candidates", ["origin": "https://gitforge.example"])["candidates"] as? [[String: Any]]) ?? []).map { "\($0["title"] ?? "")" }.joined(separator: ","), "Gitforge (work)")
+    let target = ["origin": "https://gitforge.example", "account": "sam@harbor.example", "secret": "pw-new", "vault": "work"]
+    same("a save names the current open vault: it updates the same site and username", ask("save", target)["result"] as? String, "updated")
+    same("a save outside the current vault is refused", ask("save", target.merging(["vault": "passwords"]) { $1 })["error"] as? String, "forbidden")
+    same("a save into an unknown vault", ask("save", target.merging(["vault": "nope"]) { $1 })["error"] as? String, "not-found")
+    same("a save with no vault", ask("save", target.filter { $0.key != "vault" })["error"] as? String, "not-found")
+    same("a save with a vault id over 64 characters", ask("save", target.merging(["vault": String(repeating: "x", count: 65)]) { $1 })["error"] as? String, "not-found")
+    same("a new login is created in the current vault", ask("save", target.merging(["account": "new@harbor.example"]) { $1 })["result"] as? String, "created")
+    same("Archive becomes current, locked", state(ask("switch-vault", ["vault": "archive"]), "archive"), "locked/-")
+    same("Touch ID cancelled: error, still locked, with the list", "\(ask("unlock-vault", ["vault": "archive"])["error"] ?? "") \(state(ask("vaults"), "archive"))", "cancelled locked/-")
+    _ = ask("switch-vault", ["vault": "family"])
+    same("a vault that needs its password: needs-app, with the list", { let r = ask("unlock-vault", ["vault": "family"]); return "\(r["error"] ?? "") \(state(r, "family"))" }(), "needs-app needs-password/off")
+    _ = ask("switch-vault", ["vault": "travel"])
+    same("a vault that is not downloaded cannot be unlocked", { let r = ask("unlock-vault", ["vault": "travel"]); return "\(r["error"] ?? "") \(state(r, "travel"))" }(), "not-available not-downloaded/-")
+    same("a vault that is not available serves nothing", ask("candidates", ["origin": "https://gitforge.example"])["error"] as? String, "not-available")
     same("unknown vault", ask("switch-vault", ["vault": "nope"])["error"] as? String, "not-found")
-    same("back to Passwords", names(ask("switch-vault", ["vault": "passwords"])), "Passwords:true:false,Work:false:true,Archive:false:true")
+    expect("the vault list never carries a secret", "\(ask("vaults"))".contains("Demo-only") || "\(ask("vaults"))".contains("pw-new"), false)
+    same("back to Passwords, locked", state(ask("switch-vault", ["vault": "passwords"]), "passwords"), "locked/-")
+    _ = ask("unlock-vault", ["vault": "passwords"])
+    same("a login saved into Work is not in Passwords", "\(((ask("candidates", ["origin": "https://gitforge.example"])["candidates"] as? [Any]) ?? []).count)", "0")
+    same("the current vault is listed first", ids(ask("vaults")).first, "passwords")
     BrowserPrototypeStore.directory = nil
     BrowserProtocol.vaultService = nil
     try? FileManager.default.removeItem(at: dir)
+}
+
+
+// Relying party matching and allowed credentials (device test 2026-11-24: Google's passkey page offered no passkey).
+do {
+    // The page is accounts.google.com, the relying party the site chose is google.com. Only the relying party is compared with the
+    // stored passkey; the page host only picks the logins.
+    let pk = passkeyItem("google.com")
+    let r = request([pk], accounts, rpID: "google.com")
+    expect("rp: google.com passkey is offered on accounts.google.com for rpID google.com", r.passkeys.map(\.id) == [pk.id], true)
+    same("rp: the page host is still accounts.google.com", r.site.host, "accounts.google.com")
+    let sub = request([pk], accounts, rpID: "accounts.google.com")
+    expect("rp: a google.com passkey is not offered for rpID accounts.google.com", sub.passkeys.isEmpty, true)
+    expect("rp: it is counted as a sibling identifier in the log", sub.diagnostics.forSiblingRelyingParty == 1 && sub.diagnostics.forRelyingParty == 0, true)
+    let acc = passkeyItem("accounts.google.com")
+    let r2 = request([acc], accounts, rpID: "google.com")
+    expect("rp: an accounts.google.com passkey is not offered for rpID google.com", r2.passkeys.isEmpty, true)
+    expect("rp: and counted as a sibling", r2.diagnostics.forSiblingRelyingParty == 1, true)
+    expect("rp: another domain is not a sibling", request([passkeyItem("google.example")], accounts, rpID: "google.com").diagnostics.forSiblingRelyingParty == 0, true)
+    expect("rp: case differs", PasskeyRequestList.sameRelyingParty(stored: "Google.com", requested: "google.com"), false)
+    expect("rp: trailing dot differs", PasskeyRequestList.sameRelyingParty(stored: "google.com.", requested: "google.com"), false)
+    expect("rp: same string matches", PasskeyRequestList.sameRelyingParty(stored: "google.com", requested: "google.com"), true)
+    // Allowed credentials: empty means any; otherwise only those, and the log says how many were taken out.
+    let a = passkeyItem("google.com", id: 1), b = passkeyItem("google.com", id: 2)
+    let both = request([a, b], accounts)
+    expect("allowed: empty list offers every passkey", both.passkeys.count == 2 && both.diagnostics.excludedByAllowedCredentials == 0, true)
+    let only = request([a, b], accounts, allowed: [Data([2]), Data([77])])
+    expect("allowed: only the named credential", only.passkeys.map(\.id) == [b.id], true)
+    expect("allowed: counts for the log", only.diagnostics == PasskeyRequestList.Diagnostics(passkeysInVault: 2, forRelyingParty: 2, forSiblingRelyingParty: 0, allowedCredentials: 2, excludedByAllowedCredentials: 1, listed: 1), true)
+    let none = request([a], accounts, allowed: [Data([9])])
+    expect("allowed: nothing named matches, so none is listed and the one removed is counted", none.passkeys.isEmpty && none.diagnostics.excludedByAllowedCredentials == 1, true)
+    // An item with a passkey and a password is both a passkey and a login.
+    var both1 = login("google.com"); both1.passkey = a.passkey
+    let mixed = request([both1], accounts)
+    expect("rp: one item can be a passkey and a login", mixed.passkeys.count == 1 && mixed.siteLogins.count == 1, true)
+}
+
+// The extension's budget for a typed vault password (docs/autofill.md, "The vault password in the extension").
+do {
+    let mib = ExtensionUnlockBudget.mebibyte
+    expect("budget: 64 MiB with room fits", ExtensionUnlockBudget.allows(kdfBytes: 64 * mib, availableBytes: 90 * mib, ceiling: 64 * mib), true)
+    expect("budget: 64 MiB with only 70 MiB left is refused (headroom)", ExtensionUnlockBudget.allows(kdfBytes: 64 * mib, availableBytes: 70 * mib, ceiling: 64 * mib), false)
+    expect("budget: 64 MiB with exactly the headroom fits", ExtensionUnlockBudget.allows(kdfBytes: 64 * mib, availableBytes: 72 * mib, ceiling: 64 * mib), true)
+    expect("budget: above the ceiling is refused whatever is free", ExtensionUnlockBudget.allows(kdfBytes: 65 * mib, availableBytes: 900 * mib, ceiling: 64 * mib), false)
+    expect("budget: unknown free memory leaves the ceiling to decide", ExtensionUnlockBudget.allows(kdfBytes: 64 * mib, availableBytes: nil, ceiling: 64 * mib), true)
+    expect("budget: zero free memory means unknown", ExtensionUnlockBudget.allows(kdfBytes: 64 * mib, availableBytes: 0, ceiling: 64 * mib), true)
+    expect("budget: AES-KDF needs no memory", ExtensionUnlockBudget.allows(kdfBytes: 0, availableBytes: 9 * mib, ceiling: 64 * mib), true)
+    let snapshot = ProcessMemory.snapshot()
+    expect("budget: the process memory can be read", snapshot.residentBytes > 0 && snapshot.peakResidentBytes >= snapshot.residentBytes / 2, true)
+    expect("budget: the log line holds numbers only", !snapshot.text.contains("/") && snapshot.text.hasPrefix("resident "), true)
+}
+
+// The picker row's second line, and the words of the notices and save buttons.
+do {
+    func row(_ title: String, account: String, website: String, site: Bool = false) -> String? {
+        RowLine.text(for: VaultItem(kind: .login, title: title, account: account, website: website, secret: "x"), showsSite: site)
+    }
+    same("row line: the account", row("Gitforge", account: "sam.r", website: "https://gitforge.example"), "sam.r")
+    same("row line: the website when the name is the account", row("sam.r", account: "sam.r", website: "https://gitforge.example"), "gitforge.example")
+    same("row line: the website when there is no account", row("Gitforge", account: "", website: "https://gitforge.example"), "gitforge.example")
+    same("row line: nothing to add", row("Gitforge", account: "", website: ""), nil)
+    same("row line: a list of other sites adds the website", row("Gitforge", account: "sam.r", website: "https://gitforge.example", site: true), "sam.r · gitforge.example")
+    same("row line: the name is the site, so it is not repeated", row("gitforge.example", account: "sam.r", website: "https://gitforge.example", site: true), "sam.r")
+    same("row line: hostile newline and bidi are removed", row("Gitforge", account: "sam\n\u{202E}r", website: ""), DisplayText.safe("sam\n\u{202E}r"))
+
+    let method = "Face ID"
+    same("notice: cancelled", ProviderNotices.cancelled(method: method).text, "Face ID was cancelled.")
+    same("notice: password, off", ProviderNotices.needsPassword(.needsPassword(.off), name: "Work", method: method)?.text, "Face ID is off for Work. Unlock with the vault password.")
+    same("notice: password, changed", ProviderNotices.needsPassword(.needsPassword(.lost), name: "Work", method: method)?.text, "Face ID changed since Work was set up. Unlock with the vault password.")
+    same("notice: password, locked out", ProviderNotices.needsPassword(.needsPassword(.unavailableNow), name: "Work", method: method)?.text, "Face ID is locked out right now. Unlock with the vault password.")
+    expect("notice: no password notice for a plain locked vault", ProviderNotices.needsPassword(.locked, name: "Work", method: method) == nil, true)
+    same("notice: not found", ProviderNotices.unavailable(.notFound, name: "Archive")?.text, "Archive can’t be found. Open Psss to locate it.")
+    same("notice: not downloaded", ProviderNotices.unavailable(.notDownloaded, name: "Travel")?.text, "Travel isn’t downloaded yet. Open Psss to download it.")
+    same("notice: can't be read", ProviderNotices.unavailable(.unreadable, name: "Taxes")?.text, "Taxes can’t be read. Open Psss for details.")
+    expect("notice: an available vault has no unavailable notice", ProviderNotices.unavailable(.locked, name: "Work") == nil, true)
+    expect("notice: unavailable is a warning, cancelled is information", ProviderNotices.unavailable(.notFound, name: "A")?.tone == .warning && ProviderNotices.cancelled(method: method).tone == .info, true)
+    same("notice: open Psss", ProviderNotices.openPsss(name: "Work").text, "Open Psss to unlock Work.")
+    same("notice: a hostile name is one safe line", ProviderNotices.openPsss(name: "Wo\nrk\u{202E}").text, "Open Psss to unlock \(VaultName.sentence("Wo\nrk\u{202E}")).")
+    expect("notice: a very long name is cut", ProviderNotices.unavailable(.notFound, name: String(repeating: "x", count: 500))!.text.count < 120, true)
+    expect("notice: no password in any sentence", !ProviderNotices.wrongPassword(name: "Work").lowercased().contains("hunter2"), true)
+
+    var existing = VaultItem(kind: .login, title: "Gitforge", account: "sam.r", website: "gitforge.example", secret: "old")
+    same("save: new login", SaveWords.passwordButton(existing: nil), "Save")
+    same("save: update names the login", SaveWords.passwordButton(existing: existing), "Update Gitforge (sam.r)")
+    same("save: passkey for a new login", SaveWords.passkeyButton(existing: nil), "Create Passkey")
+    same("save: passkey joins the login", SaveWords.passkeyButton(existing: existing), "Add Passkey to Gitforge (sam.r)")
+    existing.account = ""
+    same("save: no username, the name alone", SaveWords.label(of: existing), "Gitforge")
+    same("save: update with no username reads Update <Name>", SaveWords.passwordButton(existing: existing), "Update Gitforge")
+    existing.account = "   "
+    same("save: update with a blank username reads Update <Name>", SaveWords.passwordButton(existing: existing), "Update Gitforge")
+    existing.account = "Gitforge"
+    same("save: a username equal to the name is not repeated", SaveWords.passwordButton(existing: existing), "Update Gitforge")
+    existing.title = "localhost"; existing.account = "sam@example.com"
+    same("save: update names the account in the same string", SaveWords.passwordButton(existing: existing), "Update localhost (sam@example.com)")
+    existing.title = String(repeating: "N", count: 200); existing.account = "a\nb"
+    expect("save: a long name is cut and a newline never reaches the button", SaveWords.label(of: existing).count < 80 && !SaveWords.label(of: existing).contains("\n"), true)
 }
 
 // An otpauth:// link: which logins it suggests, and the unsaved login it starts.
