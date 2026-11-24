@@ -401,7 +401,7 @@ enum EntryMapping {
         let fields = sourceFields(entry)
         let candidates = fields.filter { !["Title", "Notes"].contains($0.key) && !otpKeys.contains($0.key) }
         let mapping = fieldMapping(entry)
-        let resolved = mapping.flatMap { $0.issue(in: candidates, requireValues: false) == nil ? $0 : nil }
+        let resolved = mapping.flatMap { $0.issue(in: candidates) == nil ? $0 : nil }
         let needsReview = customData(entry, fieldMappingKey) != nil && resolved == nil
         let assigned = resolved.flatMap { $0.kind == .keePassEntry ? nil : $0 }
         func key(_ role: FieldRole, fallback: String) -> String? { assigned == nil ? fallback : assigned?[role] }

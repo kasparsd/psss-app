@@ -65,9 +65,28 @@ extension VaultItem {
 
     /// The fields of the first card that hold something, in that order: what the item page shows. A kind's other plain fields that an
     /// imported item may carry (a card's website, a note's username) follow, so nothing stored is out of sight.
+    ///
+    /// A card shown from a KeePass mapping keeps its number row even when the number is empty, so the page can say so
+    /// (`mappedValueNotice`).
     var filledFirstCardFields: [ItemField] {
         let own = Self.firstCardFields(for: kind)
-        return (own + ItemField.allCases.filter { !own.contains($0) && $0 != .notes }).filter { !self[$0].isEmpty }
+        let keepsNumber = kind == .creditCard && fieldMapping != nil
+        return (own + ItemField.allCases.filter { !own.contains($0) && $0 != .notes })
+            .filter { !self[$0].isEmpty || (keepsNumber && $0 == .secret) }
+    }
+
+    /// What is wrong with the value of a mapped card, written under its row on the item page. Saving a mapping never checks
+    /// values (owner, 2026-11-24): the page marks an empty card number or an expiry that is not a date, and Edit corrects it.
+    func mappedValueNotice(for field: ItemField) -> String? {
+        guard kind == .creditCard, fieldMapping != nil else { return nil }
+        switch field {
+        case .secret where self[.secret].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty:
+            return String(localized: "The card number is empty. Use Edit to add it.")
+        case .expiry where !expiry.isEmpty && CardExpiry.parse(expiry) == nil:
+            return String(localized: "This does not look like an expiry date. Use Edit to correct it.")
+        default:
+            return nil
+        }
     }
 
     subscript(field: ItemField) -> String {

@@ -1842,8 +1842,10 @@ private struct ItemDetail: View {
         item.fieldMappingNeedsReview == true || item.fieldMapping != nil || item.sourceFields?.contains(where: { !$0.value.isEmpty }) == true
     }
 
+    /// One button opens the sheet; its words say what the sheet offers (owner, 2026-11-24).
     private var mappingLabel: LocalizedStringResource {
-        item.fieldMappingNeedsReview == true ? "Review field mapping…" : "Map fields…"
+        if item.fieldMappingNeedsReview == true { return "Review fields…" }
+        return item.fieldMapping == nil ? "Show as Card or Login…" : "Change how fields are used…"
     }
 
     private func beginFieldMapping() {
@@ -1879,7 +1881,7 @@ private struct ItemDetail: View {
             if let url = item.totpSetupURL { TOTPQRSheet(url: url, title: item.displayTitle) }
         }
         .sheet(isPresented: $showsFieldMapping) {
-            ItemFieldMappingView(item: item, vault: vault, location: vaultLocation, hideSignal: hideSignal, save: mapFields)
+            ItemFieldMappingView(item: item, vault: vault, hideSignal: hideSignal, save: mapFields)
         }
         #if os(macOS)
         .navigationTitle(item.displayTitle)
@@ -2107,11 +2109,12 @@ private struct ItemDetail: View {
     private func field(_ field: ItemField) -> some View {
         let value = field == .expiry ? CardExpiry.displayed(item.expiry) : item[field]
         return row(.value(field), field.label(for: item.kind), value,
-                   hidden: field == .secret || field == .securityCode || item.concealedFields?.contains(field.rawValue) == true)
+                   hidden: field == .secret || field == .securityCode || item.concealedFields?.contains(field.rawValue) == true,
+                   notice: item.mappedValueNotice(for: field))
     }
 
     /// A field is one row with a copy icon at its end. Protected values stay hidden until a deliberate reveal.
-    private func row(_ id: FieldID, _ label: LocalizedStringResource, _ value: String, hidden: Bool = false) -> some View {
+    private func row(_ id: FieldID, _ label: LocalizedStringResource, _ value: String, hidden: Bool = false, notice: String? = nil) -> some View {
         let isSecret = id == .value(.secret)
         return FieldRow(label: label, value: value, shown: isSecret ? item.spacedSecret : value,
                         masked: isSecret ? item.maskedSecret : VaultItem.hiddenMask,
@@ -2119,6 +2122,7 @@ private struct ItemDetail: View {
                         revealed: Binding(get: { revealed.contains(id) },
                                           set: { if $0 { revealed.insert(id) } else { revealed.remove(id) } }),
                         copied: copied == id,
+                        notice: notice,
                         copy: { copy(value, as: id, name: String(localized: label)) })
     }
 

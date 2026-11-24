@@ -3836,6 +3836,29 @@ do {
            projectedLogin.fieldMappingNeedsReview == true && projectedLogin.kind == .keePassEntry &&
            !ReleaseCheck.password(item: projectedLogin, serviceIdentifier: "example.test"))
 
+    // Saving a mapping never checks values (owner, 2026-11-24): an empty card number and an expiry that is not a date map fine,
+    // and the page marks them instead.
+    let odd = VaultItem(kind: .keePassEntry, title: "Odd card")
+    document.upsert(odd)
+    let oddNode = node(odd.id, in: document)
+    add("Card No.", "", to: oddNode)
+    add("Valid Thru", "13/2030", to: oddNode)
+    let oddFields = EntryMapping.mappingFields(oddNode)
+    let oddMap = ItemFieldMapping.suggested(for: .creditCard, fields: oddFields, defaults: nil)
+    check("suggestions follow the names even for an empty field", oddMap[.cardNumber] ?? "", "Card No.")
+    expect("an empty card number and a bad expiry do not block a mapping", oddMap.validationIssues(in: oddFields).isEmpty)
+    try document.mapFields(oddMap, of: odd.id)
+    var oddItem = document.items().first { $0.id == odd.id }!
+    expect("the page says the number is empty", oddItem.mappedValueNotice(for: .secret) != nil && oddItem.filledFirstCardFields.contains(.secret))
+    expect("the page says the expiry is not a date", oddItem.mappedValueNotice(for: .expiry) != nil)
+    oddItem.expiry = "08/2030"
+    expect("a readable expiry has no notice", oddItem.mappedValueNotice(for: .expiry) == nil)
+    var noNumber = oddMap
+    noNumber[.cardNumber] = nil
+    expect("a card with no field for its number is the one structural problem",
+           noNumber.validationIssues(in: oddFields).contains { $0.role == .cardNumber })
+    expect("a login needs no field at all", ItemFieldMapping(kind: .login).validationIssues(in: oddFields).isEmpty)
+
     try reopened.mapFields(.init(kind: .keePassEntry), of: card.id)
     projected = reopened.items().first { $0.id == card.id }!
     expect("clearing restores the source names and keeps the value",

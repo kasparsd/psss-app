@@ -153,7 +153,8 @@ enum FieldRole: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    var required: Bool { self == .cardNumber || self == .password }
+    /// Only a card needs a field for its number; a login can be a username and a website, or a passkey alone (owner, 2026-11-24).
+    var required: Bool { self == .cardNumber }
 
     var sensitive: Bool { self == .password || self == .cardNumber || self == .securityCode || self == .oneTimeCode }
 
@@ -224,21 +225,28 @@ struct ItemFieldMapping: Codable, Equatable, Sendable {
         let choices = choices(in: fields)
         var result = Self(kind: kind)
         for role in FieldRole.mappingRoles(for: kind) {
-            if let key = defaults?[role], choices.contains(where: { $0.key == key && !$0.value.isEmpty }) {
+            if let key = defaults?[role], choices.contains(where: { $0.key == key }) {
                 result[role] = key
                 continue
             }
-            let matches = choices.filter { !$0.value.isEmpty && role.aliases.contains(FieldRole.normalized($0.key)) }
+            // By name. Fields that hold something win, so KeePass's empty standard UserName, Password and URL do not compete with
+            // a filled custom one. With nothing filled, a single field named for the role is still it (an empty card number), and
+            // the item page says it is empty.
+            let named = choices.filter { role.aliases.contains(FieldRole.normalized($0.key)) }
+            let filled = named.filter { !$0.value.isEmpty }
+            let matches = filled.isEmpty ? named : filled
             if matches.count == 1 { result[role] = matches.first?.key }
         }
         return result
     }
 
-    func issue(in fields: [StoredItemField], requireValues: Bool = true) -> String? {
-        validationIssues(in: fields, requireValues: requireValues).first?.message
+    func issue(in fields: [StoredItemField]) -> String? {
+        validationIssues(in: fields).first?.message
     }
 
-    func validationIssues(in fields: [StoredItemField], requireValues: Bool = true) -> [(role: FieldRole?, message: String)] {
+    /// What stops a mapping from being saved: the structure only. A value that is empty or in the wrong format never does; the
+    /// item page marks it and Edit corrects it (owner, 2026-11-24).
+    func validationIssues(in fields: [StoredItemField]) -> [(role: FieldRole?, message: String)] {
         guard [.login, .creditCard, .keePassEntry].contains(kind) else { return [(nil, String(localized: "Choose an item type."))] }
         let roles = FieldRole.mappingRoles(for: kind)
         let choices = Self.choices(in: fields)
@@ -246,7 +254,7 @@ struct ItemFieldMapping: Codable, Equatable, Sendable {
         for role in roles {
             guard let key = self[role] else {
                 if role.required {
-                    issues.append((role, String(localized: "Choose the field that holds the \(String(localized: role.label).localizedLowercase).")))
+                    issues.append((role, String(localized: "Choose which field is the \(String(localized: role.label).localizedLowercase).")))
                 }
                 continue
             }
@@ -256,12 +264,9 @@ struct ItemFieldMapping: Codable, Equatable, Sendable {
                 issues.append((role, String(localized: "Also used for \(names). Choose a different field for one of these roles.")))
                 continue
             }
-            guard let field = choices.first(where: { $0.key == key }) else {
+            guard choices.contains(where: { $0.key == key }) else {
                 issues.append((role, String(localized: "“\(key)” is unavailable. Choose a different field.")))
                 continue
-            }
-            if requireValues && role.required && field.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                issues.append((role, String(localized: "“\(key)” is empty. Choose a field with a value.")))
             }
         }
         if !Set(keys.keys).isSubset(of: Set(roles.map(\.rawValue))) {

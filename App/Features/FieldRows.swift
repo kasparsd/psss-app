@@ -166,6 +166,8 @@ struct FieldRow: View {
     @Binding var revealed: Bool
     /// This row's value was just copied: its icon is a checkmark.
     var copied = false
+    /// A problem with this value, written under it (an empty card number, an expiry that is not a date).
+    var notice: String? = nil
     let copy: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -196,6 +198,7 @@ struct FieldRow: View {
                     valueText
                     if hidden && !value.isEmpty { RevealIconButton(name: name, revealed: $revealed) }
                 }
+                if let notice { ProblemText(text: notice) }
             }
             Spacer(minLength: 8)
             if !value.isEmpty { CopyIconButton(name: name, copied: copied, action: copy) }

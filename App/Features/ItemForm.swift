@@ -50,7 +50,7 @@ struct ItemFields: View {
     var isNew = false
     /// The host presents `VerificationCodeSheet` for manual setup or an explicitly pasted image.
     @Binding var codeInput: VerificationCodeInput?
-    var mapFieldsLabel: LocalizedStringResource = "Map fields…"
+    var mapFieldsLabel: LocalizedStringResource = "Show as Card or Login…"
     var onMapFields: (() -> Void)?
     var canMapFields = true
     /// Set only when editing an existing item.
@@ -76,7 +76,7 @@ struct ItemFields: View {
                 Section {
                     Button(mapFieldsLabel, action: onMapFields).disabled(!canMapFields)
                 } footer: {
-                    if !canMapFields { Text("Save or cancel your edits before mapping fields.").font(.body) }
+                    if !canMapFields { Text("Save your changes first.").font(.body) }
                 }
             }
             if let onDelete { deleteGroup(onDelete) }
