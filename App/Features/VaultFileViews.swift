@@ -536,13 +536,19 @@ struct VaultPasswordView: View {
         HStack(spacing: 8) {
             Text("Unlock Vault:").foregroundStyle(.secondary)
             Menu {
-                Picker("Vault", selection: Binding(get: { session.reference?.id ?? UUID() },
-                                                   set: { id in session.switchTo(id); vaultChanged() })) {
-                    ForEach(session.knownVaults, id: \.id) { vault in
-                        Self.menuLabel(for: vault).tag(vault.id)
+                ForEach(session.knownVaults, id: \.id) { vault in
+                    // A toggle in a menu shows the checkmark for the current vault. The second Text (where it lives, or
+                    // "Not found") is the item's subtitle.
+                    Toggle(isOn: Binding(get: { vault.id == session.reference?.id },
+                                         set: { _ in
+                        guard vault.id != session.reference?.id else { return }
+                        session.switchTo(vault.id)
+                        vaultChanged()
+                    })) {
+                        Text(vault.name)
+                        Text(vault.isReachable ? vault.menuLocation : String(localized: "Not found"))
                     }
                 }
-                .pickerStyle(.inline)
                 Divider()
                 Button("Open Another Vault…") { choose(.otherVault) }
             } label: {
@@ -556,11 +562,6 @@ struct VaultPasswordView: View {
             .accessibilityLabel(Text("Vault: \(vaultName)"))
             .help("Choose a vault")
         }
-    }
-
-    private static func menuLabel(for vault: VaultReference) -> Text {
-        let note = vault.isReachable ? vault.menuLocation : String(localized: "Not found")
-        return Text("\(vault.name)  \(Text(note).foregroundStyle(.secondary))")
     }
 
     /// Mac and iPhone/iPad entry points. `automatic` is the screen appearing, the window becoming key or the scene becoming
