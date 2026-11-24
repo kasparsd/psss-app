@@ -371,5 +371,38 @@ do {
     expect("plain http page: the pages login is still found, behind the lists own confirmation", r.siteLogins.count == 1, true)
 }
 
+// The picker search and one-value release.
+func card(_ number: String, name: String = "", holder: String = "Kid Example", expiry: String = "08/29", code: String = "123") -> VaultItem {
+    VaultItem(kind: .creditCard, title: name, account: holder, secret: number, expiry: expiry, securityCode: code)
+}
+do {
+    let bank = login("heron-bank-old.example", account: "kid@example.com")
+    let club = login("heron-club.example", account: "kid@example.com")
+    let visa = card("4242424242424242")
+    let note = VaultItem(kind: .secureNote, title: "heron note")
+    let empty = login("heron-empty.example", secret: "")
+    let all = [club, bank, visa, note, empty]
+    same("search by name", PickerSearch.matches(all, query: "club").map(\.website).joined(separator: ","), "heron-club.example")
+    same("search by saved site finds the old address", PickerSearch.matches(all, query: "bank-old").first?.website, "heron-bank-old.example")
+    same("search by account", String(PickerSearch.matches(all, query: "kid@example").count), "2")
+    same("search is A to Z", PickerSearch.matches(all, query: "heron").map(\.website).joined(separator: ","), "heron-bank-old.example,heron-club.example")
+    same("empty query lists every offerable item", String(PickerSearch.matches(all, query: "  ").count), "3")
+    expect("a note is never offered", PickerSearch.matches(all, query: "note").isEmpty, true)
+    expect("a login without a password is never offered", PickerSearch.matches(all, query: "empty").isEmpty, true)
+    same("a card is found by its holder", PickerSearch.matches(all, query: "Kid Example").first.map { String($0.kind == .creditCard) }, "true")
+    same("login values", PickerSearch.values(of: bank).map(\.label).joined(separator: ","), "Username,Password")
+    same("login password preview is hidden", PickerSearch.values(of: bank).first { $0.role == .password }?.preview, "••••••••")
+    same("card values", PickerSearch.values(of: visa).map(\.label).joined(separator: ","), "Card number,Name on card,Expiry,Security code")
+    same("card number preview is the last four", PickerSearch.values(of: visa).first { $0.role == .cardNumber }?.preview, "•••• 4242")
+    same("card security code preview is hidden", PickerSearch.values(of: visa).first { $0.role == .securityCode }?.preview, "•••")
+    same("one value: username only", ReleaseCheck.value(item: bank, role: .username), "kid@example.com")
+    same("one value: password", ReleaseCheck.value(item: bank, role: .password), "pw")
+    same("a login has no card number to release", ReleaseCheck.value(item: bank, role: .cardNumber), nil)
+    same("a website is never a value", ReleaseCheck.value(item: bank, role: .loginWebsite), nil)
+    same("a card releases its number", ReleaseCheck.value(item: visa, role: .cardNumber), "4242424242424242")
+    same("a card has no password", ReleaseCheck.value(item: visa, role: .password), nil)
+    same("a note releases nothing", ReleaseCheck.value(item: note, role: .username), nil)
+}
+
 if failures > 0 { print("\n\(failures) FAILED"); exit(1) }
 print("\nall site matching checks passed")

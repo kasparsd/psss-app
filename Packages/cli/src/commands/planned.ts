@@ -10,8 +10,6 @@ const PLANNED: Array<[name: string, summary: string, usage: string]> = [
   ['generate', "Make a password with the app's generator", 'generate'],
   ['doctor', 'Check permissions, the clock, the key and the locations', 'doctor'],
   ['history', "Show an item's previous values, with dates", 'history <reference>'],
-  ['import', 'Bring in a KeePass file, then 1Password and CSV', 'import <file>'],
-  ['export', 'Write a copy as a KeePass file', 'export --format kdbx <file>'],
   ['item', 'Add, edit, show and purge items', 'item <add|edit|show|purge>'],
   ['file', 'Get and put attachments', 'file <get|put>'],
   ['vault', 'Back up and restore a vault', 'vault <backup|restore>'],

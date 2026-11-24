@@ -5,7 +5,7 @@ import Foundation
 /// list even though the person may want the saved password. Kept pure so it can be tested without a device.
 ///
 /// The list holds the passkeys for the request, then what the plain login list holds: the logins saved for the site. Logins
-/// for other sites stay behind "Other Logins…" and its confirmation, exactly as in the plain list, so nothing here puts every
+/// for other sites stay behind the search and its confirmation, exactly as in the plain list, so nothing here puts every
 /// login one tap away.
 ///
 /// The system does not say whether the page also accepts a password. `ASPasskeyCredentialRequestParameters` carries the relying

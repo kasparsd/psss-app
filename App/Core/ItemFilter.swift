@@ -25,7 +25,7 @@ enum ItemShow: String, CaseIterable, Identifiable, Sendable {
         case .login: self = .logins
         case .secureNote: self = .notes
         case .keePassEntry: self = .custom
-        case .creditCard: return nil
+        case .creditCard, .wifi: return nil
         }
     }
 
@@ -162,7 +162,7 @@ struct ItemFilter: Equatable, Sendable {
 
 /// Everything the sidebar lists, and the Show menu when the sidebar is hidden: the three places, the kinds, and Recently Deleted.
 enum VaultDestination: Hashable, CaseIterable, Sendable {
-    case all, codes, cards, logins, notes, custom, recentlyDeleted
+    case all, codes, cards, wifi, logins, notes, custom, recentlyDeleted
 
     /// The sidebar's rows, top to bottom.
     static let sidebar: [Self] = allCases
@@ -192,6 +192,7 @@ enum VaultDestination: Hashable, CaseIterable, Sendable {
         switch self {
         case .codes: item.kind == .login && !item.otpSecret.isEmpty
         case .cards: item.kind == .creditCard
+        case .wifi: item.kind == .wifi
         case .recentlyDeleted: false
         default: show?.includes(item) ?? true
         }

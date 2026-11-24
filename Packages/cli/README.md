@@ -14,7 +14,8 @@ sh ../../scripts/test-cli.sh      # run the tests (one run at a time)
 | Command | State |
 | --- | --- |
 | `init`, `status`, `get`, `set`, `list`, `rm`, `restore`, `run`, `sync`, `verify` | Built, and connected to the vault library |
-| `search`, `code`, `generate`, `doctor`, `history`, `import`, `export` | Planned: print `psss <name> is not built yet.` on standard error, exit 1 |
+| `import <file>`, `export --format kdbx <file>` | Built: KeePass in and out, `--dry-run`, `--json`; see [cli](../../docs/cli.md#import-and-export) |
+| `search`, `code`, `generate`, `doctor`, `history` | Planned: print `psss <name> is not built yet.` on standard error, exit 1 |
 | `item`, `file`, `vault`, `group`, `member`, `device`, `location`, `key` | Planned, same |
 
 Planned commands are listed in `--help`, marked `(planned)`, and their arguments are not parsed.

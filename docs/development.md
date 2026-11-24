@@ -52,6 +52,8 @@ scripts/xcb.sh -project Psss.xcodeproj -scheme Psss-iOS -configuration Debug \
 ```
 
 Check the result with `codesign -d --entitlements - <app or .appex>`.
+
+**Hotspot Configuration (iPhone and iPad app only, added 2026-11-24).** `App-iOS.entitlements` carries `com.apple.developer.networking.HotspotConfiguration` so Psss can offer “Join This Network” for a saved Wi-Fi network (`NEHotspotConfiguration`; the system asks the person first). The capability must also be enabled on the app's identifier: automatic signing in Xcode registers it on the first signed build; otherwise tick Hotspot Configuration under the App ID at developer.apple.com. Unsigned and `-local` builds do not carry it, so Join is hidden there. macOS has no equivalent: the Mac shows the QR code only.
 Each Mac bundle must carry the AutoFill key (app and provider), `application-groups` and `keychain-access-groups` set to `<team>.app.psss`, a team identifier and `Contents/embedded.provisionprofile`.
 Each iOS bundle must carry `group.app.psss` and `embedded.mobileprovision` (the AutoFill key on the app and provider).
 The Mac provisioning profiles list the AutoFill capability and the keychain group `<team>.*` but no App Group: a team-prefixed group needs no profile entry on macOS 15 and later.

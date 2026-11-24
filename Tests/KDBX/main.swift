@@ -99,6 +99,55 @@ check("card kind", "\(items.first { $0.id == card.id }!.kind)", "creditCard")
 check("card expiry", items.first { $0.id == card.id }!.expiry, "08/30")
 check("card security code", items.first { $0.id == card.id }!.securityCode, "123")
 do {
+    var full = VaultItem(kind: .creditCard, title: "Full", account: "Alex", secret: "5555555555554444", expiry: "08/30", securityCode: "123",
+                         validFrom: "08/25", pin: "4821", issuer: "Northbank")
+    document.upsert(full)
+    let saved = try KDBX.save(document)
+    let again = try KDBX.open(saved, credentials: .init(password: "correct horse"))
+    let readBack = again.items().first { $0.id == full.id }!
+    check("card valid from survives", readBack.validFrom, "08/25")
+    check("card PIN survives", readBack.pin, "4821")
+    check("card issuer survives", readBack.issuer, "Northbank")
+    check("the card's new fields are not also listed as other fields", (readBack.otherFields ?? []).map(\.key).joined(separator: ","), "")
+    let fullEntry = again.rootGroup!.children(named: "Entry").first { EntryMapping.uuid(of: $0) == full.id }!
+    expect("card PIN is a protected custom string", EntryMapping.strings(fullEntry)["PIN"]?.isProtected == true)
+    full.pin = ""
+    again.upsert(full)
+    let clearedEntry = again.rootGroup!.children(named: "Entry").first { EntryMapping.uuid(of: $0) == full.id }!
+    expect("clearing the PIN removes the string", EntryMapping.strings(clearedEntry)["PIN"] == nil)
+    document.remove(full.id)
+}
+do {
+    // Wi-Fi networks: stored as ordinary entries with a type marker, and shared as the standard WIFI: QR text.
+    var home = VaultItem(kind: .wifi, title: "Home", account: "Harbor-5G", secret: "pa;ss:wo\\rd,\"1\"", wifiSecurity: .wpa, wifiHidden: true)
+    let open = VaultItem(kind: .wifi, account: "Cabin Net", secret: "", wifiSecurity: .none)
+    document.upsert(home)
+    document.upsert(open)
+    let saved = try KDBX.save(document)
+    let again = try KDBX.open(saved, credentials: .init(password: "correct horse"))
+    let readHome = again.items().first { $0.id == home.id }!
+    check("wifi kind survives", "\(readHome.kind)", "wifi")
+    check("wifi network name survives", readHome.account, "Harbor-5G")
+    check("wifi password survives", readHome.secret, home.secret)
+    check("wifi security survives", readHome.wifiSecurity.rawValue, "WPA")
+    expect("wifi hidden survives", readHome.wifiHidden)
+    check("wifi security and hidden are not other fields", (readHome.otherFields ?? []).map(\.key).joined(separator: ","), "")
+    let readOpen = again.items().first { $0.id == open.id }!
+    check("an open network reads back open", readOpen.wifiSecurity.rawValue, "None")
+    expect("an open network is not hidden", !readOpen.wifiHidden)
+    check("wifi QR text escapes and marks hidden", WiFiShare.payload(for: home) ?? "", "WIFI:T:WPA;S:Harbor-5G;P:pa\\;ss\\:wo\\\\rd\\,\\\"1\\\";H:true;;")
+    check("an open network's QR text has no password", WiFiShare.payload(for: open) ?? "", "WIFI:T:nopass;S:Cabin Net;;")
+    expect("a login has no QR text", WiFiShare.payload(for: VaultItem(kind: .login, account: "a", secret: "b")) == nil)
+    check("wifi second line: given name and network", home.wifiSecondLine, "Harbor-5G · WPA")
+    check("wifi second line: the network is the name", open.wifiSecondLine, "Open")
+    check("wifi name falls back to the network", open.displayTitle, "Cabin Net")
+    check("wifi has no unset rows", home.firstCardRows.map { "\($0.field)" }.joined(separator: ","), "account,secret")
+    home.account = ""
+    expect("a nameless network has no QR text", WiFiShare.payload(for: home) == nil)
+    document.remove(home.id)
+    document.remove(open.id)
+}
+do {
     let cardEntry = reopened.rootGroup!.children(named: "Entry").first { EntryMapping.uuid(of: $0) == card.id }!
     expect("card security code is a protected custom string", EntryMapping.strings(cardEntry)["Security code"]?.isProtected == true)
     var cleared = card
@@ -246,7 +295,7 @@ do {
     expect("filter: and clears With when the kind is not enough", ItemFilter(show: .logins, with: .passkey).revealing(login) == ItemFilter(show: .logins))
     expect("filter: an item that is listed leaves the filter alone", ItemFilter(show: .logins, with: .notes).revealing(notedLogin) == ItemFilter(show: .logins, with: .notes))
     expect("filter: the With ticks survive their stored number", ItemWith(rawValue: ItemWith([.passkey, .notes]).rawValue) == [ItemWith.passkey, .notes])
-    check("destination: sidebar rows", "\(VaultDestination.sidebar.count)", "7")
+    check("destination: sidebar rows", "\(VaultDestination.sidebar.count)", "8")
     check("destination: kinds are Show choices", VaultDestination.allCases.compactMap(\.show).map(\.rawValue).joined(separator: ","), "all,logins,notes,custom")
 }
 do {
@@ -3210,6 +3259,23 @@ do {  // Provider follow-ups: several identifiers, loopback as written, readable
     expect("name: search finds a nameless card by its last four", ItemSearch.matches(namelessCard, query: "4417"))
     expect("name: search finds a nameless note by its first line", ItemSearch.matches(namelessNote, query: "door"))
     expect("name: search does not read the rest of a note", !ItemSearch.matches(namelessNote, query: "1234"))
+    // Search fields (pills): a domain that is the username of many logins and the website of a few.
+    let siteLogin = VaultItem(kind: .login, title: "Harbor.net", account: "sam", website: "harbor.net")
+    let userLogin = VaultItem(kind: .login, title: "Gitforge", account: "sam@harbor.net", website: "gitforge.example")
+    let pool = [siteLogin, userLogin]
+    check("search fields: website and name found", "\(ItemSearch.fields(of: siteLogin, query: "harbor.net").sorted { $0.label < $1.label }.map(\.label))", "[\"Name\", \"Website\"]")
+    check("search fields: only the username found", "\(ItemSearch.fields(of: userLogin, query: "harbor.net").map(\.label))", "[\"Username\"]")
+    check("search fields: counts per field", "\(SearchField.allCases.map { ItemSearch.counts(pool, query: "harbor.net")[$0] ?? -1 })", "[1, 1, 1]")
+    check("search fields: a field with no match counts 0", "\(ItemSearch.counts(pool, query: "gitforge")[.username] ?? -1)", "0")
+    check("search fields: none chosen searches every field", "\(pool.filter { ItemSearch.matches($0, query: "harbor.net") }.count)", "2")
+    check("search fields: Website keeps the site", "\(pool.filter { ItemSearch.matches($0, query: "harbor.net", in: [.website]) }.map { $0.title })", "[\"Harbor.net\"]")
+    check("search fields: more pills show more", "\(pool.filter { ItemSearch.matches($0, query: "harbor.net", in: [.website, .username]) }.count)", "2")
+    check("search fields: empty text matches everything", "\(pool.filter { ItemSearch.matches($0, query: " ", in: [.website]) }.count)", "2")
+    check("search fields: row shows the chosen field", "\(ItemSearch.shownField(of: siteLogin, query: "harbor.net", chosen: [.name])?.label ?? "-")", "Name")
+    check("search fields: row shows the username first", "\(ItemSearch.shownField(of: userLogin, query: "harbor.net", chosen: [])?.label ?? "-")", "Username")
+    check("search fields: a nameless login's name is not a Name match", "\(ItemSearch.fields(of: VaultItem(kind: .login, website: "acorn.example"), query: "acorn").map(\.label))", "[\"Website\"]")
+    check("search fields: the line under the title", ItemSearch.foundLine([.website, .name]) ?? "-", "Found in name or website")
+    expect("search fields: no line with nothing chosen", ItemSearch.foundLine([]) == nil)
     check("name: sort by name uses the derived names", ItemSort.name.ordered([namelessCard, namelessNote, VaultItem(kind: .login, website: "acorn.example")]).map(\.displayTitle).joined(separator: "|"), "acorn.example|Door code|Visa \u{2022}\u{2022} 4417")
     // Save: any content, and a setup key that works if one is typed.
     for kind in ItemKind.allCases { expect("save: an entirely empty \(kind) cannot be saved", !VaultItem(kind: kind).canSave) }
@@ -3225,11 +3291,20 @@ do {  // Provider follow-ups: several identifiers, loopback as written, readable
     // One field order for the item page, edit in place and the new-item sheet.
     func order(_ kind: ItemKind) -> String { VaultItem.firstCardFields(for: kind).map { "\($0)" }.joined(separator: ",") }
     check("order: login", order(.login), "website,account,secret")
-    check("order: card", order(.creditCard), "secret,expiry,securityCode,account")
+    check("order: card", order(.creditCard), "secret,validFrom,expiry,securityCode,pin,account,issuer")
     check("order: custom item", order(.keePassEntry), "website,account,secret")
     check("order: a note's text is its only card", order(.secureNote), "")
     check("order: the page shows only what is filled, in that order",
           VaultItem(kind: .creditCard, account: "Alex", secret: "4242", securityCode: "123").filledFirstCardFields.map { "\($0)" }.joined(separator: ","), "secret,securityCode,account")
+    func rows(_ item: VaultItem) -> String { item.firstCardRows.map { "\($0.field)\($0.isSet ? "" : "?")" }.joined(separator: ",") }
+    check("rows: a card lists every recognized field, unset ones marked, in the fixed order",
+          rows(VaultItem(kind: .creditCard, account: "Alex", secret: "4242", securityCode: "123")), "secret,validFrom?,expiry?,securityCode,pin?,account,issuer?")
+    check("rows: a login lists website, username and password even when empty", rows(VaultItem(kind: .login, secret: "x")), "website?,account?,secret")
+    check("rows: a custom item and a note list only what is filled", rows(VaultItem(kind: .keePassEntry, secret: "k")), "secret")
+    check("rows: an empty note has none", rows(VaultItem(kind: .secureNote, notes: "n")), "")
+    var rowCard = VaultItem(kind: .creditCard, secret: "4242")
+    rowCard.fieldMapping = ItemFieldMapping(kind: .creditCard)
+    check("rows: a card shown from a mapping lists only what is filled", rows(rowCard), "secret")
     check("order: a field the kind does not edit is still shown, last",
           VaultItem(kind: .creditCard, website: "bank.example", secret: "4242").filledFirstCardFields.map { "\($0)" }.joined(separator: ","), "secret,website")
     expect("optional: the content of each kind is not marked optional", !VaultItem.isOptional(.secret, for: .login) && !VaultItem.isOptional(.secret, for: .creditCard)

@@ -183,7 +183,7 @@ export function PhoneCards({ variant = 'normal' }: { variant?: CardsVariant }) {
 }
 
 /** An item page, or its editor. `whole` draws the page as tall as its content, without a tab bar. */
-export function PhoneItem({ id = 1, mode = 'view', shown, copied, pill, from = 'all', whole, bubble, fresh, unnamed, code, onPasteCodeImage }: {
+export function PhoneItem({ id = 1, mode = 'view', shown, copied, pill, from = 'all', whole, bubble, fresh, unnamed, code, onPasteCodeImage, unset }: {
   id?: number;
   mode?: 'view' | 'edit';
   shown?: string[];
@@ -192,6 +192,8 @@ export function PhoneItem({ id = 1, mode = 'view', shown, copied, pill, from = '
   from?: 'all' | 'cards';
   whole?: boolean;
   bubble?: boolean;
+  /** Show recognized fields the item has not filled in. */
+  unset?: 'rows' | 'summary';
   /** Draw the sheet for a new item: no name typed, nothing to move to Recently Deleted. */
   fresh?: boolean;
   /** The item has no name of its own: it is called by its site, card or first words. */
@@ -218,7 +220,7 @@ export function PhoneItem({ id = 1, mode = 'view', shown, copied, pill, from = '
       <IPhone tall>
         <Nav left={back} right={<button className="btn main">Edit</button>} />
         <div className="pbody" style={{ overflow: 'visible' }}>
-          <ItemCard item={item} shown={shown} copied={copied} bubble={bubble} unnamed={unnamed} />
+          <ItemCard item={item} shown={shown} copied={copied} bubble={bubble} unnamed={unnamed} unset={unset} />
         </div>
       </IPhone>
     );
@@ -227,7 +229,7 @@ export function PhoneItem({ id = 1, mode = 'view', shown, copied, pill, from = '
     <IPhone tab={from} pill={pill}>
       <Nav left={back} right={<button className="btn main">Edit</button>} />
       <div className="pbody tabpad" style={{ overflow: 'auto' }}>
-        <ItemCard item={item} shown={shown} copied={copied} bubble={bubble} unnamed={unnamed} />
+        <ItemCard item={item} shown={shown} copied={copied} bubble={bubble} unnamed={unnamed} unset={unset} />
       </div>
     </IPhone>
   );

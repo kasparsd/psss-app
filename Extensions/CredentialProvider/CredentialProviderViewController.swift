@@ -21,11 +21,27 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     override func prepareCredentialList(for serviceIdentifiers: [ASCredentialServiceIdentifier]) {
         unlocked { [self] in
         present(FillList(site: FillSite(serviceIdentifiers: serviceIdentifiers.map(\.identifier)),
-                         items: PasskeyRequestList.passwordLogins(items),
+                         items: PickerSearch.offerable(items),
                          choose: { [weak self] in self?.complete(with: $0) },
                          cancel: { [weak self] in self?.cancel(.userCanceled) }))
         }
     }
+
+    #if os(iOS)
+    /// The system’s text insertion (iOS 18 and later): the person tapped a field and chose Psss. One value goes into that field.
+    override func prepareInterfaceForUserChoosingTextToInsert() {
+        unlocked { [self] in
+            present(TextPicker(items: PickerSearch.offerable(items),
+                               insert: { [weak self] item, text in self?.complete(insertingText: text, from: item) },
+                               cancel: { [weak self] in self?.cancel(.userCanceled) }))
+        }
+    }
+
+    private func complete(insertingText text: String, from item: VaultItem) {
+        vault?.markUsed(item.id)
+        extensionContext.completeRequest(withTextToInsert: text) { _ in }
+    }
+    #endif
 
     override func provideCredentialWithoutUserInteraction(for credentialIdentity: ASPasswordCredentialIdentity) {
         // Biometrics need a visible prompt, so ask the system to show our interface, which unlocks first.
@@ -189,7 +205,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             return assert(only, relyingParty: rpID, clientDataHash: clientDataHash)
         }
         present(FillList(site: request.site,
-                         items: PasskeyRequestList.passwordLogins(items),
+                         items: PickerSearch.offerable(items),
                          passkeys: PasskeyChoice(rpID: rpID, items: request.passkeys,
                                                  choose: { [weak self] in self?.assert($0, relyingParty: rpID, clientDataHash: clientDataHash) }),
                          choose: { [weak self] in self?.complete(with: $0) },

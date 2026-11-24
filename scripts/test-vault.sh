@@ -18,4 +18,4 @@ if [ -z "$NODE" ]; then
 fi
 
 cd Packages/vault
-exec "$NODE" --disable-warning=ExperimentalWarning --test test/*.test.ts
+exec "$NODE" --disable-warning=ExperimentalWarning --test "${@:-test/*.test.ts}"

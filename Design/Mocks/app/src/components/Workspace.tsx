@@ -36,7 +36,7 @@ export interface WorkspaceInit {
   copied?: string;
   /** Start with the Undo banner showing after a delete. */
   undo?: boolean;
-  /** Start with the help bubble on the clipboard line open. */
+  /** Start with the help bubble on the passkey heading open. */
   bubble?: boolean;
   /** Draw the Mac menu bar with the Psss menu open (Mac only). */
   menu?: boolean;

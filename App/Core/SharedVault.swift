@@ -75,13 +75,25 @@ enum SharedVault {
     /// so by the system's prompt): it sends at once, so the logins that were saved while AutoFill was off are offered without
     /// waiting for the next unlock, and a state that has not caught up yet cannot make it skip.
     static func registerIdentities(for items: [VaultItem], knownEnabled: Bool = false) {
-        if knownEnabled {
-            ASCredentialIdentityStore.shared.replaceCredentialIdentities(identities(for: items)) { _, _ in }
-            return
-        }
-        ASCredentialIdentityStore.shared.getState { state in
-            guard state.isEnabled else { return }
-            ASCredentialIdentityStore.shared.replaceCredentialIdentities(identities(for: items)) { _, _ in }
+        let identities = identities(for: items)
+        Task {
+            let store = ASCredentialIdentityStore.shared
+            if !knownEnabled, await !store.state().isEnabled { return }
+            // A failed replacement used to vanish silently, so a new login was simply never offered. Log the code and retry
+            // once while the store is busy, as the AutoFill extension does.
+            for attempt in 0..<3 {
+                do {
+                    try await store.replaceCredentialIdentities(identities)
+                    return
+                } catch {
+                    let error = error as NSError
+                    identityLog.error("Identity registration failed, domain \(error.domain, privacy: .public), code \(error.code)")
+                    let busy = error.domain == ASCredentialIdentityStoreErrorDomain
+                        && error.code == ASCredentialIdentityStoreError.Code.storeBusy.rawValue
+                    guard busy, attempt < 2 else { return }
+                    try? await Task.sleep(for: .milliseconds(500))
+                }
+            }
         }
     }
 

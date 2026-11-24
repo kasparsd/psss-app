@@ -20,8 +20,8 @@ Commands:
   verify    Check every record and report; exit 2 if anything is wrong
   doctor    (planned) Check permissions, the clock, the key and the locations
   history   (planned) Show an item's previous values, with dates
-  import    (planned) Bring in a KeePass file, then 1Password and CSV
-  export    (planned) Write a copy as a KeePass file
+  import    Bring in a KeePass file
+  export    Write a copy as a KeePass file
   item      (planned) Add, edit, show and purge items
   file      (planned) Get and put attachments
   vault     (planned) Back up and restore a vault
@@ -51,6 +51,7 @@ Precedence: flags, environment, .psss.json in the working folder, user config, d
 Secrets are never arguments or config keys:
   PSSS_KEY                          A key given inline, for CI that can only set variables (the weakest source)
   PSSS_PASSWORD_FILE                A file that holds the vault password
+  PSSS_KDBX_PASSWORD_FILE           A file that holds the password of a KeePass file (import, export)
 
 Exit codes:
   0  done

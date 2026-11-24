@@ -75,6 +75,18 @@ If a location fails the record stays in the outbox and `WriteResult.inOutbox` is
 One record carries at most 1 MiB, and the item schema limits a text value (password, username, custom field and so on) to 64 KiB and notes to 256 KiB.
 A larger value throws `ValueTooLarge` (`code` `value_too_large`, with `field`, `limit` and `size` in bytes) before anything is sealed or stored; values are never split over records.
 
+### Import, export and attachments
+
+```ts
+vault.importKdbx(db: KdbxDatabase, { group?, stripInvalid?, includeTrash?, update?, dryRun? }): ImportReport
+vault.exportKdbx({ group?, stripInvalid? }): { db: KdbxDatabase, report: ExportReport }
+vault.readAttachment(groupId, attachment): Uint8Array            // from the first location that holds each chunk
+openVault({ ..., readOnly: true })                               // no lock, no write of any kind: for a dry run
+readKeepass(db, { now, stripInvalid?, includeTrash? }) / buildKeepass(items, { name, ... })   // the pure mapping in src/keepass.ts
+```
+
+`importKdbx` takes a database read by [`@psss/kdbx`](../kdbx/README.md). Each entry becomes one item written in one record, recognized later by its `source` field (the entry's UUID and a hash of its content), so importing the same file again writes nothing; see [items](../../docs/items.md#keepass-import-and-export-in-the-record-log-vault) for what a second run does with items that changed. Attachments are sealed in 1 MiB chunks with a key of their own and written to every location before the record that names them. The reports hold names and counts, never a value. `exportKdbx` makes the entry UUID the item id and reads each attachment back from the locations.
+
 ### Locking
 
 Every write, `sync()` and every open take an exclusive lock on `stateDir` (the file `<stateDir>/lock`), so that several processes of one device (a shell script running `psss set` in parallel, say) cannot read the same sequence number and outbox and seal two records at one place.
@@ -112,6 +124,6 @@ The concurrency test uses `durable: false` (no fsync) and runs 200 rounds; `ROUN
 ## What is not built
 
 - The device-admission exchange is not specified (spec section 10). `admitDevice` is only the primitive: it writes a device slot for a given public key. Nothing carries the key or approves it.
-- Checkpoints and purge answers (purge requests are written; nothing answers them), attachments and blobs, sharing and several people, groups beyond the first, import and export.
+- Checkpoints and purge answers (purge requests are written; nothing answers them), sharing and several people, groups beyond the first. Attachment chunks are written by import and never removed after a purge.
 - The lock is for processes on one machine: a `stateDir` shared between machines (a sync folder) is not supported, and a lock held by a hung process is only taken over after two minutes. A value larger than one record is refused, not chunked (attachments would carry it).
 - The OS keyring, an otpauth URI parser, adding a password slot after creation.

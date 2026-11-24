@@ -24,7 +24,7 @@ enum SampleVault {
     private static var sampleCards: [VaultItem] {
         [
             VaultItem(kind: .creditCard, title: "Everyday Visa", account: "Alex Example", secret: "4242424242424242",
-                      expiry: "08/30", securityCode: "123", lastUsed: .now.addingTimeInterval(-7200), useCount: 6),
+                      expiry: "08/30", securityCode: "123", validFrom: "08/25", pin: "4821", issuer: "Northbank", lastUsed: .now.addingTimeInterval(-7200), useCount: 6),
             VaultItem(kind: .creditCard, title: "Travel Mastercard", account: "Alex Example", secret: "5555555555554444",
                       expiry: "11/29", lastUsed: .now.addingTimeInterval(-86400), useCount: 2),
             VaultItem(kind: .creditCard, title: "Business Amex", account: "Alex Example", secret: "378282246310005",
@@ -56,7 +56,11 @@ enum SampleVault {
             VaultItem(kind: .login, title: "Broken Seed Co", account: "alex@example.net", website: "brokenseed.example",
                       secret: "Demo-only-Broken9!", otpSecret: "0189!"),
             VaultItem(kind: .secureNote, title: "Travel checklist", notes: "Sample locker instructions."),
-            VaultItem(kind: .keePassEntry, title: "Design software license", secret: "DEMO-LICENSE")
+            VaultItem(kind: .keePassEntry, title: "Design software license", secret: "DEMO-LICENSE"),
+            // Fictional networks: a named one, one without a name of its own, and an open one.
+            VaultItem(kind: .wifi, title: "Home", account: "Harbor-5G", secret: "demo-harbor-light-4821", lastUsed: .now.addingTimeInterval(-3000), useCount: 4),
+            VaultItem(kind: .wifi, account: "studio-guest", secret: "demo-studio-guest-77"),
+            VaultItem(kind: .wifi, title: "Cabin", account: "Cabin Net", secret: "", wifiSecurity: .none)
         ] + (1...298).map { index in
             let services = ["Atlas Mail", "Cedar Bank", "Daybreak Studio", "Elm Hosting",
                             "Fern Market", "Harbor Books", "Maple Transit", "Northstar Journal",

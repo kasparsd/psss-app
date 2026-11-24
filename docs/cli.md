@@ -1,6 +1,6 @@
 # Command line
 
-**Status: re-scoped 2026-11-24. Milestone 1 of part 1 is built and independently validated (2026-11-24): `Packages/vault` and `Packages/cli` give a working headless `psss` with `init`, `status`, `get`, `set`, `list`, `rm`, `restore`, `run`, `sync` and `verify` on a folder vault. Everything else in part 1, and all of part 2, is not built.** Part 1, the core command line, is the priority. The owner decided on 2026-11-24 on direct and brokered modes, the parser, recovery at `init` and one `psss` executable, and approved the terminal output drawn in the mock (frames A1 to A10); the other rows of the decisions table are recommendations. Part 2 is not approved. Part 2, agent access, is the proposal of 2026-11-23 with its prototype in `Packages/cli-agent-prototype` and its screens in `Design/Mocks/command-line-and-agents.html`; it now extends part 1 instead of standing alone. The decisions waiting for the owner are [at the end](#decisions-for-the-owner). Nothing here changes the app until they are made. The working plan is `docs/plans/command-line-and-agents.md`.
+**Status: re-scoped 2026-11-24. Milestone 1 of part 1 is built and independently validated (2026-11-24): `Packages/vault` and `Packages/cli` give a working headless `psss` with `init`, `status`, `get`, `set`, `list`, `rm`, `restore`, `run`, `sync` and `verify` on a folder vault. `import` (KeePass) and `export --format kdbx` are built (2026-11-24, [below](#import-and-export)). Everything else in part 1, and all of part 2, is not built.** Part 1, the core command line, is the priority. The owner decided on 2026-11-24 on direct and brokered modes, the parser, recovery at `init` and one `psss` executable, and approved the terminal output drawn in the mock (frames A1 to A10); the other rows of the decisions table are recommendations. Part 2 is not approved. Part 2, agent access, is the proposal of 2026-11-23 with its prototype in `Packages/cli-agent-prototype` and its screens in `Design/Mocks/command-line-and-agents.html`; it now extends part 1 instead of standing alone. The decisions waiting for the owner are [at the end](#decisions-for-the-owner). Nothing here changes the app until they are made. The working plan is `docs/plans/command-line-and-agents.md`.
 
 ## What was asked
 
@@ -59,7 +59,7 @@ Proposed. Names are the owner's to change before anything is built. A command th
 | Write | `set <ref>` (value from standard input; `--generate` makes one and prints only the reference), `item add`, `item edit`, `rm <ref>` (moves to Recently Deleted), `restore <ref>`, `item purge` (permanent, with `--dry-run` and a confirmation), `generate` (the app's password generator and word list) |
 | Use | `run --env NAME=<ref> -- <program>` (the value is in that program's environment and nowhere else), `run --env-file <file>` where the file holds references |
 | Files | `file get <ref>`, `file put <ref> <path>` for attachments such as certificates and key files |
-| Move data | `import <file>` (KeePass first, then 1Password and CSV through the mappings in [items](items.md)), `export --format kdbx` (and says what does not travel), `vault backup`, `vault restore` (adds to the vault, never replaces) |
+| Move data | `import <file>` (KeePass is built; 1Password and CSV next, through the mappings in [items](items.md)), `export --format kdbx` (built; says what does not travel), `vault backup`, `vault restore` (adds to the vault, never replaces) |
 | Keep in step | `sync`, `location add`, `location list`, `location remove` (removing never deletes what is in it) |
 
 **Phase 2: sharing and devices.** `group create|list|show`, `member invite|accept|list|role|remove`, `device list|approve|remove`, `key password set`, `key kit`, `key recover`. Removal prints the list of what the person could see, as the app does. Needs the invitation and device approval exchanges that [format spec section 10](format-spec.md#10-not-yet-specified) lists as unwritten.
@@ -119,6 +119,26 @@ Copied from pad-launch's rule: before 1.0, a minor bump is the compatibility bou
 - Package and binary names.
 
 Not frozen: wording of human output, `doctor` and `status` text, anything marked experimental. Every user-facing change has a changeset; releases are made by CI with provenance, never by hand.
+
+### Import and export
+
+Built 2026-11-24 on the [KDBX codec](../Packages/kdbx/README.md), `@psss/vault` (`importKdbx`, `exportKdbx`, the mapping in `src/keepass.ts`) and `@psss/cli`. The output of both commands is frame A9 of the mock, character for character, for the case it draws.
+
+```
+psss import <file> [--dry-run] [--strip-invalid] [--include-trash] [--update] [--kdbx-key-file <path>] [--json]
+psss export --format kdbx <file> [--dry-run] [--force] [--strip-invalid] [--kdbx-key-file <path>] [--json]
+```
+
+- **Credentials of the KeePass file** are never arguments. The password is typed without echo (`Password for Family.kdbx (not shown):`), piped in on standard input, or read from the file named by `PSSS_KDBX_PASSWORD_FILE` (one trailing line break dropped; it is not passed on to a program `run` starts). A key file is named with `--kdbx-key-file`, since `--key-file` already means this computer's vault key; with one, the password may be empty. `export` asks once for the new file's password, as the frame shows, and does not ask in a dry run.
+- **Dry run.** `--dry-run` opens the vault read-only: no lock, no write to the vault, and none to the device state (no outbox entry, no remembered chain heads, no new device folder). A test lists every file before and after.
+- **Same file twice.** Each imported item keeps the entry's UUID and a hash of what the file said in its `source` field (kind `keepass`), so a second import adds nothing and says `Nothing new to add`, with the number of items already here. The rules are in [items](items.md#keepass-import-and-export-in-the-record-log-vault).
+- **Adds and never replaces.** An item changed in the file since it was imported is left as it is here and reported; `--update` brings in the file's version only for an item that was not changed here. An item deleted here (Recently Deleted or for good) is not brought back. The frame's caption, "Importing adds and never replaces", holds unless `--update` is given.
+- **Invalid XML characters.** KeePass files cannot hold some control characters. On import a field that has them is not imported and a warning names the item and the flag; with `--strip-invalid` they are removed and counted. On export the same rule applies to the vault's fields.
+- **Streams.** The summary is on standard output, findings are one `warning:` line each on standard error, grouped by kind with the names of up to three items. `--json` prints the counts, the findings and one line per entry (its name and what happened), never a value.
+- **Exit codes.** 0 done. 4 the password or key file does not open the file (a damaged file looks the same, so the message says so). 1 for a missing, unreadable, damaged or oversized file (over 512 MiB, refused before it is read), a file that is not KeePass 2, one that needs something Psss does not read (a hardware key, Twofish), or an export that would replace a file. 2 for a missing or misspelled option or argument.
+- **Export** writes KDBX 4.1 (ChaCha20, Argon2id), mode `0600`, under a temporary name, reads it back with the password and compares every entry's UUID, password and attachment count, and only then moves it into place. It reports what the file does not carry.
+
+What does not travel out (the line after "Not in a KeePass file:", shown only for what applies): the people in shared groups; passkeys that cannot be written as KeePassXC passkeys; fields this version of Psss does not know. Always true and listed here instead of on every run: the record history of fields other than the password (only the ten newest previous passwords are written, as KeePass history), the `source` of imported items, and positions. On the way in, the findings are in the report of [items](items.md#keepass-import-and-export-in-the-record-log-vault).
 
 ### Docs and tests
 
@@ -360,7 +380,7 @@ Core command line (part 1):
 - [ ] Owner decisions above; core terminal output mocked and approved.
 - [x] Headless key custody, v1 (2026-11-24): a key file per vault, a key in the environment, a vault password; the OS keyring is deferred. Result still to be written into [vault format](format.md#keys).
 - [x] Milestone 1 (2026-11-24): `@psss/vault` and `@psss/cli` with the ten commands above, `scripts/test-vault.sh` and `scripts/test-cli.sh`, validated twice by an independent agent.
-- [ ] The rest of phase 1: `search`, `history`, `code`, `generate`, `item`, `file`, `location`, `import`, `export`, `vault backup` and `restore`, `doctor`, the lock and `key` commands beyond the first password, docs, the docs test.
+- [ ] The rest of phase 1: `search`, `history`, `code`, `generate`, `item`, `file`, `location`, `vault backup` and `restore`, `doctor`, the lock and `key` commands beyond the first password, docs, the docs test.
 - [ ] Interop with the Swift core, and the three-device rounds with the command as a device.
 - [ ] Phase 2 (sharing and devices) and phase 3 (automation).
 - [ ] Changesets, signed releases, publication by CI.

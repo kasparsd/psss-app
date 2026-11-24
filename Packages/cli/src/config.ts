@@ -72,7 +72,7 @@ export const GLOBAL_OPTIONS: readonly OptionRow[] = [
 ];
 
 /** Environment variables that hold secrets. They are read by the command, never printed and never passed on to a program `run` starts. */
-export const SECRET_ENV = ['PSSS_KEY', 'PSSS_PASSWORD_FILE'] as const;
+export const SECRET_ENV = ['PSSS_KEY', 'PSSS_PASSWORD_FILE', 'PSSS_KDBX_PASSWORD_FILE'] as const;
 
 export interface Settings {
   vault?: string;

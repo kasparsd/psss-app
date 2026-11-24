@@ -11,6 +11,7 @@ extension VaultDestination {
         case .all, .logins, .notes, .custom: show?.title ?? ""
         case .codes: String(localized: "Codes")
         case .cards: String(localized: "Cards")
+        case .wifi: String(localized: "Wi-Fi")
         case .recentlyDeleted: String(localized: "Recently Deleted")
         }
     }
@@ -20,6 +21,7 @@ extension VaultDestination {
         case .all: VaultPlace.all.symbol
         case .codes: VaultPlace.codes.symbol
         case .cards: VaultPlace.cards.symbol
+        case .wifi: VaultPlace.wifi.symbol
         case .logins: ItemKind.login.symbol
         case .notes: ItemKind.secureNote.symbol
         case .custom: ItemKind.keePassEntry.symbol
@@ -33,7 +35,7 @@ extension VaultDestination {
 /// list; sorting alone never fills it.
 struct FilterMenu: View {
     enum Scope {
-        /// iPhone: Show the kinds, With, and a Recently Deleted button below.
+        /// iPhone: Show the kinds and With. Recently Deleted is in the More tab (owner, 2026-11-24).
         case kinds
         /// Mac and iPad with the sidebar hidden: Show lists every place too, so nothing is out of reach.
         case everyPlace
@@ -82,12 +84,6 @@ struct FilterMenu: View {
                     // The menu stays open while ticking. A Mac menu has no such setting and closes, as Mac menus do.
                     .menuActionDismissBehavior(.disabled)
                     #endif
-                }
-            }
-            if scope == .kinds {
-                Divider()
-                Button { destination.wrappedValue = .recentlyDeleted } label: {
-                    Label("Recently Deleted", systemImage: VaultDestination.recentlyDeleted.symbol)
                 }
             }
         } label: {

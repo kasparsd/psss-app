@@ -6,7 +6,7 @@ import type { CliIo } from '../io.ts';
 import type { ParsedValues, Settings } from '../config.ts';
 import { formatReference, parseReference, shellQuote, toSelector } from '../reference.ts';
 import type { Reference, ReferenceKind } from '../reference.ts';
-import type { Failure, ItemSelector, ItemSummary, Result, VaultService } from '../service.ts';
+import type { Failure, ItemSelector, ItemSummary, KdbxProblem, Result, VaultService } from '../service.ts';
 
 export interface OptionSpec {
   type: 'string' | 'boolean';
@@ -36,8 +36,8 @@ export interface CommandContext {
   service(): Promise<VaultService>;
   /** The value of a result, or a CliError with the right words and exit code. */
   unwrap<T>(result: Result<T>, options?: { field?: string; deleted?: boolean }): T;
-  /** Opens the vault and returns its name. */
-  open(): Promise<{ name: string; path: string }>;
+  /** Opens the vault and returns its name. `readOnly` takes no lock and writes nothing, not even device state (a dry run). */
+  open(options?: { readOnly?: boolean }): Promise<{ name: string; path: string }>;
 }
 
 export interface Command {
@@ -130,8 +130,42 @@ export function failureError(io: CliIo, failure: Failure, options: { field?: str
     }
     case 'failed':
       return new CliError(failure.message, EXIT_FAILED);
+    case 'kdbx':
+      return kdbxError(io, failure);
   }
   return new CliError('Something went wrong.', EXIT_FAILED);
+}
+
+/** The words and exit code for a KeePass file that cannot be used. Never a password. */
+function kdbxError(io: CliIo, f: KdbxProblem): CliError {
+  const file = displayPath(io, f.file);
+  const none = 'Nothing was changed.';
+  switch (f.why) {
+    case 'missing':
+      return new CliError(`There is no file at ${file}. ${none}`, EXIT_FAILED);
+    case 'unreadable':
+      return new CliError(`${file} cannot be read. ${none}`, EXIT_FAILED);
+    case 'notKdbx':
+      return new CliError(`${file} is not a KeePass file (KDBX 3 or 4). ${none}`, EXIT_FAILED);
+    case 'wrongKey':
+      return new CliError(`The password or key file does not open ${file}. ${none}\nA damaged file looks the same.`, EXIT_LOCKED);
+    case 'invalidKey':
+      return new CliError(`The key file for ${file} cannot be used${f.detail ? `: ${f.detail}` : ''}. ${none}`, EXIT_LOCKED);
+    case 'corrupt':
+      return new CliError(`${file} is damaged, so none of it was read. ${none}`, EXIT_FAILED);
+    case 'limit':
+      return new CliError(`${file} asks for more than Psss will spend to open it (${f.detail ?? 'a safety limit'}). ${none}`, EXIT_FAILED);
+    case 'tooLarge':
+      return new CliError(`${file} is larger than Psss will read (${f.detail ?? 'over the limit'}). ${none}`, EXIT_FAILED);
+    case 'unsupported':
+      return new CliError(`${file} uses something Psss does not read yet${f.detail ? `: ${f.detail}` : ''}. ${none}`, EXIT_FAILED);
+    case 'exists':
+      return new CliError(`${file} already exists, so nothing was written.\nChoose another name, or add --force to replace it.`, EXIT_FAILED);
+    case 'notWritable':
+      return new CliError(`Psss cannot write ${file}${f.detail ? ` (${f.detail})` : ''}. Nothing was written.`, EXIT_FAILED);
+    case 'verifyFailed':
+      return new CliError(`The file written to ${file} did not read back the same, so it was removed. Nothing was written.`, EXIT_FAILED);
+  }
 }
 
 /** The usage error for a missing reference (frame A10). A terminal can be offered a list only where `canOffer` is true. */

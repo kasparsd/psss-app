@@ -70,6 +70,8 @@ struct PsssApp: App {
                     .disabled(newItem == nil)
                 Button("New Custom Item") { newItem?(.keePassEntry) }
                     .disabled(newItem == nil)
+                Button("New Wi-Fi Network") { newItem?(.wifi) }
+                    .disabled(newItem == nil)
             }
         }
     }

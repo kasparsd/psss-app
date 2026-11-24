@@ -294,7 +294,7 @@ struct RecentlyDeletedDetail: View {
         return FieldRow(label: label, value: value,
                         shown: key == .secret ? item.spacedSecret : value,
                         masked: key == .secret ? item.maskedSecret : VaultItem.hiddenMask,
-                        hidden: key == .secret || key == .securityCode || item.concealedFields?.contains(key.rawValue) == true,
+                        hidden: key == .secret || key == .securityCode || key == .pin || item.concealedFields?.contains(key.rawValue) == true,
                         revealed: Binding(get: { revealed.contains(key) },
                                           set: { if $0 { revealed.insert(key) } else { revealed.remove(key) } }),
                         copied: copied == key,

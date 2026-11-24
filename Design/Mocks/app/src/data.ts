@@ -80,16 +80,21 @@ export const items: Item[] = [
     id: 6, name: 'Everyday Visa', account: 'Visa •• 4417 · 08/28', kind: 'card', color: 2, recent: true, uses: 18, last4: '4417', brand: 'Visa',
     fields: [
       { label: 'Card number', value: '4929 1102 7731 4417', secret: true },
+      { label: 'Valid from', value: '08/23' },
       { label: 'Expiry', value: '08/28' },
       { label: 'Security code', value: '731', secret: true },
+      { label: 'PIN', value: '4821', secret: true },
       { label: 'Name on card', value: 'Sam Rivera' },
+      { label: 'Card issuer', value: 'Northbank' },
     ],
   },
   {
     id: 7, name: 'Travel Mastercard', account: 'Mastercard •• 9052 · 11/27', kind: 'card', color: 3, uses: 9, last4: '9052', brand: 'Mastercard',
-    // No security code saved: the row does not exist.
+    // No security code, Valid from, PIN or issuer saved: the page shows them as "Not set" rows (see "Fields not filled in yet").
     fields: [
       { label: 'Card number', value: '5412 7500 3318 9052', secret: true },
+      // The file says "mc" (a 1Password code); the page says Mastercard. Never an empty row: it is read from the number.
+      { label: 'Card type', value: 'Mastercard' },
       { label: 'Expiry', value: '11/27' },
       { label: 'Name on card', value: 'Sam Rivera' },
     ],

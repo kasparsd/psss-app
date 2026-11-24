@@ -213,9 +213,9 @@ export async function run(argv: string[], io: CliIo): Promise<number> {
         if (result.ok) return result.value;
         throw failureError(io, result as Failure, options);
       },
-      async open() {
+      async open(options) {
         const svc = await context.service();
-        const value = context.unwrap(await svc.open());
+        const value = context.unwrap(await svc.open(options));
         opened = value;
         const key = value.keyFile;
         if (warns && key?.readableByOthers && (io.platform ?? process.platform) !== 'win32') {

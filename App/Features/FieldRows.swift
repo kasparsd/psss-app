@@ -208,6 +208,32 @@ struct FieldRow: View {
     }
 }
 
+/// A recognized field the item has no value for (owner, 2026-11-24): the label where the value will be, "Not set" in the secondary
+/// style and a labelled Add at the end. Nothing to copy, so no copy icon; the whole row and Add open Edit at this field.
+struct UnsetFieldRow: View {
+    let label: LocalizedStringResource
+    let add: () -> Void
+
+    var body: some View {
+        Button(action: add) {
+            HStack(alignment: .center, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label).foregroundStyle(.secondary)
+                    Text("Not set").foregroundStyle(.tertiary)
+                }
+                Spacer(minLength: 8)
+                Text("Add").foregroundStyle(Color.accentColor)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("\(String(localized: label)), not set"))
+        .accessibilityHint(Text("Opens Edit at this field"))
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
 /// The same read-only custom rows appear in the live vault and in Recently Deleted.
 struct OtherStoredFields: View {
     let fields: [StoredItemField]

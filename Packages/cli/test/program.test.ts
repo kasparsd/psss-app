@@ -4,8 +4,8 @@ import { commands, EXIT_FAILED, EXIT_LOCKED, EXIT_NOT_FOUND, EXIT_OK, EXIT_USAGE
 import { FakeVaultService } from '../src/fake-service.ts';
 import { ITEMS, runCli, sandbox, scenarioFor } from './helpers.ts';
 
-const IMPLEMENTED = ['init', 'status', 'get', 'set', 'list', 'rm', 'restore', 'run', 'sync', 'verify'];
-const PLANNED = ['search', 'code', 'generate', 'doctor', 'history', 'import', 'export', 'item', 'file', 'vault', 'group', 'member', 'device', 'location', 'key'];
+const IMPLEMENTED = ['init', 'status', 'get', 'set', 'list', 'rm', 'restore', 'run', 'sync', 'verify', 'import', 'export'];
+const PLANNED = ['search', 'code', 'generate', 'doctor', 'history', 'item', 'file', 'vault', 'group', 'member', 'device', 'location', 'key'];
 
 const helpNames = (help: string): string[] =>
   [...(/\nCommands:\n([\s\S]*?)\n\n/.exec(help)?.[1] ?? '').matchAll(/^ {2}([a-z]+)/gm)].map((m) => m[1]);

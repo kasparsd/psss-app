@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { DOTS, type Item } from '../data';
-import { EditRow, FieldRow } from './FieldRow';
+import { EditRow, FieldRow, MoreRow, UnsetRow } from './FieldRow';
 import { InfoButton, topics } from './InfoButton';
 import { CodeDigits, ItemIcon } from './Rows';
 
@@ -26,12 +26,17 @@ export function fallbackName(item: Item): string {
 /** The first card of each kind, in the order the fields are asked for. The same in view, edit and new. */
 const firstCard: Record<Item['kind'], string[]> = {
   login: ['Website', 'Username', 'Password'],
-  card: ['Card number', 'Expiry', 'Security code', 'Name on card'],
+  // Valid from, PIN and Card issuer are proposed (2026-11-24); Card type shows only when the file stores one (see "Fields not filled in yet").
+  card: ['Card number', 'Card type', 'Valid from', 'Expiry', 'Security code', 'PIN', 'Name on card', 'Card issuer'],
   note: ['Note'],
   custom: ['Website', 'Username', 'Value'],
 };
 /** Values that are hidden on the page and typed in the monospaced face. */
-const secrets = ['Password', 'Card number', 'Security code', 'Value'];
+const secrets = ['Password', 'Card number', 'Security code', 'PIN', 'Value'];
+/** Shown only when the file stores a value: derived from the number, never asked for, so it is never an empty row. */
+const storedOnly = ['Card type'];
+/** What a row that is not filled in says it is for, in the "summary" variant. */
+export type UnsetStyle = 'rows' | 'summary';
 const inFirst = (label: string, kind: Item['kind']) => firstCard[kind].includes(label);
 /** The fields of the first card that the item has, in order. A field that was never filled in has no row. */
 function mainFields(item: Item) {
@@ -57,7 +62,7 @@ function Identity({ item, unnamed, editing }: { item: Item; unnamed?: boolean; e
  * The item page: the icon and name above, then one card per group. One
  * component for logins, cards, notes and custom items, view and edit.
  */
-export function ItemCard({ item, mode = 'view', shown, copied, code, onSetUpCode, onDelete, note = true, bubble, unnamed, onPasteCodeImage }: {
+export function ItemCard({ item, mode = 'view', shown, copied, code, onSetUpCode, onDelete, unset, bubble, unnamed, onPasteCodeImage }: {
   item: Item;
   mode?: 'view' | 'edit';
   /** Labels of fields that start shown. */
@@ -68,9 +73,9 @@ export function ItemCard({ item, mode = 'view', shown, copied, code, onSetUpCode
   code?: CodeEdit;
   onSetUpCode?: () => void;
   onDelete?: () => void;
-  /** The line saying copies are cleared (view only). */
-  note?: boolean;
-  /** Start with a help bubble open: the clipboard line's (view), the setup key's (edit). */
+  /** Show the recognized fields the item has not filled in (view only): as rows in place, or as one summary row. */
+  unset?: UnsetStyle;
+  /** Start with a help bubble open: the passkey's (view), the setup key's (edit). */
   bubble?: boolean;
   /** Draw the item without a name of its own: it is called by its site, card or first words. */
   unnamed?: boolean;
@@ -88,16 +93,18 @@ export function ItemCard({ item, mode = 'view', shown, copied, code, onSetUpCode
   ) : (
     <FieldRow key="code" label="Verification code" value="None" noCopy display={<span className="s">None</span>} action={<button className="btn sq" onClick={onSetUpCode}>Set Up Code…</button>} />
   );
-  const main = mainFields(item).map(row);
+  const have = (l: string) => item.fields.some((f) => f.label === l);
+  const missing = unset ? firstCard[item.kind].filter((l) => !have(l) && !storedOnly.includes(l)) : [];
+  // Rows keep their place whether filled or not, so filling one in never moves the others.
+  const main = unset === 'summary'
+    ? [...mainFields(item).map(row), ...(missing.length ? [<MoreRow key="more" labels={missing} />] : [])]
+    : firstCard[item.kind].flatMap((l) => (have(l) ? [row(item.fields.find((f) => f.label === l)!)] : missing.includes(l) ? [<UnsetRow key={l} label={l} />] : []));
   const rest = item.fields.filter((f) => !inFirst(f.label, item.kind)).map(row);
 
   return (
     <div>
       <Identity item={item} unnamed={unnamed} />
       <div className="icard">{main}</div>
-      {note && (
-        <div className="gf">Copies are cleared after 60 seconds. <InfoButton topic={topics.clipboard} open={bubble} /></div>
-      )}
       {codeRow && (
         <>
           <div className="gh">Verification code</div>
@@ -116,7 +123,7 @@ export function ItemCard({ item, mode = 'view', shown, copied, code, onSetUpCode
       {rest.length > 0 && <div className="icard">{rest}</div>}
       {item.passkey && (
         <>
-          <div className="gh">Passkey <InfoButton topic={topics.passkey} /></div>
+          <div className="gh">Passkey <InfoButton topic={topics.passkey} open={bubble} /></div>
           <div className="icard">
             <FieldRow label="Saved 12 Mar 2026" value={`for ${item.name.toLowerCase()}.example`} noCopy />
           </div>
@@ -140,7 +147,7 @@ function Editor({ item, code, onDelete, unnamed, bubble, onPasteCodeImage }: { i
       {/* The same groups, in the same order, as the page being edited. */}
       <div className="icard">
         {/* Every field of the kind has its place in the editor, filled in or not. */}
-        {firstCard[item.kind].map((label) => {
+        {firstCard[item.kind].filter((l) => !storedOnly.includes(l)).map((label) => {
           const secret = secrets.includes(label);
           return <EditRow key={label} label={label} value={item.fields.find((f) => f.label === label)?.value} secret={secret && item.kind !== 'custom'} mono={secret} />;
         })}

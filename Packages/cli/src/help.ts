@@ -32,6 +32,7 @@ export function rootHelp(version: string): string {
     'Secrets are never arguments or config keys:',
     '  PSSS_KEY                          A key given inline, for CI that can only set variables (the weakest source)',
     '  PSSS_PASSWORD_FILE                A file that holds the vault password',
+    '  PSSS_KDBX_PASSWORD_FILE           A file that holds the password of a KeePass file (import, export)',
     '',
     'Exit codes:',
     `  ${EXIT_OK}  done`,

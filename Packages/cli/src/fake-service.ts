@@ -8,8 +8,14 @@ import type {
   CreateRequest,
   CreatedVault,
   Failure,
+  ExportRequest,
+  ExportResult,
   FieldValue,
+  ImportIssue,
+  ImportRequest,
+  ImportResult,
   ItemSelector,
+  KdbxProblem,
   ItemSummary,
   KeySource,
   ListQuery,
@@ -59,6 +65,23 @@ export interface FakeScenario {
   issues?: VaultIssue[];
   /** `open` reports the key file at this path as readable by group or others. */
   keyFileReadableByOthers?: boolean;
+  /** KeePass files by absolute path. A path that is not here is a file that does not exist. */
+  kdbxFiles?: Record<string, FakeKdbxFile>;
+  /** What an export finds and reports. */
+  kdbxExport?: { items?: number; deleted?: number; attachments?: number; groups?: number; doesNotTravel?: string[]; issues?: ImportIssue[]; existing?: string[] };
+}
+
+export interface FakeKdbxFile {
+  /** The password that opens it; none means any. */
+  password?: string;
+  /** Read fails with this, before any key is tried. */
+  problem?: KdbxProblem['why'];
+  items?: number;
+  attachments?: number;
+  /** Entries in the file's Recycle Bin. */
+  trashed?: number;
+  inFolders?: number;
+  issues?: ImportIssue[];
 }
 
 const HEX = '0123456789abcdef';
@@ -211,8 +234,8 @@ export class FakeVaultService implements VaultService {
 
   private created = new Set<string>();
 
-  async open(): Promise<Result<OpenedVault>> {
-    this.calls.push('open');
+  async open(options: { readOnly?: boolean } = {}): Promise<Result<OpenedVault>> {
+    this.calls.push(options.readOnly ? 'open:readOnly' : 'open');
     const problem = this.locked();
     if (problem) return problem;
     const keyFile = this.options.keyFile ?? this.scenario.keyFile ?? path.join(this.options.configDir ?? path.join(this.scenario.home, '.config', 'psss'), 'keys', `${this.vaultName}.key`);
@@ -368,5 +391,73 @@ export class FakeVaultService implements VaultService {
     const problem = this.locked();
     if (problem) return problem;
     return { ok: true, value: this.scenario.verify ?? { records: 0, locations: 1, problems: [] } };
+  }
+
+  /** What import and export were asked, with no password in it. */
+  readonly kdbxRequests: Array<{ kind: 'import' | 'export'; file: string; dryRun: boolean; hasPassword: boolean; keyFile?: string; flags: string[] }> = [];
+  /** The password the last import or export was given. For tests only; never printed. */
+  kdbxPassword?: string;
+  private imported = new Set<string>();
+  private written = new Set<string>();
+
+  /** A path as the real service shows it: ./x below the working folder, ~/x below home. */
+  private shownPath(p: string): string {
+    const cwd = this.options.cwd.replace(/\/+$/, '');
+    if (p.startsWith(`${cwd}/`)) return `./${p.slice(cwd.length + 1)}`;
+    const home = this.options.home.replace(/\/+$/, '');
+    return p.startsWith(`${home}/`) ? `~/${p.slice(home.length + 1)}` : p;
+  }
+
+  async importKdbx(request: ImportRequest): Promise<Result<ImportResult>> {
+    this.calls.push(request.dryRun ? 'importKdbx:dry' : 'importKdbx');
+    const problem = this.locked();
+    if (problem) return problem;
+    const file = path.resolve(this.options.cwd, request.file);
+    const shown = this.shownPath(file);
+    this.kdbxPassword = request.credentials.password;
+    this.kdbxRequests.push({
+      kind: 'import', file, dryRun: request.dryRun, hasPassword: !!request.credentials.password,
+      ...(request.credentials.keyFile !== undefined ? { keyFile: request.credentials.keyFile } : {}),
+      flags: [request.stripInvalid && 'strip', request.includeTrash && 'trash', request.update && 'update'].filter((f): f is string => typeof f === 'string'),
+    });
+    const known = this.scenario.kdbxFiles?.[file];
+    if (!known) return { ok: false, kind: 'kdbx', why: 'missing', file: shown };
+    if (known.problem) return { ok: false, kind: 'kdbx', why: known.problem, file: shown };
+    if (known.password !== undefined && known.password !== (request.credentials.password ?? '')) return { ok: false, kind: 'kdbx', why: 'wrongKey', file: shown };
+    const items = known.items ?? 0;
+    const again = this.imported.has(file);
+    if (!request.dryRun) this.imported.add(file);
+    const group = this.options.group ?? this.groups()[0];
+    return {
+      ok: true,
+      value: {
+        group, dryRun: request.dryRun, added: again ? 0 : items, attachments: again ? 0 : known.attachments ?? 0, updated: 0, unchanged: again ? items : 0, keptYours: 0, changedInFile: 0,
+        conflicts: 0, skippedDeleted: 0, skippedGone: 0, skippedTrash: request.includeTrash ? 0 : known.trashed ?? 0, inFolders: known.inFolders ?? 0, refusedItems: 0,
+        refusedFields: 0, strippedFields: 0, issues: known.issues ?? [], items: [],
+      },
+    };
+  }
+
+  async exportKdbx(request: ExportRequest): Promise<Result<ExportResult>> {
+    this.calls.push(request.dryRun ? 'exportKdbx:dry' : 'exportKdbx');
+    const problem = this.locked();
+    if (problem) return problem;
+    const file = path.resolve(this.options.cwd, request.file);
+    this.kdbxPassword = request.credentials.password;
+    this.kdbxRequests.push({
+      kind: 'export', file, dryRun: request.dryRun, hasPassword: !!request.credentials.password,
+      ...(request.credentials.keyFile !== undefined ? { keyFile: request.credentials.keyFile } : {}),
+      flags: [request.stripInvalid && 'strip', request.force && 'force'].filter((f): f is string => typeof f === 'string'),
+    });
+    const e = this.scenario.kdbxExport ?? {};
+    if (!request.force && (this.written.has(file) || (e.existing ?? []).includes(file))) return { ok: false, kind: 'kdbx', why: 'exists', file: this.shownPath(file) };
+    if (!request.dryRun) this.written.add(file);
+    return {
+      ok: true,
+      value: {
+        file, dryRun: request.dryRun, items: e.items ?? this.rows().filter((i) => !i.deleted).length, deleted: e.deleted ?? this.rows().filter((i) => i.deleted).length,
+        attachments: e.attachments ?? 0, groups: e.groups ?? this.groups().length, doesNotTravel: e.doesNotTravel ?? [], issues: e.issues ?? [], refusedFields: 0, strippedFields: 0,
+      },
+    };
   }
 }

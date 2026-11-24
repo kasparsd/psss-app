@@ -1,7 +1,7 @@
 import Foundation
 
 enum ItemKind: String, CaseIterable, Identifiable, Sendable, Codable {
-    case login, creditCard, secureNote, keePassEntry
+    case login, creditCard, secureNote, keePassEntry, wifi
 
     var id: Self { self }
 
@@ -12,6 +12,31 @@ enum ItemKind: String, CaseIterable, Identifiable, Sendable, Codable {
         case .creditCard: String(localized: "Card")
         case .secureNote: String(localized: "Note")
         case .keePassEntry: String(localized: "Custom item")
+        case .wifi: String(localized: "Wi-Fi network")
+        }
+    }
+}
+
+/// How a Wi-Fi network is secured, as the QR code and the system's join call know it. WPA covers WPA2 and WPA3 personal networks.
+enum WiFiSecurity: String, CaseIterable, Identifiable, Sendable, Codable {
+    case wpa = "WPA", wep = "WEP", none = "None"
+
+    var id: Self { self }
+
+    /// The word in a list row.
+    var shortLabel: String {
+        switch self {
+        case .wpa: "WPA"
+        case .wep: "WEP"
+        case .none: String(localized: "Open")
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .wpa: String(localized: "WPA2 or WPA3")
+        case .wep: String(localized: "WEP")
+        case .none: String(localized: "None (open network)")
         }
     }
 }
@@ -31,6 +56,14 @@ struct VaultItem: Identifiable, Sendable, Codable {
     var expiry = ""
     /// A card's security code (CVC, CVV), cards only. Stored as the protected custom string `Security code`.
     var securityCode = ""
+    /// A card's other fields, cards only, stored as the custom strings `Valid from`, `PIN` (protected) and `Card issuer`, the names the
+    /// 1Password importer already gives them. A card shown from a KeePass field mapping keeps these in its other fields.
+    var validFrom = ""
+    var pin = ""
+    var issuer = ""
+    /// A Wi-Fi network's security and whether it hides its name, Wi-Fi only. The network name is `account` and the password `secret`.
+    var wifiSecurity = WiFiSecurity.wpa
+    var wifiHidden = false
     var notes = ""
     /// TOTP (RFC 6238) secret as Base32, logins only. The codes it makes are shown as the item's one-time code.
     var otpSecret = ""
@@ -92,6 +125,9 @@ struct VaultItem: Identifiable, Sendable, Codable {
             return parts.isEmpty ? kind.unnamedTitle : parts.joined(separator: " ")
         case .secureNote:
             return concealedFields?.contains("notes") == true ? kind.unnamedTitle : Self.noteTitle(notes) ?? kind.unnamedTitle
+        case .wifi:
+            let name = visibleAccount.trimmingCharacters(in: .whitespacesAndNewlines)
+            return name.isEmpty ? kind.unnamedTitle : name
         }
     }
 
@@ -113,8 +149,8 @@ struct VaultItem: Identifiable, Sendable, Codable {
     }
 
     init(id: UUID = UUID(), kind: ItemKind, title: String = "", account: String = "", website: String = "",
-         secret: String = "", expiry: String = "", securityCode: String = "", notes: String = "",
-         otpSecret: String = "", otpSettings: TOTPSettings = .standard, lastUsed: Date? = nil, useCount: Int = 0,
+         secret: String = "", expiry: String = "", securityCode: String = "", validFrom: String = "", pin: String = "", issuer: String = "", wifiSecurity: WiFiSecurity = .wpa, wifiHidden: Bool = false,
+         notes: String = "", otpSecret: String = "", otpSettings: TOTPSettings = .standard, lastUsed: Date? = nil, useCount: Int = 0,
          created: Date? = nil, modified: Date? = nil) {
         self.id = id
         self.kind = kind
@@ -124,6 +160,11 @@ struct VaultItem: Identifiable, Sendable, Codable {
         self.secret = secret
         self.expiry = expiry
         self.securityCode = securityCode
+        self.validFrom = validFrom
+        self.pin = pin
+        self.issuer = issuer
+        self.wifiSecurity = wifiSecurity
+        self.wifiHidden = wifiHidden
         self.notes = notes
         self.otpSecret = otpSecret
         self.otpSettings = otpSettings
@@ -177,14 +218,14 @@ enum FieldRole: String, Codable, CaseIterable, Sendable {
 
     fileprivate var aliases: Set<String> {
         switch self {
-        case .username: ["username", "loginname", "accountname", "email"]
-        case .password: ["password", "loginpassword", "currentpassword"]
+        case .username: ["username", "loginname", "accountname", "email", "emailaddress", "user", "userid", "login"]
+        case .password: ["password", "loginpassword", "currentpassword", "pass", "passwd", "pwd", "passphrase"]
         case .oneTimeCode: []
-        case .cardholder: ["nameoncard", "cardholder", "cardholdername", "ccname"]
-        case .cardNumber: ["cardnumber", "cardno", "creditcardnumber", "ccnumber", "ccnum", "pan"]
-        case .expiry: ["expiry", "expiration", "expirydate", "expirationdate", "validthru", "validthrough", "ccexp"]
-        case .securityCode: ["cvv", "cvv2", "cvc", "cvc2", "csc", "securitycode", "cardsecuritycode", "cccsc"]
-        case .loginWebsite: ["url", "website", "loginurl", "site"]
+        case .cardholder: ["nameoncard", "cardholder", "cardholdername", "ccname", "owner", "holder", "cardowner"]
+        case .cardNumber: ["cardnumber", "cardno", "creditcardnumber", "ccnumber", "ccnum", "pan", "number", "creditcard", "creditcardno"]
+        case .expiry: ["expiry", "expiration", "expirydate", "expirationdate", "validthru", "validthrough", "ccexp", "exp", "expdate", "expires", "validuntil", "goodthru"]
+        case .securityCode: ["cvv", "cvv2", "cvc", "cvc2", "csc", "securitycode", "cardsecuritycode", "cccsc", "cvn", "cid", "verificationnumber", "verificationvalue"]
+        case .loginWebsite: ["url", "website", "loginurl", "site", "uri", "link", "webaddress", "homepage"]
         }
     }
 }

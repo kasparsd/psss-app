@@ -21,7 +21,7 @@ export function InlineHelp() {
 
         <Section title="1. iPhone" />
         <Frames>
-          <Frame phone label="A. The clipboard line" caption="The line under the first group of an item page says copies are cleared after 60 seconds, with the info button after it. Pressing the button opens a popover anchored to it: a title and the explanation. Nothing on the page moves, and tapping outside closes it.">
+          <Frame phone label="A. The passkey heading" caption="The info button after the heading “Passkey” on an item page. Pressing it opens a popover anchored to it: a title and the explanation, with one link. Nothing on the page moves, and tapping outside closes it. (The clipboard line that used to sit under the first group was removed on 2026-11-24; its text is in Help, under Copying.)">
             <PhoneItem id={1} whole bubble />
           </Frame>
           <Frame phone label="B. In the new-login sheet" caption="The same button explains a term in a form. It sits after the heading “Verification code” and says what a setup key is, where it comes from and why it is secret, with one link marked ↗ that opens in Safari. The field and the Add code button stay as they are. The sheet has the same groups and order as the item page, and the heading under the icon is the name field.">
@@ -38,7 +38,7 @@ export function InlineHelp() {
             caption={{
               iphone: 'The iPhone bubble, as in A.',
               ipad: 'On iPad the bubble is a standard popover with an arrow; it closes with a tap outside.',
-              mac: 'On Mac and iPad the bubble is a standard popover with an arrow; it closes with Escape or a click outside. The button also shows a tooltip on hover, “About copies leave the clipboard”.',
+              mac: 'On Mac and iPad the bubble is a standard popover with an arrow; it closes with Escape or a click outside. The button also shows a tooltip on hover, “About passkeys”.',
             }}
             render={(d) => renderDevice(d, <PhoneItem id={1} whole bubble />, { side: 'all', sel: 1, bubble: true })}
           />
@@ -54,7 +54,7 @@ export function InlineHelp() {
               <tr><td>Card editor and card page</td><td>“Security code”</td><td>The three or four digits on the back (front for American Express); sites ask for it at checkout.</td><td>None</td></tr>
               <tr><td>Item page, passkey</td><td>“Passkey”</td><td>A sign-in without a password that only works on the real site.</td><td>About passkeys (Apple Support)</td></tr>
               <tr><td>Recently Deleted</td><td>The title</td><td>Items stay 30 days, then are deleted for good; backups may still hold them.</td><td>None</td></tr>
-              <tr><td>Item page, clipboard line</td><td>“Copies are cleared after 60 seconds”</td><td>Why: other apps can read the clipboard; Universal Clipboard is off for copies from Psss.</td><td>None</td></tr>
+              <tr><td>Help, Copying</td><td>The topic’s row in Help (no line on the item page)</td><td>What you copy stays on the clipboard for 60 seconds, then Psss clears it; until then other apps on this device can read it.</td><td>None</td></tr>
             </tbody>
           </table>
         </div>
@@ -91,6 +91,7 @@ export function InlineHelp() {
 
         <History
           entries={[
+            { date: '2026-11-24', text: <>The clipboard line (“Copies are cleared after 60 seconds” and its info button) left the item page at the owner's request. Its text stays in Help, under Copying; frames A and C now open the Passkey bubble instead.</> },
             { date: '2026-11-24', text: <>Frame B was redrawn with the item page's own editor, after the owner approved its field order and the heading as the name field (see <a href="#/item-page">Item page, Edit and toolbar</a>). The setup key's info button now follows the group heading “Verification code”. Before, the frame drew one card with “Verification code (optional)” as its last field.</> },
             { date: '2026-11-24', text: <>The Codes countdown bubble was removed. The countdown line it explained had already left the Codes list (see <a href="#/places">Places</a>), so the sentence about the previous code no longer has a home. The frames that drew it are gone.</> },
             { date: '2026-11-23', text: <>The Codes countdown line was shortened to “New codes in 18 s” with an info button, and the sentence that most sites also accept the previous code moved into the bubble, because the owner found the full sentence too long for a line that is always on screen. The line itself was removed later the same day.</> },

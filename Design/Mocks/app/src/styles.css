@@ -324,3 +324,18 @@ table.cmp td,table.cmp th{border-top:1px solid var(--rule);padding:6px 12px 6px 
 .lk-pick .lk-menu{left:50%;right:auto;transform:translateX(-50%);min-width:260px}
 .lk-pick{display:inline-flex;align-items:center;white-space:nowrap}
 .lk.onphone{box-sizing:border-box;width:100%}.lk.onphone .lk-form{width:100%}.lk.onphone .lk-help{flex-wrap:wrap}
+
+/* A recognized field that is not filled in: quieter than a value, same height as any row so nothing jumps when it is filled. */
+.frow.unset .fval{color:var(--lab2);opacity:.75}
+.frow.unset .s:first-child{opacity:.9}
+.addlink{align-self:center;border:0;background:none;color:var(--accent);font:inherit;font-weight:400;padding:10px 4px 10px 12px;min-height:44px;cursor:pointer;flex:none}
+
+/* ---------- search: field pills under the search field ---------- */
+.fpills{display:flex;gap:6px;padding:0 14px 8px;flex:none;flex-wrap:nowrap}
+.ws .fpills{padding:0 18px 8px}
+.fpill{border:0;border-radius:999px;padding:6px 10px;background:rgba(120,120,128,.16);color:var(--lab);cursor:pointer;white-space:nowrap;display:inline-flex;gap:5px;align-items:center}
+.fpill .n{color:var(--lab2);font-variant-numeric:tabular-nums}
+.fpill.on{background:var(--accent);color:#fff}
+.fpill.on .n{color:rgba(255,255,255,.85)}
+.fpill[disabled]{opacity:.4;cursor:default}
+.hit{color:var(--lab);font-weight:600}

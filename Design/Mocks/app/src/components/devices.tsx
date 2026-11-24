@@ -4,6 +4,8 @@ import { CopyHost } from './copy';
 
 export type Device = 'iphone' | 'ipad' | 'mac';
 export type Place = 'all' | 'codes' | 'cards';
+/** A tab as a mock can list it: id, label, glyph. The shared bar lists the three places; a mock of other bars passes its own. */
+export type TabSpec = [string, string, ReactNode];
 export const deviceNames: Record<Device, string> = { iphone: 'iPhone', ipad: 'iPad', mac: 'Mac' };
 
 const places: [Place, string, ReactNode][] = [
@@ -13,7 +15,7 @@ const places: [Place, string, ReactNode][] = [
 ];
 
 /** iOS 26 bottom bar: All / Codes / Cards pills, and the search tab detached at bottom right. */
-export function TabBar({ tab, onTab, search }: { tab: Place | null; onTab?: (p: Place) => void; search?: string }) {
+export function TabBar({ tab, onTab, search, tabs }: { tab: string | null; onTab?: (p: Place) => void; search?: string; tabs?: TabSpec[] }) {
   if (search !== undefined) {
     return (
       <div className="tabbar up">
@@ -25,8 +27,8 @@ export function TabBar({ tab, onTab, search }: { tab: Place | null; onTab?: (p: 
   return (
     <div className="tabbar">
       <div className="tabs" role="tablist">
-        {places.map(([p, label, glyph]) => (
-          <button key={p} role="tab" aria-selected={tab === p} className={`tab${tab === p ? ' on' : ''}`} onClick={() => onTab?.(p)}>
+        {(tabs ?? places).map(([p, label, glyph]) => (
+          <button key={p} role="tab" aria-selected={tab === p} className={`tab${tab === p ? ' on' : ''}`} onClick={() => onTab?.(p as Place)}>
             {glyph}
             {label}
           </button>
@@ -38,9 +40,11 @@ export function TabBar({ tab, onTab, search }: { tab: Place | null; onTab?: (p: 
 }
 
 /** iPhone frame: status bar, content, tab bar (omit `tab` for a screen without one, such as the editor). */
-export function IPhone({ children, tab, onTab, search, pill, tall }: {
+export function IPhone({ children, tab, onTab, search, pill, tall, tabs }: {
   children: ReactNode;
-  tab?: Place | null;
+  tab?: string | null;
+  /** The tabs to draw, when the bar is not today's three places. */
+  tabs?: TabSpec[];
   onTab?: (p: Place) => void;
   /** Draws the search tab open: the field above the keyboard. */
   search?: string;
@@ -56,7 +60,7 @@ export function IPhone({ children, tab, onTab, search, pill, tall }: {
         <CopyHost initial={pill} className={hasBar ? 'above-tabbar' : ''}>
           <div className="sbar"><span>9:41</span><span>●●● 100%</span></div>
           {children}
-          {hasBar && <TabBar tab={tab ?? null} onTab={onTab} search={search} />}
+          {hasBar && <TabBar tab={tab ?? null} onTab={onTab} search={search} tabs={tabs} />}
           {search !== undefined && <div className="kbd">Keyboard</div>}
         </CopyHost>
       </div>

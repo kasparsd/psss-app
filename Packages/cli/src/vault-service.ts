@@ -13,12 +13,14 @@
 // Rules kept here: nothing is printed, a value leaves only through `get`, and an error never carries a stack trace or a secret.
 
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { hex } from '../../format/src/bytes.ts';
 import { slotPath } from '../../format/src/folder.ts';
 import { derivePerson } from '../../format/src/keys.ts';
 import { DEFAULT_ARGON2, openSlot, sealPasswordSlot } from '../../format/src/slots.ts';
+import { KdbxError, readKdbx, writeKdbx } from '../../kdbx/src/index.ts';
+import type { KdbxDatabase, KdbxKey } from '../../kdbx/src/index.ts';
 import { VaultError, createVault, openVault, parseKeyFile } from '../../vault/src/index.ts';
 import type { Unlock, Vault } from '../../vault/src/index.ts';
 import { ValidationError } from './errors.ts';
@@ -30,7 +32,12 @@ import type {
   Failure,
   FieldValue,
   ItemSelector,
+  ExportRequest,
+  ExportResult,
+  ImportRequest,
+  ImportResult,
   ItemSummary,
+  KdbxCredentials,
   KeySource,
   ListQuery,
   LocationInfo,
@@ -119,6 +126,7 @@ export function createVaultService(opts: ServiceOptions): VaultService {
 class RealVaultService implements VaultService {
   private opts: ServiceOptions;
   private vault: Vault | undefined;
+  private readOnly = false;
   private vaultPath = '';
   private name = '';
   private keyFilePath: string | undefined;
@@ -271,7 +279,7 @@ class RealVaultService implements VaultService {
         unlock = { password };
       }
       try {
-        const vault = openVault({ locations: [this.vaultPath], unlock, stateDir: this.stateFor(this.name) });
+        const vault = openVault({ locations: [this.vaultPath], unlock, stateDir: this.stateFor(this.name), ...(this.readOnly ? { readOnly: true } : {}) });
         if (a.kind === 'keyFile') this.keyFilePath = a.path;
         return vault;
       } catch (e) {
@@ -378,7 +386,8 @@ class RealVaultService implements VaultService {
     return { ok: true, value: { name, path: folder, key: { path: keyFile, ownerOnly, created: true } } };
   }
 
-  async open(): Promise<Result<OpenedVault>> {
+  async open(options: { readOnly?: boolean } = {}): Promise<Result<OpenedVault>> {
+    this.readOnly = options.readOnly === true;
     const v = this.use();
     if ('ok' in v) return v;
     const raw = (v as unknown as { issues?: Array<{ code: string; location: string | null; detail: string; plain: string }> }).issues;
@@ -736,5 +745,157 @@ class RealVaultService implements VaultService {
       const all: VerifyProblem[] = [...[...changed].map(([location, count]) => ({ kind: 'changed' as const, location, count })), ...problems];
       return { ok: true as const, value: { records: r.checked, locations: r.locations.length, problems: all } };
     })) as Result<VerifyReport>;
+  }
+
+  // ------------------------------------------------------------------ KeePass
+
+  /** The key of a KeePass file from what the command gathered. A password is scrubbed from every message from here on. */
+  private kdbxKey(file: string, c: KdbxCredentials): KdbxKey | Failure {
+    if (c.password) this.secrets.push(c.password);
+    const key: KdbxKey = {};
+    if (c.password !== undefined && (c.password !== '' || c.keyFile === undefined)) key.password = c.password;
+    if (c.keyFile !== undefined) {
+      const at = this.abs(c.keyFile);
+      try {
+        key.keyFile = new Uint8Array(readFileSync(at));
+      } catch {
+        return { ok: false, kind: 'kdbx', why: 'invalidKey', file, detail: `${this.show(at)} cannot be read` };
+      }
+    }
+    return key;
+  }
+
+  /** Any throw from the KeePass codec as the failure the commands know. Never the file's content, never a key. */
+  private kdbxFailure(e: unknown, file: string): Failure {
+    if (e instanceof KdbxError) {
+      switch (e.code) {
+        case 'WrongKey':
+          return { ok: false, kind: 'kdbx', why: 'wrongKey', file };
+        case 'InvalidKey':
+          return { ok: false, kind: 'kdbx', why: 'invalidKey', file };
+        case 'NotKdbx':
+          return { ok: false, kind: 'kdbx', why: 'notKdbx', file };
+        case 'LimitExceeded':
+          return { ok: false, kind: 'kdbx', why: 'limit', file, ...(e.detail ? { detail: e.detail } : {}) };
+        case 'Unsupported':
+          return { ok: false, kind: 'kdbx', why: 'unsupported', file, ...(e.detail ? { detail: e.detail } : {}) };
+        default:
+          return { ok: false, kind: 'kdbx', why: 'corrupt', file };
+      }
+    }
+    return this.translate(e);
+  }
+
+  private static readonly MAX_KDBX_BYTES = 512 * 1024 * 1024;
+
+  async importKdbx(request: ImportRequest): Promise<Result<ImportResult>> {
+    const v = this.use();
+    if ('ok' in v) return v;
+    const at = this.abs(request.file);
+    const shown = this.show(at);
+    let bytes: Uint8Array;
+    try {
+      const st = statSync(at);
+      if (!st.isFile()) return { ok: false, kind: 'kdbx', why: 'unreadable', file: shown };
+      if (st.size > RealVaultService.MAX_KDBX_BYTES) return { ok: false, kind: 'kdbx', why: 'tooLarge', file: shown, detail: '512 MiB' };
+      bytes = new Uint8Array(readFileSync(at));
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      return { ok: false, kind: 'kdbx', why: code === 'ENOENT' || code === 'ENOTDIR' ? 'missing' : 'unreadable', file: shown };
+    }
+    const key = this.kdbxKey(shown, request.credentials);
+    if ('ok' in key) return key;
+    let db: KdbxDatabase;
+    try {
+      db = readKdbx(bytes, key);
+    } catch (e) {
+      return this.kdbxFailure(e, shown);
+    }
+    return (await this.guard<ImportResult>(() => {
+      const r = v.importKdbx(db, {
+        ...(this.opts.group !== undefined ? { group: this.opts.group } : {}),
+        ...(request.stripInvalid ? { stripInvalid: true } : {}),
+        ...(request.includeTrash ? { includeTrash: true } : {}),
+        ...(request.update ? { update: true } : {}),
+        ...(request.dryRun ? { dryRun: true } : {}),
+      });
+      const { groupId: _gid, ...rest } = r;
+      return { ok: true as const, value: { ...rest, issues: r.issues.map((i) => ({ kind: i.kind, ...(i.item !== undefined ? { item: i.item } : {}), detail: i.detail })) } };
+    })) as Result<ImportResult>;
+  }
+
+  async exportKdbx(request: ExportRequest): Promise<Result<ExportResult>> {
+    const v = this.use();
+    if ('ok' in v) return v;
+    const at = this.abs(request.file);
+    const shown = this.show(at);
+    if (!request.force && existsSync(at)) return { ok: false, kind: 'kdbx', why: 'exists', file: shown };
+    const key = this.kdbxKey(shown, request.credentials);
+    if ('ok' in key) return key;
+    return (await this.guard<ExportResult>(() => {
+      const built = v.exportKdbx({ ...(this.opts.group !== undefined ? { group: this.opts.group } : {}), ...(request.stripInvalid ? { stripInvalid: true } : {}) });
+      let bytes: Uint8Array;
+      try {
+        bytes = writeKdbx(built.db, key, { version: '4.1' });
+      } catch (e) {
+        return this.kdbxFailure(e, shown);
+      }
+      // read it back before anything is written, and compare what matters: every entry, its password and its attachments
+      const want = new Map<string, string>();
+      const entriesOf = (db: KdbxDatabase) => {
+        const out: Array<{ uuid: string; password: string; attachments: number }> = [];
+        const walk = (g: KdbxDatabase['root']) => {
+          for (const e of g.entries) out.push({ uuid: e.uuid, password: e.fields.find((f) => f.name === 'Password')?.value ?? '', attachments: e.attachments.length });
+          g.groups.forEach(walk);
+        };
+        walk(db.root);
+        return out;
+      };
+      for (const e of entriesOf(built.db)) want.set(e.uuid, `${e.password}\u0000${e.attachments}`);
+      const verify = (written: Uint8Array): boolean => {
+        try {
+          const back = entriesOf(readKdbx(written, key));
+          return back.length === want.size && back.every((e) => want.get(e.uuid) === `${e.password}\u0000${e.attachments}`);
+        } catch {
+          return false;
+        }
+      };
+      if (!verify(bytes)) return { ok: false, kind: 'kdbx', why: 'verifyFailed', file: shown } as Failure;
+      const result: ExportResult = {
+        file: at,
+        dryRun: request.dryRun,
+        items: built.report.items,
+        deleted: built.report.deleted,
+        attachments: built.report.attachments,
+        groups: built.report.groups,
+        doesNotTravel: built.report.doesNotTravel.map((d) => d.text),
+        issues: built.report.issues.map((i) => ({ kind: i.kind, ...(i.item !== undefined ? { item: i.item } : {}), detail: i.detail })),
+        refusedFields: built.report.refusedFields,
+        strippedFields: built.report.strippedFields,
+      };
+      if (request.dryRun) return { ok: true as const, value: result };
+      const tmp = path.join(path.dirname(at), `.${path.basename(at)}.${randomBytes(4).toString('hex')}.tmp`);
+      try {
+        writeFileSync(tmp, bytes, { flag: 'wx', mode: 0o600 });
+        if (!verify(new Uint8Array(readFileSync(tmp)))) {
+          rmSync(tmp, { force: true });
+          return { ok: false, kind: 'kdbx', why: 'verifyFailed', file: shown } as Failure;
+        }
+        if (existsSync(at) && !request.force) {
+          rmSync(tmp, { force: true });
+          return { ok: false, kind: 'kdbx', why: 'exists', file: shown } as Failure;
+        }
+        renameSync(tmp, at);
+      } catch (e) {
+        try {
+          rmSync(tmp, { force: true });
+        } catch {
+          /* gone */
+        }
+        const code = (e as NodeJS.ErrnoException).code;
+        return { ok: false, kind: 'kdbx', why: 'notWritable', file: shown, ...(typeof code === 'string' ? { detail: code } : {}) } as Failure;
+      }
+      return { ok: true as const, value: result };
+    })) as Result<ExportResult>;
   }
 }

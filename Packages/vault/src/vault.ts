@@ -13,8 +13,9 @@ import { contentStatus, evaluateGroup, type GroupView } from '../../format/src/g
 import { commitOf, derivePerson, gidOf, makeCard, FormatError, type Person } from '../../format/src/keys.ts';
 import { checkLocation, chainOf, type Offered, type Remembered } from '../../format/src/remember.ts';
 import { KIND, MEMBERSHIP_KINDS, keyRing, nextClock, openRecord, recordId, sealRecord, type KeyRing, type Rec } from '../../format/src/record.ts';
-import { ItemChange, SETTINGS_ITEM_ID, positionAtEnd, viewItem, viewSettings, type Otp } from '../../format/src/schema.ts';
+import { ItemChange, SETTINGS_ITEM_ID, SchemaError, positionAtEnd, viewItem, viewSettings, type ItemView, type Otp } from '../../format/src/schema.ts';
 import { cmap, encode, type CborValue, type CMap } from '../../format/src/cbor.ts';
+import { openAttachment, sealAttachment, chunkId } from '../../format/src/slots.ts';
 import { DEFAULT_ARGON2, SLOT_DEVICE, SLOT_KIT, SLOT_PASSWORD, argon2ParamsProblem, kitFromText, kitToText, openSlot,
          sealDeviceSlot, sealKitSlot, sealPasswordSlot, unwrapGroupKey, wrapGroupKey } from '../../format/src/slots.ts';
 import type { Argon2Params } from '../../format/src/prims.ts';
@@ -24,6 +25,9 @@ import { homedir } from 'node:os';
 import { withLock, type LockOptions } from './lock.ts';
 import { putIfAbsent } from './fsutil.ts';
 import { generateDeviceKey, keyFileWarning, parseKeyFile, readKeyFile, writeKeyFile, type DeviceKey } from './keyfile.ts';
+import { blobPath } from '../../format/src/folder.ts';
+import { buildKeepass, contentHash, contentOf, readKeepass, specView, type BuiltExport, type ContentView, type ExportItem, type ItemSpec, type ReportIssue } from './keepass.ts';
+import type { KdbxDatabase } from '../../kdbx/src/index.ts';
 import { listGroupIds, listSlots, listWraps, probe, readSegments, supportFiles, type Probe } from './location.ts';
 import { ZERO_ITEM, buildEntries, builtinField, candidateOf, compareEntries, detail, fieldTarget, historyOf, matchesText, summarize, titleOf,
          type GroupCtx, type HistoryEntry, type ItemDetail, type ItemEntry, type ItemSummary } from './model.ts';
@@ -56,6 +60,8 @@ export interface OpenOptions {
   durable?: boolean;
   /** how long a write or sync waits for another psss using the same stateDir, in milliseconds. Default 5000. */
   lockWaitMs?: number;
+  /** Opens to read and plan only: takes no lock, writes nothing to the device state or the vault, not even what the device remembers, and every write is refused with `read_only`. For a dry run. */
+  readOnly?: boolean;
 }
 export interface CreateOptions {
   name: string;
@@ -78,6 +84,67 @@ export interface CreateOptions {
 }
 
 export type Scope = 'live' | 'deleted' | 'all';
+
+export interface ImportOptions {
+  /** the group the new items go to, as for `addItem`; the only writable group when left out */
+  group?: string;
+  /** remove characters that a KeePass file cannot hold from a field instead of leaving the field out */
+  stripInvalid?: boolean;
+  /** bring in the entries of the file's Recycle Bin as deleted items (they are left out by default) */
+  includeTrash?: boolean;
+  /** replace an item that was changed in the file since it was imported and not changed here (never replaced by default) */
+  update?: boolean;
+  /** work out and report everything, write nothing */
+  dryRun?: boolean;
+}
+export type ImportAction = 'add' | 'update' | 'unchanged' | 'keptYours' | 'changedInFile' | 'conflict' | 'deleted' | 'gone' | 'refused';
+export interface ImportReport {
+  group: string;
+  groupId: string;
+  dryRun: boolean;
+  /** new items (with `dryRun`: the items that would be added) */
+  added: number;
+  attachments: number;
+  updated: number;
+  /** already here, the same as in the file */
+  unchanged: number;
+  /** changed here, not in the file: left as they are here */
+  keptYours: number;
+  /** changed in the file and not here: left alone unless `update` */
+  changedInFile: number;
+  /** changed in both: the version here was kept */
+  conflicts: number;
+  /** deleted here (Recently Deleted): not brought back */
+  skippedDeleted: number;
+  /** deleted for good here: not brought back */
+  skippedGone: number;
+  /** entries in the file's Recycle Bin that were left out */
+  skippedTrash: number;
+  inFolders: number;
+  /** items that are over a limit of the vault (a record holds 1 MiB) */
+  refusedItems: number;
+  refusedFields: number;
+  strippedFields: number;
+  issues: ReportIssue[];
+  /** one line per entry of the file: its name and what happened; never a value */
+  items: { title: string; action: ImportAction }[];
+}
+export interface ExportKdbxOptions { group?: string; stripInvalid?: boolean }
+export interface ExportReport {
+  /** live items written */
+  items: number;
+  /** items from Recently Deleted, written into the Recycle Bin */
+  deleted: number;
+  attachments: number;
+  groups: number;
+  groupsShared: boolean;
+  /** what the file does not carry, as plain words that follow "Not in a KeePass file:" */
+  doesNotTravel: { code: string; text: string }[];
+  issues: ReportIssue[];
+  refusedFields: number;
+  strippedFields: number;
+}
+export interface ExportKdbxResult { db: KdbxDatabase; report: ExportReport }
 export type FindResult =
   | { kind: 'found'; item: ItemSummary }
   | { kind: 'ambiguous'; candidates: Candidate[] }
@@ -197,6 +264,18 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const short = (h: string) => h.slice(0, 8);
 
 interface SlotInfo { type: number; kemPk?: Uint8Array }
+const specTitle = (s: ItemSpec): string => s.title ?? s.websites[0] ?? s.username ?? '(no name)';
+const refusedWrite = (e: unknown): boolean => e instanceof ValueTooLarge || e instanceof SchemaError;
+const plainRefusal = (e: unknown): string => (e instanceof ValueTooLarge ? 'The item is too large for one record (1 MiB), so it was not imported.' : 'The item is over a limit of an item in a Psss vault, so it was not imported.');
+function viewContent(v: ItemView): ContentView {
+  return {
+    type: v.type, title: v.title, username: v.username, password: v.password, notes: v.notes, cardholder: v.cardholder, cardCode: v.cardCode, cardPin: v.cardPin,
+    websites: v.websites.map((w) => w.address), ...(v.otp ? { otp: v.otp } : {}), ...(v.passkey ? { passkey: v.passkey } : {}), ...(v.card ? { card: v.card } : {}),
+    custom: v.customFields.map((f) => ({ label: f.label, value: f.value, concealed: f.concealed })), tags: v.tags.map((t) => t.text),
+    attachments: v.attachments.map((a) => ({ name: a.fileName, size: (a.attachment as CMap).get(2) as number })),
+  };
+}
+
 function slotInfo(bytes: Uint8Array): SlotInfo | null {
   try {
     const m = decode(bytes);
@@ -246,6 +325,13 @@ export function openVault(opts: OpenOptions): Vault {
   const random = opts.random ?? systemRandom;
   const durable = opts.durable ?? true;
   const lock: LockOptions = opts.lockWaitMs !== undefined ? { waitMs: opts.lockWaitMs } : {};
+  if (opts.readOnly) {
+    const state = DeviceState.ephemeral(opts.stateDir, basename(opts.locations[0]!).replace(/\.psss$/, ''), random(16));
+    const v = new Vault(derivePerson(u.ps), u, state, [...opts.locations], opts.now ?? Date.now, random, true, false);
+    v.lockOptions = lock;
+    v.load(false);
+    return v;
+  }
   return withLock(opts.stateDir, () => {
     const state = DeviceState.load(opts.stateDir, durable) ?? DeviceState.create(opts.stateDir, basename(opts.locations[0]!).replace(/\.psss$/, ''), random(16), durable);
     const v = new Vault(derivePerson(u.ps), u, state, [...opts.locations], opts.now ?? Date.now, random, !!opts.offline, durable);
@@ -372,6 +458,7 @@ export class Vault {
    *  another process changed it since this one last looked, `refresh` also re-reads the vault, so that nothing built from before the lock is
    *  used for the write. */
   private locked<T>(fn: () => T, refresh = false): T {
+    if (this.state.memory) throw new VaultError('read_only', 'this vault was opened to read only, so nothing can be written');
     return withLock(this.state.dir, () => {
       const changed = this.state.reload();
       if (changed && refresh) this.load(true);
@@ -873,7 +960,189 @@ export class Vault {
    *  checkpoint that purges them and removes the records; this library does not write checkpoints yet. */
   purgeItem(reference: string | Reference): WriteResult {
     const { entry } = this.resolveForWrite(reference, 'all');
+    // an imported item is remembered as gone (schema 8), so that importing the same file again does not bring it back
+    const src = entry.view.carry.get('source');
+    if (isMap(src) && typeof src.get(1) === 'string' && typeof src.get(2) === 'string') {
+      this.writeRecord(entry.group, KIND.item, new ItemChange().gone(src.get(1) as string, src.get(2) as string, this.now()).payload(SETTINGS_ITEM_ID));
+    }
     return this.writeRecord(entry.group, KIND.purge, cmap([[1, [entry.bytes]]]));
+  }
+
+
+// ------------------------------------------------------------ attachments
+
+  /** Seals a file for `gid` (spec 5.2: a fresh key, chunks of 1 MiB named by their hash) and puts the chunks in every location that is a
+   *  vault, before any record refers to them. Chunks never change and are copied by sync like the wraps. Returns what a record stores. */
+  private storeAttachment(gid: string, data: Uint8Array): CborValue {
+    const { ref, chunks } = sealAttachment(this.random(32), data);
+    for (const l of this.loaded.locs) {
+      if (probe(l.path).state !== 'vault') continue;
+      for (const c of chunks) putIfAbsent(l.path, blobPath(gid, hex(chunkId(c))), c, this.durable);
+    }
+    return cmap([[1, ref.key], [2, ref.size], [3, ref.chunkIds]]);
+  }
+
+  /** The bytes of an attachment of an item, from the first location that holds each chunk. Throws `missing_blob` when none does. */
+  readAttachment(groupId: string, attachment: CborValue): Uint8Array {
+    const m = attachment as CMap;
+    const ids = (m.get(3) as Uint8Array[]).map((i) => hex(i));
+    const chunks = ids.map((id) => {
+      for (const l of this.locations) {
+        const p = join(l, blobPath(groupId, id));
+        if (existsSync(p)) return new Uint8Array(readFileSync(p));
+      }
+      throw new VaultError('missing_blob', 'a part of an attachment is not in any location');
+    });
+    try { return openAttachment({ key: m.get(1) as Uint8Array, size: m.get(2) as number, chunkIds: ids.map((i) => fromHex(i)) }, chunks); }
+    catch (e) { if (e instanceof FormatError) throw new VaultError('bad_blob', 'an attachment is damaged'); throw e; }
+  }
+
+  // ------------------------------------------------------------ KeePass
+
+  /** Brings the entries of a KeePass database in as items, in one group (`options.group`, or the only one this device can write to).
+   *  An item is recognized by its source: the entry's UUID, kept in the item's `source` field with a hash of what the file said. The same file
+   *  imported again adds nothing; an item the person changed here is never replaced; an item they deleted (or deleted for good) is not
+   *  brought back. With `dryRun` nothing is written and the vault should have been opened with `readOnly`. */
+  importKdbx(db: KdbxDatabase, options: ImportOptions = {}): ImportReport {
+    const now = this.now();
+    const read = readKeepass(db, { now, ...(options.stripInvalid ? { stripInvalid: true } : {}), ...(options.includeTrash ? { includeTrash: true } : {}) });
+    const target = this.pickGroup(options.group);
+    const groups = this.visibleGroups();
+    const bySource = new Map<string, { entry: ItemEntry; baseline: Uint8Array | null }>();
+    const byId = new Map<string, ItemEntry>();
+    const gone = new Set<string>();
+    for (const g of groups) {
+      for (const e of g.entries()) {
+        byId.set(e.id, e);
+        const src = e.view.carry.get('source');
+        if (isMap(src) && src.get(1) === 'keepass' && typeof src.get(2) === 'string') bySource.set(src.get(2) as string, { entry: e, baseline: isBytes(src.get(3)) ? (src.get(3) as Uint8Array) : null });
+      }
+      const settings = g.view.state.get(ZERO_ITEM);
+      if (settings) for (const x of viewSettings(settings).gone) if (x.kind === 'keepass') gone.add(x.id);
+    }
+    const r: ImportReport = {
+      group: target.name, groupId: target.gid, dryRun: options.dryRun === true,
+      added: 0, attachments: 0, updated: 0, unchanged: 0, keptYours: 0, changedInFile: 0, conflicts: 0,
+      skippedDeleted: 0, skippedGone: 0, skippedTrash: read.trashed, inFolders: read.inFolders, refusedItems: 0,
+      refusedFields: read.refusedFields, strippedFields: read.strippedFields, issues: [...read.issues], items: [],
+    };
+    const note = (spec: ItemSpec, action: ImportAction) => r.items.push({ title: specTitle(spec), action });
+    const same = (a: Uint8Array | null, b: Uint8Array) => a !== null && Buffer.compare(a, b) === 0;
+    for (const spec of read.items) {
+      const view = specView(spec);
+      const fileHash = contentHash(spec.sourceId, view);
+      if (gone.has(spec.uuid)) { r.skippedGone++; note(spec, 'gone'); continue; }
+      const known = bySource.get(spec.uuid) ?? (byId.has(spec.uuid) ? { entry: byId.get(spec.uuid)!, baseline: null } : undefined);
+      if (known) {
+        const v = known.entry.view;
+        if (v.deleted) { r.skippedDeleted++; note(spec, 'deleted'); continue; }
+        const vaultHash = contentHash(spec.sourceId, viewContent(v));
+        if (Buffer.compare(vaultHash, fileHash) === 0) { r.unchanged++; note(spec, 'unchanged'); continue; }
+        if (same(known.baseline, fileHash)) { r.keptYours++; note(spec, 'keptYours'); continue; }
+        if (!same(known.baseline, vaultHash)) { r.conflicts++; note(spec, 'conflict'); r.issues.push({ kind: 'mergeConflict', item: specTitle(spec), detail: 'Changed here and in the file since it was imported, so the version here was kept.' }); continue; }
+        if (!options.update) { r.changedInFile++; note(spec, 'changedInFile'); r.issues.push({ kind: 'changedInFile', item: specTitle(spec), detail: 'Changed in the file since it was imported. Add --update to bring in the file\'s version.' }); continue; }
+        if (options.dryRun) { r.updated++; note(spec, 'update'); continue; }
+        try { this.updateFromSpec(known.entry, spec, fileHash, now); r.updated++; note(spec, 'update'); }
+        catch (e) { if (!refusedWrite(e)) throw e; r.refusedItems++; note(spec, 'refused'); r.issues.push({ kind: 'itemRefused', item: specTitle(spec), detail: plainRefusal(e) }); }
+        continue;
+      }
+      if (options.dryRun) { r.added++; r.attachments += spec.attachments.length; note(spec, 'add'); continue; }
+      try { this.createFromSpec(target, spec, fileHash, now); r.added++; r.attachments += spec.attachments.length; note(spec, 'add'); }
+      catch (e) { if (!refusedWrite(e)) throw e; r.refusedItems++; note(spec, 'refused'); r.issues.push({ kind: 'itemRefused', item: specTitle(spec), detail: plainRefusal(e) }); }
+    }
+    return r;
+  }
+
+  private applySpec(c: ItemChange, spec: ItemSpec, gid: string, now: number): void {
+    const pos = { sites: [] as string[], fields: [] as string[], files: [] as string[] };
+    const add = (list: string[]) => { const p = positionAtEnd(list); list.push(p); return p; };
+    if (spec.title !== undefined) c.title(spec.title);
+    if (spec.username !== undefined) c.username(spec.username);
+    if (spec.password !== undefined) c.password(spec.password, null);
+    if (spec.notes !== undefined) c.notes(spec.notes);
+    if (spec.cardholder !== undefined) c.cardholder(spec.cardholder);
+    if (spec.card) c.card(spec.card);
+    if (spec.cardCode !== undefined) c.cardCode(spec.cardCode);
+    if (spec.cardPin !== undefined) c.cardPin(spec.cardPin);
+    if (spec.otp) c.otp(spec.otp);
+    if (spec.passkey) c.passkey(spec.passkey);
+    for (const w of spec.websites) c.website(this.newId(), w, add(pos.sites));
+    for (const f of spec.custom) c.customField(this.newId(), f.label, f.value, f.concealed, add(pos.fields));
+    for (const t of spec.tags) c.tag(this.newId(), t);
+    for (const a of spec.attachments) c.attachment(this.newId(), a.name, this.storeAttachment(gid, a.data), add(pos.files), now);
+    if (spec.previous.length > 0) c.passwordHistory(spec.previous.map((p) => [p.value, p.replaced] as [string, number]));
+  }
+
+  private createFromSpec(g: GroupCtx, spec: ItemSpec, baseline: Uint8Array, now: number): void {
+    const c = new ItemChange();
+    c.created(spec.created ?? now);
+    c.type(spec.type);
+    this.applySpec(c, spec, g.gid, now);
+    if (spec.edited !== undefined) c.edited(spec.edited);
+    c.source({ kind: 'keepass', id: spec.uuid, baseline });
+    if (spec.deletedAt !== undefined) c.deleted(spec.deletedAt);
+    this.writeRecord(g, KIND.item, c.payload(this.random(16)));
+  }
+
+  private updateFromSpec(entry: ItemEntry, spec: ItemSpec, baseline: Uint8Array, now: number): void {
+    const v = entry.view;
+    const c = new ItemChange();
+    const before = contentOf(viewContent(v)), after = contentOf(specView(spec));
+    const differs = (k: string) => before.get(k) !== after.get(k);
+    c.type(spec.type);
+    const scalar: [string, string, string | undefined, (s: string) => unknown][] = [
+      ['title', 'title', spec.title, (s) => c.title(s)], ['username', 'username', spec.username, (s) => c.username(s)], ['notes', 'notes', spec.notes, (s) => c.notes(s)],
+      ['cardholder', 'cardholder', spec.cardholder, (s) => c.cardholder(s)], ['cardCode', 'card_code', spec.cardCode, (s) => c.cardCode(s)], ['cardPin', 'card_pin', spec.cardPin, (s) => c.cardPin(s)],
+    ];
+    for (const [key, name, value, set] of scalar) if (differs(key)) { if (value === undefined) c.remove(name); else set(value); }
+    if (differs('password')) { if (spec.password === undefined) c.remove('password'); else c.password(spec.password, v.passwordPlace); }
+    if (differs('card')) { if (spec.card) c.card(spec.card); else c.remove('card'); }
+    if (differs('otp')) { if (spec.otp) c.otp(spec.otp); else c.remove('otp'); }
+    if (differs('passkey')) { if (spec.passkey) c.passkey(spec.passkey); else c.remove('passkey'); }
+    const pos = { sites: [] as string[], fields: [] as string[], files: [] as string[] };
+    const add = (list: string[]) => { const p = positionAtEnd(list); list.push(p); return p; };
+    if (differs('websites')) { for (const w of v.websites) c.remove(w.field); for (const w of spec.websites) c.website(this.newId(), w, add(pos.sites)); }
+    if ([...after.keys()].some((k) => k.startsWith('f:') && differs(k)) || [...before.keys()].some((k) => k.startsWith('f:') && differs(k))) {
+      for (const f of v.customFields) c.remove(f.field);
+      for (const f of spec.custom) c.customField(this.newId(), f.label, f.value, f.concealed, add(pos.fields));
+    }
+    if (differs('tags')) { for (const t of v.tags) for (const f of t.fields) c.remove(f); for (const t of spec.tags) c.tag(this.newId(), t); }
+    if (differs('attachments')) { for (const a of v.attachments) c.remove(a.field); for (const a of spec.attachments) c.attachment(this.newId(), a.name, this.storeAttachment(entry.group.gid, a.data), add(pos.files), now); }
+    if (spec.previous.length > 0) c.passwordHistory(spec.previous.map((p) => [p.value, p.replaced] as [string, number]));
+    if (spec.edited !== undefined) c.edited(spec.edited);
+    c.source({ kind: 'keepass', id: spec.uuid, baseline });
+    this.writeRecord(entry.group, KIND.item, c.payload(entry.bytes));
+  }
+
+  /** Every item of every group this person can read (the ones in Recently Deleted too), as a KeePass database. The entry's UUID is the item's id,
+   *  so that this file imported into this vault again finds its own items. Reads the attachments' chunks; writes nothing. */
+  exportKdbx(options: ExportKdbxOptions = {}): ExportKdbxResult {
+    const items: ExportItem[] = [];
+    const issues: ReportIssue[] = [];
+    let shared = false, unknown = 0;
+    const sel = options.group === undefined ? null : parseGroup(options.group);
+    for (const g of this.visibleGroups()) {
+      if (sel && !groupMatches(sel, g)) continue;
+      if (g.view.membership.roles.size > 1) shared = true;
+      for (const e of g.entries()) {
+        const attachments: { name: string; data: Uint8Array }[] = [];
+        for (const a of e.view.attachments) {
+          try { attachments.push({ name: a.fileName, data: this.readAttachment(g.gid, a.attachment) }); }
+          catch (err) {
+            if (!(err instanceof VaultError)) throw err;
+            issues.push({ kind: 'attachmentUnreadable', item: titleOf(e.view) || '(no name)', detail: 'An attachment could not be read from any location, so it is not in the file.' });
+          }
+        }
+        if (e.view.unknown.length > 0 || e.view.invalid.length > 0) unknown++;
+        items.push({ id: e.id, groupName: g.name, groupId: g.gid, view: e.view, attachments, ...(e.view.deleted ? { deletedAt: e.view.deletedAt ?? this.now() } : {}) });
+      }
+    }
+    const built = buildKeepass(items, { name: this.state.name, now: new Date(this.now()), random: this.random, ...(options.stripInvalid ? { stripInvalid: true } : {}) });
+    const doesNotTravel: { code: string; text: string }[] = [];
+    if (shared) doesNotTravel.push({ code: 'people', text: 'the people in shared groups' });
+    if (built.issues.some((i) => i.kind === 'passkeyNotWritten')) doesNotTravel.push({ code: 'passkeys', text: 'passkeys that could not be written as KeePassXC passkeys' });
+    if (unknown > 0) doesNotTravel.push({ code: 'unknownFields', text: `fields of ${unknown} item${unknown === 1 ? '' : 's'} that this version of Psss does not know` });
+    return { db: built.db, report: { ...built.counts, groupsShared: shared, issues: [...issues, ...built.issues], doesNotTravel, refusedFields: built.refusedFields, strippedFields: built.strippedFields } };
   }
 
   // ------------------------------------------------------------ devices

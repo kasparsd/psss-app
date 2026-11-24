@@ -2,7 +2,7 @@
 export { createVault, openVault, Vault } from './vault.ts';
 export type {
   CreateOptions, FindResult, GetResult, GroupSummary, HistoryResult, ItemEdits, LocationStatus, NewItem, Issue, OpenOptions, Problem, Scope, ShowResult,
-  SyncReport, Unlock, UnlockSource, VaultInfo, VerifyReport, WriteResult,
+  SyncReport, Unlock, ImportOptions, ImportReport, ImportAction, ExportKdbxOptions, ExportKdbxResult, ExportReport, UnlockSource, VaultInfo, VerifyReport, WriteResult,
 } from './vault.ts';
 export { VaultError, ValueTooLarge } from './errors.ts';
 export { withLock, lockPath } from './lock.ts';
@@ -16,3 +16,5 @@ export { seededRandom, systemRandom } from './random.ts';
 export type { Random } from './random.ts';
 export { hotp, totp } from './totp.ts';
 export type { DetailField, HistoryEntry, ItemDetail, ItemSummary } from './model.ts';
+export { readKeepass, buildKeepass, FIELD_ROLE_ALIASES, DEVIATIONS as KEEPASS_DEVIATIONS } from './keepass.ts';
+export type { ReportIssue, IssueKind, ItemSpec } from './keepass.ts';

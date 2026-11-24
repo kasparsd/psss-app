@@ -94,3 +94,33 @@ export function EditRow({ label, value, placeholder, secret, mono, action, below
     </div>
   );
 }
+
+/**
+ * A recognized field the item has not filled in. The label stays where it will be, the value line says "Not set" in the
+ * secondary colour, and the row ends in a labelled "Add" (the accent colour, no fill: it is an invitation, not the
+ * page's main action). Nothing to copy, so no copy icon. The whole row opens Edit with this field focused.
+ */
+export function UnsetRow({ label }: { label: string }) {
+  return (
+    <div className="frow tap unset" onClick={() => {}} role="button" tabIndex={0} aria-label={`${label}, not set. Add`}>
+      <div className="fbody">
+        <div className="s">{label}</div>
+        <div className="vrow"><span className="fval s">Not set</span></div>
+      </div>
+      <button className="addlink" onClick={(e) => e.stopPropagation()}>Add</button>
+    </div>
+  );
+}
+
+/** The quieter variant: one row naming every field that is not filled in, with one labelled button. */
+export function MoreRow({ labels }: { labels: string[] }) {
+  return (
+    <div className="frow">
+      <div className="fbody">
+        <div className="s">Not filled in</div>
+        <div className="vrow"><span className="fval s">{labels.join(', ')}</span></div>
+      </div>
+      <button className="addlink">Add…</button>
+    </div>
+  );
+}

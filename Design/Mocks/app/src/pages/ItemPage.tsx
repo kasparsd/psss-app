@@ -86,7 +86,28 @@ export function ItemPage() {
         </Frames>
         <p className="prose muted">A new card is called by its brand and last four digits (“Visa •• 4417”), a new note by its first words. Mac and iPad show the same sheet over the window.</p>
 
-        <Section title="4. Clickable prototype (Mac and iPad)" />
+        <Section title="4. Fields not filled in yet" />
+        <Clarity
+          items={[
+            ['What is it?', 'A field Psss recognizes for this kind of item (a card’s Valid from, PIN or Card issuer; a login’s Website, Username or Password) that this item has no value for. It is drawn as a quiet row so a person sees it exists and can be filled in.'],
+            ['Where does it live?', 'Nowhere yet: no value is stored, and none is written to the file until one is typed. Looking at the page never changes the vault.'],
+            ['How do they act?', 'Press the row or its “Add”. The page turns to Edit in place with that field focused. There is nothing to copy, so there is no copy icon.'],
+          ]}
+        />
+        <Frames>
+          <Frame phone label="K. A card with fields not filled in (approved, A)" caption="Every field Psss knows for a card has its row, in the same place whether filled or not, so filling one in never moves another. A row not filled in says “Not set” in the secondary colour and ends in a labelled “Add”. Card type is read from the number and shown only when the file stores one (this file says “mc”, the page says Mastercard).">
+            <PhoneItem id={7} whole unset="rows" />
+          </Frame>
+          <Frame phone label="L. The quieter variant (B)" caption="The same card with the empty fields gathered into one row, “Not filled in”, with one “Add…” that opens Edit at the first of them. Shorter, but it hides which field is which until Edit.">
+            <PhoneItem id={7} whole unset="summary" />
+          </Frame>
+          <Frame phone label="M. A card with everything" caption="Nothing is missing, so no row says “Not set” and the page looks as it does today, with Valid from, PIN and Card issuer filled in. Compare K: the filled rows are in the same places.">
+            <PhoneItem id={6} whole unset="rows" />
+          </Frame>
+        </Frames>
+        <p className="prose muted">Mac and iPad draw the same rows in the item column, with a pointer cursor and the system hover highlight; “Add” is a plain accent-coloured text button there too. Only recognized fields appear. A custom item and a note have none, and fields Psss does not know stay under Other fields, filled in only.</p>
+
+        <Section title="5. Clickable prototype (Mac and iPad)" />
         <div className="prose">
           <p>The same window, working. Click the sidebar rows, the items, Edit (and Move to Recently Deleted inside it), Set Up Code…, the sidebar button, search, the copy icons, the eye, Sort and Filter. Switching device restarts it.</p>
         </div>
@@ -99,7 +120,7 @@ export function ItemPage() {
         </div>
         <p className="prose muted">Mac: click “Psss” in the menu bar to see Settings. iPad: the Setup gear sits beside the sidebar button. Northbank has no code, so its page shows “Set Up Code…”.</p>
 
-        <Section title="5. Decisions" />
+        <Section title="6. Decisions" />
         <Decisions
           items={[
               {
@@ -155,6 +176,11 @@ export function ItemPage() {
               rejected: <>searching only the selected place, as Passwords does.</>,
               why: <>One search that always finds everything, so a missing result never comes from a hidden scope.</>,
             },
+            {
+              decision: <><strong>12. Recognized fields that are not filled in show as quiet “Not set” rows with an “Add” (approved by the owner, 2026-11-24, as A in section 4; built).</strong> They keep their canonical place, there is nothing to copy, and pressing one opens Edit at that field. Notes, the verification code (which already says “None” with Set Up Code…) and fields Psss does not recognize are not part of it.</>,
+              rejected: <>showing only filled fields and letting Edit be the only place the others appear (nobody learns that Valid from or PIN exist); one “Not filled in” row naming them all (B: shorter, but it names fields without showing where they go); a dashed or tinted placeholder row (decorative, and it competes with the accent button); hiding the rows behind a setting (the point is to be seen).</>,
+              why: <>A person can only fill in what they know exists. The rows are quiet so a card that has most of its fields still reads as a card; they hold their place so nothing moves when one is filled in. “Add” is labelled text, because important actions are not icon-only.</>,
+            },
           ]}
         />
 
@@ -165,6 +191,8 @@ export function ItemPage() {
 
         <History
           entries={[
+            { date: '2026-11-24', text: <>Added section 4, “Fields not filled in yet”: recognized fields with no value, drawn as “Not set” rows with an “Add” (A), against one “Not filled in” row (B). Variant A was approved by the owner the same day and built; B was dropped. The card gained Valid from, PIN and Card issuer in the editor and Card type on the page. Rows that were not filled in used to have no row at all.</>, },
+            { date: '2026-11-24', text: <>The line “Copies are cleared after 60 seconds”, with its info button, left the item page at the owner's request. The explanation stays in Help, under Copying. It was the first group's footer; the page now goes straight from the first card to the next group.</>, },
             { date: '2026-11-24', text: <>“Move to Recently Deleted” left its card and now stands on the page below the last card, centred, with its line under it. It acts on the whole item, not on a field of a group, so a group background made it look like a row. Before, it sat right-aligned in a card of its own.</> },
             { date: '2026-11-24', text: <>The Paste row gained its label, “From QR code in screenshot”. A button reading “Extract from clipboard screenshot” was rejected: only the system Paste control reads the clipboard without an “Allow Paste” prompt, and it cannot be renamed. The frame now draws the copied image and the decoded issuer and account.</> },
             { date: '2026-11-24', text: <>Paste sits on its own row under the setup key, with the label “From QR code in screenshot” at its left and the system Paste button at its right, because the field is too narrow on iPhone for a second button on its line. It is shown only while the clipboard holds an image, so the rows below move when it appears. That is accepted, because the clipboard changes only after the person copied something.</> },

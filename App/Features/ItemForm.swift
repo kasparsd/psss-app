@@ -5,16 +5,20 @@ extension ItemField {
     func label(for kind: ItemKind) -> LocalizedStringResource {
         switch self {
         case .website: "Website"
-        case .account: kind == .creditCard ? "Name on card" : "Username"
+        case .account: kind == .creditCard ? "Name on card" : kind == .wifi ? "Network name" : "Username"
         case .secret:
             switch kind {
             case .login: "Password"
             case .creditCard: "Card number"
             case .keePassEntry: "Value"
             case .secureNote: "Secret"
+            case .wifi: "Password"
             }
         case .expiry: "Expiry"
         case .securityCode: "Security code"
+        case .validFrom: "Valid from"
+        case .pin: "PIN"
+        case .issuer: "Card issuer"
         case .notes: kind == .secureNote ? "Note" : "Notes"
         }
     }
@@ -34,6 +38,7 @@ extension ItemKind {
         case .creditCard: "New Card"
         case .secureNote: "New Note"
         case .keePassEntry: "New Custom Item"
+        case .wifi: "New Wi-Fi Network"
         }
     }
 }
@@ -55,11 +60,14 @@ struct ItemFields: View {
     var canMapFields = true
     /// Set only when editing an existing item.
     var onDelete: (() -> Void)?
+    /// A field to start with focused when editing an existing item (from a field's Add on the item page).
+    var focusField: ItemField?
     @FocusState private var focused: ItemField?
 
     var body: some View {
         Group {
             first
+            if item.kind == .wifi { wifiGroup }
             if item.kind == .login { codeGroup }
             if item.kind != .secureNote { Section { input(.notes) } }
             if let passkey = item.passkey {
@@ -82,17 +90,29 @@ struct ItemFields: View {
             if let onDelete { deleteGroup(onDelete) }
         }
         .task {
+            if let focusField { focused = focusField; return }
             guard isNew else { return }
             switch item.kind {
             // A new login starts at Website; with the website already there (added from a search) at Username.
             case .login, .keePassEntry: focused = item.website.isEmpty ? .website : .account
             case .creditCard: focused = .secret
             case .secureNote: focused = .notes
+            case .wifi: focused = .account
             }
         }
     }
 
     // MARK: Groups
+
+    /// A Wi-Fi network's security and whether it hides its name.
+    private var wifiGroup: some View {
+        Section {
+            Picker("Security", selection: $item.wifiSecurity) {
+                ForEach(WiFiSecurity.allCases) { Text(verbatim: $0.label).tag($0) }
+            }
+            Toggle("Hidden network", isOn: $item.wifiHidden)
+        }
+    }
 
     private var first: some View {
         Section {
@@ -176,7 +196,7 @@ struct ItemFields: View {
     private func input(_ field: ItemField) -> some View {
         let name = String(localized: field.label(for: item.kind))
         labeled(field.formLabel(for: item.kind), info: field == .securityCode ? HelpTopics.securityCode : nil) {
-            if item.concealedFields?.contains(field.rawValue) == true && field != .secret && field != .securityCode {
+            if item.concealedFields?.contains(field.rawValue) == true && field != .secret && field != .securityCode && field != .pin {
                 SecureField(name, text: Binding(get: { item[field] }, set: { item[field] = $0 })).secretEntry()
             } else {
                 switch field {
@@ -216,6 +236,24 @@ struct ItemFields: View {
                         #if os(iOS)
                         .keyboardType(.numberPad)
                         #endif
+                case .validFrom:
+                    TextField(name, text: $item.validFrom, prompt: Text("MM/YY"))
+                        #if os(iOS)
+                        .keyboardType(.numberPad)
+                        #endif
+                        .onAppear { item.validFrom = CardExpiry.displayed(item.validFrom) }
+                        .onChange(of: item.validFrom) { _, text in
+                            let clean = CardExpiry.normalizedInput(text)
+                            if clean != text { item.validFrom = clean }
+                        }
+                case .pin:
+                    SecureField(name, text: $item.pin, prompt: Text(verbatim: ""))
+                        .secretEntry()
+                        #if os(iOS)
+                        .keyboardType(.numberPad)
+                        #endif
+                case .issuer:
+                    TextField(name, text: $item.issuer, prompt: Text(verbatim: ""))
                 case .notes:
                     TextField(name, text: $item.notes, prompt: Text(verbatim: ""), axis: .vertical)
                         .lineLimit(item.kind == .secureNote ? 6...20 : 3...8)

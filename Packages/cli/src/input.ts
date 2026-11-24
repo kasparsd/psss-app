@@ -71,9 +71,11 @@ function stripOneNewline(text: string): string {
  * A terminal: asks `prompt` on standard error and reads without echo (raw mode, restored on exit and on error).
  * An empty value is a usage error.
  */
-export async function readSecret(io: CliIo, prompt: string): Promise<string> {
+export async function readSecret(io: CliIo, prompt: string, options: { allowEmpty?: boolean; emptyMessage?: string } = {}): Promise<string> {
   const value = io.isTTY.stdin ? await readHidden(io, prompt) : stripOneNewline(await readAll(io.stdin));
-  if (value === '') throw new ValidationError('No value was given, so nothing was saved. Pipe the value in, or type it when asked.');
+  if (value === '' && !options.allowEmpty) {
+    throw new ValidationError(options.emptyMessage ?? 'No value was given, so nothing was saved. Pipe the value in, or type it when asked.');
+  }
   return value;
 }
 

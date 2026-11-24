@@ -73,3 +73,14 @@ export const SortIcon = () => (
 export const FilterIcon = () => (
   <svg {...base} strokeWidth={2}><path d="M4 7h16M7 12h10M10 17h4" /></svg>
 );
+
+// Proposal 2026-11-24: places beyond the three tabs of today.
+export const WifiGlyph = () => (
+  <svg {...base}><path d="M2.5 9.5a14 14 0 0 1 19 0M5.5 13a9.5 9.5 0 0 1 13 0M8.6 16.4a5 5 0 0 1 6.8 0" /><circle cx="12" cy="19.5" r="1" fill="currentColor" /></svg>
+);
+export const TrashGlyph = () => (
+  <svg {...base}><path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13M10 11v6M14 11v6" /></svg>
+);
+export const MoreGlyph = () => (
+  <svg {...base}><circle cx="5.5" cy="12" r="1.2" fill="currentColor" /><circle cx="12" cy="12" r="1.2" fill="currentColor" /><circle cx="18.5" cy="12" r="1.2" fill="currentColor" /></svg>
+);

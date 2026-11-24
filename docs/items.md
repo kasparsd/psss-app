@@ -88,7 +88,33 @@ There is no “Untitled” anywhere. The editor and the new-item sheet have no N
 
 ## Field order and optional fields (owner, 2026-11-24)
 
-The same groups in the same order in view, edit and new. Login: Website, Username, Password (the clipboard note directly under this card in view mode), then the “Verification code” group, then Notes in its own card, then the passkey (read-only). Card: Card number, Expiry, Security code, Name on card, then Notes. Note: the note text. Custom item: Website, Username, Value, then Notes. In edit and new, optional fields say “(optional)”: Website, Username, Notes, Security code, Setup key, Name on card, Expiry. Password, Card number, the note text and Value do not. A new login focuses Website first. New-item sheets are titled “New Login”, “New Card”, “New Note” and “New Custom Item”.
+The same groups in the same order in view, edit and new. Login: Website, Username, Password, then the “Verification code” group, then Notes in its own card, then the passkey (read-only). Card: Card number, Valid from, Expiry, Security code, PIN, Name on card, Card issuer, then Notes. Note: the note text. Custom item: Website, Username, Value, then Notes. In edit and new, optional fields say “(optional)”: Website, Username, Notes, Security code, Setup key, Name on card, Expiry, Valid from, PIN, Card issuer. Password, Card number, the note text and Value do not. A new login focuses Website first. New-item sheets are titled “New Login”, “New Card”, “New Note” and “New Custom Item”.
+
+## KeePass import and export in the record-log vault
+
+Built 2026-11-24 in `Packages/vault/src/keepass.ts` (pure functions over the KDBX codec's model) and the vault's `importKdbx` and `exportKdbx`; the command is described in [cli](cli.md#import-and-export). It reads and writes the same fields as the app's `EntryMapping` (`App/Core/KDBX/KeePassEntries.swift`): the `PSSS_TYPE` hint and `PSSS_FIELD_MAPPING` decide the kind, a card keeps Card number, Valid from, Expiry, Security code, PIN, Name on card, Card issuer and Notes in that order (a mapped card keeps Valid from, PIN and Card issuer as Other fields), Expiry is `MM/YY`, a verification code is read from `otp` or from the KeePassXC `TimeOtp-*` strings, a passkey from the `KPEX_PASSKEY_*` strings, and the Recycle Bin holds deleted items. Never fields: `PSSS_TYPE`, `PSSS_FIELD_MAPPING`, `PSSS_SOURCE`, `PSSS_IMPORT_HASHES`, `PSSS_PASSKEY_CREATED`, `KPEX_PASSKEY_*`, and the custom data `PSSS_DELETED_FROM` and `PSSS_DELETED_AT`. The names that mean a role (`FieldRole.aliases`) are one table in `keepass.ts`, and a test compares it with the Swift source text, so the two cannot drift.
+
+**Where the source id and the hashes live.** The app keeps them in the KDBX entry (`PSSS_SOURCE`, `PSSS_IMPORT_HASHES`) because its vault is the KDBX file. The record-log vault has its own place: the item's `source` field (`{ kind: "keepass", id: <the entry's UUID, 32 hexadecimal digits>, baseline }`, [format schema](format-schema.md) section 2) and, for an item deleted for good, a `gone/` entry in the group's settings item (section 8, `kind` `keepass`, `id` the UUID). `baseline` is 16 bytes: SHA-256 of the item's whole content as the file said it, salted with the source id. It is one hash and not one per field, because the engine's per-field merge and its fuzzy pairing of items without a stable id do not apply to a source that has a UUID for every entry: an entry is the same entry or it is a new one.
+
+**What a second run does**, for each entry of the file, in this order:
+
+| The vault has | Result | Counted as |
+| --- | --- | --- |
+| `gone/` for the UUID | Not brought back | skipped, deleted here |
+| An item with that source (or, for a file this vault exported, that item id), in Recently Deleted | Not brought back | skipped, deleted here |
+| It, and its content equals the file's | Nothing | unchanged |
+| It, the file's content equals the baseline (the file did not change) and the vault differs | Left as it is here | kept, changed here |
+| It, the vault equals the baseline and the file differs | Left alone, reported; replaced only with `--update` | changed in the file, or updated |
+| It, and both differ from the baseline (or there is none) | The version here is kept, reported | changed in both |
+| Nothing | A new item with its attachments, `created` and `edited` from the file | added |
+
+Importing the same file again therefore adds nothing and rewrites nothing. A file exported by this vault carries the item ids as its UUIDs, so importing it back into the same vault finds its own items and adds none; imported into another vault it adds them with the source set. Purging an imported item writes the `gone/` entry first.
+
+**Differences from the app, on purpose.** More websites (`KP2A_URL`, `KP2A_URL_1`, ...) become websites of the item, as the format's section 10 says; the app keeps them as Other fields. Folders are not kept (the vault has groups and tags, no folders); the report counts the items that were in one. Earlier passwords are kept for logins only, as in the app; for other kinds the report says they were not imported. An attachment's `protected` flag is not kept. A second verification code or passkey becomes a hidden custom field and is reported (section 9).
+
+**What an import reports** (names of things, never a value; the command prints one warning per kind): added, with attachments; updated; unchanged; kept (changed here); changed in the file; changed in both; skipped, deleted here; entries in the file's Recycle Bin left out (or brought in as deleted items with `--include-trash`); items that were in folders; fields not imported for characters XML cannot hold (or removed, with `--strip-invalid`); fields over a size limit; items over a vault limit (a record holds 1 MiB); protected fields that Psss shows in plain text and kept as hidden fields; a second verification code; a verification code that is a counter or in a form Psss cannot make codes from; an incomplete passkey; earlier versions that changed more than the password; a mapping that no longer holds; a missing creation date.
+
+**What an export reports it leaves out:** the people in shared groups (named only when a group has more than one member); passkeys that cannot be written as KeePassXC passkeys; fields this version of Psss does not know; fields that XML cannot hold (left out, or written without those characters with `--strip-invalid`); a field named like one KeePass uses (`Title`, `Password`, `otp`, `PSSS_*`, ...) is written as `<name> (field)` and reported; an attachment that no location holds. Items from Recently Deleted go to the Recycle Bin.
 
 ## Characteristics and moving between vaults
 
@@ -107,6 +133,7 @@ An evaluation of every field, its input, which fields repeat, revisions and date
 | Login | Website (optional), username (optional), password, verification code, notes (optional), passkey (read-only); the name is the heading | URL keyboard on website; password and setup key are secure fields; the code is added by paste, image or camera ([verification codes](verification-codes.md)) or by typing a setup key or `otpauth://` link | Generator and reveal in the editor, more than one website, custom fields, attachments |
 | Card | Card number, expiry (optional), security code (optional, a secure field with the number pad on iPhone), name on card (optional), notes (optional); the name is the heading | Number is a secure field with the default keyboard; expiry is typed as MM/YY (digits only, the slash is added; pasted `02/2029`, `2/29`, `0229` and `02 29` become `02/29`), shown and copied as MM/YY, and a stored value that cannot be read is shown as stored. The security code is stored as the protected custom string `Security code` (the name the importer already uses) and read and written only for cards; a login or note with a custom field of that name keeps it untouched | Numeric keyboard, grouping while typing, Luhn check, expiry parsing, PIN |
 | Note | The note text; the name is the heading | Multi-line text | Attachments |
+| Wi-Fi network | Network name, Password, Security (WPA2 or WPA3, WEP, None), Hidden network; Join This Network and Show QR Code | Text fields and a Security menu in the editor | Notes beyond the standard string, several passwords |
 | Custom item | Website (optional), username (optional), “Value”, notes (optional); the name is the heading | One secure field, labelled “Value” on the page and in the editor | Named fields |
 
 Defects found while reading the code:
@@ -245,3 +272,37 @@ Every new mapping gets a round trip through KeePassXC in `scripts/test-kdbx.sh`.
 | System content types on the editor's own fields | Not until a device test shows no keyboard suggestions |
 
 Closed on 2026-11-23 by the approved mocks: show previous passwords (yes, by default, values hidden), the date labels “Added” and “Edited”, and deleting to the Recycle Bin with a 30-day purge, saying that other KeePass apps keep showing the bin. Still open: the five rows above.
+
+## Recognized fields: review of 2026-11-24
+
+What Psss recognizes today, set against what other apps use, and what to add. “From memory” means not re-read this session; check against the apps before building a role from it. The unset-field treatment in the last part is **proposed, mocked on [Item page](../Design/Mocks/app/src/pages/ItemPage.tsx) section 4 and waiting for the owner**.
+
+### What each convention stores
+
+| Convention | Fields it defines |
+| --- | --- |
+| KeePass file format (KeePass, KeePassXC, Strongbox) | Title, UserName, Password, URL, Notes; entry tags, icon, expiry time, attachments, Auto-Type, history; any number of custom strings, each protected or not. No card or identity types |
+| TOTP (KeePass 2.55, KeePassXC, KeeOtp, TrayTOTP) | `otp` (an otpauth link), `TimeOtp-Secret-Base32` with Length, Period and Algorithm, `TOTP Seed` and `TOTP Settings`. Already read and written |
+| KeePassXC passkeys, browser extension | `KPEX_PASSKEY_*` strings (already kept apart), `KP2A_URL_n` extra addresses (preserved as Other fields) |
+| Strongbox (from memory) | The KeePass fields plus TOTP, tags, expiry and attachments; no card template. A card is a custom item with custom fields |
+| KeePassDX templates (from memory) | Credit card: card holder, number, expiration (a date), CVV (protected), PIN (protected). Also ID card, Wi-Fi, email account, bank account |
+| 1Password credit card (the importer reads it) | Cardholder, type (a code such as `mc`, `visa`, `amex`), number, verification number, expiry, valid from, PIN, issuing bank, bank phone numbers, credit and cash limits, interest rate |
+| Browser autofill (`autocomplete`) | `username`, `current-password`, `one-time-code`, `cc-name`, `cc-number`, `cc-exp` (or `cc-exp-month` and `cc-exp-year`), `cc-csc`, `cc-type` |
+
+### What Psss has, and the gaps
+
+| Kind | Recognized now | Add | Not a field |
+| --- | --- | --- | --- |
+| Login | Website, Username, Password, Verification code (setup key) | Entry expiry (KeePass “Expires”): later, needs a date row and a reminder decision | Extra addresses stay Other fields; tags need a tag model |
+| Card | Card number, Expiry, Security code, Name on card | **Valid from** (card issue date; 1Password, UK and Amex cards), **PIN** (protected; KeePassDX, 1Password), **Card issuer** (bank). **Card type**, shown only when the file stores one | The network is read from the number (`CardBrand`), so Card type is never asked for and never an empty row |
+| Custom item, Note | None beyond the standard strings | None: they are the places for fields Psss does not know | |
+
+**Card type.** 1Password writes its own codes (`mc` for Mastercard, `visa`, `amex`, `discover`, `diners`, `jcb`, from memory). A stored value is shown as the network's name (“Mastercard”, not “mc”), matched case-insensitively against these codes and the names `CardBrand` knows, and written back exactly as it was read. The detected network wins for the icon and the name when the two disagree.
+
+**Names that count as a role** (`FieldRole.aliases`, matched with case, spaces, dashes and punctuation removed). The review widened these so the editor suggests more of them: Username adds user, user id, login, e-mail address; Password adds pass, passwd, pwd, passphrase; Website adds URI, link, web address, home page; Card number adds number, card no, credit card; Name on card adds owner, holder, card owner; Expiry adds exp, exp date, expires, valid until, good thru; Security code adds CVN, CID, verification number, verification value. A split expiry (`cc-exp-month` with `cc-exp-year`) needs the importer to join two fields and is not done.
+
+### Recognized fields that are not filled in (owner, 2026-11-24, variant A; built)
+
+On the item page, a recognized field the item has no value for is a quiet row: its label in the usual place, “Not set” in the tertiary style and a labelled **Add** at the end (`UnsetFieldRow`). It has no copy icon; pressing the row or Add turns the page to Edit with that field focused (`ItemFields.focusField`). Rows keep their place, so filling one in moves nothing (`VaultItem.firstCardRows`). Nothing is written to the file until a value is typed. They are drawn for a login (Website, Username, Password) and for a card that is not shown from a KeePass mapping (all seven card fields). Not part of it: Notes, the verification code (it already says “None” with Set Up Code…), Card type, custom items and notes, a mapped card (its strings stay under Other fields, so no row offers a field the entry stores under another name), and Recently Deleted. The one-row variant (B) was drawn and dropped. The same code serves iPhone, iPad and Mac.
+
+Valid from, PIN and Card issuer are `VaultItem.validFrom`, `pin` and `issuer`, stored as the custom strings `Valid from`, `PIN` (protected) and `Card issuer`, the names the 1Password importer already gives them, so an imported card's values appear in these rows. Valid from is typed and shown as MM/YY like Expiry. They have no field-mapping role yet and AutoFill never offers the PIN. Card type is not built: the network shows from the number, and a stored `Type` stays under Other fields.

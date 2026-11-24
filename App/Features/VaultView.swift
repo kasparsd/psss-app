@@ -9,6 +9,7 @@ extension ItemKind {
         case .creditCard: "Card"
         case .secureNote: "Note"
         case .keePassEntry: "Custom item"
+        case .wifi: "Wi-Fi network"
         }
     }
 
@@ -18,6 +19,7 @@ extension ItemKind {
         case .creditCard: "creditcard"
         case .secureNote: "note.text"
         case .keePassEntry: "doc"
+        case .wifi: "wifi"
         }
     }
 }
@@ -66,8 +68,11 @@ private enum VaultAlert: Hashable {
     case conflict, editorRemoved, storeProblem, autoFillSettings, importProblem, importNotice, biometricOff
 }
 
-/// The tabs of the iPhone (and of iPad at compact width): the three places, then the iOS 26 search tab at the trailing end.
-private enum PhoneTab: Hashable { case place(VaultPlace), search }
+/// The tabs of the iPhone (and of iPad at compact width): All, Codes, Cards and More, then the iOS 26 search tab at the trailing end.
+private enum PhoneTab: Hashable { case place(VaultPlace), more, search }
+
+/// Where the More tab can go: the places that are not in the bar (owner, 2026-11-24).
+private enum MoreRoute: Hashable { case wifi, recentlyDeleted }
 
 /// While a page is edited in place the rest of the window is dimmed and does not react (owner, 2026-11-24).
 private struct DimsWhileEditing: ViewModifier {
@@ -149,6 +154,9 @@ struct VaultView: View {
     @State private var place: VaultPlace = .all
     /// iPhone: the search tab, after the places, is showing. The place underneath stays what it was.
     @State private var inSearchTab = false
+    /// iPhone: the More tab is showing. The place underneath stays what it was.
+    @State private var inMoreTab = false
+    @State private var morePath = NavigationPath()
     /// iPhone tabs. Each has its own stack, so each keeps its own open login.
     @State private var codesPath: [VaultItem.ID] = []
     @State private var cardsPath: [VaultItem.ID] = []
@@ -202,6 +210,7 @@ struct VaultView: View {
         switch place {
         case .codes: .codes
         case .cards: .cards
+        case .wifi: .wifi
         case .all: showsDeleted ? .recentlyDeleted : VaultDestination(show: filter.show)
         }
     }
@@ -211,6 +220,7 @@ struct VaultView: View {
             switch new {
             case .codes: placeBinding.wrappedValue = .codes
             case .cards: placeBinding.wrappedValue = .cards
+            case .wifi: placeBinding.wrappedValue = .wifi
             case .recentlyDeleted:
                 placeBinding.wrappedValue = .all
                 selection = nil
@@ -243,6 +253,8 @@ struct VaultView: View {
         })
     }
     @State private var search = ""
+    /// The fields the search is narrowed to (the pills under the results' title). None: every field. Reset with the text.
+    @State private var searchFields: Set<SearchField> = []
     @FocusState private var searchFocused: Bool
     @State private var didFocusOnLaunch = false
     /// A new item being added, in a sheet. An existing item is edited on its own page, see `editingID`.
@@ -267,6 +279,7 @@ struct VaultView: View {
     private var placeBinding: Binding<VaultPlace> {
         Binding(get: { place }, set: { new in
             inSearchTab = false
+            inMoreTab = false
             // Choosing All, or another place, leaves Recently Deleted.
             if new != place || new == .all { showsDeleted = false }
             place = new
@@ -302,7 +315,7 @@ struct VaultView: View {
     private var results: [VaultItem] {
         if isRecentlyDeleted { return deletedResults.map(\.item) }
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        let matches = items.filter { item in (!narrowsList || filter.includes(item)) && ItemSearch.matches(item, query: query) }
+        let matches = items.filter { item in (!narrowsList || filter.includes(item)) && ItemSearch.matches(item, query: query, in: searchFields) }
         return sort.ordered(matches, rank: sortRank)
     }
 
@@ -342,7 +355,7 @@ struct VaultView: View {
             .onChange(of: filter) { resnapshotOrder() }
             .onChange(of: showsDeleted) { resnapshotOrder() }
             .onChange(of: place) { resnapshotOrder() }
-            .onChange(of: search) { resnapshotOrder() }
+            .onChange(of: search) { resnapshotOrder(); if !isSearching { searchFields = [] } }
             .onChange(of: inSearchTab) { resnapshotOrder() }
             .onChange(of: place) { hideSignal += 1 }
             .onChange(of: inSearchTab) { hideSignal += 1 }
@@ -615,6 +628,7 @@ struct VaultView: View {
             Tab("All", systemImage: VaultPlace.all.symbol, value: PhoneTab.place(.all)) { vaultTab }
             Tab("Codes", systemImage: VaultPlace.codes.symbol, value: PhoneTab.place(.codes)) { codesTab }
             Tab("Cards", systemImage: VaultPlace.cards.symbol, value: PhoneTab.place(.cards)) { cardsTab }
+            Tab("More", systemImage: "ellipsis", value: PhoneTab.more) { moreTab }
             Tab(value: PhoneTab.search, role: .search) { searchTab }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
@@ -630,8 +644,8 @@ struct VaultView: View {
     /// Tapping the tab that is already showing returns to its list: out of an open item, and for All up to the very top, where the
     /// title is.
     private var tabSelection: Binding<PhoneTab> {
-        Binding(get: { inSearchTab ? .search : .place(place) }, set: { new in
-            let current: PhoneTab = inSearchTab ? .search : .place(place)
+        Binding(get: { inSearchTab ? .search : inMoreTab ? .more : .place(place) }, set: { new in
+            let current: PhoneTab = inSearchTab ? .search : inMoreTab ? .more : .place(place)
             if new == current {
                 switch new {
                 case .place(.all):
@@ -642,11 +656,14 @@ struct VaultView: View {
                     scrollToTop += 1
                 case .place(.codes): codesPath = []
                 case .place(.cards): cardsPath = []
+                case .place(.wifi): break
+                case .more: morePath = NavigationPath()
                 case .search: searchPath = []
                 }
             }
             switch new {
-            case .place(let chosen): inSearchTab = false; place = chosen; if chosen != .all { showsDeleted = false }
+            case .place(let chosen): inSearchTab = false; inMoreTab = false; place = chosen; if chosen != .all { showsDeleted = false }
+            case .more: inSearchTab = false; inMoreTab = true
             case .search: inSearchTab = true
             }
         })
@@ -731,6 +748,72 @@ struct VaultView: View {
         }
     }
 
+    /// The More tab: a list of the places that are not in the bar, each with how many it holds. A place is one more row, never one more tab.
+    private var moreTab: some View {
+        NavigationStack(path: $morePath) {
+            List {
+                NavigationLink(value: MoreRoute.wifi) {
+                    moreRow("Wi-Fi", "wifi", "Network passwords", count: items.count(where: { $0.kind == .wifi }))
+                }
+                NavigationLink(value: MoreRoute.recentlyDeleted) {
+                    moreRow("Recently Deleted", "trash", "Kept for 30 days", count: deletedEntries.count)
+                }
+            }
+            .itemListStyle()
+            .navigationTitle("More")
+            .navigationDestination(for: MoreRoute.self) { route in
+                switch route {
+                case .wifi: wifiView
+                case .recentlyDeleted: deletedList
+                }
+            }
+            .navigationDestination(for: VaultItem.ID.self) { id in
+                detail(for: id)
+            }
+            .undoBanner(undoBanner)
+        }
+    }
+
+    private func moreRow(_ title: LocalizedStringKey, _ symbol: String, _ detail: LocalizedStringKey, count: Int) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .foregroundStyle(.white)
+                .frame(width: 30, height: 30)
+                .background(Color.gray, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                Text(detail).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            if count > 0 { Text(verbatim: count.formatted()).foregroundStyle(.secondary) }
+        }
+    }
+
+    /// Recently Deleted as a page of the More tab: what waits there, newest first, Restore on a swipe and in the item's own page.
+    private var deletedList: some View {
+        List {
+            ForEach(deletedResults) { deletedRow($0, first: $0.id == deletedResults.first?.id, last: $0.id == deletedResults.last?.id) }
+            if !deletedResults.isEmpty {
+                RecentlyDeletedFooter()
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+            }
+        }
+        .itemListStyle()
+        .overlay {
+            if deletedEntries.isEmpty { RecentlyDeletedEmpty { morePath = NavigationPath() } }
+        }
+        .navigationTitle(VaultDestination.recentlyDeleted.title)
+        .navigationSubtitle(RecentlyDeletedText.itemCount(deletedEntries.count))
+        .toolbar {
+            if !deletedEntries.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) { DeleteAllButton { deletionRequest = .all } }
+            }
+        }
+    }
+
     /// The search tab is the All screen with the TabView's field: the whole vault, filtered in place as the person types, in the
     /// order the Sort menu chose. A result with a code shows it live.
     private var searchTab: some View {
@@ -761,6 +844,25 @@ struct VaultView: View {
             #endif
     }
 
+    private var wifiView: some View {
+        WifiView(items: items, selection: usesStack ? nil : selectionBinding, add: { editor = VaultItem(kind: .wifi) })
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(usesStack ? .automatic : .inline)
+            .toolbar {
+                if usesStack {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button { editor = VaultItem(kind: .wifi) } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "plus")
+                                Text("Add network")
+                            }
+                        }
+                    }
+                }
+            }
+            #endif
+    }
+
     private var cardsView: some View {
         CardsView(items: items, selection: usesStack ? nil : selectionBinding,
                   add: { editor = VaultItem(kind: .creditCard) })
@@ -779,6 +881,7 @@ struct VaultView: View {
                 case .all: compactPath.append(id)
                 case .codes: codesPath.append(id)
                 case .cards: cardsPath.append(id)
+                case .wifi: morePath.append(id)
                 }
             }
         } else {
@@ -792,6 +895,7 @@ struct VaultView: View {
         filterBinding.wrappedValue = ItemFilter(show: .logins)
         showsDeleted = false
         inSearchTab = false
+        inMoreTab = false
         place = .all
         scrollAfterPop = false
         compactPath = []
@@ -803,6 +907,7 @@ struct VaultView: View {
         compactPath = []
         codesPath = []
         cardsPath = []
+        morePath = NavigationPath()
         searchPath = []
     }
 
@@ -852,6 +957,10 @@ struct VaultView: View {
             let withCode = items.filter { $0.traits.contains(.code) }
                 .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
             return unique(RecentlyUsed.visible(snapshot: nil, in: withCode) + withCode)
+        }
+        if place == .wifi {
+            return items.filter { $0.kind == .wifi }
+                .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
         }
         let cards = CardsOrder.ordered(items)
         return unique(cards.recent + cards.live + cards.expired)
@@ -996,6 +1105,8 @@ struct VaultView: View {
                         itemResults(results)
                     } else if place == .codes {
                         codesView
+                    } else if place == .wifi {
+                        wifiView
                     } else {
                         cardsView
                     }
@@ -1146,7 +1257,7 @@ struct VaultView: View {
     /// The title of the list and the line under it: what else is in force (owner, 2026-11-24). `phoneLine(count:)` is iPhone's line
     /// under the title: the title there is the name alone, so it is never cut, and the line always carries the count.
     private var heading: (title: String, detail: String?) {
-        if isSearching { return (String(localized: "Results"), nil) }
+        if isSearching { return (String(localized: "Results"), ItemSearch.foundLine(searchFields)) }
         if isRecentlyDeleted { return (VaultDestination.recentlyDeleted.title, nil) }
         // The iPhone search tab lists the whole vault, whatever Show and With say.
         if inSearchTab { return (ItemShow.all.title, nil) }
@@ -1154,6 +1265,7 @@ struct VaultView: View {
     }
 
     private func phoneLine(count: Int) -> String {
+        if isSearching, let found = ItemSearch.foundLine(searchFields) { return "\(RecentlyDeletedText.itemCount(count)) · \(found)" }
         if isSearching || isRecentlyDeleted || inSearchTab { return RecentlyDeletedText.itemCount(count) }
         return filter.countLine(count: count, sort: sort)
     }
@@ -1178,6 +1290,12 @@ struct VaultView: View {
             // Mac and iPad: the list's title and count are its first line (the bar carries the controls).
             // While a search is active the list shows results from the whole vault, whatever place is selected.
             ListTitleLine(title: heading.title, count: RecentlyDeletedText.itemCount(results.count), detail: heading.detail)
+            if showsSearchPills {
+                searchPills
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+            }
         }
         if isRecentlyDeleted {
             ForEach(deletedResults) { deletedRow($0, first: $0.id == deletedResults.first?.id, last: $0.id == deletedResults.last?.id) }
@@ -1200,8 +1318,32 @@ struct VaultView: View {
         }
     }
 
+    /// Counts of items with the text in each field, over the whole vault (search is global).
+    private var searchCounts: [SearchField: Int] { ItemSearch.counts(items, query: search) }
+
+    /// The pills show while there is text and something to narrow: some field has a match, or a pill is chosen.
+    private var showsSearchPills: Bool {
+        isSearching && !isRecentlyDeleted && (!searchFields.isEmpty || searchCounts.values.contains { $0 > 0 })
+    }
+
+    private var searchPills: some View { SearchFieldPills(counts: searchCounts, chosen: $searchFields) }
+
     /// What an empty search says, with the one way forward: add it.
     private var noResults: some View {
+        if let found = ItemSearch.foundLine(searchFields) {
+            return AnyView(ContentUnavailableView {
+                Label("No match for “\(search)”", systemImage: "magnifyingglass")
+            } description: {
+                Text(verbatim: found + ". Other fields may still match.")
+            } actions: {
+                Button("Search All Fields") { searchFields = [] }
+                    .buttonStyle(.borderedProminent)
+            })
+        }
+        return AnyView(noResultsEverywhere)
+    }
+
+    private var noResultsEverywhere: some View {
         ContentUnavailableView {
             Label("No results for “\(search)”", systemImage: "magnifyingglass")
         } description: {
@@ -1271,6 +1413,10 @@ struct VaultView: View {
                     listScroll.scrollTo(edge: .top)
                 }
             }
+        }
+        // iPhone: the pills stay under the navigation bar while the results scroll. Mac and iPad draw them in the list, under the title.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if usesStack, showsSearchPills { searchPills.padding(.vertical, 8) }
         }
         // The same list style as Codes and Cards (HIG: touch targets are at least 44 x 44 pt).
         .itemListStyle()
@@ -1385,7 +1531,7 @@ struct VaultView: View {
             link(item.id, section) { CardListRow(card: item) }
                 .itemRowInsets(first: first, last: last)
         } else {
-            let subtitle = item.visibleAccount.isEmpty ? Text(item.kind.label) : Text(verbatim: item.visibleAccount)
+            let subtitle = isSearching ? searchSubtitle(item, query: search, chosen: searchFields) : (item.visibleAccount.isEmpty ? Text(item.kind.label) : Text(verbatim: item.visibleAccount))
             if isSearching, item.makesCode {
                 ItemListRow(item: item, subtitle: subtitle, glyphs: item.traits.filter { $0 == .passkey },
                             glyphColumns: [.passkey], open: { openItem(item.id) }) {
@@ -1639,10 +1785,20 @@ struct VaultView: View {
             // Show the saved item where it is listed: a card in Cards, a code in Codes, anything else in All (with Show and With
             // widened when they would hide it).
             inSearchTab = false
-            if item.kind == .creditCard {
+            inMoreTab = false
+            if item.kind == .wifi {
+                if usesStack {
+                    inMoreTab = true
+                    morePath = NavigationPath()
+                    morePath.append(MoreRoute.wifi)
+                    morePath.append(item.id)
+                } else {
+                    place = .wifi
+                }
+            } else if item.kind == .creditCard {
                 place = .cards
             } else {
-                if place == .cards || (place == .codes && !item.traits.contains(.code)) { place = .all }
+                if place == .cards || place == .wifi || (place == .codes && !item.traits.contains(.code)) { place = .all }
                 // Show the saved item: the filter is widened as little as it takes (its kind, then no With), and never Recently Deleted.
                 if place == .all {
                     showsDeleted = false
@@ -1799,6 +1955,7 @@ private struct ItemDetail: View {
     @State private var copied: FieldID?
     @State private var pill = CopiedPillModel()
     @State private var showsQR = false
+    @State private var showsWifiQR = false
     @State private var showsFieldMapping = false
 
     init(item: VaultItem, hideSignal: Int, vault: String, vaultLocation: String?,
@@ -1818,7 +1975,7 @@ private struct ItemDetail: View {
         _draft = State(initialValue: item)
     }
 
-    private enum FieldID: Hashable { case value(ItemField), code, totpSecret, totpLink }
+    private enum FieldID: Hashable { case value(ItemField), code, totpSecret, totpLink, wifiSecurity, wifiHidden }
 
     /// The groups of the page, each its own card, in this order (owner, 2026-11-24): what you copy to sign in or pay (website,
     /// username, password; a card's number, expiry, security code and name); a login's verification code; the notes (a note's text);
@@ -1878,6 +2035,12 @@ private struct ItemDetail: View {
         .codeSheet(item: $draft, input: $codeInput, keepDraft: keepDraft)
         .sheet(isPresented: $showsQR) {
             if let url = item.totpSetupURL { TOTPQRSheet(url: url, title: item.displayTitle) }
+        }
+        .sheet(isPresented: $showsWifiQR) {
+            if let payload = WiFiShare.payload(for: item) {
+                TOTPQRSheet(url: payload, title: item.displayTitle, heading: String(localized: "Join \(item.displayTitle)"),
+                            caption: String(localized: "Point a phone's Camera at this. It joins without typing the password. The code contains the password, so show it only to people you trust."))
+            }
         }
         .sheet(isPresented: $showsFieldMapping) {
             ItemFieldMappingView(item: item, vault: vault, hideSignal: hideSignal, save: mapFields)
@@ -1972,6 +2135,7 @@ private struct ItemDetail: View {
                 ForEach(item.firstCardRows, id: \.self) { entry in
                     if entry.isSet { field(entry.field) } else { unsetField(entry.field) }
                 }
+                if item.kind == .wifi { wifiRows }
             } header: {
                 header(for: .values)
             }
@@ -2109,6 +2273,32 @@ private struct ItemDetail: View {
                    notice: item.mappedValueNotice(for: field))
     }
 
+    /// A Wi-Fi network's other facts and its two actions, in the first card under the network name and password.
+    @ViewBuilder
+    private var wifiRows: some View {
+        row(.wifiSecurity, "Security", item.wifiSecurity.label)
+        if item.wifiHidden { row(.wifiHidden, "Hidden network", String(localized: "Yes")) }
+        #if os(iOS)
+        Button("Join This Network", systemImage: "wifi") { joinNetwork() }
+        #endif
+        if WiFiShare.payload(for: item) != nil {
+            Button("Show QR Code", systemImage: "qrcode") { showsWifiQR = true }
+        }
+    }
+
+    #if os(iOS)
+    private func joinNetwork() {
+        let network = item
+        Task {
+            switch await WiFiJoin.join(network) {
+            case .joined: pill.show(String(localized: "Joined \(network.displayTitle)"))
+            case .declined: break
+            case .failed: pill.show(String(localized: "Could not join. Check the name and password."))
+            }
+        }
+    }
+    #endif
+
     /// A recognized field with no value: "Not set" and an Add that opens Edit with this field focused (owner, 2026-11-24).
     private func unsetField(_ field: ItemField) -> some View {
         UnsetFieldRow(label: field.label(for: item.kind)) { beginEditing(at: field) }
@@ -2196,6 +2386,8 @@ extension FocusedValues {
 private struct TOTPQRSheet: View {
     let url: String
     let title: String
+    var heading = String(localized: "QR code")
+    var caption = String(localized: "Scan this with an authenticator app. Anyone who sees it can make your codes.")
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -2209,15 +2401,15 @@ private struct TOTPQRSheet: View {
                         .frame(width: 240, height: 240)
                         .padding(12)
                         .background(.white, in: RoundedRectangle(cornerRadius: 12))
-                        .accessibilityLabel("QR code for the setup key of \(title)")
+                        .accessibilityLabel("QR code for \(title)")
                 }
-                Text("Scan this with an authenticator app. Anyone who sees it can make your codes.")
+                Text(verbatim: caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 300)
             }
             .padding()
-            .navigationTitle("QR code")
+            .navigationTitle(heading)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif

@@ -1,4 +1,4 @@
-// Golden tests for the approved terminal frames A1 to A10 in Design/Mocks/command-line-and-agents.html (part 1).
+// Golden tests for the approved terminal frames A1 to A11 in Design/Mocks/command-line-and-agents.html (part 1).
 // Each expectation is the mock's terminal text, character for character; the exit code is the `echo $?` of the frame.
 // Compared as shown on a terminal: trailing spaces are invisible in the mock, so they are ignored, and a typed answer
 // at a prompt is put back where the terminal would have echoed it.
@@ -258,14 +258,36 @@ for it.
   }
 });
 
-test('A9: import and export are drawn in the mock but not built yet: they say so and exit 1', async () => {
+test('A9: a dry-run import and an export read exactly as the frame, and a dry run opens the vault read-only', async () => {
   const box = sandbox();
   try {
-    for (const name of ['import', 'export']) {
-      const r = await runCli([name, 'x.kdbx', '--dry-run'], { box });
-      assert.equal(r.stderr, `psss ${name} is not built yet.\n`, `psss ${name} should say it is not built yet`);
-      assert.equal(r.code, 1, `psss ${name} should exit 1`);
-    }
+    const family = path.join(box.home, 'Downloads', 'Family.kdbx');
+    const fake = new FakeVaultService(
+      scenarioFor(box, {
+        vaultName: 'Personal',
+        groups: ['Personal'],
+        kdbxFiles: { [family]: { password: 'family-pw', items: 118, attachments: 6 } },
+        kdbxExport: { items: 42, deleted: 0, doesNotTravel: ['the people in shared groups'] },
+      }),
+    );
+    const dry = await runCli(['import', family, '--dry-run'], { box, fake, typed: 'family-pw\n', stdoutTty: true });
+    const mockImport = `Password for Family.kdbx (not shown):
+Would add 118 items and 6 attachments to Personal.
+Nothing was changed.
+`;
+    assert.equal(norm(dry.combined), mockImport, 'the dry-run import should read exactly as frame A9');
+    assert.equal(dry.code, 0, 'A9 import exits 0');
+    assert.ok(fake.calls.includes('open:readOnly') && !fake.calls.includes('open'), 'a dry run opens the vault read-only');
+    assert.ok(fake.calls.includes('importKdbx:dry'), 'and asks the service for a dry run');
+
+    const out = await runCli(['export', '--format', 'kdbx', path.join(box.home, 'Desktop', 'Personal.kdbx')], { box, fake, typed: 'new-pw\n', stdoutTty: true });
+    const mockExport = `Password for the new file (not shown):
+Wrote ~/Desktop/Personal.kdbx with 42 items.
+Not in a KeePass file: the people in shared groups.
+`;
+    assert.equal(norm(out.combined), mockExport, 'the export should read exactly as frame A9');
+    assert.equal(out.code, 0, 'A9 export exits 0');
+    assert.equal(fake.kdbxPassword, 'new-pw', 'the typed password reached the service and nothing else');
   } finally {
     box.cleanup();
   }

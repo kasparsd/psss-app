@@ -16,7 +16,10 @@ extension VaultItem {
     /// A bare key keeps the parameters the login already has; a link brings its own.
     var savedForm: VaultItem {
         var clean = self
-        if clean.kind == .creditCard { clean.expiry = CardExpiry.displayed(clean.expiry) }
+        if clean.kind == .creditCard {
+            clean.expiry = CardExpiry.displayed(clean.expiry)
+            clean.validFrom = CardExpiry.displayed(clean.validFrom)
+        }
         if case .setup(let setup) = TOTP.parse(otpSecret) {
             clean.otpSecret = setup.secret
             if otpSecret.lowercased().contains("otpauth://") { clean.otpSettings = setup.settings }
@@ -32,7 +35,9 @@ extension VaultItem {
     func hasChanges(from stored: VaultItem) -> Bool {
         let a = savedForm, b = stored.savedForm
         return a.title != b.title || a.account != b.account || a.website != b.website || a.secret != b.secret
-            || a.expiry != b.expiry || a.securityCode != b.securityCode || a.notes != b.notes
+            || a.expiry != b.expiry || a.securityCode != b.securityCode
+            || a.validFrom != b.validFrom || a.pin != b.pin || a.issuer != b.issuer
+            || a.wifiSecurity != b.wifiSecurity || a.wifiHidden != b.wifiHidden || a.notes != b.notes
             || a.otpSecret != b.otpSecret || a.otpSettings != b.otpSettings
             || (a.otherFieldEdits ?? [:]) != (b.otherFieldEdits ?? [:])
     }
@@ -45,7 +50,7 @@ extension VaultItem {
 
     /// The item holds something: a name, a value, a note, a code or a passkey. An entirely empty item cannot be saved.
     var hasContent: Bool {
-        passkey != nil || otherFields?.isEmpty == false || [title, account, website, secret, expiry, securityCode, notes, otpSecret]
+        passkey != nil || otherFields?.isEmpty == false || [title, account, website, secret, expiry, securityCode, validFrom, pin, issuer, notes, otpSecret]
             .contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
 
@@ -58,7 +63,8 @@ extension VaultItem {
     static func firstCardFields(for kind: ItemKind) -> [ItemField] {
         switch kind {
         case .login, .keePassEntry: [.website, .account, .secret]
-        case .creditCard: [.secret, .expiry, .securityCode, .account]
+        case .creditCard: [.secret, .validFrom, .expiry, .securityCode, .pin, .account, .issuer]
+        case .wifi: [.account, .secret]
         case .secureNote: []
         }
     }
@@ -73,6 +79,29 @@ extension VaultItem {
         let keepsNumber = kind == .creditCard && fieldMapping != nil
         return (own + ItemField.allCases.filter { !own.contains($0) && $0 != .notes })
             .filter { !self[$0].isEmpty || (keepsNumber && $0 == .secret) }
+    }
+
+    /// One row of the item page's first card: a value, or a recognized field with no value yet, which the page draws as a quiet "Not set"
+    /// row with an Add (owner, 2026-11-24). Rows keep their place whether filled or not, so filling one in moves nothing.
+    struct FirstCardRow: Hashable {
+        let field: ItemField
+        let isSet: Bool
+    }
+
+    /// The rows of the first card, in order. A login and a card that is not shown from a KeePass mapping list every field their kind
+    /// recognizes; a mapped card, a custom item and a note list only what holds something (a mapped card's own strings stay in Other
+    /// fields), so nothing is offered that the entry would store under another name. What an imported item carries beyond its kind's
+    /// fields follows, filled only.
+    var firstCardRows: [FirstCardRow] {
+        let own = Self.firstCardFields(for: kind)
+        let showsUnset = kind == .login || (kind == .creditCard && fieldMapping == nil)
+        let ownRows: [FirstCardRow] = own.compactMap { field in
+            if !self[field].isEmpty { return FirstCardRow(field: field, isSet: true) }
+            return showsUnset ? FirstCardRow(field: field, isSet: false) : nil
+        }
+        let keepsNumber = kind == .creditCard && fieldMapping != nil && self[.secret].isEmpty
+        let extra = ItemField.allCases.filter { !own.contains($0) && $0 != .notes && !self[$0].isEmpty }.map { FirstCardRow(field: $0, isSet: true) }
+        return (keepsNumber ? [FirstCardRow(field: .secret, isSet: true)] : []) + ownRows + extra
     }
 
     /// What is wrong with the value of a mapped card, written under its row on the item page. Saving a mapping never checks
@@ -107,7 +136,7 @@ extension VaultItem {
 
 /// A value of an item that the page shows as a row and the form as a field.
 enum ItemField: String, CaseIterable, Hashable, Sendable {
-    case website, account, secret, expiry, securityCode, notes
+    case website, account, secret, expiry, securityCode, validFrom, pin, issuer, notes
 
     fileprivate var value: WritableKeyPath<VaultItem, String> {
         switch self {
@@ -116,6 +145,9 @@ enum ItemField: String, CaseIterable, Hashable, Sendable {
         case .secret: \.secret
         case .expiry: \.expiry
         case .securityCode: \.securityCode
+        case .validFrom: \.validFrom
+        case .pin: \.pin
+        case .issuer: \.issuer
         case .notes: \.notes
         }
     }

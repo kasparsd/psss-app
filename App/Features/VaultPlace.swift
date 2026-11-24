@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// The three places of the vault, the same on every device: All (everything, narrowed by Show and With), Codes and Cards. Only the
+/// The places of the vault, the same on every device: All (everything, narrowed by Show and With), Codes and Cards. Only the
 /// control differs: the tab bar at the bottom of an iPhone (and of a compact iPad), the sidebar on Mac and a regular iPad.
 enum VaultPlace: Int, CaseIterable, Identifiable, Hashable {
-    case all, codes, cards
+    case all, codes, cards, wifi
 
     var id: Self { self }
 
@@ -12,6 +12,7 @@ enum VaultPlace: Int, CaseIterable, Identifiable, Hashable {
         case .all: "All"
         case .codes: "Codes"
         case .cards: "Cards"
+        case .wifi: "Wi-Fi"
         }
     }
 
@@ -20,15 +21,17 @@ enum VaultPlace: Int, CaseIterable, Identifiable, Hashable {
         case .all: "square.stack"
         case .codes: "lock.badge.clock"
         case .cards: "creditcard"
+        case .wifi: "wifi"
         }
     }
 
-    /// ⌘1 to ⌘3.
+    /// ⌘1 to ⌘4.
     var shortcut: KeyEquivalent {
         switch self {
         case .all: "1"
         case .codes: "2"
         case .cards: "3"
+        case .wifi: "4"
         }
     }
 }

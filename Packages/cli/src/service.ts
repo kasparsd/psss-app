@@ -102,7 +102,18 @@ export interface Failed {
   message: string;
 }
 
-export type Failure = NotFound | Ambiguous | Locked | WrongKey | Failed;
+/** A KeePass file that cannot be used, or a place that cannot be written. `wrongKey` and `invalidKey` exit 4 (nothing unlocked it); the rest exit 1. */
+export interface KdbxProblem {
+  ok: false;
+  kind: 'kdbx';
+  why: 'missing' | 'unreadable' | 'notKdbx' | 'wrongKey' | 'invalidKey' | 'corrupt' | 'limit' | 'unsupported' | 'tooLarge' | 'exists' | 'notWritable' | 'verifyFailed';
+  /** The file as the person gave it, never a value. */
+  file: string;
+  /** For `unsupported`: the feature, in plain words. For `limit` and `tooLarge`: what was exceeded. */
+  detail?: string;
+}
+
+export type Failure = NotFound | Ambiguous | Locked | WrongKey | Failed | KdbxProblem;
 export type Result<T> = { ok: true; value: T } | Failure;
 
 export interface CreateRequest {
@@ -216,11 +227,87 @@ export interface VerifyReport {
   problems: VerifyProblem[];
 }
 
+/** The credentials of a KeePass file. A password is typed, piped or read from a file by the command; it never comes from an argument. */
+export interface KdbxCredentials {
+  /** Empty or absent means no password (only with a key file). */
+  password?: string;
+  /** The path of a key file. */
+  keyFile?: string;
+}
+
+export interface ImportRequest {
+  /** The KeePass file, as the person gave it (relative paths are against the working folder). */
+  file: string;
+  credentials: KdbxCredentials;
+  /** Work out and report everything, write nothing, not even device state. */
+  dryRun: boolean;
+  /** Remove characters a KeePass file cannot hold from a field instead of leaving the field out. */
+  stripInvalid: boolean;
+  /** Bring in the file's Recycle Bin as deleted items. */
+  includeTrash: boolean;
+  /** Replace items changed in the file since they were imported and not changed here. */
+  update: boolean;
+}
+
+export interface ImportIssue {
+  kind: string;
+  /** The item's name, never a value. */
+  item?: string;
+  detail: string;
+}
+
+export interface ImportResult {
+  group: string;
+  dryRun: boolean;
+  added: number;
+  attachments: number;
+  updated: number;
+  unchanged: number;
+  keptYours: number;
+  changedInFile: number;
+  conflicts: number;
+  skippedDeleted: number;
+  skippedGone: number;
+  skippedTrash: number;
+  inFolders: number;
+  refusedItems: number;
+  refusedFields: number;
+  strippedFields: number;
+  issues: ImportIssue[];
+  items: Array<{ title: string; action: string }>;
+}
+
+export interface ExportRequest {
+  /** The KeePass file to write. */
+  file: string;
+  credentials: KdbxCredentials;
+  /** Build and check the file, write nothing. */
+  dryRun: boolean;
+  /** Replace a file that is already there. */
+  force: boolean;
+  stripInvalid: boolean;
+}
+
+export interface ExportResult {
+  /** The absolute path written (or that would be). */
+  file: string;
+  dryRun: boolean;
+  items: number;
+  deleted: number;
+  attachments: number;
+  groups: number;
+  /** What the file does not carry, in words that follow "Not in a KeePass file:". */
+  doesNotTravel: string[];
+  issues: ImportIssue[];
+  refusedFields: number;
+  strippedFields: number;
+}
+
 export interface VaultService {
   /** Creates a vault and this computer's key. */
   create(request: CreateRequest): Promise<Result<CreatedVault>>;
   /** Opens the vault the options point at, or says why not. Called first by every command except `init`. */
-  open(): Promise<Result<OpenedVault>>;
+  open(options?: { readOnly?: boolean }): Promise<Result<OpenedVault>>;
   info(): Promise<Result<VaultInfo>>;
   list(query: ListQuery): Promise<Result<ItemSummary[]>>;
   /** Resolves a selector to exactly one item. `deleted` looks in Recently Deleted instead. */
@@ -237,4 +324,8 @@ export interface VaultService {
   sync(progress?: (line: string) => void): Promise<Result<SyncReport>>;
   /** Checks every record and reports. Never repairs. */
   verify(): Promise<Result<VerifyReport>>;
+  /** Brings a KeePass file in. Items are recognized by the entry's UUID: importing the same file again adds nothing. */
+  importKdbx(request: ImportRequest): Promise<Result<ImportResult>>;
+  /** Writes every item as a KeePass file, reads it back and checks it, then reports what the file does not carry. */
+  exportKdbx(request: ExportRequest): Promise<Result<ExportResult>>;
 }

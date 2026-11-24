@@ -190,7 +190,7 @@ extension KDBXDocument {
         if !recent || extraWrites.contains(where: { $0.concealed }) || EntryMapping.touchesSecret(from: snapshot, to: entry)
             || current.fillValue(for: .password) != item.fillValue(for: .password)
             || current.fillValue(for: .cardNumber) != item.fillValue(for: .cardNumber)
-            || current.fillValue(for: .securityCode) != item.fillValue(for: .securityCode) {
+            || current.fillValue(for: .securityCode) != item.fillValue(for: .securityCode) || current.pin != item.pin {
             pushHistory(snapshot, to: entry)
         }
         stampModified(entry)
@@ -260,6 +260,13 @@ enum EntryMapping {
     static let cardExpiryKey = "Expiry"
     /// A card's security code: a protected custom string with the name the importer already gives it.
     static let cardSecurityCodeKey = "Security code"
+    /// A card's issue date, PIN (protected) and issuing bank, under the names the importer already gives them.
+    static let cardValidFromKey = "Valid from"
+    static let cardPINKey = "PIN"
+    static let cardIssuerKey = "Card issuer"
+    /// A Wi-Fi network: its security (`WPA`, `WEP` or `None`) and, when set, `Yes` for a network that hides its name.
+    static let wifiSecurityKey = "Security"
+    static let wifiHiddenKey = "Hidden network"
 
     // KeePassXC passkey fields, so a passkey made here opens there and the other way round.
     static let passkeyCredential = "KPEX_PASSKEY_CREDENTIAL_ID"
@@ -275,7 +282,7 @@ enum EntryMapping {
     private static let standardStrings: Set<String> = ["Title", "UserName", "Password", "URL", "Notes"]
     private static let internalStrings = Set(passkeyKeys + [passkeyCreated, typeKey, fieldMappingKey, "PSSS_SOURCE", "PSSS_IMPORT_HASHES"])
     /// The strings Psss itself keeps protected: the password (a card's number too), the one-time code and the passkey's private key.
-    private static let protectedKeys: Set<String> = ["Password", "otp", passkeyKey, cardSecurityCodeKey]
+    private static let protectedKeys: Set<String> = ["Password", "otp", passkeyKey, cardSecurityCodeKey, cardPINKey]
     /// Strings whose change is a change of a secret, even where the file does not mark them protected.
     private static let secretKeys: Set<String> = protectedKeys.union([
         passkeyCredential, passkeyRelyingParty, passkeyUserHandle, passkeyCreated,
@@ -424,6 +431,7 @@ enum EntryMapping {
             case "card": kind = .creditCard
             case "note": kind = .secureNote
             case "custom": kind = .keePassEntry
+            case "wifi": kind = .wifi
             case "login": kind = .login
             default:
                 if !website.isEmpty || !account.isEmpty || !otp.secret.isEmpty || passkey != nil { kind = .login }
@@ -433,12 +441,20 @@ enum EntryMapping {
         }
         let expiryKey = kind == .creditCard ? key(.expiry, fallback: cardExpiryKey) : nil
         let securityKey = kind == .creditCard ? key(.securityCode, fallback: cardSecurityCodeKey) : nil
+        // Only a card that is not shown from a field mapping owns these strings; a mapped card keeps them in its other fields.
+        let plainCard = kind == .creditCard && assigned == nil
+        let validFromKey = plainCard ? cardValidFromKey : nil, pinKey = plainCard ? cardPINKey : nil, issuerKey = plainCard ? cardIssuerKey : nil
+        let isWifi = kind == .wifi && assigned == nil
+        let wifiSecurityKey = isWifi ? Self.wifiSecurityKey : nil, wifiHiddenKey = isWifi ? Self.wifiHiddenKey : nil
         let times = entry.child("Times")
         var item = VaultItem(id: id, kind: kind, title: title, account: account, website: website, secret: secret,
-                             expiry: read(expiryKey), securityCode: read(securityKey), notes: notes,
+                             expiry: read(expiryKey), securityCode: read(securityKey),
+                             validFrom: read(validFromKey), pin: read(pinKey), issuer: read(issuerKey), notes: notes,
                              otpSecret: kind == .login ? otp.secret : "", otpSettings: kind == .login ? otp.settings : .standard,
                              created: times?.child("CreationTime").flatMap { KeePassTime.date($0.text) },
                              modified: times?.child("LastModificationTime").flatMap { KeePassTime.date($0.text) })
+        item.wifiSecurity = WiFiSecurity(rawValue: read(wifiSecurityKey)) ?? (isWifi && string(entry, Self.wifiSecurityKey) == nil && secret.isEmpty ? .none : .wpa)
+        item.wifiHidden = read(wifiHiddenKey).lowercased() == "yes"
         item.passkey = passkey
         item.sourceFields = candidates
         item.fieldMapping = resolved
@@ -446,6 +462,8 @@ enum EntryMapping {
         let core: [(String, String?)] = [
             ("title", "Title"), ("notes", "Notes"), ("account", accountKey), ("secret", secretKey),
             ("website", websiteKey), ("expiry", expiryKey), ("securityCode", securityKey),
+            ("validFrom", validFromKey), ("pin", pinKey), ("issuer", issuerKey),
+            ("wifiSecurity", wifiSecurityKey), ("wifiHidden", wifiHiddenKey),
         ]
         let displayed = Set(core.compactMap { $0.1 }).subtracting(
             fields.contains { $0.key == "Title" && $0.isProtected } ? ["Title"] : []
@@ -535,10 +553,18 @@ enum EntryMapping {
             case .creditCard: set(typeKey, "card")
             case .secureNote: set(typeKey, "note")
             case .keePassEntry: set(typeKey, "custom")
+            case .wifi: set(typeKey, "wifi")
+            }
+            if item.kind == .wifi {
+                set(wifiSecurityKey, item.wifiSecurity.rawValue)
+                set(wifiHiddenKey, item.wifiHidden ? "Yes" : nil)
             }
             if item.kind == .creditCard {
                 set(cardExpiryKey, item.expiry)
                 set(cardSecurityCodeKey, item.securityCode)
+                set(cardValidFromKey, item.validFrom)
+                set(cardPINKey, item.pin)
+                set(cardIssuerKey, item.issuer)
             }
         }
 
@@ -624,7 +650,9 @@ enum EntryMapping {
         }
         return a.kind == b.kind && title(a) == title(b) && a.account == b.account && a.website == b.website && a.secret == b.secret
             && a.notes == b.notes
-            && (a.kind == .creditCard ? CardExpiry.displayed(a.expiry) == CardExpiry.displayed(b.expiry) && a.securityCode == b.securityCode : true)
+            && (a.kind == .creditCard ? CardExpiry.displayed(a.expiry) == CardExpiry.displayed(b.expiry) && a.securityCode == b.securityCode
+                && a.validFrom == b.validFrom && a.pin == b.pin && a.issuer == b.issuer : true)
+            && (a.kind == .wifi ? a.wifiSecurity == b.wifiSecurity && a.wifiHidden == b.wifiHidden : true)
             && code(a) == code(b) && passkey(a) == passkey(b)
     }
 

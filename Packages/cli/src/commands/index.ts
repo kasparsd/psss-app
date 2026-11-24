@@ -1,4 +1,6 @@
+import exportCommand from './export.ts';
 import get from './get.ts';
+import importCommand from './import.ts';
 import init from './init.ts';
 import list from './list.ts';
 import { plannedCommands } from './planned.ts';
@@ -11,7 +13,7 @@ import sync from './sync.ts';
 import verify from './verify.ts';
 import type { Command } from './command.ts';
 
-const byName = new Map<string, Command>([...[init, status, get, set, list, rm, restore, run, sync, verify], ...plannedCommands].map((c) => [c.name, c]));
+const byName = new Map<string, Command>([...[init, status, get, set, list, rm, restore, run, sync, verify, importCommand, exportCommand], ...plannedCommands].map((c) => [c.name, c]));
 
 /** Every command, in the order the help lists them. */
 export const commands: Command[] = [

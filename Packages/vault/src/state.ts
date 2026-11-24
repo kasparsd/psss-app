@@ -30,8 +30,18 @@ export class DeviceState {
   data: StateData;
   private dirty = false;
   private durable: boolean;
+  /** a read-only copy: nothing is ever written to `dir` (see `ephemeral`) */
+  readonly memory: boolean = false;
 
   constructor(dir: string, data: StateData, durable = true) { this.dir = dir; this.data = data; this.durable = durable; }
+
+  /** The device state as it is on disk, or a new one that exists only in memory, and never writes: for a command that must change nothing (a dry run). */
+  static ephemeral(dir: string, name: string, deviceId: Uint8Array): DeviceState {
+    const d = DeviceState.read(dir) ?? { version: 1 as const, name, deviceId: hex(deviceId), chains: {}, heads: {} };
+    const s = new DeviceState(dir, d, false) as { memory: boolean } & DeviceState;
+    (s as { memory: boolean }).memory = true;
+    return s;
+  }
 
   static load(dir: string, durable = true): DeviceState | null {
     const d = DeviceState.read(dir);
@@ -52,6 +62,7 @@ export class DeviceState {
   /** Reads state.json again, after another process may have changed it (called with the state lock held). Returns true if the file differs
    *  from what this object held; the object then holds the file's content. */
   reload(): boolean {
+    if (this.memory) return false;
     const d = DeviceState.read(this.dir);
     if (!d || JSON.stringify(d) === JSON.stringify(this.data)) return false;
     this.data = d;
@@ -69,12 +80,14 @@ export class DeviceState {
 
   /** Replaces state.json atomically. Not flushed to disk: what a lost write costs is covered below. Use `flush` where it matters. */
   save(): void {
+    if (this.memory) return;
     if (!this.dirty) return;
     this.write(false);
   }
   /** As `save`, and flushed to disk. Called before an outbox entry is removed: from then on the vault itself is the only proof of the
    *  record, and a state that fell behind it would make the device take a new device id (3.2). */
   flush(): void {
+    if (this.memory) return;
     if (!this.dirty && !this.unflushed) return;
     this.write(true);
   }
@@ -90,6 +103,7 @@ export class DeviceState {
 
   /** 3.2: a device that cannot be certain of the last sequence number it wrote takes a new device id and starts its chains again. */
   takeNewDevice(deviceId: Uint8Array): void {
+    if (this.memory) return;
     this.data.deviceId = hex(deviceId);
     this.data.chains = {};
     this.dirty = true;
@@ -99,6 +113,7 @@ export class DeviceState {
   /** Called after the sealed bytes are in the outbox, before anything leaves the device. Not flushed: if the process dies before the next
    *  flush, the outbox (flushed) is the proof of the record and the next open advances the number again. */
   advance(gid: string, seq: number, id: string): void {
+    if (this.memory) throw new VaultError('read_only', 'this vault was opened to read only');
     this.data.chains[gid] = { seq, id };
     this.dirty = true;
     this.save();
@@ -108,8 +123,8 @@ export class DeviceState {
   // ---- outbox
   private get outboxDir(): string { return join(this.dir, 'outbox'); }
   private outboxPath(gid: string, seq: number): string { return join(this.outboxDir, `${gid}-${String(seq).padStart(10, '0')}.sealed`); }
-  putOutbox(gid: string, seq: number, sealed: Uint8Array): void { writeAtomic(this.outboxPath(gid, seq), sealed, 0o600, this.durable); }
-  removeOutbox(gid: string, seq: number): void { try { unlinkSync(this.outboxPath(gid, seq)); } catch { /* already gone */ } }
+  putOutbox(gid: string, seq: number, sealed: Uint8Array): void { if (this.memory) throw new VaultError('read_only', 'this vault was opened to read only'); writeAtomic(this.outboxPath(gid, seq), sealed, 0o600, this.durable); }
+  removeOutbox(gid: string, seq: number): void { if (this.memory) return; try { unlinkSync(this.outboxPath(gid, seq)); } catch { /* already gone */ } }
   outbox(): OutboxEntry[] {
     if (!existsSync(this.outboxDir)) return [];
     const out: OutboxEntry[] = [];
