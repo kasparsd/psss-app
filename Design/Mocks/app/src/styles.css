@@ -292,3 +292,6 @@ table.cmp td,table.cmp th{border-top:1px solid var(--rule);padding:6px 12px 6px 
 .viewopts .ibtn{background:none;box-shadow:none}
 .viewopts .ibtn.active{background:none;color:var(--accent)}
 .phone .navend .viewopts .sortwrap:first-child .pop{right:-92px}
+/* the name is edited in the heading itself */
+.ident .namefield{font:inherit;font-size:var(--t);font-weight:600;text-align:center;color:var(--lab);background:var(--field);border:0;border-radius:8px;padding:5px 10px;width:100%;max-width:240px}
+.ident .namefield::placeholder{color:var(--lab2);font-weight:600}

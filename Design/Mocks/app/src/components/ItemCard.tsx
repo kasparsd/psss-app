@@ -11,12 +11,44 @@ export interface CodeEdit {
   remove: () => void;
 }
 
+/** What an item is called when it has no name of its own: the site, the card, the start of the note. */
+export function fallbackName(item: Item): string {
+  const get = (l: string) => item.fields.find((f) => f.label === l)?.value;
+  if (item.kind === 'login') return get('Website') ?? get('Username') ?? 'Login';
+  if (item.kind === 'card') {
+    const brand = item.brand === 'American Express' ? 'Amex' : item.brand;
+    return brand && item.last4 ? `${brand} •• ${item.last4}` : 'Card';
+  }
+  if (item.kind === 'note') return (get('Note') ?? 'Note').split(/[.\n]/)[0].slice(0, 28);
+  return get('Website') ?? get('Username') ?? 'Custom item';
+}
+
+/** The first card of each kind, in the order the fields are asked for. The same in view, edit and new. */
+const firstCard: Record<Item['kind'], string[]> = {
+  login: ['Website', 'Username', 'Password'],
+  card: ['Card number', 'Expiry', 'Security code', 'Name on card'],
+  note: ['Note'],
+  custom: ['Website', 'Username', 'Value'],
+};
+/** Values that are hidden on the page and typed in the monospaced face. */
+const secrets = ['Password', 'Card number', 'Security code', 'Value'];
+const inFirst = (label: string, kind: Item['kind']) => firstCard[kind].includes(label);
+/** The fields of the first card that the item has, in order. A field that was never filled in has no row. */
+function mainFields(item: Item) {
+  return firstCard[item.kind].flatMap((l) => item.fields.filter((f) => f.label === l));
+}
+
 /** The icon and name stand above the card, on the page itself. */
-function Identity({ item }: { item: Item }) {
+function Identity({ item, unnamed, editing }: { item: Item; unnamed?: boolean; editing?: boolean }) {
   return (
     <div className="ident">
       <ItemIcon item={item} big />
-      <div className="t">{item.name}</div>
+      {editing ? (
+        // While editing, the heading itself is the name field. With no name of its own it shows, in grey, what the item is called anyway.
+        <input className="t namefield" defaultValue={unnamed ? '' : item.name} placeholder={fallbackName(item)} aria-label="Name" />
+      ) : (
+        <div className="t">{unnamed ? fallbackName(item) : item.name}</div>
+      )}
     </div>
   );
 }
@@ -25,7 +57,7 @@ function Identity({ item }: { item: Item }) {
  * The item page: the icon and name above, then one card per group. One
  * component for logins, cards, notes and custom items, view and edit.
  */
-export function ItemCard({ item, mode = 'view', shown, copied, code, onSetUpCode, onDelete, note = true, bubble }: {
+export function ItemCard({ item, mode = 'view', shown, copied, code, onSetUpCode, onDelete, note = true, bubble, unnamed }: {
   item: Item;
   mode?: 'view' | 'edit';
   /** Labels of fields that start shown. */
@@ -38,13 +70,15 @@ export function ItemCard({ item, mode = 'view', shown, copied, code, onSetUpCode
   onDelete?: () => void;
   /** The line saying copies are cleared (view only). */
   note?: boolean;
-  /** Start with the clipboard line's help bubble open. */
+  /** Start with a help bubble open: the clipboard line's (view), the setup key's (edit). */
   bubble?: boolean;
+  /** Draw the item without a name of its own: it is called by its site, card or first words. */
+  unnamed?: boolean;
 }) {
-  if (mode === 'edit') return <Editor item={item} code={code} onDelete={onDelete} />;
+  if (mode === 'edit') return <Editor item={item} code={code} onDelete={onDelete} unnamed={unnamed} bubble={bubble} />;
 
   const isLogin = item.kind === 'login';
-  const fields = item.fields.map((f) => <FieldRow key={f.label} {...f} shown={shown?.includes(f.label)} copied={copied === f.label} />);
+  const row = (f: Item['fields'][number]) => <FieldRow key={f.label} {...f} shown={shown?.includes(f.label)} copied={copied === f.label} />;
   // A login's code and everything about it is one group, after the password.
   const codeRow = !isLogin ? null : item.brokenCode ? (
     <FieldRow key="code" label="Verification code" value="Psss can't make a code from this setup key. Replace it with a new key from the website." noCopy action={<button className="btn sq" onClick={onSetUpCode}>Replace Code…</button>} />
@@ -53,13 +87,12 @@ export function ItemCard({ item, mode = 'view', shown, copied, code, onSetUpCode
   ) : (
     <FieldRow key="code" label="Verification code" value="None" noCopy display={<span className="s">None</span>} action={<button className="btn sq" onClick={onSetUpCode}>Set Up Code…</button>} />
   );
-  const second = (r: { key: string | null }) => r.key === 'Website' || r.key === 'Notes';
-  const main = fields.filter((r) => !second(r));
-  const rest = fields.filter(second);
+  const main = mainFields(item).map(row);
+  const rest = item.fields.filter((f) => !inFirst(f.label, item.kind)).map(row);
 
   return (
     <div>
-      <Identity item={item} />
+      <Identity item={item} unnamed={unnamed} />
       <div className="icard">{main}</div>
       {note && (
         <div className="gf">Copies are cleared after 60 seconds. <InfoButton topic={topics.clipboard} open={bubble} /></div>
@@ -93,40 +126,48 @@ export function ItemCard({ item, mode = 'view', shown, copied, code, onSetUpCode
   );
 }
 
-function Editor({ item, code, onDelete }: { item: Item; code?: CodeEdit; onDelete?: () => void }) {
+function Editor({ item, code, onDelete, unnamed, bubble }: { item: Item; code?: CodeEdit; onDelete?: () => void; unnamed?: boolean; bubble?: boolean }) {
   const [local, setLocal] = useState<string | null>(item.code ? DOTS : null);
   const draft = code ? code.draft : local;
   const add = code ? code.add : () => setLocal('x');
   const remove = code ? code.remove : () => setLocal(null);
   const isLogin = item.kind === 'login';
+  const notes = item.fields.find((f) => f.label === 'Notes');
   return (
     <>
-      <Identity item={item} />
+      <Identity item={item} unnamed={unnamed} editing />
+      {/* The same groups, in the same order, as the page being edited. */}
       <div className="icard">
-        <EditRow label="Name" value={item.name} />
-        {item.fields.map((f) =>
-          isLogin && f.label === 'Notes' ? (
-            <EditRow key={f.label} label={f.label} value={f.value} />
-          ) : (
-            <EditRow key={f.label} label={f.label} value={f.value} secret={f.secret && item.kind !== 'custom'} mono={f.secret} />
-          ),
-        )}
-        {isLogin && (
-          <EditRow
-            label="Verification code (optional)"
-            info={<InfoButton topic={topics.setupKey} />}
-            value={draft ? DOTS : ''}
-            placeholder="Setup key or otpauth:// link"
-            mono
-            action={<button className="btn sq acc" onClick={add}>{draft ? 'Replace code' : 'Add code'}</button>}
-            below={draft ? <button className="btn sq red" onClick={remove}>Remove code</button> : undefined}
-          />
-        )}
+        {/* Every field of the kind has its place in the editor, filled in or not. */}
+        {firstCard[item.kind].map((label) => {
+          const secret = secrets.includes(label);
+          return <EditRow key={label} label={label} value={item.fields.find((f) => f.label === label)?.value} secret={secret && item.kind !== 'custom'} mono={secret} />;
+        })}
       </div>
+      {isLogin && (
+        <>
+          <div className="gh">Verification code <InfoButton topic={topics.setupKey} open={bubble} /></div>
+          <div className="icard">
+            <EditRow
+              label="Setup key (optional)"
+              value={draft ? DOTS : ''}
+              placeholder="Setup key or otpauth:// link"
+              mono
+              action={<button className="btn sq acc" onClick={add}>{draft ? 'Replace code' : 'Add code'}</button>}
+              below={draft ? <button className="btn sq red" onClick={remove}>Remove code</button> : undefined}
+            />
+          </div>
+        </>
+      )}
+      {item.kind !== 'note' && (
+        <div className="icard">
+          <EditRow label="Notes (optional)" value={notes?.value} />
+        </div>
+      )}
       {onDelete && (
         <>
-          <div className="icard"><div className="delwrap"><button className="btn sq red" onClick={onDelete}>Delete Item</button></div></div>
-          <div className="delnote">Moves this item to Recently Deleted. You can bring it back for 30 days.</div>
+          <div className="icard"><div className="delwrap"><button className="btn sq" onClick={onDelete}>Move to Recently Deleted</button></div></div>
+          <div className="delnote">You can bring it back for 30 days.</div>
         </>
       )}
     </>

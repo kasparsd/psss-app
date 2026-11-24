@@ -183,7 +183,7 @@ export function PhoneCards({ variant = 'normal' }: { variant?: CardsVariant }) {
 }
 
 /** An item page, or its editor. `whole` draws the page as tall as its content, without a tab bar. */
-export function PhoneItem({ id = 1, mode = 'view', shown, copied, pill, from = 'all', whole, bubble }: {
+export function PhoneItem({ id = 1, mode = 'view', shown, copied, pill, from = 'all', whole, bubble, fresh, unnamed }: {
   id?: number;
   mode?: 'view' | 'edit';
   shown?: string[];
@@ -192,6 +192,10 @@ export function PhoneItem({ id = 1, mode = 'view', shown, copied, pill, from = '
   from?: 'all' | 'cards';
   whole?: boolean;
   bubble?: boolean;
+  /** Draw the sheet for a new item: no name typed, nothing to move to Recently Deleted. */
+  fresh?: boolean;
+  /** The item has no name of its own: it is called by its site, card or first words. */
+  unnamed?: boolean;
 }) {
   const item = byId(id);
   if (mode === 'edit') {
@@ -199,7 +203,7 @@ export function PhoneItem({ id = 1, mode = 'view', shown, copied, pill, from = '
       <IPhone tall>
         <Nav left={<button className="btn plain">Cancel</button>} right={<button className="btn pri main">Save</button>} />
         <div className="pbody" style={{ overflow: 'visible' }}>
-          <ItemCard item={item} mode="edit" onDelete={() => {}} />
+          <ItemCard item={item} mode="edit" onDelete={fresh ? undefined : () => {}} unnamed={fresh || unnamed} bubble={bubble} />
         </div>
       </IPhone>
     );
@@ -212,7 +216,7 @@ export function PhoneItem({ id = 1, mode = 'view', shown, copied, pill, from = '
       <IPhone tall>
         <Nav left={back} right={<button className="btn main">Edit</button>} />
         <div className="pbody" style={{ overflow: 'visible' }}>
-          <ItemCard item={item} shown={shown} copied={copied} bubble={bubble} />
+          <ItemCard item={item} shown={shown} copied={copied} bubble={bubble} unnamed={unnamed} />
         </div>
       </IPhone>
     );
@@ -221,7 +225,7 @@ export function PhoneItem({ id = 1, mode = 'view', shown, copied, pill, from = '
     <IPhone tab={from} pill={pill}>
       <Nav left={back} right={<button className="btn main">Edit</button>} />
       <div className="pbody tabpad" style={{ overflow: 'auto' }}>
-        <ItemCard item={item} shown={shown} copied={copied} bubble={bubble} />
+        <ItemCard item={item} shown={shown} copied={copied} bubble={bubble} unnamed={unnamed} />
       </div>
     </IPhone>
   );

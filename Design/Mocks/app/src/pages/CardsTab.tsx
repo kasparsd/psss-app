@@ -13,7 +13,7 @@ export function CardsTab() {
         <Clarity
           items={[
             ['Which thing?', 'The payment cards saved in their vault. One row per card: its name over the brand, then the last four digits over the expiry at the trailing end.'],
-            ['What must they give?', 'One tap on the card. Its page has a copy icon on every field (number, expiry, security code, name), and a tap anywhere on a field copies it, so a checkout is: open the card, copy, copy, copy, back.'],
+            ['What must they give?', 'One tap on the card. Its page has a copy icon on every field (card number, expiry, security code, name on card), and a tap anywhere on a field copies it, so a checkout is: open the card, copy, copy, copy, back.'],
             ['What can go wrong?', 'The card has expired; a field was never filled in; there are no cards yet.'],
             ['How do they leave?', 'Back to the list, or any other tab. Copying changes nothing; each copy leaves the clipboard after 60 seconds, as passwords do.'],
           ]}
@@ -25,16 +25,16 @@ export function CardsTab() {
           <Frame phone label="A. Cards tab" caption="One row per card. With more than five cards a “Recently used” group leads (up to five, used in the last 30 days), then “All cards” A to Z. The name sits over the brand; the last four digits sit over the expiry, right-aligned in digits of one width, so both read down the list as columns. The whole row opens the card; there is no second tap target in it.">
             <PhoneCards />
           </Frame>
-          <Frame phone label="B. The card's page" caption="Opened from the Cards tab, so Back returns to Cards and the Cards tab stays selected. Every field has its copy icon and copies when tapped; number and security code stay hidden behind eight dots until the eye.">
+          <Frame phone label="B. The card's page" caption="Opened from the Cards tab, so Back returns to Cards and the Cards tab stays selected. Every field has its copy icon and copies when tapped; card number and security code stay hidden behind eight dots until the eye.">
             <PhoneItem id={6} from="cards" />
           </Frame>
-          <Frame phone label="C. Just copied" caption="Copying the number: the checkmark and the shared “Number copied” pill, for about two seconds, with a haptic. Copying counts as using the card, so it can be in the group next time; the list never reorders while on screen.">
-            <PhoneItem id={6} from="cards" copied="Number" pill="Number copied" />
+          <Frame phone label="C. Just copied" caption="Copying the card number: the checkmark and the shared “Card number copied” pill, for about two seconds, with a haptic. Copying counts as using the card, so it can be in the group next time; the list never reorders while on screen.">
+            <PhoneItem id={6} from="cards" copied="Card number" pill="Card number copied" />
           </Frame>
-          <Frame phone label="D. An expired card, and a short list" caption="Expired cards come last under “Expired”, and the second line says “Visa · Expired”. This vault has three live cards, so there is no group and no “All cards” heading: a group above five rows or fewer would only repeat them. The card's page still has everything, to update or delete it.">
+          <Frame phone label="D. An expired card, and a short list" caption="Expired cards come last under “Expired”, and the second line says “Visa · Expired”. This vault has three live cards, so there is no group and no “All cards” heading: a group above five rows or fewer would only repeat them. The card's page still has everything, to update it or move it to Recently Deleted.">
             <PhoneCards variant="short" />
           </Frame>
-          <Frame phone label="E. No cards yet" caption="“Add card” opens the editor for a new card. The tab is always present, like Codes.">
+          <Frame phone label="E. No cards yet" caption="“Add card” opens the sheet for a new card. The tab is always present, like Codes.">
             <PhoneCards variant="empty" />
           </Frame>
         </Frames>
@@ -63,7 +63,7 @@ export function CardsTab() {
               why: <>Rows are easy to scan and behave like All and Codes, and like Cards on Mac and iPad. The card's page already copies every field, so a checkout costs one extra tap, not one per field. Expanding in place would add a third way rows behave on iPhone and two tap targets in one row, which people hit by mistake and cannot tell apart.</>,
             },
             {
-              decision: <><strong>2. The row:</strong> the name over the short brand (“Visa”; “Visa · Expired” once expired; “Card” when the brand is unknown); at the trailing end, right-aligned in digits of one width, “•• 4417” over “08/28”. A missing part drops out. The same row is used in Cards, in All and in search.</>,
+              decision: <><strong>2. The row:</strong> the name over the short brand (“Visa”; “Visa · Expired” once expired; “Card” when the brand is unknown). A card saved without a name is called by its brand and last four digits; at the trailing end, right-aligned in digits of one width, “•• 4417” over “08/28”. A missing part drops out. The same row is used in Cards, in All and in search.</>,
               rejected: <>“Visa ending 4417” (repeats the masked number, says nothing about expiry); “Visa •• 4417 · 08/28” in the second line (too wide beside a name on iPhone).</>,
               why: <>The brand, the last four digits and the expiry are what you check at a checkout to pick the right card, and none of them is secret enough to hide in a list. Two short right-aligned columns are what the eye runs down.</>,
             },
@@ -84,6 +84,7 @@ export function CardsTab() {
 
         <History
           entries={[
+            { date: '2026-11-24', text: <>The card's first field is labelled “Card number” (the pill says “Card number copied”), and a card can be saved without a name; it is then called by its brand and last four digits. Both follow the item page decisions the owner approved (see <a href="#/item-page">Item page, Edit and toolbar</a>). Before, the label was “Number” and a card needed a name.</> },
             { date: '2026-11-24', text: <>A “Recently used” group now leads the Cards tab, then “All cards” A to Z, then “Expired”. It replaces “last used first”. The owner decided it for All, Codes and Cards together; it holds up to five items used in the last 30 days and is left out when the list has five or fewer.</> },
             { date: '2026-11-24', text: <>The card row changed: the last four digits and the expiry moved to the trailing end, one over the other, and the second line keeps only the brand (“Visa · Expired” when expired). It replaced “Visa •• 4417 · 08/28” in the second line, which is too wide beside a name on iPhone. The owner approved it as drawn.</> },
             { date: '2026-11-24', text: <>Cards stays a tab and a sidebar row. The first drawing of the filter menu had put Codes and Cards in the menu with no tab bar; the owner kept the tabs.</> },
