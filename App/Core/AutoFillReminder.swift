@@ -24,8 +24,8 @@ enum AutoFillReading: Equatable, Sendable {
 /// The device word the copy uses.
 enum AutoFillDevice: Equatable, Sendable { case iPhone, iPad, mac }
 
-/// Which vault is open. The reminder belongs to a real vault: the sample vault registers no logins, so nothing can be filled.
-enum AutoFillVault: Equatable, Sendable { case none, sample, real }
+/// Whether a vault is open. The reminder shows for any open vault, the sample vault included.
+enum AutoFillVault: Equatable, Sendable { case none, real }
 
 /// What this device remembers, per device and never in the vault file: another device must not inherit any of it.
 struct AutoFillMemory: Codable, Equatable, Sendable {

@@ -1125,8 +1125,8 @@ struct VaultView: View {
         } else { "Psss stops using this vault. The file is not deleted and you can open it again." }
     }
 
-    /// The vault the AutoFill reminder is about. The sample vault registers no logins, so it never shows the card.
-    private var autoFillVault: AutoFillVault { store.isSample ? .sample : .real }
+    /// A vault is open on every screen that asks, the sample vault included.
+    private var autoFillVault: AutoFillVault { .real }
 
     private var showsAutoFillCard: Bool { autoFill.reminder(for: autoFillVault).display != .nothing }
 

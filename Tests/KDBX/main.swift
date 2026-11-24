@@ -3329,7 +3329,7 @@ func reminderDisplay(_ vault: AutoFillVault, _ reading: AutoFillReading, _ memor
 @MainActor func autoFillReminderChecks() async {
     // The pure rules.
     expect("autofill: a real vault with AutoFill off shows the first card", reminderDisplay(.real, .off) == .card(.off))
-    for vault in [AutoFillVault.none, .sample] {
+    for vault in [AutoFillVault.none] {
         for reading in [AutoFillReading.notRead, .on, .off, .unreadable] {
             expect("autofill: no card or confirmation for \(vault) while \(reading)", reminderDisplay(vault, reading, confirming: true) == .nothing)
         }
@@ -3405,7 +3405,6 @@ func reminderDisplay(_ vault: AutoFillVault, _ reading: AutoFillReading, _ memor
 
     await status.refresh()
     expect("autofill: off shows the first card", status.reminder(for: .real).display == .card(.off))
-    expect("autofill: the sample vault shows no card", status.reminder(for: .sample).display == .nothing)
     expect("autofill: the first press asks the system", status.action == .askSystem)
 
     // While Apple's prompt is up the card keeps its words and the button does not fire twice. Only the answer changes the card.
@@ -3470,7 +3469,6 @@ func reminderDisplay(_ vault: AutoFillVault, _ reading: AutoFillReading, _ memor
     await status.refresh()
     expect("autofill: found on after it was off shows the confirmation once", status.reminder(for: .real).display == .confirmation)
     expect("autofill: on clears the snooze and the used prompt on this device", device.load().snoozedAt == nil && !device.load().promptUsed && device.load().seenOn)
-    expect("autofill: the sample vault shows no confirmation", status.reminder(for: .sample).display == .nothing)
     status.dismissConfirmation()
     expect("autofill: Done removes the confirmation", status.reminder(for: .real).display == .nothing)
     await status.refresh()
