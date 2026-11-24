@@ -284,3 +284,5 @@ table.cmp td,table.cmp th{border-top:1px solid var(--rule);padding:6px 12px 6px 
 
 /* A secret shown in the clear is monospaced, at body size: 1, l and I, 0 and O differ */
 .mono,.efield input.mono{font-family:ui-monospace,"SF Mono",Menlo,monospace}
+/* the one prominent button of the item column: Edit, and Save while editing */
+.btn.main{padding-left:20px;padding-right:20px}

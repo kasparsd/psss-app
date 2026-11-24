@@ -217,12 +217,12 @@ export function Workspace({ device, init = {}, empty = false }: { device: 'mac' 
             {sel && (editing ? (
               <>
                 <button className="btn glass" onClick={() => setEditing(false)}>Cancel</button>
-                <button className="btn glass save" onClick={save}>Save</button>
+                <button className="btn pri main" onClick={save}>Save</button>
               </>
             ) : inDeleted ? (
               <button className="btn glass" onClick={() => restore(sel.id)}>Restore</button>
             ) : (
-              <button className="btn glass" onClick={startEdit}>Edit</button>
+              <button className="btn pri main" onClick={startEdit}>Edit</button>
             ))}
             <label className="searchbox">
               <SearchIcon />
