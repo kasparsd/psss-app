@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Against, Approved, Clarity, Decisions, Frame, Frames, History, Page, Section } from '../components/page';
 import { DeviceProvider, DeviceSwitcher, DeviceView, PageDeviceSwitch } from '../components/DeviceSwitcher';
-import type { Device } from '../components/devices';
-import { PhoneItem } from '../screens/PhoneScreens';
+import { IPhone, type Device } from '../components/devices';
+import { Nav, PhoneItem } from '../screens/PhoneScreens';
 import { renderDevice } from '../screens/render';
 
 export function ItemPage() {
@@ -60,6 +60,9 @@ export function ItemPage() {
           <Frame phone label="G. A login without a code" caption="“Add code” sits on the right of the setup key field. Press it and it becomes “Replace code”, with “Remove code” below.">
             <PhoneItem id={2} mode="edit" />
           </Frame>
+          <Frame phone label="Paste a verification-code image" caption="Try Paste with a QR screenshot, an unrelated image, and an empty clipboard. The mock uses fictional clipboard contents. On iPhone, iPad and Mac, a row “From QR code in screenshot” with the system Paste button at its right appears under Setup key when the clipboard holds an image. The system button cannot be renamed, so the row says what it reads. The sheet then shows the issuer, the account and a live code from the decoded QR. See I for Mac and iPad.">
+            <PasteCodeDemo />
+          </Frame>
           <Frame phone label="H. Editing a card" caption="The same for a card: its name in the heading, then Card number, Expiry, Security code and Name on card, then Notes. Every field of a card has its place here, filled in or not.">
             <PhoneItem id={6} mode="edit" />
           </Frame>
@@ -67,11 +70,11 @@ export function ItemPage() {
             label="I. Editing in place on Mac and iPad"
             initial="mac"
             caption={{
-              iphone: 'As in F.',
-              ipad: 'As on the Mac.',
-              mac: 'The item column turns into the editor; Cancel and Save take the place of Edit. The sidebar, the list and search are dimmed and do not react until Save or Cancel, so a half-edited login cannot be left by accident. The icon stays above the card and the name under it becomes a field. “Move to Recently Deleted” is the last thing in the column.',
+              iphone: 'As in F, with Paste because the clipboard holds an image.',
+              ipad: 'As on the Mac. Paste is the system Paste button, in the same place as on iPhone.',
+              mac: 'Paste, the system button with the clipboard symbol, shows under the setup key while the clipboard holds an image. The item column turns into the editor; Cancel and Save take the place of Edit. The sidebar, the list and search are dimmed and do not react until Save or Cancel, so a half-edited login cannot be left by accident. The icon stays above the card and the name under it becomes a field. “Move to Recently Deleted” is the last thing in the column.',
             }}
-            render={(d) => renderDevice(d, <PhoneItem id={1} mode="edit" />, { side: 'all', sel: 1, editing: true })}
+            render={(d) => renderDevice(d, <PhoneItem id={1} mode="edit" onPasteCodeImage={() => {}} />, { side: 'all', sel: 1, editing: true, pasteImage: true })}
           />
         </div>
 
@@ -135,7 +138,7 @@ export function ItemPage() {
               why: <>The button names where the item goes, which is what the Undo message says too (“moved to Recently Deleted”). Red is kept for what is permanent. It is one deliberate step away and never beside Edit.</>,
             },
             {
-              decision: <><strong>7. Editor actions sit on the field they act on.</strong> “Add code” (“Replace code” once a code is set) is on the right of the setup key field, on the same line; “Remove code”, being destructive, is on its own row below. A login without a code shows “None” with a labelled Set Up Code… button under it, which opens the editor at the code step.</>,
+              decision: <><strong>7. Editor actions sit on the field they act on.</strong> “Add code” (“Replace code” once a code is set) is on the right of the setup key field. When the clipboard holds an image, the next row offers Paste, which opens the existing code preview or explains what went wrong. “Remove code” is on its own row. A login without a code shows “None” with a labelled Set Up Code… button under it, which opens the editor at the code step.</>,
               why: <>One place to look for a field's action, and rows that line up on both edges.</>,
             },
             {
@@ -162,6 +165,10 @@ export function ItemPage() {
 
         <History
           entries={[
+            { date: '2026-11-24', text: <>“Move to Recently Deleted” left its card and now stands on the page below the last card, centred, with its line under it. It acts on the whole item, not on a field of a group, so a group background made it look like a row. Before, it sat right-aligned in a card of its own.</> },
+            { date: '2026-11-24', text: <>The Paste row gained its label, “From QR code in screenshot”. A button reading “Extract from clipboard screenshot” was rejected: only the system Paste control reads the clipboard without an “Allow Paste” prompt, and it cannot be renamed. The frame now draws the copied image and the decoded issuer and account.</> },
+            { date: '2026-11-24', text: <>Paste sits on its own row under the setup key, with the label “From QR code in screenshot” at its left and the system Paste button at its right, because the field is too narrow on iPhone for a second button on its line. It is shown only while the clipboard holds an image, so the rows below move when it appears. That is accepted, because the clipboard changes only after the person copied something.</> },
+            { date: '2026-11-24', text: <>The setup key gained a contextual Paste row. Previously, image paste was available only after opening Add code or Replace code. The new row takes a copied screenshot straight to the existing preview or error.</> },
             { date: '2026-11-24', text: <>The heading under the icon became the name field while editing or adding, at the owner's request. Left empty, it shows the derived name in grey. Earlier the same day the name was drawn as a row in a last card with Notes, and before that it was the first field of the form. Both are gone: no card has a Name row.</> },
             { date: '2026-11-24', text: <>Names became optional for every kind. Before, only a login could go without one, and cards, notes and custom items needed a name (“Title”) before Save; “Untitled” was considered for an item without one and rejected. An item with no name is now called by what it holds: its website or username, its brand and last four digits, or its first words. The owner approved it.</> },
             { date: '2026-11-24', text: <>“Move to Recently Deleted”, in the default colour, replaced the red “Delete Item” button, and the Mac menu item Edit › Delete took the same words. Red had marked something that destroys nothing; it now stays for “Delete Now…” and “Delete All…” in Recently Deleted. “Move to Trash” was rejected because the place is called Recently Deleted. The owner approved it.</> },
@@ -181,5 +188,54 @@ export function ItemPage() {
         />
       </Page>
     </DeviceProvider>
+  );
+}
+
+function PasteCodeDemo() {
+  const [clipboard, setClipboard] = useState('qr');
+  const [step, setStep] = useState<'edit' | 'collect' | 'preview' | 'error' | 'saved'>('edit');
+  const [saved, setSaved] = useState(false);
+  const paste = () => setStep(clipboard === 'qr' ? 'preview' : 'error');
+  const back = () => setStep('edit');
+  return (
+    <>
+      <div className="ctl">
+        <span aria-hidden="true" title="The copied image" style={{ display: 'inline-grid', gridTemplateColumns: 'repeat(5, 5px)', gap: 1, padding: 3, background: '#fff', borderRadius: 3, marginRight: 8, verticalAlign: 'middle', opacity: clipboard === 'empty' ? 0.2 : 1 }}>
+          {Array.from({ length: 25 }, (_, i) => <i key={i} style={{ width: 5, height: 5, background: clipboard === 'photo' ? (i % 7 < 3 ? '#8a8' : '#cde') : ([0,1,2,4,5,6,10,12,14,18,20,22,23,24,3,8,16].includes(i) ? '#000' : '#fff') }} />)}
+        </span>
+        <label>Clipboard <select value={clipboard} onChange={(event) => setClipboard(event.target.value)}>
+          <option value="qr">QR screenshot</option>
+          <option value="photo">Unrelated image</option>
+          <option value="empty">Empty</option>
+        </select></label>
+      </div>
+      {step === 'edit' ? (
+        <PhoneItem id={2} mode="edit" onPasteCodeImage={clipboard === 'empty' ? undefined : paste}
+          code={{ draft: saved ? 'saved' : null, add: () => setStep('collect'), remove: () => setSaved(false) }} />
+      ) : (
+        <IPhone tall>
+          <Nav left={step !== 'saved' && <button className="btn plain" onClick={back}>Cancel</button>} mid="Add verification code" />
+          <div className="pbody" style={{ padding: 20, textAlign: 'center' }}>
+            {step === 'preview' && <>
+              <h3>Found a code for Northbank</h3>
+              <p style={{ opacity: 0.6 }}>sam.r</p>
+              <p className="mono">348 692</p>
+              <p>Type this code into the site to finish turning on two-step verification. It saves to Northbank in your vault, on this device.</p>
+              {saved && <p>This login already has a code. Saving replaces it.</p>}
+              <button className="btn pri" onClick={() => { setSaved(true); setStep('saved'); }}>{saved ? 'Replace code' : 'Save code'}</button>
+            </>}
+            {(step === 'collect' || step === 'error') && <>
+              <p>Copy the setup key or QR code from the site. Psss reads it on this device. Nothing is uploaded.</p>
+              <button className="btn" disabled={clipboard === 'empty'} onClick={paste}>Paste</button>
+              {step === 'error' && <p role="status">No QR code found in that image. Try a sharper screenshot, or paste the setup key.</p>}
+            </>}
+            {step === 'saved' && <>
+              <h3>Code saved to Northbank.</h3>
+              <button className="btn pri" onClick={back}>Done</button>
+            </>}
+          </div>
+        </IPhone>
+      )}
+    </>
   );
 }

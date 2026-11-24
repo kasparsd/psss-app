@@ -28,7 +28,7 @@ enum HelpTopics {
     /// The editor's setup key row.
     static let setupKey = HelpTopic(
         id: "setup-key", title: String(localized: "Setup keys"),
-        text: String(localized: "When you turn on two-step verification, a site shows a QR code or a setup key. Psss turns it into the six-digit codes, so you do not need a separate app. Keep it secret: anyone who has it can make your codes."),
+        text: String(localized: "When you turn on two-step verification, the site shows a QR code or a setup key. Copy an image of the QR code, then choose Paste below the setup key field. Keep the key secret. Anyone who has it can make your codes."),
         link: nil)
 
     /// The item page's verification code setup section.

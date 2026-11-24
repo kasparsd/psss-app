@@ -57,7 +57,7 @@ function Identity({ item, unnamed, editing }: { item: Item; unnamed?: boolean; e
  * The item page: the icon and name above, then one card per group. One
  * component for logins, cards, notes and custom items, view and edit.
  */
-export function ItemCard({ item, mode = 'view', shown, copied, code, onSetUpCode, onDelete, note = true, bubble, unnamed }: {
+export function ItemCard({ item, mode = 'view', shown, copied, code, onSetUpCode, onDelete, note = true, bubble, unnamed, onPasteCodeImage }: {
   item: Item;
   mode?: 'view' | 'edit';
   /** Labels of fields that start shown. */
@@ -74,8 +74,9 @@ export function ItemCard({ item, mode = 'view', shown, copied, code, onSetUpCode
   bubble?: boolean;
   /** Draw the item without a name of its own: it is called by its site, card or first words. */
   unnamed?: boolean;
+  onPasteCodeImage?: () => void;
 }) {
-  if (mode === 'edit') return <Editor item={item} code={code} onDelete={onDelete} unnamed={unnamed} bubble={bubble} />;
+  if (mode === 'edit') return <Editor item={item} code={code} onDelete={onDelete} unnamed={unnamed} bubble={bubble} onPasteCodeImage={onPasteCodeImage} />;
 
   const isLogin = item.kind === 'login';
   const row = (f: Item['fields'][number]) => <FieldRow key={f.label} {...f} shown={shown?.includes(f.label)} copied={copied === f.label} />;
@@ -126,7 +127,7 @@ export function ItemCard({ item, mode = 'view', shown, copied, code, onSetUpCode
   );
 }
 
-function Editor({ item, code, onDelete, unnamed, bubble }: { item: Item; code?: CodeEdit; onDelete?: () => void; unnamed?: boolean; bubble?: boolean }) {
+function Editor({ item, code, onDelete, unnamed, bubble, onPasteCodeImage }: { item: Item; code?: CodeEdit; onDelete?: () => void; unnamed?: boolean; bubble?: boolean; onPasteCodeImage?: () => void }) {
   const [local, setLocal] = useState<string | null>(item.code ? DOTS : null);
   const draft = code ? code.draft : local;
   const add = code ? code.add : () => setLocal('x');
@@ -154,7 +155,18 @@ function Editor({ item, code, onDelete, unnamed, bubble }: { item: Item; code?: 
               placeholder="Setup key or otpauth:// link"
               mono
               action={<button className="btn sq acc" onClick={add}>{draft ? 'Replace code' : 'Add code'}</button>}
-              below={draft ? <button className="btn sq red" onClick={remove}>Remove code</button> : undefined}
+              below={(onPasteCodeImage || draft) && <>
+                {onPasteCodeImage && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                    <span>From QR code in screenshot</span>
+                    <button className="btn" onClick={onPasteCodeImage}>
+                      <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style={{ verticalAlign: '-2px', marginRight: 6 }} fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="3" width="10" height="11" rx="2" /><rect x="6" y="1.5" width="4" height="3" rx="1" /></svg>
+                      Paste
+                    </button>
+                  </div>
+                )}
+                {draft && <button className="btn sq red" onClick={remove}>Remove code</button>}
+              </>}
             />
           </div>
         </>
@@ -166,7 +178,7 @@ function Editor({ item, code, onDelete, unnamed, bubble }: { item: Item; code?: 
       )}
       {onDelete && (
         <>
-          <div className="icard"><div className="delwrap"><button className="btn sq" onClick={onDelete}>Move to Recently Deleted</button></div></div>
+          <div className="delwrap"><button className="btn sq" onClick={onDelete}>Move to Recently Deleted</button></div>
           <div className="delnote">You can bring it back for 30 days.</div>
         </>
       )}

@@ -48,8 +48,8 @@ struct ItemFields: View {
     @Binding var item: VaultItem
     /// A new item: its first field takes focus. An existing item's page does not grab the keyboard.
     var isNew = false
-    /// The Add code / Replace code button was pressed: the host presents `VerificationCodeSheet` (see `codeSheet`).
-    @Binding var addingCode: Bool
+    /// The host presents `VerificationCodeSheet` for manual setup or an explicitly pasted image.
+    @Binding var codeInput: VerificationCodeInput?
     var mapFieldsLabel: LocalizedStringResource = "Map fields…"
     var onMapFields: (() -> Void)?
     var canMapFields = true
@@ -110,16 +110,18 @@ struct ItemFields: View {
     /// being destructive, has its own row.
     private var codeGroup: some View {
         Section {
-            labeled(String(localized: "Setup key (optional)")) {
-                HStack(spacing: 8) {
-                    SecureField("Setup key", text: $item.otpSecret, prompt: Text("Setup key or otpauth:// link"))
-                        .secretEntry()
-                    Button(item.otpSecret.isEmpty ? "Add code" : "Replace code") { addingCode = true }
-                        .buttonStyle(.bordered)
-                        .fixedSize()
-                }
-                if item.totpInvalid {
-                    Label("That is not a valid setup key.", systemImage: "exclamationmark.triangle")
+            CodeImagePaste(onPaste: { codeInput = .pastedImage($0) }) {
+                labeled(String(localized: "Setup key (optional)")) {
+                    HStack(spacing: 8) {
+                        SecureField("Setup key", text: $item.otpSecret, prompt: Text("Setup key or otpauth:// link"))
+                            .secretEntry()
+                        Button(item.otpSecret.isEmpty ? "Add code" : "Replace code") { codeInput = .manual }
+                            .buttonStyle(.bordered)
+                            .fixedSize()
+                    }
+                    if item.totpInvalid {
+                        Label("That is not a valid setup key.", systemImage: "exclamationmark.triangle")
+                    }
                 }
             }
             if !item.otpSecret.isEmpty {
@@ -141,9 +143,16 @@ struct ItemFields: View {
         // Nothing more is asked: the item goes to Recently Deleted and Undo follows. It is not gone, so the button is in the default
         // colour (owner, 2026-11-24); red is for Delete Now… and Delete All…, which remove for good.
         Section {
-            Button(RecentlyDeletedText.moveButton, action: delete)
+            // A button for the whole item, not a field of any group: it stands on the page, outside the grouped background.
+            HStack {
+                Spacer()
+                Button(RecentlyDeletedText.moveButton, action: delete).buttonStyle(.bordered).fixedSize()
+                Spacer()
+            }
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets())
         } footer: {
-            Text(verbatim: RecentlyDeletedText.editorDeleteLine).font(.body)
+            Text(verbatim: RecentlyDeletedText.editorDeleteLine).font(.body).frame(maxWidth: .infinity)
         }
     }
 
@@ -290,9 +299,9 @@ enum PasskeyCard {
 extension View {
     /// The sheet that reads a setup key from paste, image or camera. A saved code is stored at once (`keepDraft`), so it survives
     /// leaving the app to type it into the site.
-    func codeSheet(item: Binding<VaultItem>, adding: Binding<Bool>, keepDraft: @escaping (VaultItem) -> Void) -> some View {
-        sheet(isPresented: adding) {
-            VerificationCodeSheet(loginName: item.wrappedValue.displayTitle, hasExistingCode: item.wrappedValue.totpUsable) { setup in
+    func codeSheet(item: Binding<VaultItem>, input: Binding<VerificationCodeInput?>, keepDraft: @escaping (VaultItem) -> Void) -> some View {
+        sheet(item: input) { input in
+            VerificationCodeSheet(loginName: item.wrappedValue.displayTitle, hasExistingCode: item.wrappedValue.totpUsable, input: input) { setup in
                 item.wrappedValue.otpSecret = setup.secret
                 item.wrappedValue.otpSettings = setup.settings
                 if item.wrappedValue.canSave { keepDraft(item.wrappedValue.savedForm) }
@@ -312,7 +321,7 @@ struct NewItemSheet: View {
     /// Stores the login without closing the sheet, so a code survives leaving the app to type it into the site.
     let onKeepDraft: (VaultItem) -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var addingCode = false
+    @State private var codeInput: VerificationCodeInput?
     @State private var confirmsDiscard = false
 
     init(item: VaultItem, onSave: @escaping (VaultItem) -> Void, onKeepDraft: @escaping (VaultItem) -> Void) {
@@ -327,7 +336,7 @@ struct NewItemSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                ItemFields(item: $item, isNew: true, addingCode: $addingCode)
+                ItemFields(item: $item, isNew: true, codeInput: $codeInput)
             }
             .formStyle(.grouped)
             // The form always scrolls and dragging it lowers the keyboard, which otherwise covers the lower rows on iPad.
@@ -349,7 +358,7 @@ struct NewItemSheet: View {
         }
         .modifier(SheetSize())
         .interactiveDismissDisabled(hasTypedText)
-        .codeSheet(item: $item, adding: $addingCode, keepDraft: { kept in
+        .codeSheet(item: $item, input: $codeInput, keepDraft: { kept in
             onKeepDraft(kept)
             baseline = item
         })

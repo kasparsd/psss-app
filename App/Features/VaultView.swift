@@ -1792,7 +1792,7 @@ private struct ItemDetail: View {
     let delete: () -> Void
     let used: () -> Void
     @State private var draft: VaultItem
-    @State private var addingCode = false
+    @State private var codeInput: VerificationCodeInput?
     @State private var confirmsDiscard = false
     @State private var revealed: Set<FieldID> = []
     /// The field whose copy icon is a checkmark, for about a second and a half.
@@ -1852,7 +1852,7 @@ private struct ItemDetail: View {
 
     private var editFields: ItemFields {
         let mappingAction: (() -> Void)? = canMap ? { beginFieldMapping() } : nil
-        return ItemFields(item: $draft, addingCode: $addingCode, mapFieldsLabel: mappingLabel,
+        return ItemFields(item: $draft, codeInput: $codeInput, mapFieldsLabel: mappingLabel,
                           onMapFields: mappingAction, canMapFields: !draft.hasChanges(from: item), onDelete: delete)
     }
 
@@ -1873,7 +1873,7 @@ private struct ItemDetail: View {
             }
         }
         .formStyle(.grouped)
-        .codeSheet(item: $draft, adding: $addingCode, keepDraft: keepDraft)
+        .codeSheet(item: $draft, input: $codeInput, keepDraft: keepDraft)
         .sheet(isPresented: $showsQR) {
             if let url = item.totpSetupURL { TOTPQRSheet(url: url, title: item.displayTitle) }
         }
@@ -1935,7 +1935,7 @@ private struct ItemDetail: View {
         draft = item
         revealed = []
         isEditing = true
-        if atCode { addingCode = true }
+        if atCode { codeInput = .manual }
     }
 
     /// Cancel with something changed asks first; with nothing changed it just leaves edit mode.

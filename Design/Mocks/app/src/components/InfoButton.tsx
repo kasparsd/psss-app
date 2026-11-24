@@ -12,7 +12,7 @@ export interface HelpTopic {
 export const topics = {
   setupKey: {
     title: 'Setup key',
-    text: 'When you turn on two-step verification, a site shows a QR code or a setup key. Psss turns it into the six-digit codes, so you do not need a separate app. Keep it secret: anyone who has it can make your codes.',
+    text: 'When you turn on two-step verification, the site shows a QR code or a setup key. Copy an image of the QR code, then choose Paste below the setup key field. Keep the key secret. Anyone who has it can make your codes.',
     link: 'How to add a code',
   },
   passkey: {

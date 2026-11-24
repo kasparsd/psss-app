@@ -20,9 +20,11 @@ The primary flow is therefore **copy, switch, paste**, not scan. The camera is t
 
 Everything is decoded on the device. Nothing is uploaded and the image is never stored.
 
+On iPhone, iPad and Mac, editing or adding a login shows a system **Paste** button on its own row below **Setup key**, labelled “From QR code in screenshot” with the button at its trailing end, when the clipboard has an image. Psss checks only the clipboard type until the person presses Paste. A valid QR code opens the existing preview with a live code. An unrelated or unreadable image opens the same sheet with an explanation and the usual ways to try again. Cancel leaves the login as it was. **Save code** or **Replace code** applies the code to the login.
+
 ## Rules
 
-- One sheet, one primary button. The system **Paste** control is primary (it reads text or an image with no “Allow Paste” prompt). iOS adds “Scan with camera” and “Choose photo”; Mac adds “Choose image…”. A typed setup key stays in the editor row.
+- One sheet, one primary button. The system **Paste** control is primary (it reads text or an image with no “Allow Paste” prompt). iOS adds “Scan with camera” and “Choose photo”; Mac adds “Choose image…”. A typed setup key stays in the editor row; the editor's Paste button is the same control, offered only for an image.
 - **Save code saves to the vault at once**, even from a new login still being edited. The person leaves the app to type the code into the site, and a draft would be lost if the vault locks. The secret is never shown.
 - The confirm step shows issuer, account and a **live code** (the site will not enable two-step verification until the person types a valid one). Digits and period appear only when they are not 6 and 30 s.
 - The whole `otpauth://` link is kept (digits, period, algorithm), not just the secret. Anything that cannot make a correct code is refused with nothing saved.

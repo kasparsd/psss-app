@@ -2,8 +2,82 @@ import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 #if os(iOS)
+import UIKit
 import VisionKit
+#else
+import AppKit
 #endif
+
+enum VerificationCodeInput: Identifiable {
+    case manual
+    case pastedImage([NSItemProvider])
+
+    var id: Int {
+        switch self {
+        case .manual: 0
+        case .pastedImage: 1
+        }
+    }
+}
+
+/// Check the clipboard's types here. The system Paste button reads the image only when pressed.
+struct CodeImagePaste<Content: View>: View {
+    let onPaste: ([NSItemProvider]) -> Void
+    @ViewBuilder let content: () -> Content
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var hasImage = false
+    #if os(macOS)
+    @State private var changeCount: Int?
+    #endif
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            content()
+            if hasImage {
+                // The system button cannot be renamed, so the row says what it reads: a copied QR code image.
+                HStack(spacing: 12) {
+                    Text("From QR code in screenshot")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    PasteButton(supportedContentTypes: [.image], payloadAction: onPaste)
+                        .fixedSize()
+                        .help("Read the setup key from the copied image")
+                }
+                    #if os(macOS)
+                    // SwiftUI's PasteButton revalidates on clipboard changes on iOS only.
+                    .id(changeCount)
+                    #endif
+            }
+        }
+        .onAppear(perform: update)
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { update() }
+        }
+        #if os(iOS)
+        .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in update() }
+        .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.removedNotification)) { _ in update() }
+        #else
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                update()
+                try? await Task.sleep(for: .milliseconds(350))
+            }
+        }
+        #endif
+    }
+
+    private func update() {
+        #if os(iOS)
+        hasImage = UIPasteboard.general.hasImages
+        #else
+        let pasteboard = NSPasteboard.general
+        let count = pasteboard.changeCount
+        guard changeCount != count else { return }
+        hasImage = pasteboard.types?.contains { UTType($0.rawValue)?.conforms(to: .image) == true } ?? false
+        changeCount = count
+        #endif
+    }
+}
 
 /// Adds a verification code (TOTP) to a login by paste, image or camera. See docs/verification-codes.md.
 ///
@@ -13,14 +87,15 @@ struct VerificationCodeSheet: View {
     /// The login's name, for the confirm and saved lines.
     let loginName: String
     let hasExistingCode: Bool
+    let input: VerificationCodeInput
     /// Called when the person confirms. The caller stores the code in the login.
     let onSave: (TOTPSetup) -> Void
     @Environment(\.dismiss) private var dismiss
 
     private enum Phase: Equatable {
         case collect
-        case confirm(TOTPSetup, fromImage: Bool)
-        case saved(fromImage: Bool)
+        case confirm(TOTPSetup, remindToDeleteScreenshot: Bool)
+        case saved(remindToDeleteScreenshot: Bool)
     }
 
     @State private var phase = Phase.collect
@@ -29,6 +104,7 @@ struct VerificationCodeSheet: View {
     @State private var scanning = false
     @State private var choosingFile = false
     @State private var photo: PhotosPickerItem?
+    @State private var started = false
 
     var body: some View {
         NavigationStack {
@@ -37,8 +113,8 @@ struct VerificationCodeSheet: View {
                 Group {
                     switch phase {
                     case .collect: collect
-                    case .confirm(let setup, let fromImage): confirm(setup, fromImage: fromImage)
-                    case .saved(let fromImage): saved(fromImage: fromImage)
+                    case .confirm(let setup, let remind): confirm(setup, remindToDeleteScreenshot: remind)
+                    case .saved(let remind): saved(remindToDeleteScreenshot: remind)
                     }
                 }
                 .fixedSize(horizontal: false, vertical: true)
@@ -67,6 +143,11 @@ struct VerificationCodeSheet: View {
         }
         .fileImporter(isPresented: $choosingFile, allowedContentTypes: [.image]) { result in
             if case .success(let url) = result { readFile(url) }
+        }
+        .onAppear {
+            guard !started else { return }
+            started = true
+            if case .pastedImage(let providers) = input { ingest(providers) }
         }
         #if os(iOS)
         .sheet(isPresented: $scanning) { CameraScanner { text in scanning = false; handle([text], fromImage: true) } }
@@ -118,7 +199,7 @@ struct VerificationCodeSheet: View {
 
     // MARK: Confirm
 
-    private func confirm(_ setup: TOTPSetup, fromImage: Bool) -> some View {
+    private func confirm(_ setup: TOTPSetup, remindToDeleteScreenshot: Bool) -> some View {
         VStack(spacing: 16) {
             Text(setup.issuer.isEmpty ? "Found a verification code" : "Found a code for \(setup.issuer)")
                 .font(.title2.weight(.semibold))
@@ -147,7 +228,7 @@ struct VerificationCodeSheet: View {
             }
             Button(hasExistingCode ? "Replace code" : "Save code") {
                 onSave(setup)
-                phase = .saved(fromImage: fromImage)
+                phase = .saved(remindToDeleteScreenshot: remindToDeleteScreenshot)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
@@ -155,11 +236,11 @@ struct VerificationCodeSheet: View {
         }
     }
 
-    private func saved(fromImage: Bool) -> some View {
+    private func saved(remindToDeleteScreenshot: Bool) -> some View {
         VStack(spacing: 16) {
             Image(systemName: "checkmark.circle").font(.system(size: 40)).foregroundStyle(.secondary).accessibilityHidden(true)
             Text("Code saved to \(loginName).").font(.title2.weight(.semibold))
-            if fromImage {
+            if remindToDeleteScreenshot {
                 Text("Delete the screenshot now. It still holds the setup key.").multilineTextAlignment(.center)
             }
             Button("Done") { dismiss() }
@@ -170,10 +251,11 @@ struct VerificationCodeSheet: View {
 
     // MARK: Input
 
-    /// Text first, then image: a copied screenshot may also carry a filename as text.
+    /// Prefer the image if a copied screenshot also carries a filename as text.
     private func ingest(_ providers: [NSItemProvider]) {
         problem = nil
-        guard let provider = providers.first(where: { $0.canLoadObject(ofClass: String.self) }) ?? providers.first else {
+        guard let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.image.identifier) })
+                ?? providers.first(where: { $0.canLoadObject(ofClass: String.self) }) else {
             problem = "Nothing to paste. Copy the setup key or QR code first."
             return
         }
@@ -184,7 +266,7 @@ struct VerificationCodeSheet: View {
         } else {
             provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
                 let found = data.map(QRDecoder.payloads(in:)) ?? []
-                Task { @MainActor in handle(found, fromImage: true, imageRead: data != nil) }
+                Task { @MainActor in handle(found, fromImage: true, imageRead: data != nil, remindToDeleteScreenshot: true) }
             }
         }
     }
@@ -193,7 +275,7 @@ struct VerificationCodeSheet: View {
         let opened = url.startAccessingSecurityScopedResource()
         defer { if opened { url.stopAccessingSecurityScopedResource() } }
         let data = try? Data(contentsOf: url)
-        handle(data.map(QRDecoder.payloads(in:)) ?? [], fromImage: true, imageRead: data != nil)
+        handle(data.map(QRDecoder.payloads(in:)) ?? [], fromImage: true, imageRead: data != nil, remindToDeleteScreenshot: true)
     }
 
     #if os(iOS)
@@ -202,7 +284,7 @@ struct VerificationCodeSheet: View {
         Task {
             let data = try? await item.loadTransferable(type: Data.self)
             photo = nil
-            handle(data.map(QRDecoder.payloads(in:)) ?? [], fromImage: true, imageRead: data != nil)
+            handle(data.map(QRDecoder.payloads(in:)) ?? [], fromImage: true, imageRead: data != nil, remindToDeleteScreenshot: true)
         }
     }
 
@@ -217,7 +299,7 @@ struct VerificationCodeSheet: View {
     #endif
 
     /// Picks the first usable code among what was read and shows it, or says what is wrong with the best candidate.
-    private func handle(_ texts: [String], fromImage: Bool, imageRead: Bool = true) {
+    private func handle(_ texts: [String], fromImage: Bool, imageRead: Bool = true, remindToDeleteScreenshot: Bool = false) {
         if fromImage, texts.isEmpty {
             problem = imageRead ? "No QR code found in that image. Try a sharper screenshot, or paste the setup key."
                                 : "That image could not be read. Try another, or paste the setup key."
@@ -230,7 +312,7 @@ struct VerificationCodeSheet: View {
         let results = texts.map { TOTP.parse($0) }
         if let setup = results.lazy.compactMap({ if case .setup(let s) = $0 { s } else { nil } }).first {
             problem = nil
-            phase = .confirm(setup, fromImage: fromImage)
+            phase = .confirm(setup, remindToDeleteScreenshot: remindToDeleteScreenshot)
             return
         }
         switch results.first(where: { $0 != .empty }) ?? .empty {

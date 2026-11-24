@@ -26,6 +26,8 @@ export interface WorkspaceInit {
   side?: SideKey;
   sel?: number;
   editing?: boolean;
+  /** The clipboard holds an image: the editor offers Paste under the setup key. */
+  pasteImage?: boolean;
   showSide?: boolean;
   q?: string;
   /** Field labels that start shown on the open item. */
@@ -243,6 +245,7 @@ export function Workspace({ device, init = {}, empty = false }: { device: 'mac' 
                   copied={pristine ? init.copied : undefined}
                   bubble={pristine ? init.bubble : undefined}
                   code={editing ? { draft, add: () => setDraft('246 810'), remove: () => setDraft(null) } : undefined}
+                  onPasteCodeImage={editing && init.pasteImage ? () => setDraft('348 692') : undefined}
                   onSetUpCode={() => { setDraft(null); setEditing(true); }}
                   onDelete={inDeleted ? undefined : remove}
                 />

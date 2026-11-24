@@ -154,8 +154,8 @@ table.cmp td,table.cmp th{border-top:1px solid var(--rule);padding:6px 12px 6px 
 .searchbox svg{width:14px;height:14px;flex:none}
 .ws.editing .col.side,.ws.editing .col.list,.ws.editing .searchbox{opacity:.45;pointer-events:none}
 .dbody{padding:4px 22px 28px}
-.delwrap{display:flex;justify-content:flex-end;padding:10px 14px}
-.delnote{color:var(--lab2);padding:0 4px}
+.delwrap{display:flex;justify-content:center;padding:4px 0 8px}
+.delnote{color:var(--lab2);padding:0 4px;text-align:center}
 
 /* ---------- item card and field rows ---------- */
 .icard{background:var(--bar);border-radius:14px;margin-bottom:14px}
@@ -177,7 +177,7 @@ table.cmp td,table.cmp th{border-top:1px solid var(--rule);padding:6px 12px 6px 
 .cp.done{color:var(--accent)}
 .cp.done svg{animation:pop .28s ease-out}
 @keyframes pop{from{transform:scale(.6);opacity:0}to{transform:none;opacity:1}}
-.fact{margin-top:6px}
+.fact{margin-top:6px;width:100%}
 .efield{display:flex;gap:8px;align-items:center;width:100%}
 .efield input{flex:1;min-width:0;color:var(--lab);background:var(--field);border:0;border-radius:6px;padding:5px 8px}
 .efield .btn{flex:none}

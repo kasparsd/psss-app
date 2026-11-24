@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { byId, cardItems, codeItems, items } from '../data';
 import { BackIcon, GearIcon } from '../icons';
-import { ItemCard } from '../components/ItemCard';
+import { ItemCard, type CodeEdit } from '../components/ItemCard';
 import { Chevron, CodePill, CodeRow, EmptyState, ListHead, ListRow } from '../components/Rows';
 import { FilterMenu } from '../components/FilterMenu';
 import { SortMenu } from '../components/SortMenu';
@@ -183,7 +183,7 @@ export function PhoneCards({ variant = 'normal' }: { variant?: CardsVariant }) {
 }
 
 /** An item page, or its editor. `whole` draws the page as tall as its content, without a tab bar. */
-export function PhoneItem({ id = 1, mode = 'view', shown, copied, pill, from = 'all', whole, bubble, fresh, unnamed }: {
+export function PhoneItem({ id = 1, mode = 'view', shown, copied, pill, from = 'all', whole, bubble, fresh, unnamed, code, onPasteCodeImage }: {
   id?: number;
   mode?: 'view' | 'edit';
   shown?: string[];
@@ -196,6 +196,8 @@ export function PhoneItem({ id = 1, mode = 'view', shown, copied, pill, from = '
   fresh?: boolean;
   /** The item has no name of its own: it is called by its site, card or first words. */
   unnamed?: boolean;
+  code?: CodeEdit;
+  onPasteCodeImage?: () => void;
 }) {
   const item = byId(id);
   if (mode === 'edit') {
@@ -203,7 +205,7 @@ export function PhoneItem({ id = 1, mode = 'view', shown, copied, pill, from = '
       <IPhone tall>
         <Nav left={<button className="btn plain">Cancel</button>} right={<button className="btn pri main">Save</button>} />
         <div className="pbody" style={{ overflow: 'visible' }}>
-          <ItemCard item={item} mode="edit" onDelete={fresh ? undefined : () => {}} unnamed={fresh || unnamed} bubble={bubble} />
+          <ItemCard item={item} mode="edit" onDelete={fresh ? undefined : () => {}} unnamed={fresh || unnamed} bubble={bubble} code={code} onPasteCodeImage={onPasteCodeImage} />
         </div>
       </IPhone>
     );
