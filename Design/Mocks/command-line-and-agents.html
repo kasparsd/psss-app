@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>Psss command line and AI agents mock</title><style>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>Psss command line mock</title><style>
 :root{color-scheme:light dark;
 --page:#f5f5f7;--ink:#1d1d1f;--ink2:#5c5c61;--rule:#d2d2d7;--pcard:#fff;
 --screen:#f2f2f7;--card:#fff;--sep:rgba(60,60,67,.18);--lab:#000;--lab2:rgba(60,60,67,.62);
@@ -25,7 +25,7 @@ a{color:var(--accent)}
 .fig{margin:0;display:flex;flex-direction:column;gap:10px}
 .fig.kphone{width:300px}
 .fig.kmac{width:800px}
-.fig.kmsh{width:560px}
+.fig.kmsh{width:560px;max-width:100%}
 .fig .lbl{font-weight:600}
 .fig figcaption{color:var(--ink2);font-size:15px;line-height:1.45}
 .note{background:var(--pcard);border:1px solid var(--rule);border-radius:10px;padding:12px 16px;max-width:860px}
@@ -203,7 +203,7 @@ table.cmp td:first-child{white-space:nowrap;font-weight:600}
 
 /* command line additions: monospace at the body size, a terminal, a narrower Setup window */
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-word}
-.term{width:560px;background:#1c1c1e;color:#f5f5f7;border-radius:10px;padding:14px 16px;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;box-shadow:var(--shadow)}
+.term{width:560px;max-width:100%;background:#1c1c1e;color:#f5f5f7;border-radius:10px;padding:14px 16px;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;box-shadow:var(--shadow)}
 .term .d{color:#a1a1a6}
 .fig.kmac{width:620px}.fig.kmac .win{width:620px}
 .mbtns .sp{flex:1}
@@ -212,8 +212,9 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em}
 </style></head><body><main>
 <p class="crumb"><a href="index.html">All mocks</a></p>
 <div class="prose">
-<h1>Command line and AI agents</h1>
-<p><strong>Proposed 2026-11-23. Not approved, not built.</strong> The reasoning, the prototype and what it measured are in <code>docs/cli.md</code>. Mac only: iPhone and iPad have no command line, so nothing here appears there.</p>
+<h1>Command line</h1>
+<p><strong>Part 1, the core command: approved by the owner on 2026-11-24, not built. Part 2, agent access, proposed 2026-11-23: not approved, not built.</strong> The open questions under each part still stand. The reasoning, the prototype and what it measured are in <code>docs/cli.md</code>. Part 1 prints text in a terminal, on macOS, Linux and Windows, and is the priority. Part 2 adds sheets in the Mac app, so it is Mac only: iPhone and iPad have no command line, so nothing in part 2 appears there.</p>
+<p>The four questions below are answered for the agent sheets of part 2. The core command’s four are answered under the Part 1 heading.</p>
 <ul>
 <li><strong>Which thing?</strong> A program on this Mac (a terminal, a script, an AI assistant such as Claude) asks Psss to use one named item from the vault. The sheet names the app that asked, the item, and what will be done with it.</li>
 <li><strong>What must they give?</strong> One choice (not at all, this once, or until Psss locks) and Touch ID. Nothing is typed.</li>
@@ -222,6 +223,179 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em}
 </ul>
 <p class="muted">Blue stands in for the system accent. Monospaced text is at the body size; a device frame still has two sizes only. All data is fictional.</p>
 </div>
+
+<h2 id="core">Part 1 · The core command in a terminal</h2>
+<div class="prose">
+<p class="muted">Added 2026-11-24. This is what <code>psss</code> prints for a person or a script when it opens a vault folder itself with its own key (direct mode). Ordered the way a first day goes: create a vault, check it, put a secret in, take it out, use it, then what goes wrong. Frames are terminals only; nothing here is a sheet. All data is fictional.</p>
+<ul>
+<li><strong>Which thing?</strong> A vault: a folder of encrypted files with a name, kept where the person says, opened with a key file on this computer. Every message names the vault and the file it means.</li>
+<li><strong>What must they give?</strong> A name for the vault when it is made, and a secret's value on standard input or typed without echo. Never a key or a value as an argument.</li>
+<li><strong>What can go wrong?</strong> A name that matches two items or none, a missing key file, a location that fell behind, a record that was changed. Each has its own words and an exit code a script can read.</li>
+<li><strong>How do they leave?</strong> Nothing is ever deleted without a confirmation, a dry run exists for everything that writes in bulk, and a KeePass copy of the whole vault can always be written out.</li>
+</ul>
+</div>
+<div class="frames">
+
+<figure class="fig kmsh"><div class="lbl">A1 · Creating a vault in a terminal</div>
+<div class="term"><span class="d">$</span> psss init Personal
+Created the vault "Personal".
+
+  Where   ~/Psss/Personal.psss
+          A folder of encrypted files. Nothing is uploaded.
+  Key     ~/.config/psss/device.key
+          This computer's key. Without it nobody can open the
+          vault, not even Psss.
+
+How do you want a way back if that file is lost?
+  1  A printed recovery kit
+  2  A vault password
+  3  Not now
+Choose 1, 2 or 3: 3
+
+Done. Add a way back later with: psss key kit
+or: psss key password set
+Next: psss set "psss://Example API/token"</div>
+<figcaption>Says what was made, where it lives, who holds the key and what loses the vault, before the person can do anything else. “Not now” is a real answer.</figcaption></figure>
+
+<figure class="fig kmsh"><div class="lbl">A2 · Creating a vault in a script</div>
+<div class="term"><span class="d">$</span> psss init Team --vault ./vault &lt; /dev/null
+Created the vault "Team" in ./vault/Team.psss
+Key file: ./.psss/device.key (readable by you only)
+<span class="d">warning: that key file is the only way into the vault.
+Run psss key kit or psss key password set, or pass
+--no-recovery to stop this warning.</span>
+<span class="d">$</span> echo $?
+0</div>
+<figcaption>No terminal, so nothing is asked. The warning is on standard error and the exit code is 0, so a script can create a vault, and the risk is still written where a log will keep it.</figcaption></figure>
+
+<figure class="fig kmsh"><div class="lbl">A3 · Is it all here?</div>
+<div class="term"><span class="d">$</span> psss status
+Vault     Personal   1 group (Only Me), 42 items
+Key       this computer's key file
+Way back  none yet. Add one with: psss key kit
+Kept in
+  This computer    ~/Psss/Personal.psss             Up to date
+  iCloud Drive     ~/iCloud/Psss/Personal.psss      Behind
+Behind: psss has not seen everything this location holds.
+It cannot know what a location has not delivered yet.
+Run psss sync to merge.</div>
+<figcaption>“Up to date” and “Behind” have the one meaning they have in the app, and Behind says what cannot be known. The list is where the vault is kept, in the app's words (“Kept in”).</figcaption></figure>
+
+<figure class="fig kmsh"><div class="lbl">A4 · Putting a secret in and taking it out</div>
+<div class="term"><span class="d">$</span> psss set "psss://Example API/token"
+Value (not shown):
+Saved "token" in Example API (Personal).
+The earlier value is kept under previous values.
+
+<span class="d">$</span> psss get "psss://Example API/token"
+sk-example-0000
+
+<span class="d">$</span> psss list
+Example API    robin@example.com    token
+Example Bank   robin@example.com    password, code</div>
+<figcaption>The value is typed without echo or piped in, never an argument. <code>get</code> prints the bare value and nothing else, so it can fill a file or a variable. <code>list</code> shows names and field names, never values.</figcaption></figure>
+
+<figure class="fig kmsh"><div class="lbl">A5 · Running a program with a secret</div>
+<div class="term"><span class="d">$</span> psss run --env DEPLOY_TOKEN="psss://Example API/token" -- ./deploy.sh
+Deploying to example.com ...
+Done.</div>
+<figcaption>The value is in that program's environment and nowhere else; it is not printed, logged or written to a file. Psss does not hide what the program itself prints (planned for phase 3), and the docs say so. In part 2 (brokered mode) the app does hide it; that difference is deliberate.</figcaption></figure>
+
+<figure class="fig kmsh"><div class="lbl">A6 · A name that matches two items, or none</div>
+<div class="term"><span class="d">$</span> psss get psss://Example/password
+"Example" matches 2 items in Personal. Use one of these:
+  psss://id:7f3a9c21/password   Example Bank   robin@example.com
+  psss://id:b01d5e44/password   Example Shop   robin@example.com
+<span class="d">$</span> echo $?
+3
+
+<span class="d">$</span> psss get psss://Nothing/password
+There is no item called "Nothing" in Personal.
+See what is there with: psss list
+<span class="d">$</span> echo $?
+3</div>
+<figcaption>Never picks one for you: the wrong secret in the wrong place is worse than a second command. Exit 3 for both, so a script can tell “no such thing” from “could not open”.</figcaption></figure>
+
+<figure class="fig kmsh"><div class="lbl">A7 · The key is not there</div>
+<div class="term"><span class="d">$</span> psss get "psss://Example API/token"
+Cannot open the vault "Personal".
+This computer's key file is missing: ~/.config/psss/device.key
+Point PSSS_KEY_FILE at your key file, or use the vault
+password with PSSS_PASSWORD_FILE.
+<span class="d">$</span> echo $?
+4</div>
+<figcaption>Names the vault, the file and the two ways in. Exit 4 for a missing or refused key, the same code the agent frames use for a locked or closed app. It does not say whether a vault password exists.</figcaption></figure>
+
+<figure class="fig kmsh"><div class="lbl">A8 · Is anything wrong with it?</div>
+<div class="term"><span class="d">$</span> psss verify
+Checked 1,204 records in 2 locations.
+All of them match. Nothing is missing that this
+computer has seen before.
+<span class="d">$</span> echo $?
+0
+
+<span class="d">$</span> psss verify
+Checked 1,204 records in 2 locations.
+1 record in ~/iCloud/Psss/Personal.psss was changed after
+it was written. It is ignored.
+That location is missing records this computer saw before.
+It may have been rolled back.
+<span class="d">$</span> echo $?
+2</div>
+<figcaption>Says what was found in plain words and never repairs anything, since a repair would be a write. Exit 2 is also what the other tools use for a failed check.</figcaption></figure>
+
+<figure class="fig kmsh"><div class="lbl">A9 · Bringing a KeePass vault in, and a copy out</div>
+<div class="term"><span class="d">$</span> psss import ~/Downloads/Family.kdbx --dry-run
+Password for Family.kdbx (not shown):
+Would add 118 items and 6 attachments to Personal.
+Nothing was changed.
+
+<span class="d">$</span> psss export --format kdbx ~/Desktop/Personal.kdbx
+Password for the new file (not shown):
+Wrote ~/Desktop/Personal.kdbx with 42 items.
+Not in a KeePass file: the people in shared groups.</div>
+<figcaption>Importing adds and never replaces; a dry run shows the result first. A copy of the whole vault can always be written out, with its own password, and says what it does not carry.</figcaption></figure>
+
+<figure class="fig kmsh"><div class="lbl">A10 · In CI, where nobody is asking</div>
+<div class="term"><span class="d"># the runner provides PSSS_VAULT and PSSS_KEY_FILE</span>
+<span class="d">$</span> psss run --env DEPLOY_TOKEN=psss://Deploy/token -- ./deploy.sh
+<span class="d">$</span> psss get
+psss get needs a reference, such as
+"psss://Example API/token". No terminal is attached,
+so Psss cannot offer a list to choose from.
+<span class="d">$</span> echo $?
+2</div>
+<figcaption>With no terminal or with CI set, a missing reference is a usage error and exit 2. It never opens a menu and never reads standard input to choose.</figcaption></figure>
+
+</div>
+
+<div class="prose">
+<h3>Decisions to approve for the core command</h3>
+<ol class="dec">
+<li><strong>The first output says what was made, where, who holds the key and what loses it.</strong> <span class="rej">Rejected: one line, “Created Personal”.</span> <span class="why">Why: a key file is the only way back, and the person should learn that before they put anything in, not when it is gone.</span></li>
+<li><strong><span class="mono">init</span> offers a way back and never forces one.</strong> In a terminal it asks; in a script it warns on standard error and exits 0. <span class="rej">Rejected: refusing to finish without a recovery kit or password; making a kit silently.</span> <span class="why">Why: a script must be able to create a vault, and a kit nobody asked for is a secret nobody knows about.</span></li>
+<li><strong>A value is never an argument.</strong> <span class="mono">set</span> reads standard input or asks without echo. <span class="rej">Rejected: a <span class="mono">--value</span> flag.</span> <span class="why">Why: arguments show in process lists and shell history.</span></li>
+<li><strong><span class="mono">get</span> prints the bare value.</strong> <span class="rej">Rejected: a label, a colour or JSON by default.</span> <span class="why">Why: so a variable or a file gets exactly the value. Structure is <span class="mono">--json</span>.</span></li>
+<li><strong>A name that matches two items lists them by id and exits 3.</strong> <span class="rej">Rejected: taking the first, or the most recent.</span> <span class="why">Why: the wrong secret in the wrong place is worse than one more command.</span></li>
+<li><strong>One table of exit codes, the same in both modes.</strong> 0 done, 1 failed, 2 wrong use or a failed check, 3 no such item, an ambiguous name or not allowed, 4 locked, not open or no key. <span class="why">Why: the agent frames below already use 3 and 4 this way, and a script should not learn two tables.</span></li>
+<li><strong>Every error says what is wrong and what to do; an error about a vault names the vault and the file.</strong> <span class="rej">Rejected: “Permission denied”, “Invalid key”.</span> <span class="why">Why: the person has not read this repository.</span></li>
+<li><strong><span class="mono">verify</span> reports and never repairs.</strong> <span class="why">Why: a repair would be a write made by a tool that has just found something wrong.</span></li>
+<li><strong><span class="mono">status</span> uses the words of the app:</strong> “Kept in”, “Up to date”, “Behind”, “way back”. <span class="why">Why: one meaning each, on every platform.</span></li>
+</ol>
+
+<h3>Open questions for the core command</h3>
+<ul>
+<li>Where does a new vault go when no place is given? A1 assumes <span class="mono">~/Psss</span> on macOS. Linux and Windows need their own default.</li>
+<li>Does <span class="mono">init</span> ask for the name when it is left out, in a terminal?</li>
+<li>Is “way back” the right phrase on the command line, or do “recovery kit” and “vault password” stand alone?</li>
+<li>What a printed recovery kit looks like, and whether <span class="mono">key kit</span> prints to the terminal or writes a file. It is the next frame to mock, before <span class="mono">key kit</span> is built.</li>
+<li>What a KeePass export leaves out. A9 names only the people in shared groups; the full list depends on the mapping in <code>docs/items.md</code> and the history question in the vault format.</li>
+<li>Whether <span class="mono">list</span> should show field names at all when the terminal output may be pasted into an AI conversation. They are names, not values, but they say what is stored.</li>
+</ul>
+</div>
+
+<h2 id="agents">Part 2 · Agent access: the sheets and what an agent sees</h2>
+<p class="prose muted">Proposed 2026-11-23, now an extension of part 1: the same verbs and references in brokered mode, where the command holds no key and the Mac app asks the person. Section numbers below are unchanged.</p>
 
 <h2>1 · The sheet, by what is being asked</h2>
 <p class="prose muted">The kinds of use differ in where the secret ends up, and the sheet says which in one sentence. The order below is from least to most exposed.</p>
@@ -468,6 +642,13 @@ Example API  robin@example.com  api.example.com
 <li>Does a new login from an assistant always go to Only Me, as logins from Safari do?</li>
 <li>Does the activity list belong in Setup, or on each item (“Used by Claude today”)?</li>
 <li>How the <span class="mono">psss</span> command reaches Terminal from a Mac App Store app is not known yet (spike S5). 3b assumes it is simply there.</li>
+</ul>
+
+<h3>History</h3>
+<ul>
+<li><strong>2026-11-24 (later):</strong> Owner approved part 1 (A1 to A10 and its nine decisions) after a render and consistency check. The check changed A1, A4, A5, A6, A9, A10, decision 6 and decision 7 and made the frames fit narrow windows; nothing approved was replaced.</li>
+<li><strong>2026-11-24:</strong> Added part 1, the core command in a terminal (A1 to A10), its decisions and open questions, after the owner re-scoped the command line to put general vault operations first. Retitled the page from “Command line and AI agents”. Nothing in part 2 was replaced; its exit codes 3 and 4 now also define the core table, where they were the only ones drawn.</li>
+<li><strong>2026-11-23:</strong> Part 2 first proposed: the approval sheets, what happens when it cannot go ahead, the Setup section, and what the terminal shows.</li>
 </ul>
 </div>
 </main>

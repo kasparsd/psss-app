@@ -1,18 +1,140 @@
-# Command line and AI agents
+# Command line
 
-**Status: proposal, 2026-11-23. Not approved and not built.** A prototype with fictional data is in `Packages/cli`, the screens are drawn in `Design/Mocks/command-line-and-agents.html`, and the decisions waiting for the owner are [at the end](#decisions-for-the-owner). Nothing here changes the app until they are made.
+**Status: re-scoped 2026-11-24. Nothing is built beyond the prototype.** Part 1, the core command line, is the priority. The owner decided on 2026-11-24 on direct and brokered modes, the parser, recovery at `init` and one `psss` executable, and approved the terminal output drawn in the mock (frames A1 to A10); the other rows of the decisions table are recommendations. Part 2 is not approved. Part 2, agent access, is the proposal of 2026-11-23 with its prototype in `Packages/cli` and its screens in `Design/Mocks/command-line-and-agents.html`; it now extends part 1 instead of standing alone. The decisions waiting for the owner are [at the end](#decisions-for-the-owner). Nothing here changes the app until they are made. The working plan is `docs/plans/command-line-and-agents.md`.
 
 ## What was asked
 
-Give Psss a command-line interface so that scripts, developer tools and AI agents can work with what is in the vault, and let the person grant that access without the secrets being exposed.
+On 2026-11-23: give Psss a command-line interface so that scripts, developer tools and AI agents can work with what is in the vault, and let the person grant that access without the secrets being exposed.
 
-## The problem
+On 2026-11-24: make it first a complete way to use a vault and its secrets from a terminal, a script or CI, on any platform, and add the agent-specific features on top. Core operations come first.
+
+## Part 1: the core command line
+
+### What it is for
+
+`psss` creates and inspects a vault, reads, writes, searches and generates secrets, runs a program with secrets in its environment, moves data in and out (KeePass, backup copies), keeps locations in step, and later shares groups with people and machines. It is used by a person at a keyboard, by a script, by CI and on a server, on macOS, Linux and Windows. It works on a vault in the [record-log format](format.md), kept in a folder.
+
+It is not a server, a secrets manager with policies and dynamic credentials, or a replacement for HashiCorp Vault. Its closest relatives are `pass`, `gopass`, `sops` and `op`; the comparison page in the package docs says where it differs.
+
+### Two ways to open a vault
+
+| | Direct | Brokered (part 2) |
+| --- | --- | --- |
+| The command holds a key | Yes, its own device key | No |
+| Where it runs | macOS, Linux, Windows, CI, servers | Mac with the Psss app, signed build |
+| Who approves a use | Whoever can read the key | The person, with Touch ID, in the app |
+| Commands | All of part 1 | A subset of the same verbs, plus `fetch` |
+| Safe to give to an AI agent | **No.** Anything running as the same user can run it | Yes, within the limits listed in part 2 |
+
+The verbs and the `psss://` reference mean the same in both. Phase 1 to 3 build direct mode only. Direct mode is the model of `pass`, `gopass` and `sops`: the protection is the key's file permissions, the OS account and the person's care, no more. It is the “unlock by itself” design that part 2 rejects for agents, and the docs say so wherever direct mode is described.
+
+### Conventions
+
+Taken from the sibling repositories, read on 2026-11-24: `../pad-launch` (the `tug` command: `docs/cli.md`, `src/cli`, `docs/releases.md`) and `../wpelevator-monorepo` (`packages/js/wp-release`, `CONTRIBUTING.md`).
+
+| Area | Rule for `psss` |
+| --- | --- |
+| Grammar | `psss <subject> <verb> [params]` (tug), with the everyday verbs at top level: `init`, `status`, `get`, `set`, `list`, `search`, `rm`, `run`, `code`, `generate`, `sync`, `verify`, `doctor`. Subjects: `vault`, `item`, `file`, `group`, `member`, `device`, `location`, `key`. A positional names the primary target (the reference, the folder); options qualify it |
+| Parser | `node:util` `parseArgs` and one module per command (wp-release), no CLI framework, so the command keeps the no-dependency rule of `@psss/format`. Groups load lazily. A test compares the registered names with `--help` (tug) |
+| Strictness | Unknown flags, extra arguments and contradictory values are errors before any read or write (tug) |
+| Exit codes | `0` success, `1` failure, `2` invalid usage or a failed `verify` (wp-release), `3` no such item, an ambiguous name, or (brokered) not allowed, `4` locked, app not open or no key. One table in both modes, as drawn in the [mock](../Design/Mocks/command-line-and-agents.html). In brokered mode refusal, a wrong name and a missing field are one answer and one code (`3`), as in part 2 |
+| Streams | Results and values on standard output; errors, warnings and progress on standard error, so a pipe stays clean (tug). Progress is one line per stage when not a terminal or when `CI` is set |
+| JSON | `--json` on every command that produces a result, per command and never global (tug). Values appear in JSON only from `get --json`, which names the field it was asked for |
+| Secrets and arguments | Never as an argument, never in a config key, never in a log. `set` reads standard input, or asks without echo in a terminal. There is no `--value` flag (tug has one and warns about it; this project has no installed base to protect) |
+| Options table | Every global option has a flag, an environment variable and, where it is not a secret, a config key. Precedence: flags, environment, `.psss.json` in the working directory, user config, defaults (tug). `--vault <folder or name>` (`PSSS_VAULT`), `--group` (`PSSS_GROUP`), `--json`, `--verbose`, `--yes` |
+| Choosing | With the reference left out, a terminal offers a list. With no terminal or with `CI` set the command fails and says which argument is missing; it never reads standard input to choose (tug) |
+| Writes | Every command that writes or deletes in bulk has `--dry-run` (wp-release): `import`, `vault restore`, `item purge` |
+| Testing | `run(argv, io)` takes an injected `CliIo` (standard streams and working directory) so most tests run in process; a few run the real executable as a child (wp-release, tug). Assertion messages state the expected behavior |
+
+### Commands
+
+Proposed. Names are the owner's to change before anything is built. A command that prints for a person is mocked and approved before it is built; `init` is the first, because it must say what was created, where, who holds the key and what happens if the key is lost.
+
+**Phase 1: one person's vault.**
+
+| Job | Commands |
+| --- | --- |
+| Create and check | `init [name]` (creates a vault folder and this machine's device key, and says where both are), `status` (vault, locations, up to date or behind, format version, key source), `verify` (every signature, chain, membership record and rollback check; exit 2 on any failure), `doctor` (permissions, clock, key source, location reachable) |
+| Read | `get <ref>`, `list [group]`, `search <text>`, `item show <ref>`, `history <ref>` (previous values, with dates), `code <ref>` (a verification code) |
+| Write | `set <ref>` (value from standard input; `--generate` makes one and prints only the reference), `item add`, `item edit`, `rm <ref>` (moves to Recently Deleted), `restore <ref>`, `item purge` (permanent, with `--dry-run` and a confirmation), `generate` (the app's password generator and word list) |
+| Use | `run --env NAME=<ref> -- <program>` (the value is in that program's environment and nowhere else), `run --env-file <file>` where the file holds references |
+| Files | `file get <ref>`, `file put <ref> <path>` for attachments such as certificates and key files |
+| Move data | `import <file>` (KeePass first, then 1Password and CSV through the mappings in [items](items.md)), `export --format kdbx` (and says what does not travel), `vault backup`, `vault restore` (adds to the vault, never replaces) |
+| Keep in step | `sync`, `location add`, `location list`, `location remove` (removing never deletes what is in it) |
+
+**Phase 2: sharing and devices.** `group create|list|show`, `member invite|accept|list|role|remove`, `device list|approve|remove`, `key password set`, `key kit`, `key recover`. Removal prints the list of what the person could see, as the app does. Needs the invitation and device approval exchanges that [format spec section 10](format-spec.md#10-not-yet-specified) lists as unwritten.
+
+**Phase 3: automation.** A committed `.psss.json` with references and non-secret pointers only; a machine identity (below); item kinds for SSH keys and certificates, which is a schema addition; masking of `run` output in direct mode.
+
+### References
+
+A reference is a name for one field of one item and is safe to write in a script, a config file or a conversation. It is the form of part 2, extended: `psss://item/field`, `psss://group/item/field`, or `psss://id:<item id>/field` when titles repeat. The field is `password`, `username`, `url`, `note`, `code` (computed) or a custom field's name. Titles with spaces are quoted by the shell. In direct mode an ambiguous title exits `3` and lists the candidates by id; in brokered mode it is answered like any other refusal. Phase 1 settles the grammar with tests, including `?previous=` for an earlier password.
+
+### Unlocking without an app
+
+The command is a device of the vault, with its own X-Wing key pair, let in through a slot of the [format](format-spec.md#7-wrapped-keys). There is no Keychain to ask. The sources, in order of preference:
+
+| Source | Slot | Notes |
+| --- | --- | --- |
+| Key file | Another device (type 3) | The default. Created by `init` with mode `0600` in the user config directory. `PSSS_KEY_FILE` points CI at one |
+| Key in the environment | Another device (type 3) | `PSSS_KEY`, for CI that can only inject environment variables. The weakest source; the docs say file first, as tug says for its credential |
+| Operating system keyring | Another device (type 3) | Keychain, libsecret, Credential Manager. Not decided: needs a spike to reach them with no native code and without the secret appearing in a process's arguments |
+| Vault password | Password (type 1) | Argon2id at 128 MiB, asked without echo or read from `PSSS_PASSWORD_FILE`. Never an argument |
+| Recovery kit | Recovery kit (type 2) | `key recover` only |
+
+`init` follows the app's rule: when the device key is the only way back, it says so in plain words and offers a recovery kit or a password before finishing, and `--no-recovery` is the explicit opt-out. Whether it should refuse without a choice is an owner decision below.
+
+### Device state
+
+The command remembers, outside the vault, what the format requires of a device: its device id and sequence numbers, the last chain heads it accepted from each location (the rollback check, spec 4.4), and every sealed record it wrote, stored before anything is uploaded (the never-seal-twice rule). On macOS this is `~/Library/Application Support/psss`, on Linux `$XDG_STATE_HOME/psss`, on Windows `%APPDATA%\psss`. Losing it does not lose the vault but makes the device a new one, so it is part of what `vault backup` mentions.
+
+### What direct mode does not protect against
+
+Stated plainly, as in part 2.
+
+- **Anything running as the same user** can read the key file and the vault and run the command. Direct mode is exactly as strong as `pass` or `sops`, and no stronger.
+- **A program started with `run`** can read its own environment and print or send it. Masking of its output is a convenience, not a boundary.
+- **A stolen key file is the person** until a manager removes the device, and removal cannot unsend what it already read ([costs](format.md#costs-and-risks)).
+- **A person's secrets in CI** are as safe as the CI system's own secret store, which holds the machine's key. That is the same “secret zero” every tool has.
+
+### Libraries and packages
+
+Three packages, each with a README, `docs/` and a changelog, in the shape of `wp-release`: a CLI and a library from one package, a source condition for development, a compiled `dist/` for consumers.
+
+| Package | Holds | State |
+| --- | --- | --- |
+| `@psss/format` | Records, keys, folding, folder layout, vectors. Node 24, `node:crypto` only | Exists, against spec draft 5 |
+| `@psss/vault` | Opening a vault, unlocking, device state, the read model and references, writes, import and export, backup. No prompts, no output | New, phase 1 |
+| `@psss/cli` | The commands over `@psss/vault`; exports `run(argv, io)`; bin `psss` | New, phase 1 |
+
+Node does not strip types from files inside `node_modules`, so a published package has to be compiled even though the repository runs TypeScript directly. Names are not registered until the brand and domain decision in the [roadmap](roadmap.md#open-decisions). The prototype in `Packages/cli` stays as the reference for part 2 and is renamed when `@psss/cli` takes its place.
+
+### What 1.0 freezes
+
+Copied from pad-launch's rule: before 1.0, a minor bump is the compatibility boundary; from 1.0 these change only compatibly inside a major.
+
+- Command names, flags and exit codes, and the JSON printed by `--json`.
+- The `psss://` reference grammar and the `.psss.json` keys.
+- The format version the packages read and write, and the vault, backup and key file formats.
+- Package and binary names.
+
+Not frozen: wording of human output, `doctor` and `status` text, anything marked experimental. Every user-facing change has a changeset; releases are made by CI with provenance, never by hand.
+
+### Docs and tests
+
+README opens with a command and its real output, then the quickstart, the CLI reference, the library page, the comparison with existing tools and a development page, one job per page, as in `wp-release`. A test runs every command the docs show against a fixture vault, so no output is invented. Outcomes the work is measured by are in the plan.
+
+## Part 2: agent access
+
+Everything below is the proposal of 2026-11-23, now an extension of part 1: the same verbs and references, in brokered mode, for programs and AI assistants that should use a secret without holding the vault's key. Where it says “the command holds no key”, it means the brokered client.
+
+### The problem
 
 A person working in a terminal, or an AI assistant working for them, needs secrets all day: a token to call an API, a password for a deploy, a verification code to sign in. Today that means copying from the password manager and pasting into a terminal, a `.env` file or a chat. Each paste leaves a copy: in shell history, in a file that gets committed, in a log, or in an AI conversation that is stored on someone else's servers.
 
 What the person wants is narrower than “give the assistant my password”. It is “let this task use that one login”. The design question is therefore in what form a secret leaves the vault, and who decides each time.
 
-## What others do
+### What others do
 
 From general knowledge of these tools, not re-checked on 2026-11-23. Verify before quoting any of it outside this document.
 
@@ -27,9 +149,9 @@ From general knowledge of these tools, not re-checked on 2026-11-23. Verify befo
 | Header-injecting proxies for agents | The agent calls an API through a local proxy that adds the token. | `fetch` below, without a proxy or a certificate to install. |
 | Apple Passwords | No command line. | A place where Psss can offer more. |
 
-## The idea
+### The idea
 
-**The app is the only thing that opens a vault. The `psss` command holds no key: it carries a question to the running app, and the app asks the person.**
+**For agent access, the app is the only thing that opens a vault. In brokered mode the `psss` command holds no key: it carries a question to the running app, and the app asks the person.** The direct mode of part 1 is the opposite design and is not for agents.
 
 Four things follow.
 
@@ -40,7 +162,7 @@ Four things follow.
 
 This is the same door the browser extension already needs: [browser extension](browser-extension.md#host-and-app) says the native host must hold no key and relay each request over a local socket to the running app, which verifies the caller, unlocks if needed and approves the release. The command line is a second caller of that one relay, not a second system.
 
-## Ways to use a secret
+### Ways to use a secret
 
 Ordered from least to most exposed. “Kept” means the person may answer “until Psss locks” so that the same request is not asked again.
 
@@ -61,7 +183,7 @@ Rules that hold for all of them:
 - **A record of each use is kept on this Mac:** who, which item, how and when. For a program it keeps the program's path and not its arguments, and for a request the address without its query, since a caller may have typed a secret there (the path is kept, so a secret typed into a path would be too). Never a value from the vault.
 - **The app itself still uses no network.** `fetch` is carried out by the `psss` command, which is Psss's own signed code, so the review finding that the app makes no connections stays true.
 
-## What it protects against, and what it does not
+### What it protects against, and what it does not
 
 Stated plainly, because “without exposing the secrets” is easy to over-promise. The lines about the software are checked by tests in `Packages/cli/test/agent.test.ts`; the last two are about people and other programs and are not.
 
@@ -79,7 +201,7 @@ Stated plainly, because “without exposing the secrets” is easy to over-promi
 
 The honest summary for the interface and any future marketing: **Psss lets a program use a secret without the secret being shown, stored or pasted. It does not make it safe to hand secrets to a program you do not trust.** “Send to its own website” is the only use where the caller never holds the secret at all.
 
-## Who is asking
+### Who is asking
 
 The sheet says “Claude wants to…”. That name has to come from the system and not from the caller.
 
@@ -89,11 +211,11 @@ The sheet says “Claude wants to…”. That name has to come from the system a
 
 The prototype cannot check any of this, because Node cannot read who is on the other end of a socket: it takes the caller's word. A Swift probe (`Packages/cli/probe/peer.swift`) shows what macOS reports; its result is under [measured](#what-the-prototype-measured).
 
-## How it fits
+### How it fits
 
 - **One relay in the app** serves the browser host and the command line: a local socket in the app's group container, a check of the caller, a queue of requests, and the approval sheet. The item “Replace the host's vault access with a socket relay to the app” in [browser extension](browser-extension.md#status) is this work.
 - **Format-neutral.** The relay reads items through `VaultStore` and never touches a file, so it works on today's KDBX store and on the [record log](format.md) alike.
-- **The shipping command is Swift, inside the app bundle,** signed with the app. The Node prototype settles the behaviour and the protocol; its code is the start of the cross-platform [reference tool](format.md#roadmap), which is a different thing (it opens a folder vault directly, with its own key, on Windows and Linux).
+- **The brokered client is Swift, inside the app bundle,** signed with the app, because the peer check needs a signed caller and a Node script cannot be one. The Node prototype settles the behaviour and the protocol. The cross-platform [reference tool](format.md#roadmap) is the direct-mode command of part 1, a different thing that opens a folder vault with its own key. Recommended: it is the `psss` on the path, and brokered verbs are handed to the signed helper in the app, which is the only process that receives a value. The Node wrapper never sees one, so a caller that controls its environment gains nothing from it. This is an owner decision below.
 - **Mac only.** iPhone and iPad have no command line, so this is a deliberate platform difference: the allowances and the activity list are per Mac and do not sync. Nothing changes in review semantics, copy or safety rules shared across platforms.
 - **Off by default,** one switch under Setup. It is a tenth-setting candidate against the [simplicity budget](product.md#simplicity-budget) of fewer than ten, and it is never on the main path.
 
@@ -103,7 +225,7 @@ What only a signed build can settle, to add to spike S5:
 - How the person gets `psss` onto their path: a sandboxed app cannot write to `/usr/local/bin`. The options are a one-line command the app shows, a Homebrew formula for a notarized copy, or a direct-download build. This is the same question as [Mac distribution](roadmap.md#open-decisions) for the browser host.
 - Whether the caller's signature check and Touch ID sheet work when the app is in the background or has no window, and whether the command may start the app when it is not running.
 
-## Ideas considered
+### Ideas considered
 
 | Idea | Verdict |
 | --- | --- |
@@ -119,7 +241,7 @@ What only a signed build can settle, to add to spike S5:
 | **Assistants that drive a browser** | Out of scope here. They fill through the browser extension and the same relay. A page the assistant controls can read a filled field, so this needs its own design. |
 | **The command unlocking the vault itself** | No. See the first decision on the mock page. |
 
-## The prototype
+### The prototype
 
 `Packages/cli` (Node 24, no dependencies, fictional data):
 
@@ -142,7 +264,7 @@ and in a second terminal, after the `export PSSS_SOCKET=…` line the first one 
 node src/cli.ts run --env TOKEN=psss://Example API/token -- printenv TOKEN
 ```
 
-### What the prototype measured
+#### What the prototype measured
 
 Three independent runs on 2026-11-23 (separate agents, which changed nothing). The first: the 19 tests of the first version pass, twice, on Node 24.21. It then acted as an assistant trying to get the fictional token into its own output.
 
@@ -177,7 +299,7 @@ Still true and not solved in the prototype: an allowed request may carry any bod
 
 **The probe** (compiled without warnings): macOS gives the caller's process and audit token, and a signature for the caller and every ancestor, so “is this our signed command?” can be checked. Run from this assistant, the chain was the command, `zsh`, the Claude Code helper, a `disclaimer` helper and Claude.app, all signed by one team. Walking outward to the first application names the inner helper (“claude”), not the app the person knows (“Claude”): the sheet should name the outermost application of the same team, and the probe now does. An extra `sh -c` and `env` did not appear in the chain, because each replaced itself with the next.
 
-### What it does not show
+#### What it does not show
 
 - Who is really asking. The prototype trusts a name the caller gives.
 - Touch ID, the sheet itself, and anything about the sandbox.
@@ -186,21 +308,39 @@ Still true and not solved in the prototype: an allowed request may carry any bod
 
 ## Proposed order of work
 
-1. **Owner decisions** below, and approval of the mock's decision list.
-2. **Spike, with S5:** the three signed-build questions above.
-3. **The relay in the app,** shared with the browser host, with the approval sheet and the Setup section.
-4. **The `psss` command, first version:** `fetch`, `run`, `code`, `save`, `list`, `status` and `show`, with Help text.
-5. **`psss mcp`.**
-6. **Git credential helper.**
-7. **A machine as a group member,** after sharing by group has shipped and been reviewed.
+Core first (owner, 2026-11-24). The steps with checklists are in `docs/plans/command-line-and-agents.md`.
 
-None of it belongs before the M0 gate or in the path to the first TestFlight. The recommended place is the “Later” list, together with other Mac browsers, because both wait on the same relay and the same distribution decision.
+1. **Owner decisions** below, a mock of the core terminal output, and the headless key spike (where the device key lives with no Keychain).
+2. **Phase 1: one person's vault, direct mode.** `@psss/vault`, `@psss/cli`, the core commands, import and export, docs and tests, and the interop and three-device checks.
+3. **Phase 2: sharing and devices,** after the invitation and approval exchanges are specified.
+4. **Phase 3: automation.** `.psss.json`, a machine identity, SSH key and certificate kinds, output masking.
+5. **Phase 4: agent access.** Spike S5's three signed-build questions, the relay in the app with the approval sheet and Setup section, the brokered client with `fetch`, `run`, `code`, `save`, `list` and `status`, then `psss mcp`, then the Git credential helper.
+
+None of it belongs before the M0 gate or in the path to the first TestFlight. Phases 1 to 3 need no app and no signed build, so they can run beside the format work; phase 4 waits on the same relay and distribution decision as other Mac browsers.
 
 ## Decisions for the owner
 
+Part 1 (2026-11-24):
+
 | Decision | Recommendation |
 | --- | --- |
-| Is this in scope at all, and when? | Yes, after 1.0, in “Later” beside other Mac browsers. It is what a developer would switch from 1Password for, it costs little once the relay exists, and it does not touch the main path. |
+| A core command that holds its own key (direct mode), beside the key-less brokered mode | **Decided 2026-11-24: yes, both modes.** Scripts, CI, servers, Linux and Windows have no app to ask. The cost is stated in the docs: direct mode is as strong as `pass` or `sops`, and must not be given to an agent. |
+| Language and parser | **Decided 2026-11-24.** Node 24 TypeScript, `node:util` `parseArgs`, one module per command, no dependencies. It matches `@psss/format` and keeps the supply chain of a secrets tool small. The alternative is `commander`, as tug uses, which adds a dependency for no function psss needs. |
+| Grammar and names | tug's `psss <subject> <verb>` with the everyday verbs at top level, as in [commands](#commands). |
+| Exit codes | `0`, `1`, `2` as wp-release, plus `3` no such item, ambiguous or not allowed, and `4` locked or no key, the same in both modes (changed 2026-11-24 to match the agent frames already drawn). |
+| Secrets never as arguments, and no `--value` flag | Yes. |
+| `get` prints to a pipe | Yes in direct mode, bare, so it can fill a file or a variable. Brokered mode keeps part 2's rule that `show` is refused outside a terminal. |
+| Headless unlock sources | Key file by default, key in the environment for CI that cannot do better, keyring after a spike, vault password and recovery kit as slots. |
+| `init` and recovery | **Decided 2026-11-24.** `init` says plainly that the device key is the only way back and offers a recovery kit or a password before it finishes; `--no-recovery` is the opt-out. Recommended: do not refuse without a choice, since a script must be able to create a vault. |
+| Packages | `@psss/format`, `@psss/vault`, `@psss/cli`, each a library and, for the CLI, a binary; compiled `dist/` for publishing and a source condition for development. Names are registered after the brand and domain decision. |
+| Release | Changesets, the 1.0 freeze list above, publication by CI with provenance and signed release files. A standalone binary is evaluated later. |
+| One `psss` or two | **Decided 2026-11-24: one `psss`, final call in phase 4.** The cross-platform command is on the path and hands brokered verbs to the signed helper in the app. Decide in phase 4 after S5. |
+
+Part 2 (2026-11-23, unchanged except the first row):
+
+| Decision | Recommendation |
+| --- | --- |
+| Is agent access in scope at all, and when? | Yes, as phase 4, after the core command and after 1.0, beside other Mac browsers. It is what a developer would switch from 1Password for, it costs little once the relay exists, and it does not touch the main path. |
 | The app as the only door, with a command that holds no key | Yes. It is the only design where approval cannot be skipped by a script. |
 | Lengths of an allowance: once, or until Psss locks; no “Always” | Yes. |
 | May `run` be kept until Psss locks at all? | No. Two versions were tried (per program, then per exact command line) and an independent run walked around each. `run` is asked for every time; `fetch` and verification codes are the uses that can be kept. This makes `run` tiring for an assistant that calls it often, which is the honest cost and a reason to grow `fetch`. |
@@ -208,15 +348,25 @@ None of it belongs before the M0 gate or in the path to the first TestFlight. Th
 | `psss show` exists, loud and never kept | Yes. Without it people paste from the app. |
 | Verification codes may be handed over | Yes, with the sheet saying so. An assistant that has both the password (through `run`) and a code can sign in as the person, which is the point of asking, and the risk. |
 | MCP server after the command | Yes, without any way to see a value. |
-| A machine as a group member, for unattended use | Later, and only for groups made for machines. |
+| A machine as a group member, for unattended use | Phase 3 of the core command, since CI needs it too, and only for groups made for machines. Moved up on 2026-11-24 from “later”. |
 | Name: `psss` | Yes. It is short and already the product's name. |
 
 ## Roadmap
 
-- [ ] Owner decisions above; mock decisions approved.
+Core command line (part 1):
+
+- [ ] Owner decisions above; core terminal output mocked and approved.
+- [ ] Headless key custody spike, result in [vault format](format.md#keys).
+- [ ] `@psss/vault` and `@psss/cli`, phase 1 commands, docs, docs test, `scripts/test-vault.sh`.
+- [ ] Interop with the Swift core, and the three-device rounds with the command as a device.
+- [ ] Phase 2 (sharing and devices) and phase 3 (automation).
+- [ ] Changesets, signed releases, publication by CI.
+
+Agent access (part 2):
+
 - [x] Prototype of the command, the stand-in and the tests (`Packages/cli`, 2026-11-23).
 - [x] Three independent runs recorded (2026-11-23).
 - [ ] Signed-build questions answered in S5.
 - [ ] Relay in the app, shared with the browser host.
-- [ ] `psss` first version, Setup section, Help text.
+- [ ] Brokered client, Setup section, Help text.
 - [ ] `psss mcp`.
