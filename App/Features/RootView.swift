@@ -3,14 +3,15 @@ import SwiftUI
 /// Shows the vault only while unlocked. Locking tears the vault view down, so no decrypted state, selection
 /// or search text stays in memory behind the lock screen, and unlocking opens fresh. On a Mac the search field has focus then; on iPhone and iPad it does not, so the keyboard stays closed.
 struct RootView: View {
-    @State private var gate = UnlockGate()
-    @State private var session = VaultSession()
+    /// Owned by the app, so the Mac Settings window reads the same lock state and vault as this window.
+    let gate: UnlockGate
+    let session: VaultSession
     /// The sample vault lives in memory only. A fresh one starts whenever the app locks, so nothing typed into it is kept.
     @State private var sample = SampleVaultStore()
     /// What the system says about AutoFill, read here so every screen shows the same answer.
-    @State private var autoFill = AutoFillStatus.live()
+    let autoFill: AutoFillStatus
     /// Mac only: whether the bundled Safari extension is switched on. Reads nothing on iPhone and iPad, which have no extension.
-    @State private var safariExtension = SafariExtensionStatus.live()
+    let safariExtension: SafariExtensionStatus
     @AppStorage("vaultSource") private var vaultSource = ""
     @AppStorage("lockTiming") private var lockTiming = LockTiming.oneMinute.rawValue
     @Environment(\.scenePhase) private var scenePhase

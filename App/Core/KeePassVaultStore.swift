@@ -774,7 +774,7 @@ final class VaultSession {
     /// Switches biometric unlock off after its key could not be saved again, and records the notice.
     private func dropBiometricKey() {
         setBiometric(false)
-        biometricNotice = String(localized: "\(BiometryKind.nameForMessages) could not be turned on again for this vault. You can turn it on in Setup.")
+        biometricNotice = String(localized: "\(BiometryKind.nameForMessages) could not be turned on again for this vault. You can turn it on in Settings.")
     }
 
     /// Adopts the persisted reference when it is the same vault. Every change is persisted as it is made, so what is stored is

@@ -192,7 +192,7 @@ struct AutoFillCopy: Equatable, Sendable {
 
     var laterLabel: String { String(localized: "Later") }
     var doneLabel: String { String(localized: "Done") }
-    var laterNotice: String { String(localized: "Psss will remind you in a week. AutoFill stays in Setup.") }
+    var laterNotice: String { String(localized: "Psss will remind you in a week. AutoFill stays in Settings.") }
 
     // MARK: Alert when Settings did not open
 

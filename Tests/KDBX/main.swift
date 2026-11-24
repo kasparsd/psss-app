@@ -943,7 +943,7 @@ do {
     expect("the stale mark is cleared", lifecycle.reference?.biometricStale == false && VaultReference.load()?.biometricStale == false)
     expect("no key is left", BiometricKey.memory[id] == nil)
     check("the notice names the problem and the way back", lifecycle.biometricNotice ?? "nil",
-          "\(BiometryKind.nameForMessages) could not be turned on again for this vault. You can turn it on in Setup.")
+          "\(BiometryKind.nameForMessages) could not be turned on again for this vault. You can turn it on in Settings.")
     lifecycle.lock()
     try await lifecycle.unlock(credentials: .init(password: "pw1"))
     expect("the next password unlock clears the notice", lifecycle.biometricNotice == nil)
@@ -3543,7 +3543,7 @@ func reminderDisplay(_ vault: AutoFillVault, _ reading: AutoFillReading, _ memor
     status.snooze()
     expect("autofill: Later removes the card", status.reminder(for: .real).display == .nothing)
     expect("autofill: Later says it will come back", status.laterNoticeShown)
-    check("autofill: the notice names the week", AutoFillCopy(device: .iPhone).laterNotice, "Psss will remind you in a week. AutoFill stays in Setup.")
+    check("autofill: the notice names the week", AutoFillCopy(device: .iPhone).laterNotice, "Psss will remind you in a week. AutoFill stays in Settings.")
     status.dismissLaterNotice()
     expect("autofill: the notice goes", !status.laterNoticeShown)
     check("autofill: the snooze date is kept on this device", "\(device.load().snoozedAt == testClock.now)", "true")

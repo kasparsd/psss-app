@@ -133,14 +133,12 @@ struct VaultView: View {
     /// The item whose editor Reload Vault closed. If the reload shows it gone, the person is told it was removed.
     @State private var reloadingEditedItem: VaultItem.ID?
     @State private var changingPassword = false
-    @State private var copyDocument: VaultCopy?
 
     init(store: any VaultStore) {
         self.store = store
         _items = State(initialValue: store.items())
         _deletedEntries = State(initialValue: store.recentlyDeleted().map(DeletedItem.init))
     }
-    @State private var confirmsReset = false
     @State private var importing = false
     @State private var importNotice: String?
     @State private var importProblem: String?
@@ -268,6 +266,7 @@ struct VaultView: View {
     private var isEditingInPlace: Bool { editingID != nil }
     @State private var showsEditorRemoved = false
     @State private var showsSetup = false
+    @Environment(SettingsRequests.self) private var settingsRequests
     @State private var wantsPasswordChange = false
     /// The alert on screen and the surface that shows it. There is only ever one of each, so an alert cannot be asked for on
     /// two surfaces at once. See `nextAlert` for the order of the ones waiting.
@@ -372,12 +371,21 @@ struct VaultView: View {
             }
     }
 
+    /// Psss, Settings… (⌘,) on iPad with a keyboard. The Mac has its own Settings window and no sheet.
+    private var openSetupAction: (() -> Void)? {
+        #if os(iOS)
+        isEditingInPlace ? nil : { showsSetup = true }
+        #else
+        nil
+        #endif
+    }
+
     private var withSceneValues: some View {
         withSheets
             // Menu commands that would leave the page being edited are off until Save or Cancel.
             .focusedSceneValue(\.newItem, isEditingInPlace ? nil : { kind in editor = VaultItem(kind: kind) })
             .focusedSceneValue(\.vaultPlace, isEditingInPlace ? nil : placeBinding)
-            .focusedSceneValue(\.openSetup, isEditingInPlace ? nil : { showsSetup = true })
+            .focusedSceneValue(\.openSetup, openSetupAction)
             .focusedSceneValue(\.deleteSelection, deleteCommand)
             .focusedSceneValue(\.itemSort, showsSort && !isEditingInPlace ? sortBinding : nil)
             // Show and With describe the All list: off in Codes, Cards, Recently Deleted and search.
@@ -402,15 +410,24 @@ struct VaultView: View {
     }
 
     private var withSheets: some View {
-        base
+        let editorSheets = base
             .sheet(item: $editor) { item in
                 NewItemSheet(item: item, onSave: save, onKeepDraft: keepDraft)
                     .modifier(AlertSurfaceModifier(surface: .editor, owner: self))
             }
+        #if os(iOS)
+        return editorSheets
             .sheet(isPresented: $showsSetup, onDismiss: {
                 // Change Vault Password opens its own sheet, but only once this one has gone.
                 if wantsPasswordChange { wantsPasswordChange = false; changingPassword = true }
             }) { setupSheet.modifier(AlertSurfaceModifier(surface: .setup, owner: self)) }
+        #else
+        return editorSheets
+            // The Mac Settings window asks for Change Vault Password here, where its sheet belongs.
+            .onChange(of: settingsRequests.changePassword) { _, asked in
+                if asked { settingsRequests.changePassword = false; changingPassword = true }
+            }
+        #endif
     }
 
     private var base: some View {
@@ -472,7 +489,7 @@ struct VaultView: View {
         return waiting
     }
 
-    private var sheetIsOpen: Bool { showsSetup || changingPassword || editor != nil || copyDocument != nil }
+    private var sheetIsOpen: Bool { showsSetup || changingPassword || editor != nil }
 
     private func isOpen(_ surface: AlertSurface) -> Bool {
         switch surface {
@@ -696,7 +713,7 @@ struct VaultView: View {
                 }
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button("Setup", systemImage: "gearshape") { showsSetup = true }
+                        Button("Settings", systemImage: "gearshape") { showsSetup = true }
                             .labelStyle(.iconOnly)
                     }
                     // Sort, Filter, then Add, as Apple's Passwords has Sort before Add. Filter stays in Recently Deleted: it is the
@@ -1009,9 +1026,9 @@ struct VaultView: View {
 
     #if os(iOS)
     private var setupButton: some View {
-        Button("Setup", systemImage: "gearshape") { showsSetup = true }
+        Button("Settings", systemImage: "gearshape") { showsSetup = true }
             .labelStyle(.iconOnly)
-            .help("Setup")
+            .help("Settings")
             .disabled(isEditingInPlace)
     }
     #endif
@@ -1124,117 +1141,62 @@ struct VaultView: View {
         )
     }
 
+    // MARK: Settings (iPhone and iPad; the Mac has a Settings window, `MacSettingsView`)
+    //
+    // The root lists the vaults (each pushes its own page) and the app's own rows, which apply to every vault. The pages and
+    // their words are shared, see SettingsViews.swift.
+
+    #if os(iOS)
     private var setupSheet: some View {
-            NavigationStack {
-                Form {
+        NavigationStack {
+            Form {
+                Section {
                     if let keePass = store as? KeePassVaultStore {
-                        Section("Vault") {
-                            LabeledContent("Name", value: keePass.title)
-                            LabeledContent("Location", value: keePass.reference.managed
-                                ? String(localized: "On this device") : keePass.reference.fileName)
-                            Text(keePass.reference.encryptionDescription)
-                            DisclosureGroup("Technical details") {
-                                LabeledContent("Format", value: keePass.formatLabel)
-                                LabeledContent("Encryption", value: keePass.kdfSummary)
+                        NavigationLink {
+                            vaultPage(keePass)
+                        } label: {
+                            VStack(alignment: .leading) {
+                                Text(keePass.title)
+                                Text(vaultSummary(keePass.reference)).foregroundStyle(.secondary)
                             }
-                            if let modified = keePass.lastModified {
-                                LabeledContent("Modified", value: modified.formatted(date: .abbreviated, time: .shortened))
-                            }
-                            LabeledContent("Items", value: items.count.formatted())
-                            Button("Save a Copy…") { copyDocument = (try? VaultFiles.read(keePass.url)).map(VaultCopy.init) }
-                            Button("Change Vault Password…") { wantsPasswordChange = true; showsSetup = false }
-                        }
-                        Section {
-                            Toggle("Unlock with \(BiometryKind.unlockName)", isOn: Binding(
-                                get: { session.reference?.biometricUnlock == true },
-                                set: { on in
-                                    if on { do { try session.enableBiometric() } catch { storeProblem = String(localized: "The key could not be saved on this device. AutoFill needs a passcode set in Settings.") } }
-                                    else { session.turnOffSavedKey() }
-                                }))
-                        } footer: {
-                            Text(session.reference?.biometricUnlock == true
-                                 ? AutoFillCopy(device: .current).savedKeyOnFooter : AutoFillCopy(device: .current).savedKeyOffFooter)
                         }
                     } else {
-                        Section("Vaults") {
-                            Text("Open a KeePass vault")
-                            Text("Import from 1Password")
-                            Text("Create a local or iCloud vault")
-                        }
-                    }
-                    Section {
-                        Picker(selection: $lockTiming) {
-                            ForEach(LockTiming.allCases) { Text($0.title).tag($0.rawValue) }
+                        NavigationLink {
+                            SampleSettingsPage(session: session, gate: gate) { showsSetup = false }
                         } label: {
-                            Text("Lock")
+                            VStack(alignment: .leading) {
+                                Text("Sample vault")
+                                Text("Not saved").foregroundStyle(.secondary)
+                            }
                         }
-                        Button("Lock Now") {
-                            showsSetup = false
-                            gate.lock()
-                        }
-                    } header: {
-                        Text("Security")
-                    } footer: {
-                        Text(store.isSample
-                             ? "Psss unlocks with Face ID, Touch ID or your device passcode. AutoFill always asks."
-                             : "Psss asks for the vault password each time it unlocks, or uses Face ID or Touch ID if you turn it on.")
                     }
-                    AutoFillSetupSection()
-                    Section("Help") {
-                        ForEach(HelpTopics.all) { HelpRow(topic: $0) }
-                    }
-                    Section {
-                        Button("Start Over…", role: .destructive) {
-                            confirmsReset = true
-                        }
-                    } header: {
-                        Text("Reset")
-                    } footer: {
-                        Text(store.isSample ? "Shows the welcome screen again. Changes you make in the sample vault are not saved: they are gone when Psss locks or quits."
-                             : (store as? KeePassVaultStore)?.reference.managed == true
-                             ? "Deletes this vault from this device and shows the welcome screen again."
-                             : "Forgets this vault and shows the welcome screen again. The file stays where it is.")
-                    }
+                } header: {
+                    Text("Vaults")
+                } footer: {
+                    Text(AppSettingsSections.vaultsFooter)
                 }
-                .formStyle(.grouped)
-                // The exporter belongs to the sheet that asks for it: the vault screen is busy presenting this sheet.
-                .fileExporter(isPresented: Binding(get: { copyDocument != nil }, set: { if !$0 { copyDocument = nil } }),
-                              document: copyDocument, contentType: .keePassVault,
-                              defaultFilename: store.title) { _ in copyDocument = nil }
-                .alert("Start over?", isPresented: $confirmsReset) {
-                    Button(resetButtonTitle, role: .destructive) {
-                        VaultIdentities.remove()
-                        session.forget()
-                        showsSetup = false
-                        // Another remembered vault takes its place on the lock screen; with none left, the welcome screen shows.
-                        if session.reference == nil { vaultSource = "" } else { gate.lock() }
-                    }
-                    Button("Cancel", role: .cancel) {}
-                } message: {
-                    Text(resetMessage)
-                }
-                .navigationTitle("Setup")
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { showsSetup = false }
-                    }
+                AppSettingsSections(isSample: store.isSample) {
+                    showsSetup = false
+                    gate.lock()
                 }
             }
-            .modifier(SheetSize())
+            .formStyle(.grouped)
+            .navigationTitle("Settings")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { showsSetup = false }
+                }
+            }
+        }
+        .modifier(SheetSize())
     }
 
-    private var resetButtonTitle: LocalizedStringKey {
-        if store.isSample { "Start Over" }
-        else if (store as? KeePassVaultStore)?.reference.managed == true { "Delete Vault and Start Over" }
-        else { "Forget Vault and Start Over" }
+    private func vaultPage(_ keePass: KeePassVaultStore) -> some View {
+        VaultSettingsPage(session: session, gate: gate, reference: keePass.reference, store: keePass, itemCount: items.count,
+                          onChangePassword: { wantsPasswordChange = true; showsSetup = false },
+                          afterLeaving: { showsSetup = false })
     }
-
-    private var resetMessage: LocalizedStringKey {
-        if store.isSample { "The sample vault closes and the welcome screen shows again. Nothing from it was saved on this device." }
-        else if (store as? KeePassVaultStore)?.reference.managed == true {
-            "The vault and its backups are deleted from this device. Without another copy of the file, your logins are gone. This cannot be undone."
-        } else { "Psss stops using this vault. The file is not deleted and you can open it again." }
-    }
+    #endif
 
     /// A vault is open on every screen that asks, the sample vault included.
     private var autoFillVault: AutoFillVault { .real }

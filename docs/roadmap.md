@@ -167,6 +167,7 @@ Goal: five people outside the project fill, save and find a login without guidan
 - [ ] Help: one Help screen and a Help menu entry, the same on every platform. None exists, and AGENTS.md asks for Help text with every cross-platform change.
 - [ ] Groups as folders, expiry, and adding or removing attachments and custom fields. Custom field values are editable. Renaming fields and changing their protection are still open. Previous passwords are approved (2026-11-23) and planned in [approved screens](plans/approved-screens.md).
 - [ ] Setup: one screen to enable AutoFill, and on Mac a card to enable the Safari extension (built, switched off until the extension works; iPhone and iPad have no extension). Fewer than ten settings in total.
+- [x] Settings (owner, 2026-11-24): option B on iPhone and iPad, Mac Settings window with General and Vaults panes (option C). Open: device check of the Mac window; an “Add or Open a Vault…” row, About, rename and colour (with multiple vaults).
 - [ ] Accessibility and keyboard pass. String Catalog. iPad regular width.
 - [ ] Observe five people on TestFlight builds: two from Apple Passwords, two from 1Password, one from Strongbox. Record time to first fill, first wrong turn and wording they look for.
 - [ ] Internal security review of origin policy, secret lifecycle and importers.

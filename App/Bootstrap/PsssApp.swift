@@ -6,6 +6,12 @@ struct PsssApp: App {
     @FocusedValue(\.lockVault) private var lockVault
     @FocusedValue(\.openSetup) private var openSetup
     @FocusedValue(\.deleteSelection) private var deleteSelection
+    // One of each for the whole app: the vault window and the Mac Settings window read the same lock state and vault.
+    @State private var gate = UnlockGate()
+    @State private var session = VaultSession()
+    @State private var autoFill = AutoFillStatus.live()
+    @State private var safariExtension = SafariExtensionStatus.live()
+    @State private var settingsRequests = SettingsRequests()
 
     init() {
         // Earlier builds may have left real logins in a plain-text file in the App Group. Delete it.
@@ -28,7 +34,8 @@ struct PsssApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            RootView(gate: gate, session: session, autoFill: autoFill, safariExtension: safariExtension)
+                .environment(settingsRequests)
         }
         #if os(macOS)
         .defaultSize(width: 1100, height: 680)
@@ -37,12 +44,13 @@ struct PsssApp: App {
             VaultPlaceCommands()
             ItemFilterCommands()
             ItemSortCommands()
-            // Psss, Settings… (⌘,): where the Mac window has no Setup gear.
+            #if os(iOS)
+            // Psss, Settings… (⌘,) on iPad with a keyboard. The Mac has a Settings window, and the system adds its own menu item.
             CommandGroup(replacing: .appSettings) {
-                // Always enabled: with no window to show it in, the press does nothing rather than greying the item out.
                 Button("Settings…") { openSetup?() }
                     .keyboardShortcut(",", modifiers: .command)
             }
+            #endif
             // Edit, Delete stays the system's own item (a focused text field answers it, and the item list answers it with
             // `onDeleteCommand`, VaultView). Under it the same move in words, with ⌘⌫: "Move to Recently Deleted" (owner,
             // 2026-11-24), or "Delete Now…" for an item that is already there. Off while a text field is being typed in, so ⌘⌫
@@ -74,5 +82,15 @@ struct PsssApp: App {
                     .disabled(newItem == nil)
             }
         }
+        #if os(macOS)
+        Settings {
+            MacSettingsView()
+                .environment(gate)
+                .environment(session)
+                .environment(autoFill)
+                .environment(safariExtension)
+                .environment(settingsRequests)
+        }
+        #endif
     }
 }
