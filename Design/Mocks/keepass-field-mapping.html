@@ -115,6 +115,7 @@
   #psss-field-mapping .source select { flex: 1; }
   #psss-field-mapping .preview { grid-column: 1 / -1; display: flex; gap: .5rem; align-items: baseline; }
   #psss-field-mapping .preview-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #psss-field-mapping .field-notice { grid-column: 1 / -1; }
   #psss-field-mapping .preview button { padding: .25rem .5rem; color: var(--link); background: transparent; border-color: transparent; }
   #psss-field-mapping .preview svg { width: 1.15em; height: 1.15em; vertical-align: middle; }
   #psss-field-mapping .preview button[aria-pressed="false"] .eye-slash { display: none; }
@@ -202,18 +203,26 @@
   }
 
   function update() {
-    const assigned = choices().map(([, source]) => source).filter(Boolean);
-    const duplicate = assigned.find((source, index) => assigned.indexOf(source) !== index);
-    const missingRequired = choices().find(([target, source]) => !target.endsWith("(optional)") && !source)?.[0];
-    const messageText = duplicate
-      ? `“${duplicate}” is selected twice. Choose a different field for one row.`
-      : missingRequired
-        ? `Choose the field that holds the ${missingRequired.toLowerCase()}.`
-        : "Saves the item type in Work.kdbx. Existing fields and the vault password stay the same.";
+    const selections = choices();
+    const assigned = selections.map(([, source]) => source).filter(Boolean);
+    let hasIssue = false;
     for (const select of fields.querySelectorAll("select")) {
-      select.setAttribute("aria-invalid", String(Boolean(duplicate && select.value === duplicate)));
+      const target = select.dataset.target;
       const field = originals.get(select.value);
-      const preview = select.closest(".row").querySelector(".preview");
+      const conflicts = selections.filter(([role, source]) => role !== target && source && source === select.value)
+        .map(([role]) => role.replace(" (optional)", ""));
+      const issue = conflicts.length
+        ? `Also used for ${conflicts.join(", ")}. Choose a different field for one of these roles.`
+        : !target.endsWith("(optional)") && (!field || !field.value.trim())
+          ? `Choose a field with a value for ${target.toLowerCase()}.`
+          : "";
+      const row = select.closest(".row");
+      const notice = row.querySelector(".field-notice");
+      hasIssue ||= Boolean(issue);
+      notice.textContent = issue ? `⚠ ${issue}` : "";
+      notice.hidden = !issue;
+      select.setAttribute("aria-invalid", String(Boolean(issue)));
+      const preview = row.querySelector(".preview");
       const value = preview.querySelector(".preview-value");
       const reveal = preview.querySelector("button");
       const concealed = field && (field.hidden || ["Password", "Card number", "Security code (optional)"].includes(select.dataset.target));
@@ -227,8 +236,8 @@
     const extras = [...originals.keys()].filter(key => !assigned.includes(key));
     root.querySelector("[data-extras]").textContent = extras.length ? `Psss keeps ${extras.join(", ")} under Other fields.` : "";
     save.textContent = template.value === "Custom item" ? "Save as Custom Item" : `Save as ${template.value}`;
-    save.disabled = Boolean(duplicate || missingRequired);
-    message.textContent = messageText;
+    save.disabled = hasIssue;
+    message.textContent = "Saves the item type in Work.kdbx. Existing fields and the vault password stay the same.";
   }
 
   function templateRows(conflict = false) {
@@ -263,7 +272,12 @@
       });
       select.addEventListener("change", () => reveal.setAttribute("aria-pressed", "false"));
       preview.append(value, reveal);
-      row.append(label, sourceLabel, preview);
+      const notice = document.createElement("p");
+      notice.className = "field-notice";
+      notice.id = `role-notice-${fields.children.length}`;
+      notice.setAttribute("role", "status");
+      select.setAttribute("aria-describedby", notice.id);
+      row.append(label, sourceLabel, preview, notice);
       fields.append(row);
     }
     update();
@@ -311,6 +325,7 @@
     <p>2026-11-24. The native app now shows Other fields and saves assignments with the original KeePass keys. The mock uses the shared item type and assignment labels. The native sheet places Cancel and Save in the system toolbar on iPhone and iPad.</p>
     <p>2026-11-24. Moved Map fields below Other fields because changing roles is occasional. Edit now changes stored custom values. Each assignment labels the selector From field and previews the stored value below it to distinguish the value from the dropdown.</p>
     <p>2026-11-24. Removed the Stored value caption so the preview stands on its own. The inline eye matches the reveal control in item details.</p>
+    <p>2026-11-24. Moved mapping conflicts into each affected field row so the message stays beside the selector that fixes it.</p>
   </section>
 </main>
 </body>

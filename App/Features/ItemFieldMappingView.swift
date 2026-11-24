@@ -47,7 +47,7 @@ struct ItemFieldMappingView: View {
     private var fields: [StoredItemField] { item.sourceFields ?? [] }
     private var choices: [StoredItemField] { ItemFieldMapping.choices(in: fields) }
     private var roles: [FieldRole] { FieldRole.mappingRoles(for: draft.kind) }
-    private var issue: String? { draft.issue(in: fields) }
+    private var issues: [(role: FieldRole?, message: String)] { draft.validationIssues(in: fields) }
     private var unassigned: [String] {
         let assigned = Set(draft.keys.values)
         return fields.filter {
@@ -78,7 +78,8 @@ struct ItemFieldMappingView: View {
     }
 
     private var form: some View {
-        Form {
+        let issues = issues
+        return Form {
             VStack(alignment: .leading, spacing: 4) {
                 Text(verbatim: item.displayTitle).font(.title.weight(.semibold))
                 Text(verbatim: [vault, location].compactMap { $0 }.joined(separator: " · "))
@@ -97,7 +98,7 @@ struct ItemFieldMappingView: View {
                 }
                 .pickerStyle(.menu)
                 ForEach(roles, id: \.self) { role in
-                    rolePicker(role)
+                    rolePicker(role, issue: issues.first { $0.role == role }?.message)
                 }
             }
             if !roles.isEmpty && !unassigned.isEmpty {
@@ -111,7 +112,8 @@ struct ItemFieldMappingView: View {
                 saveButton.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
             }
             #endif
-            Text(verbatim: saveProblem ?? issue ?? String(localized: "Saves the item type in \(vault). Existing fields and the vault password stay the same."))
+            Text(verbatim: saveProblem ?? issues.first { $0.role == nil }?.message
+                 ?? String(localized: "Saves the item type in \(vault). Existing fields and the vault password stay the same."))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
@@ -122,7 +124,7 @@ struct ItemFieldMappingView: View {
         .onChange(of: fields) { revealedSources = [] }
     }
 
-    private func rolePicker(_ role: FieldRole) -> some View {
+    private func rolePicker(_ role: FieldRole, issue: String?) -> some View {
         let name = String(localized: role.label)
         let label = role.required ? name : String(localized: "\(name) (optional)")
         let selected = choices.first { $0.key == draft[role] }
@@ -148,6 +150,10 @@ struct ItemFieldMappingView: View {
             }
             if let selected {
                 sourcePreview(selected, as: role)
+            }
+            if let issue {
+                ProblemText(text: issue)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .font(.body)
@@ -189,6 +195,6 @@ struct ItemFieldMappingView: View {
                 saveProblem = (error as? VaultStoreError)?.message ?? (error as? KDBXError)?.message ?? error.localizedDescription
             }
         }
-        .disabled(issue != nil || needsReopen)
+        .disabled(!issues.isEmpty || needsReopen)
     }
 }

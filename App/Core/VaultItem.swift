@@ -235,31 +235,39 @@ struct ItemFieldMapping: Codable, Equatable, Sendable {
     }
 
     func issue(in fields: [StoredItemField], requireValues: Bool = true) -> String? {
-        guard [.login, .creditCard, .keePassEntry].contains(kind) else { return String(localized: "Choose an item type.") }
+        validationIssues(in: fields, requireValues: requireValues).first?.message
+    }
+
+    func validationIssues(in fields: [StoredItemField], requireValues: Bool = true) -> [(role: FieldRole?, message: String)] {
+        guard [.login, .creditCard, .keePassEntry].contains(kind) else { return [(nil, String(localized: "Choose an item type."))] }
         let roles = FieldRole.mappingRoles(for: kind)
         let choices = Self.choices(in: fields)
-        var used: Set<String> = []
+        var issues: [(role: FieldRole?, message: String)] = []
         for role in roles {
             guard let key = self[role] else {
                 if role.required {
-                    return String(localized: "Choose the field that holds the \(String(localized: role.label).localizedLowercase).")
+                    issues.append((role, String(localized: "Choose the field that holds the \(String(localized: role.label).localizedLowercase).")))
                 }
                 continue
             }
-            guard used.insert(key).inserted else {
-                return String(localized: "“\(key)” is selected twice. Choose a different field for one row.")
+            let otherRoles = roles.filter { $0 != role && self[$0] == key }
+            if !otherRoles.isEmpty {
+                let names = otherRoles.map { String(localized: $0.label) }.formatted(.list(type: .and))
+                issues.append((role, String(localized: "Also used for \(names). Choose a different field for one of these roles.")))
+                continue
             }
             guard let field = choices.first(where: { $0.key == key }) else {
-                return String(localized: "“\(key)” is unavailable. Choose a different field.")
+                issues.append((role, String(localized: "“\(key)” is unavailable. Choose a different field.")))
+                continue
             }
             if requireValues && role.required && field.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return String(localized: "“\(key)” is empty. Choose a field with a value.")
+                issues.append((role, String(localized: "“\(key)” is empty. Choose a field with a value.")))
             }
         }
         if !Set(keys.keys).isSubset(of: Set(roles.map(\.rawValue))) {
-            return String(localized: "One of the assignments is unavailable. Choose the fields again.")
+            issues.append((nil, String(localized: "One of the assignments is unavailable. Choose the fields again.")))
         }
-        return nil
+        return issues
     }
 }
 

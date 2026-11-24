@@ -3782,6 +3782,8 @@ do {
     let historyCount = cardNode.child("History")?.children.count ?? 0
     var invalid = mapping
     invalid[.securityCode] = "Card No."
+    let conflictingRoles = Set(invalid.validationIssues(in: projected.sourceFields ?? []).compactMap(\.role))
+    expect("duplicate source field identifies both affected rows", conflictingRoles == [.cardNumber, .securityCode])
     do {
         _ = try document.mapFields(invalid, of: card.id)
         expect("duplicate source field is rejected", false)
