@@ -1,0 +1,2 @@
+Any file at all can be a key file.
+Its SHA-256 is the key.

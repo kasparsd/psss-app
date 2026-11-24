@@ -1,0 +1,17 @@
+{
+  "name": "@psss/kdbx",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Read and write KeePass databases (KDBX 3.1, 4.0 and 4.1) in Node, with node:crypto and node:zlib only.",
+  "engines": {
+    "node": ">=24"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "fixtures": "node --disable-warning=ExperimentalWarning scripts/make-fixtures.ts",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts"
+  }
+}
