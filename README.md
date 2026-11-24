@@ -1,6 +1,6 @@
 # Psss
 
-An Apple-native password manager that is as easy as Apple Passwords and also holds cards, notes and custom items in an open format you own, with KeePass files in and out. The [vault format](docs/format.md) is decided and not built yet; today the app stores a KeePass (KDBX) file. Migration from Apple Passwords, 1Password and Strongbox is part of onboarding.
+An Apple-native password manager that is as easy as Apple Passwords and also holds cards, notes and custom items in an open format you own, with KeePass files in and out. It ships in two phases ([roadmap](docs/roadmap.md#two-phases-owner-2026-11-24)): 1.0 keeps your vault as a KeePass (KDBX) file, in iCloud Drive or on the device, as a replacement for Strongbox; later, one tap moves a vault to the [Psss vault format](docs/format.md), which adds sync without conflicts and family sharing. The app stores KDBX today; the new format has a specification, a reference implementation and a Swift core, and is not in the app. Migration from Apple Passwords, 1Password and Strongbox is part of onboarding.
 
 - [Product and engineering documentation](docs/README.md)
 - [Roadmap and current status](docs/roadmap.md): the encrypted vault, Face ID unlock and AutoFill from the vault on iPhone work in the simulator. The Mac provider is not built and nothing has run on a signed device. Use disposable vaults and fictional data only.

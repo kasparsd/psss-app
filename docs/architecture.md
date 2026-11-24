@@ -18,7 +18,7 @@ Use [item templates](items.md) in the app layer and preserve underlying KeePass 
 
 ## Decisions
 
-- Define a `VaultStore` boundary now. The app domain, extension and importers talk to it. KDBX is the implementation in the build; the [record log](format.md) is the second and becomes the source of truth (decided 2026-11-23), after which the KDBX store serves import and export.
+- Define a `VaultStore` boundary now. The app domain, extension and importers talk to it. KDBX is the implementation in the build; the [record log](format.md) is the second (decided 2026-11-23). Since 2026-11-24 they are two phases: KDBX is the source of truth in 1.0, and a vault that its owner moves to the record log uses the second store from then on, with KDBX as import and export. Both stores sit behind this boundary at the same time, one per vault, and the move is a conversion from one to the other.
 - Protected values use a dedicated secret type with limited lifetime and no logging or accessibility exposure. The scaffold keeps secrets in plain `String` view state, which is acceptable for fictional data only.
 - Plan an external security audit before 1.0. Nothing in the vault, extension boundary or importers ships on a self-review alone.
 

@@ -1,12 +1,24 @@
 # Vault format: a record log in place of a single file
 
-**Status: adopted by the owner on 2026-11-23. Not built.** This format becomes the source of truth for a vault, and KDBX becomes import and export. It reverses the decision of the same morning that KDBX is canonical. Today's build still stores KDBX, and [vaults](vaults.md) describes that build. One narrower decision in the [table below](#decisions-for-the-owner) is still open: the age envelope.
+**Status: adopted by the owner on 2026-11-23 and, since 2026-11-24, planned as phase 2. Not built into the app.** Version 1.0 keeps a KeePass (KDBX) file as the source of truth, as a replacement for Strongbox with a vault in iCloud Drive; see [two phases](roadmap.md#two-phases-owner-2026-11-24). This format is what a vault becomes when its owner chooses to move it, and from then on KDBX is import and export for that vault. Today's build stores KDBX, and [vaults](vaults.md) describes that build. One narrower decision in the [table below](#decisions-for-the-owner) is still open: the age envelope.
+
+## Moving a vault to this format (phase 2)
+
+Decided by the owner on 2026-11-24. Not designed in detail and not built.
+
+- **One tap, the person's choice.** The app offers the move; nothing is moved without asking, and a KeePass vault keeps working for a person who never takes it.
+- **What the move does.** It reads the whole KeePass vault (items, fields, history, previous passwords, attachments, Recently Deleted) and writes it as the first records of a new vault in this format, using the import mapping in [items](items.md). It creates the person's key, and turns on sync through iCloud and the ability to share groups with family.
+- **One direction.** The KeePass file is left as it was at the moment of the move and is no longer updated. A KeePass copy of the whole vault can be exported at any time, which is the way back.
+- **No two-way bridge.** A KeePass file and a record log are never kept in step continuously. KDBX merges whole entries by modification time; this format merges field by field with its own clock, deletions and history. Rules for every edit, delete and conflict in both directions would be a second sync engine, and any mismatch would show as lost or resurrected data.
+- **Every device moves together.** After the move the other devices must stop writing the KeePass file. How the app tells a device that still has the old file open, and what it does with edits made there after the move, is to be designed.
+- **Unlocking changes.** A KeePass vault is opened by a vault password; this format needs none at creation and keeps the person's key in iCloud Keychain by default. The move is where a person meets that change, so the screen has to say who holds the key afterwards.
+- **To do before building:** a mock of the move, with the normal case, a failure part-way and the state of a second device, approved by the owner; and a test that moves a vault and exports it back to KDBX with nothing lost that KDBX can hold.
 
 ## Why it changed
 
 The person Psss is for lives in Apple's ecosystem and expects what Apple Passwords gives: every device up to date without thinking, and a family that shares some logins. A KDBX vault is one mutable file, and most of the hard problems in [vaults](vaults.md) come from that single fact.
 
-- **Sync.** Two devices that write one file produce conflicting versions. The whole of [sync and merge design](vaults.md#sync-and-merge-design-2026-11-23-superseded) exists to reconcile them, and it depends on iCloud Drive behaviour that Apple's forums report as unreliable.
+- **Sync.** Two devices that write one file produce conflicting versions. The whole of [sync and merge design](vaults.md#sync-and-merge-design-2026-11-23) exists to reconcile them, and it depends on iCloud Drive behaviour that Apple's forums report as unreliable.
 - **Sharing.** A KDBX file has one key. The [family design](vaults.md#family-sharing-and-remote-storage-design-2026-11-23) adds a sidecar of wrapped keys, but anyone with the key can write, there is no read-only role, and removing a person means re-encrypting the file.
 - **Cost of a write.** Every change rewrites and re-uploads the whole file, attachments included.
 - **Changing the vault password** re-encrypts everything, and rollback copies must be re-keyed too.
@@ -171,6 +183,8 @@ Still open, listed as questions on the mock pages: whether a vault needs a name 
 
 ## What it changes in the plan
 
+Read this section as the plan for phase 2 (2026-11-24). For 1.0 the spikes and the store stay on KDBX: S4 splits into S4a (sync inside KDBX, phase 1) and S4b (the record log), opening a `.kdbx` in place stays, and the conflict alert is needed again.
+
 - **Kept:** S0 (fill from the real vault), S2 (extension budget, now measured against the local index), S3, S5, S6 (key wrapping, which becomes the key layers above), S7, all interface work, the importers.
 - **Replaced:** S4 (sync inside KDBX) and the M1 “iCloud sync” item become a sync spike and a store on this format: two transports, three devices, the same 200 scripted rounds with no lost edit and no prompt.
 - **Brought forward:** family sharing stops depending on entry-level merge, and remote storage is a second transport, not a new project.
@@ -187,11 +201,13 @@ Still open, listed as questions on the mock pages: whether a vault needs a name 
 | Reuse the age file format for wrapped keys | No. Verified 2026-11-23: age has post-quantum recipients from version 1.3.0, but it is a whole-file format with its own header and passphrase mode (scrypt), CryptoKit has no age support, and what is wrapped here is one 32-byte key, which HPKE does directly on every platform. The reference tool gives Windows and Linux the same reach. The [specification](format-spec.md) is drafted on this assumption. |
 | The person key: synced by iCloud Keychain, or wrapped to each device | **Decided 2026-11-23, approved with the mocks:** iCloud Keychain by default on Apple devices, with the vault password and recovery kit optional under Advanced. The vault is as safe as the Apple Account and device passcode, no safer. |
 | Sealing the same record twice on Apple devices | **Decided 2026-11-23: never seal twice.** CryptoKit's Ed25519 signer adds randomness and has no deterministic mode, so the same body sealed twice gives two different records. The app keeps the system's signer; a device stores each sealed record durably before it leaves the device and only ever resends those bytes. This is a security rule as well: two seals of one body would encrypt two plaintexts under one key and nonce, which exposes that record's authentication key though not its content, so a writer that loses the bytes writes the change again as a new record. Whether the format should make that mistake harmless is a question for the outside reviewer. The alternative, a hand-written deterministic signer, would have put secret-key arithmetic in first-party code. See [specification 4.1](format-spec.md#41-sealed-record). |
-| Order and the scope of 1.0 | **Decided 2026-11-23: sharing by group is part of 1.0.** The direction review recommended one person on several devices for 1.0 and sharing after it; the owner chose sharing in 1.0, since a family sharing logins is what the app is for. Build order is unchanged: one person on several devices first, shared groups second, both before 1.0. Consequences: the invitation exchange, membership forks, the `CKShare` mapping and the child account question are 1.0 work, and the independent review of the specification gates 1.0, not a later release. |
+| Order and the scope of 1.0 | **Decided 2026-11-24: 1.0 is a KeePass vault for one person, and this format with sharing by group is phase 2,** reached by moving a vault. This replaces the decision of 2026-11-23 that sharing by group is part of 1.0. Within phase 2 the build order is unchanged: one person on several devices first, shared groups second. The invitation exchange, membership forks, the `CKShare` mapping and the child account question are phase 2 work, and the independent review of the specification gates phase 2, not 1.0. |
 
 ## Roadmap
 
 ### Next steps, in order (set 2026-11-23)
+
+Since the phasing of 2026-11-24 none of these steps is on the way to 1.0; they lead to phase 2 and run behind the phase 1 work in the [roadmap](roadmap.md#two-phases-owner-2026-11-24). The order among them stands. Two additions for the move itself: a mock of the one-tap move, and a round trip test from KDBX into this format and back out.
 
 The specification and the schema stay drafts and are changed only when one of these steps shows something wrong. Each step is written by one agent and checked by another.
 

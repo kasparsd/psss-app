@@ -2,7 +2,7 @@
 
 ## Strongbox
 
-Import a selected KDBX into a Psss vault and leave the original file untouched (changed 2026-11-23 with the [vault format](format.md): a `.kdbx` is no longer edited in place once the record-log store exists; today's build still opens one in place). Ask for the existing vault password and key file where applicable. Verify group hierarchy, custom fields, attachments, entry history, tags and OTP data before finishing the import. Unsupported encryption, credentials or document features require a clear recovery path.
+Import a selected KDBX into a Psss vault and leave the original file untouched when the person asks for an import. In 1.0 a `.kdbx` can also be opened and kept in place, in iCloud Drive or on the device, which is how a Strongbox user starts (phase 1, 2026-11-24, see [roadmap](roadmap.md#two-phases-owner-2026-11-24)). A vault that has been moved to the [Psss vault format](format.md) in phase 2 no longer edits a `.kdbx` in place. Ask for the existing vault password and key file where applicable. Verify group hierarchy, custom fields, attachments, entry history, tags and OTP data before finishing the import. Unsupported encryption, credentials or document features require a clear recovery path.
 
 ## Apple Passwords
 

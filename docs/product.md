@@ -1,6 +1,6 @@
 # Product contract
 
-Psss Passwords is a private, native password manager for iPhone, iPad and Mac. It is as easy as Apple Passwords and also holds cards, notes, custom items and attachments in an open, documented format the person owns, with KeePass files in and out (changed 2026-11-23 from “a KeePass-compatible file”, see [vault format](format.md)). The person decides what is stored, where it lives and whether to leave. It shares its philosophy with the sibling photo app (`macos-photo-db`, working name Bad Photo Finder / Memory Darling), and the two are meant to read as one family.
+Psss Passwords is a private, native password manager for iPhone, iPad and Mac. It is as easy as Apple Passwords and also holds cards, notes, custom items and attachments in an open, documented format the person owns, with KeePass files in and out (in 1.0 the vault is itself a KeePass file; a later, optional move to the [Psss vault format](format.md) adds sync without conflicts and family sharing, see [two phases](roadmap.md#two-phases-owner-2026-11-24)). The person decides what is stored, where it lives and whether to leave. It shares its philosophy with the sibling photo app (`macos-photo-db`, working name Bad Photo Finder / Memory Darling), and the two are meant to read as one family.
 
 ## Shared philosophy
 
@@ -21,7 +21,7 @@ For people on Apple devices who outgrew Apple Passwords, or who want less than 1
 | --- | --- | --- |
 | Apple Passwords | Zero-setup feel, system fill reliability, passkeys, verification codes | Cards, notes, custom items, attachments, a vault you own in an open format, with a KeePass copy whenever you want one |
 | 1Password | Polish, import quality, fill coverage | No account, no server, an open format, a quieter interface, honest pricing |
-| Strongbox | KeePass import and export without loss, local and iCloud storage | Fewer concepts, no file or database vocabulary, sync that cannot produce conflict copies, family sharing |
+| Strongbox | KeePass import and export without loss, local and iCloud storage | Fewer concepts, no file or database vocabulary, sync that leaves no conflict copies to sort out, and family sharing after the move to the Psss format (phase 2) |
 
 These are intended differentiators, not verified claims that no competitor offers them. Verify before using them in marketing.
 

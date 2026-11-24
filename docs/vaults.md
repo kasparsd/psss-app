@@ -1,6 +1,6 @@
 # KeePass vaults and storage
 
-**Format changed, 2026-11-23.** The owner adopted the [record-log vault format](format.md): a vault becomes a log of immutable encrypted records, and KDBX becomes import and export. It is not built. This document describes today's build, which stores a KDBX file, and stays accurate for it until the record-log store replaces it. Superseded by the new format: the sync and merge design, the transport and “not chosen” parts of family sharing, opening a `.kdbx` in place as a way to live in Psss, and the conflict screens. Carried over: the codec (for import and export), the lock screen, multiple vaults, the AutoFill extension design, and the family model of per-vault sharing, in-person invites and recovery.
+**Phase 1 is this document (owner, 2026-11-24).** Version 1.0 replaces Strongbox with a KeePass vault in iCloud Drive, so the encrypted KDBX document is the source of truth and everything here is 1.0 work again, including the sync and merge design and opening a `.kdbx` in place. The [record-log vault format](format.md), adopted on 2026-11-23, is phase 2: a person moves a vault to it with one tap, which also turns on conflict-free sync and family sharing, and from then on KDBX is import and export for that vault. See [two phases](roadmap.md#two-phases-owner-2026-11-24). Phase 2 only: family sharing and remote storage, which are not built on KDBX.
 
 In today's build the encrypted KDBX document is the source of truth. New vaults target KDBX 4.1 with a reviewed KDF and cipher configuration. Inventory the formats Strongbox users actually bring, including KDBX 3.1/4.x, AES-KDF, Argon2 variants, AES and ChaCha20, and password plus key file. Publish the supported matrix after round-trip verification. Detect unsupported features before enabling writes.
 
@@ -54,14 +54,14 @@ Built; builds on both schemes and the tests pass. Not yet verified by a person o
 
 ## Roadmap
 
-- [x] Storage decision: the record log in [vault format](format.md), 2026-11-23. Spikes S2 and S4 now measure that format and record their results there.
+- [x] Storage decision: KDBX for 1.0 (phase 1), the record log in [vault format](format.md) for phase 2 (2026-11-24, after the record log was adopted on 2026-11-23). Spike S4a measures sync inside KDBX; S4b records what the record log measured.
 - [x] Decide on the codec: first-party for now, audit before 1.0 (see Implementation status).
 - [ ] Establish interoperability fixtures from KeePassXC and Strongbox and verify import from both and that an exported copy opens in both.
-- [ ] ~~Test concurrent changes from two devices, offline recovery and failed atomic replacement.~~ Moved to S4 on the record log.
+- [ ] Test concurrent changes from two devices, offline recovery and failed atomic replacement (S4a in the [roadmap](roadmap.md)).
 
-## Sync and merge design (2026-11-23, superseded)
+## Sync and merge design (2026-11-23)
 
-**Superseded on 2026-11-23 by the [record log](format.md), where devices never write the same file and merging is a fold over records.** Kept because the built fixes below are in the code, the notes on iCloud Drive file versions still apply to the folder transport, and the unit rule and merge cases carry over.
+**Back in the plan on 2026-11-24 as the sync of phase 1.** It was set aside for one day when the [record log](format.md) was adopted; the record log is now phase 2, where devices never write the same file and merging is a fold over records. The built fixes below are in the code, and the unit rule and merge cases carry over to the record log.
 
 An evaluation of how sync should work inside KDBX. It replaces the one-sentence S4 spike; the test protocol is in the [roadmap](roadmap.md). Nothing here is built except where it says so.
 
@@ -156,6 +156,8 @@ Decided 2026-11-22: the app supports several vaults. People bring more than one 
 Shared vaults for a family are a sharing feature, not multi-vault, and stay out of 1.0 as in the [roadmap](roadmap.md). The design is below.
 
 ## Family sharing and remote storage (design, 2026-11-23)
+
+Phase 2 (2026-11-24): family sharing is not built on KDBX. It arrives with the move to the [Psss format](format.md), as sharing by group. This section is kept for the model it describes (in-person invites, recovery), which carries over.
 
 Proposal, not built, after the 2026-12-20 gate. Built for a household such as two adults and two children, with no Psss server.
 
