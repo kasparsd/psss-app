@@ -59,6 +59,10 @@ If the build says "PLA Update available", the account holder must accept the lat
 A simulator build with the team set and no overrides builds, and Xcode embeds the simulated entitlements (AutoFill key and `group.app.psss`); the ad-hoc override recipe under "Testing AutoFill in the simulator" is then needed only for the temporary 26.2 floor.
 The product is `build/signed-dd/Build/Products/Debug/Psss.app` (Mac) and `Debug-iphoneos/Psss.app` (iPhone, not installed by the build).
 
+## The Psss folder in iCloud Drive
+
+New vaults are kept in the app's iCloud container, shown as “Psss” in Files and Finder (`NSUbiquitousContainers` in `Configuration/App-Info.plist`). iOS reads that entry only when the app's build number changes, so an app first installed without it shows no folder until `CURRENT_PROJECT_VERSION` in `Configuration/Base.xcconfig` is raised and the app is installed over the old one. Confirmed on an iPhone 2026-11-24 (build 1 showed no folder, build 2 did). Raise the number whenever the entry changes. The folder can take a minute to appear. Builds without a team (the `-local` entitlements) carry no iCloud, so the create sheet dims “Keep in”.
+
 ## Command-line verification
 
 ```sh
