@@ -137,6 +137,8 @@ The Mac app, provider and Safari extension have two sets of entitlements. The lo
 
 The app reads `ASCredentialIdentityStore.getState` at launch, after unlock and whenever it becomes active; there is no change notification. While AutoFill is off it shows a reminder card at the top of the list, above the title on Mac and iPad (Later snoozes it for 7 days, then it returns while AutoFill is still off), and Setup shows the state ([experience](experience.md#autofill-reminder-approved-2026-11-23)). When it finds AutoFill on after it was off, it re-registers the vault's identities straight away (`SharedVault.registerIdentities(for:knownEnabled: true)`), so logins saved while AutoFill was off are offered without the next unlock. An unsigned Mac build cannot enable AutoFill, so its card keeps returning after each Later and Apple's prompt never appears.
 
+The state map (every state against the card, Setup and the empty vault) and the checks that keep the app matching it are on the mock page, sections 10 and 11 ([autofill-setup.html](../Design/Mocks/autofill-setup.html)).
+
 ## Provider screen copy (2026-11-23)
 
 - No vault, or only the sample vault: title “No vault yet”, body “Open Psss and create a vault. Then come back here to fill your logins. The sample vault is not available for AutoFill.” Other not-ready cases keep “Can’t open your vault here”.
