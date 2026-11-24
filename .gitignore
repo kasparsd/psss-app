@@ -9,3 +9,6 @@ xcuserdata/
 /Extensions/Browser/tests/test-results/
 /Extensions/Browser/tests/playwright-report/
 Configuration/Local.xcconfig
+
+# Agent worktrees are local scratch checkouts
+/.claude/worktrees/
