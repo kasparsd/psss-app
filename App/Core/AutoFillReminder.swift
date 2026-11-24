@@ -148,9 +148,16 @@ struct AutoFillCopy: Equatable, Sendable {
     /// The footer under "Unlock with Face ID or passcode" while it is on. Says what is saved, where, what the system asks and
     /// what turning it off does (owner, 2026-11-24).
     var savedKeyOnFooter: String {
-        device == .mac
-            ? String(localized: "Psss saves a key on this Mac so AutoFill can open this vault with Touch ID, or your Mac password if Touch ID cannot be used. Psss does not store your vault password. Turn this off and the key is deleted; AutoFill then cannot open this vault.")
-            : String(localized: "Psss saves a key on this \(deviceName) so AutoFill can open this vault with Face ID, or your \(deviceName) passcode if Face ID cannot be used. Psss does not store your vault password. Turn this off and the key is deleted; AutoFill then cannot open this vault.")
+        let tail = String(localized: "Psss does not store your vault password. Turn this off and the key is deleted; AutoFill then cannot open this vault.")
+        // A device with no Face ID or Touch ID is asked for its passcode (the login password on a Mac) and nothing else.
+        guard let kind = BiometryKind.current ?? BiometryKind.remembered else {
+            return device == .mac
+                ? String(localized: "Psss saves a key on this Mac so AutoFill can open this vault with your Mac password.") + " " + tail
+                : String(localized: "Psss saves a key on this \(deviceName) so AutoFill can open this vault with your \(deviceName) passcode.") + " " + tail
+        }
+        return device == .mac
+            ? String(localized: "Psss saves a key on this Mac so AutoFill can open this vault with \(kind.label), or your Mac password if \(kind.label) cannot be used.") + " " + tail
+            : String(localized: "Psss saves a key on this \(deviceName) so AutoFill can open this vault with \(kind.label), or your \(deviceName) passcode if \(kind.label) cannot be used.") + " " + tail
     }
 
     /// The footer while it is off by the person's choice.
