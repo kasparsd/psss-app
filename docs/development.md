@@ -78,6 +78,7 @@ Reuse derived-data directories to keep incremental builds fast. Verify both sche
 Custom tooling, build scripts, generators and reference implementations are written for Node 24 (decided by the owner, 2026-11-23), not Python. The same code can then be packaged as client libraries for working with vaults outside Apple platforms.
 
 - `.nvmrc` pins the major version. Scripts find a Node 24 binary themselves and fail with a clear message when there is none; they do not assume the `node` on the path.
+- `scripts/build-logo.mjs` builds the logo from one set of numbers: the files in `Design/Logo`, the landing page's inline logo and its CSS, and the drawing the mock pages use. Run it after changing the logo; see [brand](brand.md).
 - TypeScript is run directly by Node (type stripping, erasable syntax only). No build step, and no dependencies unless a document records why one is needed.
 - Code meant to become a library lives in `Packages/<name>/` with its own `package.json`, pure functions over bytes in the core and file system access in a separate module. The first is `Packages/format`, the reference implementation of the [vault format](format-spec.md).
 - The Python scripts that exist (`scripts/build-brand-icons.py`, `scripts/build-public-suffix.py`, `Extensions/Browser/build.py`, `prototype/sample-site/server.py`) predate this and are ported when next touched.

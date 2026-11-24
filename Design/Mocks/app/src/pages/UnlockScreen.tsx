@@ -1,19 +1,27 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Against, Approved, Clarity, Decisions, Frame, Frames, History, Page, Section } from '../components/page';
 import { IPad, IPhone, MacWindow } from '../components/devices';
+import { iconU, Mark } from './Logo';
 
 type Bio = 'touch' | 'face' | 'none';
 type State = 'ready' | 'password' | 'inactive' | 'failed' | 'working';
 
-/** The app icon with the live biometric glyph on its corner, as Apple Passwords draws it. */
-function LockIcon({ bio, dim }: { bio: Bio; dim?: boolean }) {
+/**
+ * The app icon with the live biometric glyph on its corner, as Apple Passwords
+ * draws it. The icon is the logo's field: hidden (p and three dots) while
+ * locked, shown (psss) while the vault opens. In the mock, clicking the glyph
+ * stands in for a recognised finger or face.
+ */
+function LockIcon({ bio, dim, open, onRecognised }: { bio: Bio; dim?: boolean; open?: boolean; onRecognised?: () => void }) {
   return (
     <div className="lk-icon">
-      <div className="lk-app">P</div>
+      <div className="lg-appicon" style={{ width: 76, height: 76 }}>
+        <Mark u={iconU(76)} mask={!open} fade icon />
+      </div>
       {bio !== 'none' && (
-        <div className={`lk-badge${dim ? ' dim' : ''}`} aria-label={bio === 'touch' ? 'Touch ID' : 'Face ID'}>
+        <button className={`lk-badge${dim ? ' dim' : ''}`} style={{ border: 0, padding: 0, cursor: 'pointer' }} aria-label={bio === 'touch' ? 'Touch ID' : 'Face ID'} onClick={onRecognised}>
           {bio === 'touch' ? <Fingerprint /> : <FaceGlyph />}
-        </div>
+        </button>
       )}
     </div>
   );
@@ -35,7 +43,14 @@ const FaceGlyph = () => (
 
 /** The lock screen body, shared by every device. Click "Use Password…" to see the password state. */
 function Lock({ bio, state: s0, vault = 'Personal', phone }: { bio: Bio; state: State; vault?: string; phone?: boolean }) {
-  const [state, setState] = useState<State>(bio === 'none' && s0 === 'ready' ? 'password' : s0);
+  const initial: State = bio === 'none' && s0 === 'ready' ? 'password' : s0;
+  const [state, setState] = useState<State>(initial);
+  // In the app the vault's list replaces this screen. The mock goes back to where it started, so it can be played again.
+  useEffect(() => {
+    if (state !== 'working' || initial === 'working') return;
+    const t = setTimeout(() => setState(initial), 2200);
+    return () => clearTimeout(t);
+  }, [state, initial]);
   const name = bio === 'touch' ? 'Touch ID' : 'Face ID';
   const showPassword = state === 'password' || state === 'failed' || bio === 'none';
   let line: ReactNode;
@@ -45,7 +60,7 @@ function Lock({ bio, state: s0, vault = 'Personal', phone }: { bio: Bio; state: 
   else line = <>{bio === 'touch' ? 'Touch ID' : 'Use Face ID'} or enter the vault password to open “{vault}”.</>;
   return (
     <div className={`lk${phone ? " onphone" : ""}`}>
-      <LockIcon bio={bio} dim={state === 'inactive' || state === 'working'} />
+      <LockIcon bio={bio} dim={state === 'inactive' || state === 'working'} open={state === 'working'} onRecognised={() => setState('working')} />
       <div className="lk-title">Psss Is Locked</div>
       <div className="lk-line">{line}</div>
       {state === 'failed' && (
@@ -57,7 +72,7 @@ function Lock({ bio, state: s0, vault = 'Personal', phone }: { bio: Bio; state: 
       {showPassword && (
         <div className="lk-form">
           <div className="lk-field">Vault Password</div>
-          <button className="btn pri wide">Unlock</button>
+          <button className="btn pri wide" onClick={() => setState('working')}>Unlock</button>
           <div className="lk-help">
             <button className="btn sq">What Is This?</button>
             <button className="btn sq">Forgot Password?</button>
@@ -72,7 +87,7 @@ export function UnlockScreen() {
   return (
     <Page
       title="Unlock screen"
-      status={<><Approved on="2026-11-23" /> One lock screen on every device, as in Apple Passwords.</>}
+      status={<><Approved on="2026-11-23" /> One lock screen on every device, as in Apple Passwords. The icon showing the name while the vault opens was approved on 2026-11-24 and is built.</>}
     >
       <Clarity
         intro={<p>One calm screen, as Apple Passwords shows it: the app icon with a Touch ID or Face ID glyph, one line, and “Use Password…”. On Mac, touching the sensor while the window is in front unlocks it, with no dialog.</p>}
@@ -116,7 +131,19 @@ export function UnlockScreen() {
         </Frame>
       </Frames>
 
-      <Section title="3. Decisions to approve" />
+      <Section title="3. While the vault opens">
+        <p>The icon is the logo's field. Locked, it is hidden: a p and three dots. Once the finger or the face is accepted, or the vault password has been entered, the dots become “sss” one after another while the vault is opened, and then the vault's list replaces the screen. The icon here is drawn by the app, flat, so that it can change; it is not the glass icon from the Home Screen or the Dock. In any frame above, click the glyph on the icon, or Unlock in the password form, to play it; the mock then returns to where it started.</p>
+      </Section>
+      <Frames>
+        <Frame phone label="I. iPhone, opening" caption="The moment after Face ID is accepted or the password is entered. The line changes to “Opening your vault…” and the icon reads “psss”. It lasts only as long as opening the vault takes and adds no waiting of its own. With the password that is the second or so the password check needs. With Face ID or Touch ID the vault opens almost at once, so the switch may be cut short or not seen at all.">
+          <IPhone><Lock bio="face" state="working" phone /></IPhone>
+        </Frame>
+        <Frame label="J. Mac, opening" caption="The same on Mac, and on iPad. A finger or face that is not recognised leaves the dots as they are. A wrong password is only known once it has been checked, so the name shows while it is checked and the dots come back together with the message. The sample vault's lock screen keeps the dots: its only wait is the system's prompt. When the app locks again the icon is back to the dots. With Reduce Motion the three letters change at once, with no stagger.">
+          <MacWindow><div className="lk-win"><Lock bio="touch" state="working" /></div></MacWindow>
+        </Frame>
+      </Frames>
+
+      <Section title="4. Decisions to approve" />
       <Decisions
         items={[
           {
@@ -136,6 +163,11 @@ export function UnlockScreen() {
             why: <>“Your password” reads as the Mac login or Apple Account password. The vault password is a different thing, and “What Is This?” explains it.</>,
           },
           {
+            decision: <>The icon on the lock screen is the logo's field. It is hidden (p and three dots) while locked and shows the name (psss) while the vault opens, on every device.</>,
+            rejected: <>an animated logo at the top left of the main screen on launch.</>,
+            why: <>Hidden while locked and shown when opened is what the logo already means. It runs during a moment that exists anyway, and no hold is added to make it visible (owner, 2026-11-24): unlocking stays as fast as it is. Apple's guidance is to launch instantly and not to brand the launch, and the top left of the main screen is taken by the back button, the sidebar and the window controls.</>,
+          },
+          {
             decision: <>The key file row only appears for a vault that uses one, and moves under “Use Password…”.</>,
           },
         ]}
@@ -146,6 +178,8 @@ export function UnlockScreen() {
 
       <History
         entries={[
+          { date: '2026-11-24', text: <>The switch is built. Two captions were corrected to what the app does: a wrong password shows the name while it is checked and then the dots return (before, the page said the dots stay), and with Face ID or Touch ID the vault opens so fast that the switch may not be seen. The lock screen icon is now drawn by the app, flat, on every device; before, it was a picture of the icon.</> },
+          { date: '2026-11-24', text: <>The icon is now drawn as the logo's field (see the Logo page) and shows the name while the vault opens; frames I and J and one decision were added. The owner approved the lock screen as the place for this. Before, the icon was a placeholder square with a P and did not change.</> },
           { date: '2026-11-23', text: <>Approved as drawn. It replaced a password-first lock screen that opened with a password field, an Unlock button, a key file row, a paragraph of help and two buttons, and that asked for Touch ID in a system dialog on Mac. The password form is now one click away and still always works, and help sits behind two labelled buttons. The line says “vault password” and names the vault, because “your password” reads as the Mac login or Apple Account password.</> },
         ]}
       />

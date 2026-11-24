@@ -1,9 +1,10 @@
 # Psss landing page
 
-One static page: `index.html` and `style.css`, with the logo files in `assets/`.
+One static page: `index.html` and `style.css`, with the logo's stylesheet and the favicon files in `assets/`.
 No JavaScript, no cookies, no analytics, no outside fonts or scripts.
-The logo and favicon files are copies of `Design/Logo/` and `Design/AppIcon/`, which stay the source of truth.
-Copy them again if the mark changes.
+The logo is drawn inline in `index.html`, between the `psss-logo` markers, so that it can switch on hover with CSS alone. It rests on the p and three dots and shows “psss” on hover; add the class `rest-shown` to the `svg` for the other way round.
+Do not edit the drawing or `assets/psss-logo.css` by hand: run `node scripts/build-logo.mjs`, which rewrites both from `Design/Logo/`.
+The favicon files are copies from `Design/AppIcon/`; copy them again if the mark changes.
 
 ## Preview
 

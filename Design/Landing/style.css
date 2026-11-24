@@ -46,7 +46,9 @@ body {
 .skip:focus { top: 1rem; }
 
 .hero { background: var(--hero); padding: 2.5rem 0 3rem; }
-.lockup { display: block; height: 3.5rem; width: auto; max-width: 100%; margin-bottom: 2rem; }
+/* The logo is drawn inline and takes the text colour: charcoal on butter, butter on charcoal. */
+.lockup { margin-bottom: 2rem; color: var(--button); }
+.lockup .psss-logo { height: 3.5rem; width: auto; max-width: 100%; }
 .status { margin: 0 0 .5rem; font-weight: 700; letter-spacing: .02em; }
 h1 { margin: 0 0 1rem; font-size: clamp(1.9rem, 6vw, 2.75rem); line-height: 1.15; font-weight: 700; }
 .lead { margin: 0 0 1.5rem; font-size: 1.25rem; }

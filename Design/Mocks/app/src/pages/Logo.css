@@ -1,0 +1,22 @@
+/* Logo directions page. Brand colours are fixed here on purpose: a logo tile does not follow light and dark. */
+.lg-board{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+.lg-tile{border-radius:14px;min-height:176px;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:22px;padding:24px;color:#1F1F23}
+.lg-tile.butter{background:#FFD84D}
+.lg-tile.cream{background:#FFF9E5;box-shadow:inset 0 0 0 1px rgba(31,31,35,.12)}
+.lg-tile.charcoal{background:#1F1F23;color:#FFD84D;box-shadow:inset 0 0 0 1px rgba(255,255,255,.1)}
+.lg-tile.home{background:linear-gradient(155deg,#7f9cc0,#b9a9d2 55%,#e6c3ae);color:#fff;align-items:flex-end}
+.lg-tile.col{flex-direction:column;flex-wrap:nowrap}
+.lg-art{display:block;flex:none;overflow:visible}
+.lg-app{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px;line-height:1.2;text-shadow:0 1px 2px rgba(0,0,0,.35)}
+.lg-appicon{display:flex;align-items:center;justify-content:center;border-radius:22.5%;background:linear-gradient(#FFE06E,#FFD23A);color:#1F1F23;box-shadow:0 2px 6px rgba(0,0,0,.22)}
+.lg-appicon.dark{background:linear-gradient(#2b2b30,#1a1a1d);color:#FFD84D}
+.lg-s,.lg-d{transition:opacity .16s ease}
+.lg-s.off,.lg-d.off{opacity:0}
+.lg-glance{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin:18px 0}
+.lg-glance .lg-col{display:flex;flex-direction:column;gap:8px;min-width:0}
+.lg-glance .lg-col>strong{display:block}
+.lg-glance .lg-tile{min-height:132px;padding:18px}
+.lg-hover{appearance:none;border:0;background:none;padding:6px;margin:-6px;color:inherit;font:inherit;cursor:pointer;border-radius:999px;display:block}
+.lg-hover:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+.lg-tile.col>span{font-size:13px;opacity:.7}
+@media (prefers-reduced-motion:reduce){.lg-s,.lg-d{transition:none}}
