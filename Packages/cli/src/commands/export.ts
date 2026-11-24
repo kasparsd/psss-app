@@ -22,7 +22,7 @@ export function exportText(r: ExportResult, shown: string): string {
 const exportCommand: Command = {
   name: 'export',
   summary: 'Write a copy as a KeePass file',
-  usage: 'export --format kdbx <file> [--dry-run] [--json]',
+  usage: 'export --format kdbx <file> [--dry-run] [--force] [--strip-invalid] [--kdbx-key-file <path>] [--json]',
   options: {
     format: { type: 'string', valueName: 'format', description: 'The file format. Only kdbx (KeePass 2) is written so far' },
     'dry-run': { type: 'boolean', description: 'Build and check the file and write nothing' },
@@ -35,7 +35,7 @@ const exportCommand: Command = {
   details: [
     'Writes every item of every group this computer can read as a KeePass 2 file (KDBX 4.1), reads it back and checks it, and says what the file does not carry.',
     'The new file has its own password: asked without echo, piped in, or read from the file named by PSSS_KDBX_PASSWORD_FILE. A file that exists is never replaced without --force.',
-    'The file holds every secret in the clear to anyone who knows that password. Keep it only as long as you need it.',
+    'The file holds every secret in the clear to anyone who knows that password. Keep it only as long as you need it. It cannot be written inside the vault folder or any place the vault is kept in, since that would sync it.',
   ],
   async run(ctx) {
     const format = ctx.values.format;

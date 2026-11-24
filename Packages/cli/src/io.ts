@@ -27,7 +27,7 @@ export interface CliIo {
   cwd: string;
   /** Environment variables. Also where the user's home and config folders come from, so tests can point them at a temporary folder. */
   env: Readonly<Record<string, string | undefined>>;
-  isTTY: { stdin: boolean; stdout: boolean };
+  isTTY: { stdin: boolean; stdout: boolean; stderr?: boolean };
   /** Clock, for tests. */
   now?: () => Date;
   /** Operating system name as in process.platform. Defaults to the real one. */

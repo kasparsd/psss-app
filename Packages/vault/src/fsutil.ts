@@ -17,14 +17,17 @@ function syncDirectory(dir: string): void {
 
 /** Write a temporary file in the same directory and rename it over `path`: a reader sees the old file or the new one, never half. With
  *  `durable` (the default) the file and then the directory are flushed to disk first, so the file survives a power failure. */
-export function writeAtomic(path: string, data: Uint8Array, mode = 0o600, durable = true): void {
+export function writeAtomic(path: string, data: Uint8Array, mode = 0o600, durable = true, syncDir = durable): void {
   const dir = dirname(path);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const tmp = join(dir, tmpName(basename(path)));
   if (durable) writeDurably(tmp, data, mode); else writeFileSync(tmp, data, { flag: 'wx', mode });
   try { renameSync(tmp, path); } catch (e) { try { unlinkSync(tmp); } catch { /* gone already */ } throw e; }
-  if (durable) syncDirectory(dir);
+  if (syncDir) syncDirectory(dir);
 }
+
+/** Flushes a folder's entries to disk: what makes the files renamed or linked into it survive a power failure. */
+export const flushDirectory = syncDirectory;
 
 const same = (a: Uint8Array, b: Uint8Array) => Buffer.compare(a, b) === 0;
 

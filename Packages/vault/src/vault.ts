@@ -5,28 +5,28 @@
 // the format's reader fold them (steps 3 and 4). Nothing is repaired and nothing is written while loading except the device's own memory
 // of what it accepted from each location.
 import { existsSync, readFileSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
-import { eq, fromHex, hex } from '../../format/src/bytes.ts';
+import { basename, dirname, join, resolve } from 'node:path';
+import { concat, eq, fromHex, hex } from '../../format/src/bytes.ts';
 import { CborError, decode, isBytes, isMap } from '../../format/src/cbor.ts';
 import { frame, initFolder, readFrames, chainDir, segmentName, slotPath, keyPath } from '../../format/src/folder.ts';
 import { contentStatus, evaluateGroup, type GroupView } from '../../format/src/group.ts';
 import { commitOf, derivePerson, gidOf, makeCard, FormatError, type Person } from '../../format/src/keys.ts';
 import { checkLocation, chainOf, type Offered, type Remembered } from '../../format/src/remember.ts';
-import { KIND, MEMBERSHIP_KINDS, keyRing, nextClock, openRecord, recordId, sealRecord, type KeyRing, type Rec } from '../../format/src/record.ts';
+import { KIND, MEMBERSHIP_KINDS, keyRing, nextClock, openRecord, recordId, sealRecord, type Clock, type KeyRing, type Rec } from '../../format/src/record.ts';
 import { ItemChange, SETTINGS_ITEM_ID, SchemaError, positionAtEnd, viewItem, viewSettings, type ItemView, type Otp } from '../../format/src/schema.ts';
 import { cmap, encode, type CborValue, type CMap } from '../../format/src/cbor.ts';
 import { openAttachment, sealAttachment, chunkId } from '../../format/src/slots.ts';
 import { DEFAULT_ARGON2, SLOT_DEVICE, SLOT_KIT, SLOT_PASSWORD, argon2ParamsProblem, kitFromText, kitToText, openSlot,
          sealDeviceSlot, sealKitSlot, sealPasswordSlot, unwrapGroupKey, wrapGroupKey } from '../../format/src/slots.ts';
 import type { Argon2Params } from '../../format/src/prims.ts';
-import { VaultError, ValueTooLarge, type Candidate } from './errors.ts';
+import { ImportInterrupted, VaultError, ValueTooLarge, type Candidate } from './errors.ts';
 import { limits } from '../../format/src/limits.ts';
 import { homedir } from 'node:os';
-import { withLock, type LockOptions } from './lock.ts';
-import { putIfAbsent } from './fsutil.ts';
+import { refreshLock, withLock, type LockOptions } from './lock.ts';
+import { flushDirectory, putIfAbsent } from './fsutil.ts';
 import { generateDeviceKey, keyFileWarning, parseKeyFile, readKeyFile, writeKeyFile, type DeviceKey } from './keyfile.ts';
 import { blobPath } from '../../format/src/folder.ts';
-import { buildKeepass, contentHash, contentOf, readKeepass, specView, type BuiltExport, type ContentView, type ExportItem, type ItemSpec, type ReportIssue } from './keepass.ts';
+import { buildKeepass, contentHash, contentOf, nameOf, readKeepass, specView, type BuiltExport, type ContentView, type ExportItem, type ItemSpec, type ReportIssue } from './keepass.ts';
 import type { KdbxDatabase } from '../../kdbx/src/index.ts';
 import { listGroupIds, listSlots, listWraps, probe, readSegments, supportFiles, type Probe } from './location.ts';
 import { ZERO_ITEM, buildEntries, builtinField, candidateOf, compareEntries, detail, fieldTarget, historyOf, matchesText, summarize, titleOf,
@@ -94,8 +94,11 @@ export interface ImportOptions {
   includeTrash?: boolean;
   /** replace an item that was changed in the file since it was imported and not changed here (never replaced by default) */
   update?: boolean;
-  /** work out and report everything, write nothing */
+  /** work out and report everything, write nothing; takes no lock */
   dryRun?: boolean;
+  /** called before each entry of the file is dealt with (`done` entries so far of `total`) and once more when all are: for a progress line.
+   *  An error thrown from it stops the import like any other failure. */
+  progress?: (done: number, total: number) => void;
 }
 export type ImportAction = 'add' | 'update' | 'unchanged' | 'keptYours' | 'changedInFile' | 'conflict' | 'deleted' | 'gone' | 'refused';
 export interface ImportReport {
@@ -124,6 +127,8 @@ export interface ImportReport {
   /** items that are over a limit of the vault (a record holds 1 MiB) */
   refusedItems: number;
   refusedFields: number;
+  /** of `refusedFields`, those refused for characters a KeePass file cannot hold: `stripInvalid` would bring them in */
+  invalidFields: number;
   strippedFields: number;
   issues: ReportIssue[];
   /** one line per entry of the file: its name and what happened; never a value */
@@ -264,7 +269,8 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const short = (h: string) => h.slice(0, 8);
 
 interface SlotInfo { type: number; kemPk?: Uint8Array }
-const specTitle = (s: ItemSpec): string => s.title ?? s.websites[0] ?? s.username ?? '(no name)';
+const BATCH = 100;
+const specTitle = (s: ItemSpec): string => nameOf(s);
 const refusedWrite = (e: unknown): boolean => e instanceof ValueTooLarge || e instanceof SchemaError;
 const plainRefusal = (e: unknown): string => (e instanceof ValueTooLarge ? 'The item is too large for one record (1 MiB), so it was not imported.' : 'The item is over a limit of an item in a Psss vault, so it was not imported.');
 function viewContent(v: ItemView): ContentView {
@@ -428,6 +434,9 @@ export class Vault {
   private dirty = false;
   private warnings: string[] = [];
   private recCache = new Map<string, Rec>();
+  /** the records of an import in progress: sealed and stored in the outbox, not yet delivered (see `queueRecord`) */
+  private batch: { clock: Clock | null; pending: { rec: Rec; sealed: Uint8Array }[] } | null = null;
+  private beatAt = 0;
   private wrapCache = new Map<string, Uint8Array | null>();
   /** @internal set by openVault */
   lockOptions: LockOptions = {};
@@ -457,13 +466,23 @@ export class Vault {
   /** Runs `fn` holding the exclusive lock of the device-state directory (see lock.ts), with the device state re-read from disk first. When
    *  another process changed it since this one last looked, `refresh` also re-reads the vault, so that nothing built from before the lock is
    *  used for the write. */
-  private locked<T>(fn: () => T, refresh = false): T {
+  private locked<T>(fn: () => T, refresh = false, what?: string): T {
     if (this.state.memory) throw new VaultError('read_only', 'this vault was opened to read only, so nothing can be written');
+    if (this.batch) return fn(); // inside an import, which holds the lock and has the state in hand
+    const options: LockOptions = what === undefined ? this.lockOptions : { ...this.lockOptions, what, waitMs: this.lockOptions.waitMs ?? 30_000 };
     return withLock(this.state.dir, () => {
       const changed = this.state.reload();
       if (changed && refresh) this.load(true);
       return fn();
-    }, this.lockOptions);
+    }, options);
+  }
+
+  /** Tells the others that the lock is still held, at least every quarter of the time after which a lock counts as abandoned. */
+  private beat(): void {
+    const t = Date.now();
+    if (t - this.beatAt < (this.lockOptions.staleMs ?? 120_000) / 4) return;
+    this.beatAt = t;
+    refreshLock(this.state.dir);
   }
 
   // ------------------------------------------------------------ loading
@@ -1002,10 +1021,22 @@ export class Vault {
   /** Brings the entries of a KeePass database in as items, in one group (`options.group`, or the only one this device can write to).
    *  An item is recognized by its source: the entry's UUID, kept in the item's `source` field with a hash of what the file said. The same file
    *  imported again adds nothing; an item the person changed here is never replaced; an item they deleted (or deleted for good) is not
-   *  brought back. With `dryRun` nothing is written and the vault should have been opened with `readOnly`. */
+   *  brought back. With `dryRun` nothing is written, no lock is taken, and the vault should have been opened with `readOnly`.
+   *
+   *  A real import holds the lock of the device state from the moment it reads what the vault holds until its last record is stored, and reads
+   *  the vault again after taking the lock: two imports of one file at once cannot both decide that an entry is new. Records are sealed one
+   *  after another, each stored in the outbox before it is delivered, and delivered together in batches of `BATCH` records (one segment file
+   *  per batch, which the format allows), so the cost of an import is linear in its size. If it stops part of the way, what was stored stays
+   *  and an `ImportInterrupted` says how much; running it again does the rest. */
   importKdbx(db: KdbxDatabase, options: ImportOptions = {}): ImportReport {
     const now = this.now();
     const read = readKeepass(db, { now, ...(options.stripInvalid ? { stripInvalid: true } : {}), ...(options.includeTrash ? { includeTrash: true } : {}) });
+    if (options.dryRun) return this.importRead(read, options, now);
+    return this.locked(() => this.importRead(read, options, now), true, 'import');
+  }
+
+  private importRead(read: ReturnType<typeof readKeepass>, options: ImportOptions, now: number): ImportReport {
+    const dry = options.dryRun === true;
     const target = this.pickGroup(options.group);
     const groups = this.visibleGroups();
     const bySource = new Map<string, { entry: ItemEntry; baseline: Uint8Array | null }>();
@@ -1021,36 +1052,119 @@ export class Vault {
       if (settings) for (const x of viewSettings(settings).gone) if (x.kind === 'keepass') gone.add(x.id);
     }
     const r: ImportReport = {
-      group: target.name, groupId: target.gid, dryRun: options.dryRun === true,
+      group: target.name, groupId: target.gid, dryRun: dry,
       added: 0, attachments: 0, updated: 0, unchanged: 0, keptYours: 0, changedInFile: 0, conflicts: 0,
       skippedDeleted: 0, skippedGone: 0, skippedTrash: read.trashed, inFolders: read.inFolders, refusedItems: 0,
-      refusedFields: read.refusedFields, strippedFields: read.strippedFields, issues: [...read.issues], items: [],
+      refusedFields: read.refusedFields, invalidFields: read.invalidFields, strippedFields: read.strippedFields, issues: [...read.issues], items: [],
     };
     const note = (spec: ItemSpec, action: ImportAction) => r.items.push({ title: specTitle(spec), action });
     const same = (a: Uint8Array | null, b: Uint8Array) => a !== null && Buffer.compare(a, b) === 0;
-    for (const spec of read.items) {
-      const view = specView(spec);
-      const fileHash = contentHash(spec.sourceId, view);
-      if (gone.has(spec.uuid)) { r.skippedGone++; note(spec, 'gone'); continue; }
-      const known = bySource.get(spec.uuid) ?? (byId.has(spec.uuid) ? { entry: byId.get(spec.uuid)!, baseline: null } : undefined);
-      if (known) {
-        const v = known.entry.view;
-        if (v.deleted) { r.skippedDeleted++; note(spec, 'deleted'); continue; }
-        const vaultHash = contentHash(spec.sourceId, viewContent(v));
-        if (Buffer.compare(vaultHash, fileHash) === 0) { r.unchanged++; note(spec, 'unchanged'); continue; }
-        if (same(known.baseline, fileHash)) { r.keptYours++; note(spec, 'keptYours'); continue; }
-        if (!same(known.baseline, vaultHash)) { r.conflicts++; note(spec, 'conflict'); r.issues.push({ kind: 'mergeConflict', item: specTitle(spec), detail: 'Changed here and in the file since it was imported, so the version here was kept.' }); continue; }
-        if (!options.update) { r.changedInFile++; note(spec, 'changedInFile'); r.issues.push({ kind: 'changedInFile', item: specTitle(spec), detail: 'Changed in the file since it was imported. Add --update to bring in the file\'s version.' }); continue; }
-        if (options.dryRun) { r.updated++; note(spec, 'update'); continue; }
-        try { this.updateFromSpec(known.entry, spec, fileHash, now); r.updated++; note(spec, 'update'); }
+    if (!dry) this.batch = { clock: null, pending: [] };
+    try {
+      let done = 0;
+      for (const spec of read.items) {
+        options.progress?.(done++, read.items.length);
+        const view = specView(spec);
+        const fileHash = contentHash(spec.sourceId, view);
+        if (gone.has(spec.uuid)) { r.skippedGone++; note(spec, 'gone'); continue; }
+        const known = bySource.get(spec.uuid) ?? (byId.has(spec.uuid) ? { entry: byId.get(spec.uuid)!, baseline: null } : undefined);
+        if (known) {
+          const v = known.entry.view;
+          if (v.deleted) { r.skippedDeleted++; note(spec, 'deleted'); continue; }
+          const vaultHash = contentHash(spec.sourceId, viewContent(v));
+          if (Buffer.compare(vaultHash, fileHash) === 0) { r.unchanged++; note(spec, 'unchanged'); continue; }
+          if (same(known.baseline, fileHash)) { r.keptYours++; note(spec, 'keptYours'); continue; }
+          if (!same(known.baseline, vaultHash)) { r.conflicts++; note(spec, 'conflict'); r.issues.push({ kind: 'mergeConflict', item: specTitle(spec), detail: 'Changed here and in the file since it was imported, so the version here was kept.' }); continue; }
+          if (!options.update) { r.changedInFile++; note(spec, 'changedInFile'); r.issues.push({ kind: 'changedInFile', item: specTitle(spec), detail: 'Changed in the file since it was imported. Add --update to bring in the file\'s version.' }); continue; }
+          if (dry) { r.updated++; note(spec, 'update'); continue; }
+          try { this.updateFromSpec(known.entry, spec, fileHash, now); r.updated++; note(spec, 'update'); }
+          catch (e) { if (!refusedWrite(e)) throw e; r.refusedItems++; note(spec, 'refused'); r.issues.push({ kind: 'itemRefused', item: specTitle(spec), detail: plainRefusal(e) }); }
+          continue;
+        }
+        if (dry) { r.added++; r.attachments += spec.attachments.length; note(spec, 'add'); continue; }
+        try { this.createFromSpec(target, spec, fileHash, now); r.added++; r.attachments += spec.attachments.length; note(spec, 'add'); }
         catch (e) { if (!refusedWrite(e)) throw e; r.refusedItems++; note(spec, 'refused'); r.issues.push({ kind: 'itemRefused', item: specTitle(spec), detail: plainRefusal(e) }); }
-        continue;
       }
-      if (options.dryRun) { r.added++; r.attachments += spec.attachments.length; note(spec, 'add'); continue; }
-      try { this.createFromSpec(target, spec, fileHash, now); r.added++; r.attachments += spec.attachments.length; note(spec, 'add'); }
-      catch (e) { if (!refusedWrite(e)) throw e; r.refusedItems++; note(spec, 'refused'); r.issues.push({ kind: 'itemRefused', item: specTitle(spec), detail: plainRefusal(e) }); }
+      this.flushBatch();
+      options.progress?.(read.items.length, read.items.length);
+    } catch (e) {
+      if (dry) throw e;
+      // what was stored stays: deliver it if possible, and say how much it was
+      try { this.flushBatch(); } catch { /* the outbox holds it; the next sync delivers it */ }
+      throw new ImportInterrupted(r.added, r.updated, e);
+    } finally {
+      this.batch = null;
+      this.dirty = true;
     }
     return r;
+  }
+
+  /** One record of an import: sealed, stored in the outbox (the file is flushed now, the folder with the batch), the sequence number advanced in
+   *  memory. It is delivered by `flushBatch` together with the others. Nothing here re-reads the vault: the group's state from before the import
+   *  is enough, because an import changes each item once and never reads another item's new state. */
+  private queueRecord(g: GroupCtx, kind: number, payload: CMap): void {
+    const b = this.batch!;
+    if (g.role < 2) throw new VaultError('not_writer', `this person is a ${roleName(g.role)} in ${g.name || g.gid.slice(0, 8)} and cannot write`);
+    if (!g.writeKey) throw new VaultError('no_key', 'this device holds no key for the current epoch of the group');
+    const m = g.view.membership;
+    const head = this.state.chain(g.gid);
+    const seq = head ? head.seq + 1 : 1;
+    const clock = nextClock(this.now(), b.clock ? [b.clock] : g.view.accepted.map((r): Clock => [r.wall, r.counter]));
+    let sealed: Uint8Array, rec: Rec;
+    try {
+      sealed = sealRecord(this.person, g.gidBytes, g.epoch, g.writeKey, {
+        author: this.person.pid, device: this.state.deviceId, seq, prev: head ? fromHex(head.id) : null, clock, kind, payload, mhead: m.chain[m.chain.length - 1]!.id,
+      });
+      rec = openRecord(sealed, keyRing([[g.gidBytes, g.epoch, g.writeKey]]));
+    } catch (e) {
+      if (e instanceof FormatError && (e.code === 'too_large' || e.code === 'body_too_large')) throw new ValueTooLarge('record', limits.maxBody, undefined, 'The change is too large for one record: a record holds at most 1 MiB.');
+      throw e;
+    }
+    const id = hex(rec.id);
+    this.state.putOutbox(g.gid, seq, sealed, false); // durable before the record leaves the device (4.1); the folder entry is flushed with the batch
+    this.state.advanceInMemory(g.gid, seq, id);
+    b.clock = clock;
+    this.recCache.set(id, rec);
+    this.loaded.union.set(id, rec);
+    this.loaded.outboxIds.add(id);
+    b.pending.push({ rec, sealed });
+    this.beat();
+    if (b.pending.length >= BATCH) this.flushBatch();
+  }
+
+  /** Delivers the records queued by `queueRecord` as one segment file (spec 8.1: a file holds a run of consecutive records, named for the first and
+   *  the last) to every location, then, when every location has it, flushes the device state and removes the outbox files. A location that fails
+   *  is left alone and the records stay in the outbox for sync, as with a single write. */
+  private flushBatch(): void {
+    const b = this.batch;
+    if (!b || b.pending.length === 0) return;
+    const pending = b.pending;
+    b.pending = [];
+    this.state.flushOutboxFolder(); // every outbox file is on disk before anything is delivered
+    this.state.save();
+    if (this.offline) return;
+    const first = pending[0]!.rec, last = pending[pending.length - 1]!.rec;
+    const gid = hex(first.gid);
+    const rel = join(chainDir(gid, hex(first.author), hex(first.device)), segmentName(first.seq, last.seq, false));
+    const data = concat(...pending.map((p) => frame(p.sealed)));
+    let delivered = 0;
+    for (const l of this.loaded.locs) {
+      if (probe(l.path).state !== 'vault') continue;
+      try {
+        putIfAbsent(l.path, rel, data, this.durable);
+        if (this.durable) flushDirectory(join(l.path, dirname(rel)));
+        for (const p of pending) l.ids.add(hex(p.rec.id));
+        delivered++;
+        const remembered = this.state.remembered(l.key);
+        const k = `${gid}/${chainOf(last.author, last.device)}`;
+        if (!remembered.has(k) || remembered.get(k)!.seq < last.seq) { remembered.set(k, { seq: last.seq, id: last.id }); this.state.setRemembered(l.key, remembered); }
+      } catch { /* this location keeps what it has; the outbox still holds the records */ }
+    }
+    if (delivered === this.loaded.locs.length) {
+      this.state.flush();
+      for (const p of pending) { this.state.removeOutbox(gid, p.rec.seq); this.loaded.outboxIds.delete(hex(p.rec.id)); }
+    }
+    this.state.save();
   }
 
   private applySpec(c: ItemChange, spec: ItemSpec, gid: string, now: number): void {
@@ -1081,7 +1195,7 @@ export class Vault {
     if (spec.edited !== undefined) c.edited(spec.edited);
     c.source({ kind: 'keepass', id: spec.uuid, baseline });
     if (spec.deletedAt !== undefined) c.deleted(spec.deletedAt);
-    this.writeRecord(g, KIND.item, c.payload(this.random(16)));
+    this.queueRecord(g, KIND.item, c.payload(this.random(16)));
   }
 
   private updateFromSpec(entry: ItemEntry, spec: ItemSpec, baseline: Uint8Array, now: number): void {
@@ -1111,18 +1225,32 @@ export class Vault {
     if (spec.previous.length > 0) c.passwordHistory(spec.previous.map((p) => [p.value, p.replaced] as [string, number]));
     if (spec.edited !== undefined) c.edited(spec.edited);
     c.source({ kind: 'keepass', id: spec.uuid, baseline });
-    this.writeRecord(entry.group, KIND.item, c.payload(entry.bytes));
+    this.queueRecord(entry.group, KIND.item, c.payload(entry.bytes));
   }
 
-  /** Every item of every group this person can read (the ones in Recently Deleted too), as a KeePass database. The entry's UUID is the item's id,
-   *  so that this file imported into this vault again finds its own items. Reads the attachments' chunks; writes nothing. */
+  /** Every item of every group this person can read (the ones in Recently Deleted too), as a KeePass database. The entry's UUID is the UUID of the
+   *  KeePass entry the item was imported from, when it came from a file and no other item to export has that UUID, so that KeePassXC's merge pairs
+   *  the entries with the original database and this file imported into this vault again finds its own items; any other item's UUID is its id.
+   *  Reads the attachments' chunks; writes nothing. */
   exportKdbx(options: ExportKdbxOptions = {}): ExportKdbxResult {
     const items: ExportItem[] = [];
     const issues: ReportIssue[] = [];
     let shared = false, unknown = 0;
     const sel = options.group === undefined ? null : parseGroup(options.group);
-    for (const g of this.visibleGroups()) {
-      if (sel && !groupMatches(sel, g)) continue;
+    const visible = this.visibleGroups().filter((g) => !sel || groupMatches(sel, g));
+    const sourceOf = (e: ItemEntry): string | undefined => {
+      const src = e.view.carry.get('source');
+      return isMap(src) && src.get(1) === 'keepass' && typeof src.get(2) === 'string' && /^[0-9a-f]{32}$/.test(src.get(2) as string) ? (src.get(2) as string) : undefined;
+    };
+    const taken = new Map<string, number>(); // how often each UUID would be used: item ids, and source UUIDs of the items that have one
+    for (const g of visible) for (const e of g.entries()) { const u = sourceOf(e) ?? e.id; taken.set(u, (taken.get(u) ?? 0) + 1); }
+    const ids = new Set<string>();
+    for (const g of visible) for (const e of g.entries()) ids.add(e.id);
+    const uuidOf = (e: ItemEntry): string => {
+      const src = sourceOf(e);
+      return src !== undefined && taken.get(src) === 1 && (src === e.id || !ids.has(src)) ? src : e.id;
+    };
+    for (const g of visible) {
       if (g.view.membership.roles.size > 1) shared = true;
       for (const e of g.entries()) {
         const attachments: { name: string; data: Uint8Array }[] = [];
@@ -1134,7 +1262,7 @@ export class Vault {
           }
         }
         if (e.view.unknown.length > 0 || e.view.invalid.length > 0) unknown++;
-        items.push({ id: e.id, groupName: g.name, groupId: g.gid, view: e.view, attachments, ...(e.view.deleted ? { deletedAt: e.view.deletedAt ?? this.now() } : {}) });
+        items.push({ id: uuidOf(e), groupName: g.name, groupId: g.gid, view: e.view, attachments, ...(e.view.deleted ? { deletedAt: e.view.deletedAt ?? this.now() } : {}) });
       }
     }
     const built = buildKeepass(items, { name: this.state.name, now: new Date(this.now()), random: this.random, ...(options.stripInvalid ? { stripInvalid: true } : {}) });

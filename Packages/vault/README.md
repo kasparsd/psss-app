@@ -78,21 +78,24 @@ A larger value throws `ValueTooLarge` (`code` `value_too_large`, with `field`, `
 ### Import, export and attachments
 
 ```ts
-vault.importKdbx(db: KdbxDatabase, { group?, stripInvalid?, includeTrash?, update?, dryRun? }): ImportReport
+vault.importKdbx(db: KdbxDatabase, { group?, stripInvalid?, includeTrash?, update?, dryRun?, progress?(done, total) }): ImportReport   // throws ImportInterrupted when it stops part of the way
 vault.exportKdbx({ group?, stripInvalid? }): { db: KdbxDatabase, report: ExportReport }
 vault.readAttachment(groupId, attachment): Uint8Array            // from the first location that holds each chunk
 openVault({ ..., readOnly: true })                               // no lock, no write of any kind: for a dry run
 readKeepass(db, { now, stripInvalid?, includeTrash? }) / buildKeepass(items, { name, ... })   // the pure mapping in src/keepass.ts
 ```
 
-`importKdbx` takes a database read by [`@psss/kdbx`](../kdbx/README.md). Each entry becomes one item written in one record, recognized later by its `source` field (the entry's UUID and a hash of its content), so importing the same file again writes nothing; see [items](../../docs/items.md#keepass-import-and-export-in-the-record-log-vault) for what a second run does with items that changed. Attachments are sealed in 1 MiB chunks with a key of their own and written to every location before the record that names them. The reports hold names and counts, never a value. `exportKdbx` makes the entry UUID the item id and reads each attachment back from the locations.
+`importKdbx` takes a database read by [`@psss/kdbx`](../kdbx/README.md). Each entry becomes one item written in one record, recognized later by its `source` field (the entry's UUID and a hash of its content), so importing the same file again writes nothing; see [items](../../docs/items.md#keepass-import-and-export-in-the-record-log-vault) for what a second run does with items that changed. Attachments are sealed in 1 MiB chunks with a key of their own and written to every location before the record that names them. The reports hold names and counts, never a value. `exportKdbx` makes the entry UUID the UUID of the KeePass entry the item was imported from (when no other item would use it; the item id otherwise) and reads each attachment back from the locations.
+
+A real import holds the state lock from the moment it reads what the vault holds until its last record is stored, and reads the vault again after taking it, so two imports of one file at once add each entry once. It refreshes the lock while it runs (`refreshLock`, at least every quarter of `staleMs`), and tells whoever waits that an import is running (`VaultError.what`). Records are sealed one after another, each stored in the outbox before it is delivered, and delivered a hundred at a time as one segment file; the cost is linear (20,000 entries in about three minutes on a laptop, 190 MB of memory). When it stops part of the way it throws `ImportInterrupted` (`added`, `updated`, `reason`): what was stored stays, and running the import again does the rest. A dry run (`readOnly` vault) takes no lock and writes nothing. Entries of one file that share a UUID become separate items under derived ids (see [items](../../docs/items.md#keepass-import-and-export-in-the-record-log-vault)). `ImportReport.invalidFields` counts the fields refused for their characters, a part of `refusedFields`; names in reports are cut to 60 characters (`shortName`).
 
 ### Locking
 
 Every write, `sync()` and every open take an exclusive lock on `stateDir` (the file `<stateDir>/lock`), so that several processes of one device (a shell script running `psss set` in parallel, say) cannot read the same sequence number and outbox and seal two records at one place.
 The lock file holds a pid, a time and a token and is created whole (written under a temporary name, then linked into place), with `node:fs` only.
 A lock whose process is gone, or that is older than two minutes, is stolen; a crash while holding it costs nothing, because the state files are written atomically.
-Others wait with a short randomised backoff for `lockWaitMs` (default 5000), then fail with `VaultError` `state_locked`, whose message names the lock file and says another psss is running.
+Others wait with a short randomised backoff for `lockWaitMs` (default 5000), then fail with `VaultError` `state_locked`, whose message names the lock file and says another psss is running; when the holder said what it is doing, `err.what` is set (`import`).
+A long job calls `refreshLock(dir)` now and then (an import does, at least every quarter of `staleMs`), which rewrites the lock with a new time and the same token, so that it is not taken for an abandoned one.
 The device state is read again after the lock is taken, and when it changed the vault is read again before the record is built; nothing from before the lock is trusted.
 Within one process the lock is re-entrant.
 

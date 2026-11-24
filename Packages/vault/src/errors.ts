@@ -16,6 +16,8 @@ export class VaultError extends Error {
   code: string;
   /** set when `code` is `ambiguous`: every item the reference could mean */
   candidates?: Candidate[];
+  /** set when `code` is `state_locked` and the holder said what it is doing (`import`) */
+  what?: string;
   constructor(code: string, message = '', candidates?: Candidate[]) {
     super(message ? `${code}: ${message}` : code);
     this.code = code;
@@ -33,5 +35,19 @@ export class ValueTooLarge extends VaultError {
     this.name = 'ValueTooLarge';
     this.field = field; this.limit = limit;
     if (size !== undefined) this.size = size;
+  }
+}
+
+/** A KeePass import stopped part of the way (a full disk, a failure of the file system). What was stored is kept: the items counted here are
+ *  in the vault, and running the same import again finishes the rest, since an item that is already there is left alone. */
+export class ImportInterrupted extends VaultError {
+  added: number;
+  updated: number;
+  /** why it stopped, as the error that was thrown */
+  reason: unknown;
+  constructor(added: number, updated: number, reason: unknown) {
+    super('import_interrupted', `the import stopped after ${added} added and ${updated} updated: ${reason instanceof Error ? reason.message : String(reason)}`);
+    this.name = 'ImportInterrupted';
+    this.added = added; this.updated = updated; this.reason = reason;
   }
 }

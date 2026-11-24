@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { fromHex, hex } from '../../format/src/bytes.ts';
 import type { Remembered } from '../../format/src/remember.ts';
 import { VaultError } from './errors.ts';
-import { writeAtomic } from './fsutil.ts';
+import { flushDirectory, writeAtomic } from './fsutil.ts';
 
 export interface ChainHead { seq: number; id: string }
 interface StateData {
@@ -118,12 +118,21 @@ export class DeviceState {
     this.dirty = true;
     this.save();
   }
+  /** As `advance`, without writing state.json: the batch of an import calls `save` when it has stored the records of the batch. The outbox
+   *  (flushed) is the proof of a record, so a crash in between costs nothing. */
+  advanceInMemory(gid: string, seq: number, id: string): void {
+    if (this.memory) throw new VaultError('read_only', 'this vault was opened to read only');
+    this.data.chains[gid] = { seq, id };
+    this.dirty = true;
+  }
   chain(gid: string): ChainHead | undefined { return this.data.chains[gid]; }
 
   // ---- outbox
   private get outboxDir(): string { return join(this.dir, 'outbox'); }
   private outboxPath(gid: string, seq: number): string { return join(this.outboxDir, `${gid}-${String(seq).padStart(10, '0')}.sealed`); }
-  putOutbox(gid: string, seq: number, sealed: Uint8Array): void { if (this.memory) throw new VaultError('read_only', 'this vault was opened to read only'); writeAtomic(this.outboxPath(gid, seq), sealed, 0o600, this.durable); }
+  putOutbox(gid: string, seq: number, sealed: Uint8Array, flushFolder = true): void { if (this.memory) throw new VaultError('read_only', 'this vault was opened to read only'); writeAtomic(this.outboxPath(gid, seq), sealed, 0o600, this.durable, this.durable && flushFolder); }
+  /** Flushes the outbox folder: with `putOutbox(…, false)` the files are flushed one by one and the folder once, for the batch. */
+  flushOutboxFolder(): void { if (this.memory || !this.durable) return; flushDirectory(this.outboxDir); }
   removeOutbox(gid: string, seq: number): void { if (this.memory) return; try { unlinkSync(this.outboxPath(gid, seq)); } catch { /* already gone */ } }
   outbox(): OutboxEntry[] {
     if (!existsSync(this.outboxDir)) return [];

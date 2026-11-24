@@ -247,12 +247,16 @@ export interface ImportRequest {
   includeTrash: boolean;
   /** Replace items changed in the file since they were imported and not changed here. */
   update: boolean;
+  /** Called with how many entries of the file are dealt with so far, and how many there are, as the import goes. Absent: no progress. */
+  progress?: (done: number, total: number) => void;
 }
 
 export interface ImportIssue {
   kind: string;
-  /** The item's name, never a value. */
+  /** The item's name, never a value. Cut to 60 characters, but not cleaned of control characters: whoever prints it must. */
   item?: string;
+  /** Which part of an item the sentence is about; findings are grouped by kind and part. */
+  field?: string;
   detail: string;
 }
 
@@ -272,6 +276,8 @@ export interface ImportResult {
   inFolders: number;
   refusedItems: number;
   refusedFields: number;
+  /** Of `refusedFields`, the ones refused for characters a KeePass file cannot hold: `--strip-invalid` brings those in. */
+  invalidFields: number;
   strippedFields: number;
   issues: ImportIssue[];
   items: Array<{ title: string; action: string }>;

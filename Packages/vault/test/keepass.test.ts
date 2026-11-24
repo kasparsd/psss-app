@@ -75,16 +75,29 @@ test('a fixture database reads as items, and says what it did not keep', () => {
   assert.equal(withTrash.items.filter((i) => i.deletedAt !== undefined).length, 1);
 });
 
-test('reserved strings are never fields', () => {
+test('only the strings the app names as its own plumbing are dropped; any other PSSS_ string is a field, as in the app', () => {
   const db = newDatabase({ name: 'x', now: new Date(NOW) });
   const e = newEntry({ title: 'T', username: 'u', password: 'p', fields: [
     { name: 'PSSS_TYPE', value: 'login' }, { name: 'PSSS_FIELD_MAPPING', value: '{"kind":"login","keys":{}}' }, { name: 'PSSS_SOURCE', value: 'x' },
-    { name: 'PSSS_IMPORT_HASHES', value: 'y' }, { name: 'KPEX_PASSKEY_X', value: 'z' }, { name: 'PSSS_DELETED_FROM', value: 'a' }, { name: 'PSSS_DELETED_AT', value: 'b' },
+    { name: 'PSSS_IMPORT_HASHES', value: 'y' }, { name: 'PSSS_PASSKEY_CREATED', value: '2024-01-01T00:00:00Z' },
+    { name: 'PSSS_DELETED_FROM', value: 'a' }, { name: 'PSSS_NOTE_TO_SELF', value: 'b' }, { name: 'KPEX_PASSKEY_X', value: 'z' },
     { name: 'Plain', value: 'kept' },
   ] }, { now: new Date(NOW) });
   db.root.entries.push(e);
   const item = readKeepass(db, { now: NOW }).items[0]!;
-  assert.deepEqual(item.custom.map((f) => f.label), ['Plain']);
+  assert.deepEqual(item.custom.map((f) => f.label), ['PSSS_DELETED_FROM', 'PSSS_NOTE_TO_SELF', 'KPEX_PASSKEY_X', 'Plain'], 'unknown PSSS_ and KPEX_ strings stay as fields');
+});
+
+test('a Wi-Fi network (PSSS_TYPE wifi) is a custom item with its name as username, Security and Hidden network as fields', () => {
+  const db = newDatabase({ name: 'x', now: new Date(NOW) });
+  db.root.entries.push(newEntry({ title: 'Home', username: 'HomeNet', password: 'wifi-secret', fields: [
+    { name: 'PSSS_TYPE', value: 'wifi' }, { name: 'Security', value: 'WPA' }, { name: 'Hidden network', value: 'Yes' },
+  ] }, { now: new Date(NOW) }));
+  const item = readKeepass(db, { now: NOW }).items[0]!;
+  assert.equal(item.type, 4, 'the record format has no Wi-Fi kind: it is a custom item');
+  assert.equal(item.username, 'HomeNet');
+  assert.equal(item.password, 'wifi-secret');
+  assert.deepEqual(item.custom.map((f) => [f.label, f.value]), [['Security', 'WPA'], ['Hidden network', 'Yes']]);
 });
 
 test('characters XML cannot hold: refused with a warning, or stripped when asked', () => {
@@ -93,7 +106,8 @@ test('characters XML cannot hold: refused with a warning, or stripped when asked
   const refused = readKeepass(db, { now: NOW });
   assert.deepEqual(refused.items[0]!.custom.map((f) => f.label), ['Fine']);
   assert.equal(refused.refusedFields, 2);
-  assert.ok(refused.issues.some((i) => i.kind === 'invalidCharacters' && i.item === 'Bad' && /--strip-invalid/.test(i.detail)));
+  assert.ok(refused.issues.some((i) => i.kind === 'invalidCharacters' && i.item === 'Bad'));
+  assert.equal(refused.invalidFields, 2, 'both were refused for their characters');
   assert.ok(!JSON.stringify(refused.issues).includes('\u0002'), 'the report holds no value');
   const stripped = readKeepass(db, { now: NOW, stripInvalid: true });
   assert.deepEqual(stripped.items[0]!.custom.map((f) => [f.label, f.value]), [['Note', 'ab'], ['Fine', 'ok']]);

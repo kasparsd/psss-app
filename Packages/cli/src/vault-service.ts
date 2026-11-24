@@ -21,7 +21,7 @@ import { derivePerson } from '../../format/src/keys.ts';
 import { DEFAULT_ARGON2, openSlot, sealPasswordSlot } from '../../format/src/slots.ts';
 import { KdbxError, readKdbx, writeKdbx } from '../../kdbx/src/index.ts';
 import type { KdbxDatabase, KdbxKey } from '../../kdbx/src/index.ts';
-import { VaultError, createVault, openVault, parseKeyFile } from '../../vault/src/index.ts';
+import { ImportInterrupted, VaultError, createVault, openVault, parseKeyFile } from '../../vault/src/index.ts';
 import type { Unlock, Vault } from '../../vault/src/index.ts';
 import { ValidationError } from './errors.ts';
 import { nearTitles } from './near.ts';
@@ -212,18 +212,33 @@ class RealVaultService implements VaultService {
       const limit = typeof named.limit === 'number' ? ` (limit ${named.limit.toLocaleString('en-US')} bytes)` : '';
       throw new ValidationError(`That value is too large to store${limit}.`);
     }
+    if (e instanceof ImportInterrupted) return this.interrupted(e);
     if (e instanceof VaultError) {
+      // the library puts its code in front of its message (`no_group: …`): the code is for programs, the sentence is for the person
+      const text = this.scrub(e.message.startsWith(`${e.code}: `) ? e.message.slice(e.code.length + 2) : e.message).replace(/[.\s]+$/, '');
       switch (e.code) {
         case 'not_writer':
           return failed('This computer can read the vault but not change it. Nothing was changed.');
-        case 'no_group':
+        case 'no_group': {
+          const named = /^no writable group named (.*)$/.exec(text);
+          return failed(named ? `This computer cannot add items to a group called "${named[1]}". Nothing was changed.` : 'This computer cannot add items to any group in this vault. Nothing was changed.');
+        }
+        case 'ambiguous_group': {
+          const named = /^several groups named (.*)$/.exec(text);
+          return failed(`More than one group is called ${named ? `"${named[1]}"` : 'that'}. Say which one with --group. Nothing was changed.`);
+        }
         case 'group_required':
-        case 'ambiguous_group':
-          return failed(`${this.scrub(e.message)}. Nothing was changed.`);
+          return failed('There is more than one group in this vault. Say which one with --group. Nothing was changed.');
         case 'conflict':
           return failed('A file in the vault changed while it was being written. Nothing was lost; try again.');
+        case 'state_locked':
+          return failed(
+            e.what === 'import'
+              ? 'Another psss is importing into this vault right now. Wait for it to finish and try again. Nothing was changed.'
+              : 'Another psss is working on this vault right now. Wait for it to finish and try again. Nothing was changed.',
+          );
         default:
-          return failed(`Psss could not finish: ${this.scrub(e.message)}. Nothing was changed.`);
+          return failed(`Psss could not finish: ${text}. Nothing was changed.`);
       }
     }
     const code = (e as NodeJS.ErrnoException)?.code;
@@ -233,6 +248,21 @@ class RealVaultService implements VaultService {
     }
     const why = this.scrub(e instanceof Error ? e.message : String(e));
     return failed(`Psss could not finish${why ? `: ${why}` : ''}. Nothing was changed.`);
+  }
+
+  /** An import that stopped part of the way: what was stored stays, and running it again does the rest. */
+  private interrupted(e: ImportInterrupted): Failure {
+    let why: Failure | undefined;
+    try {
+      why = this.translate(e.reason);
+    } catch {
+      /* a usage error from the library has no place here */
+    }
+    const reason = why?.kind === 'failed' ? why.message.replace(/\s*Nothing was changed\.$/, '') : 'Psss could not finish';
+    const count = (n: number, one: string, many: string) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
+    if (e.added === 0 && e.updated === 0) return failed(`${reason}\nNothing was changed.`);
+    const done = [e.added > 0 ? `added ${count(e.added, 'item', 'items')}` : '', e.updated > 0 ? `updated ${count(e.updated, 'item', 'items')}` : ''].filter(Boolean).join(' and ');
+    return failed(`${reason}\nThe import stopped part of the way: it ${done}. Those stay in the vault.\nRun the same command again to finish: items that are already here are left alone.`);
   }
 
   private async guard<T>(fn: () => T | Failure | Result<T>): Promise<T | Failure | Result<T>> {
@@ -818,10 +848,22 @@ class RealVaultService implements VaultService {
         ...(request.includeTrash ? { includeTrash: true } : {}),
         ...(request.update ? { update: true } : {}),
         ...(request.dryRun ? { dryRun: true } : {}),
+        ...(request.progress ? { progress: request.progress } : {}),
       });
       const { groupId: _gid, ...rest } = r;
-      return { ok: true as const, value: { ...rest, issues: r.issues.map((i) => ({ kind: i.kind, ...(i.item !== undefined ? { item: i.item } : {}), detail: i.detail })) } };
+      return { ok: true as const, value: { ...rest, issues: r.issues.map((i) => ({ kind: i.kind, ...(i.item !== undefined ? { item: i.item } : {}), ...(i.field !== undefined ? { field: i.field } : {}), detail: i.detail })) } };
     })) as Result<ImportResult>;
+  }
+
+  /** The place of the vault that holds `file` (the file is in it or below it, as the real folders), or undefined. */
+  private insideVaultPlace(v: Vault, file: string): string | undefined {
+    const target = canonical(file);
+    const places = new Set<string>([this.vaultPath, ...v.info().locations.map((l) => l.location)]);
+    for (const place of places) {
+      const rel = path.relative(canonical(place), target);
+      if (rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))) return place;
+    }
+    return undefined;
   }
 
   async exportKdbx(request: ExportRequest): Promise<Result<ExportResult>> {
@@ -829,6 +871,13 @@ class RealVaultService implements VaultService {
     if ('ok' in v) return v;
     const at = this.abs(request.file);
     const shown = this.show(at);
+    // a KeePass file holds every secret in the clear: never in a folder that syncs (a place of the vault), as init refuses for the key file
+    const inside = this.insideVaultPlace(v, at);
+    if (inside !== undefined) {
+      return failed(
+        `${shown} is inside ${this.show(inside)}, a place this vault is kept in and shared from.\nA KeePass file holds every secret in the clear, and anything saved there would sync with the vault.\nChoose another place for the file, outside the vault folder.`,
+      );
+    }
     if (!request.force && existsSync(at)) return { ok: false, kind: 'kdbx', why: 'exists', file: shown };
     const key = this.kdbxKey(shown, request.credentials);
     if ('ok' in key) return key;
@@ -869,7 +918,7 @@ class RealVaultService implements VaultService {
         attachments: built.report.attachments,
         groups: built.report.groups,
         doesNotTravel: built.report.doesNotTravel.map((d) => d.text),
-        issues: built.report.issues.map((i) => ({ kind: i.kind, ...(i.item !== undefined ? { item: i.item } : {}), detail: i.detail })),
+        issues: built.report.issues.map((i) => ({ kind: i.kind, ...(i.item !== undefined ? { item: i.item } : {}), ...(i.field !== undefined ? { field: i.field } : {}), detail: i.detail })),
         refusedFields: built.report.refusedFields,
         strippedFields: built.report.strippedFields,
       };

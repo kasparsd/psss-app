@@ -238,6 +238,12 @@ Goal: five people outside the project fill, save and find a login without guidan
 
 ## Platform gaps
 
+- Wi-Fi networks in the record-log vault and the command line (2026-11-24). The app has a Wi-Fi kind (`PSSS_TYPE` `wifi`, with `Security` and `Hidden network`); the record format has four item kinds (`type` 1 to 4 in [format schema](format-schema.md)) and no fields for a network's security or hidden flag. `psss import` therefore reads a Wi-Fi network as a custom item (network name as username, `Security` and `Hidden network` as ordinary fields) and `psss export` writes it as a custom item, which the app reads as a custom item. Closing it needs a fifth `type` and two fields in the format (owner's decision), then the same mapping in `Packages/vault/src/keepass.ts`. See [items](items.md#keepass-import-and-export-in-the-record-log-vault).
+
+- Similar logins on import (2026-11-24). The app's `similarLogin` heuristic, which marks a login that resembles one already in the vault, has no counterpart in `psss import`: items are recognized by the entry's UUID only. A file whose entries have UUIDs is exact; a file that merely contains the same logins as existing items (new UUIDs) imports them again. Decide whether the command line should match like the app, or offer `--dry-run` output that names likely duplicates.
+
+- A future `file get` (attachments, not built) must treat an attachment's name as untrusted text: a KeePass file can name one `../../etc/passwd`. Write only the base name inside the folder asked for, refuse a name that is empty, `.` or `..` or has a path separator, never follow a link at the target, and never overwrite without `--force`. Import keeps names as they are, since the vault never uses one as a path.
+
 - Mac browsers other than Safari: system AutoFill is not expected to reach Chrome or Firefox, so they depend on the extension prototype and are outside 1.0. Confirm the negative result once and record it in the coverage grid.
 
 - Shipping floor from the SDK headers (2026-11-23): iOS 26.2 is the lowest version with password, passkey, verification code, save and generate; macOS 15 is the lowest with password, passkey and verification code. Recommended floor: iOS 26.2 and macOS 15, to confirm at the gate. Text insertion for single card fields is iOS 18 and later only, not macOS.

@@ -433,7 +433,7 @@ export class FakeVaultService implements VaultService {
       value: {
         group, dryRun: request.dryRun, added: again ? 0 : items, attachments: again ? 0 : known.attachments ?? 0, updated: 0, unchanged: again ? items : 0, keptYours: 0, changedInFile: 0,
         conflicts: 0, skippedDeleted: 0, skippedGone: 0, skippedTrash: request.includeTrash ? 0 : known.trashed ?? 0, inFolders: known.inFolders ?? 0, refusedItems: 0,
-        refusedFields: 0, strippedFields: 0, issues: known.issues ?? [], items: [],
+        refusedFields: 0, invalidFields: 0, strippedFields: 0, issues: known.issues ?? [], items: [],
       },
     };
   }

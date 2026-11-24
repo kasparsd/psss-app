@@ -15,6 +15,8 @@ export const DEVIATIONS = [
   'Further websites (KP2A_URL, KP2A_URL_1, ...) become websites of the item, as docs/format-schema.md section 10 says; the app shows them as Other fields.',
   'Folders are not kept: the record-log vault has groups and tags and no folders, so an import flattens them and says how many items were in one.',
   'A password history belongs to logins only, as in the app; for other kinds the earlier values are not imported and the report says so.',
+  'A Wi-Fi network (PSSS_TYPE wifi) becomes a custom item: the network name is its username, Security and Hidden network are ordinary fields. The record format has four item kinds and none for Wi-Fi, so the kind is not kept, and an export writes such an item as a custom item.',
+  'Entries that share one UUID in a file become separate items: the first keeps the UUID, each later one gets an id derived from it and its place among the entries with that UUID. None overwrites another.',
 ] as const;
 
 // ---------------------------------------------------------------- the names the app reserves
@@ -29,8 +31,10 @@ const PASSKEY_KEYS: string[] = Object.values(PK);
 const SECURITY_CODE = 'Security code', PIN = 'PIN', EXPIRY = 'Expiry', VALID_FROM = 'Valid from', ISSUER = 'Card issuer';
 const DELETED_AT = 'PSSS_DELETED_AT', DELETED_FROM = 'PSSS_DELETED_FROM';
 
-/** Strings that are the app's own plumbing, never a field: PSSS_*, KeePassXC passkey strings. */
-const isInternal = (key: string): boolean => key.startsWith('PSSS_') || key.startsWith('KPEX_PASSKEY_') || key.startsWith('KPXC_PASSKEY_');
+/** Strings that are the app's own plumbing, never a field: exactly the ones `EntryMapping.internalStrings` names in the Swift source (the
+ *  passkey strings, the type hint and mapping, and two retired names). Any other PSSS_ string is an ordinary field, as in the app. */
+const INTERNAL_STRINGS = new Set<string>([...PASSKEY_KEYS, PASSKEY_CREATED, TYPE_KEY, MAPPING_KEY, 'PSSS_SOURCE', 'PSSS_IMPORT_HASHES']);
+const isInternal = (key: string): boolean => INTERNAL_STRINGS.has(key);
 
 /** Field names the app recognizes as a role, matched with case, spaces, dashes and punctuation removed. One table for the TS side;
  *  `test/keepass.test.ts` compares it with the text of `FieldRole.aliases` in App/Core/VaultItem.swift. */
@@ -94,18 +98,30 @@ export interface ItemSpec {
 export type IssueKind =
   | 'invalidCharacters' | 'unreadableValue' | 'unreadableCode' | 'extraCode' | 'passkeyKept' | 'attachmentTooLarge' | 'attachmentLimit'
   | 'historyTrimmed' | 'historyOtherFields' | 'historyNotLogin' | 'foldersFlattened' | 'dateMissing' | 'tooMany' | 'tooLarge'
-  | 'mappingNeedsReview' | 'protectedKept' | 'trashedInSource'
+  | 'mappingNeedsReview' | 'protectedKept' | 'trashedInSource' | 'duplicateId'
   // decisions of an import against what the vault holds
   | 'similarLogin' | 'mergeConflict' | 'changedInFile' | 'inRecycleBin' | 'deletedByPerson' | 'itemRefused'
   // export
   | 'renamedField' | 'fieldRefused' | 'charactersStripped' | 'passkeyNotWritten' | 'attachmentUnreadable' | 'unknownFieldsLeft';
 export interface ReportIssue {
   kind: IssueKind;
-  /** the item's title (or its first website), never a value */
+  /** the item's title (or its first website), never a value; cut to `NAME_LENGTH` characters */
   item?: string;
+  /** which part of an item the sentence is about (`The title`, `A field`), so that findings are grouped by kind and part and each line says what is true of all of them */
+  field?: string;
   /** one plain sentence, never a value */
   detail: string;
 }
+
+/** The longest name of an item or a field that a report carries. */
+export const NAME_LENGTH = 60;
+/** A name cut to `NAME_LENGTH` characters, with an ellipsis, so that one odd title cannot make a report as long as the file. */
+export function shortName(text: string): string {
+  const chars = [...text];
+  return chars.length > NAME_LENGTH ? `${chars.slice(0, NAME_LENGTH - 1).join('')}\u2026` : text;
+}
+/** The name an item goes by in a report: its title, else its first website or its username. */
+export const nameOf = (s: { title?: string; websites: string[]; username?: string }): string => shortName(s.title ?? s.websites[0] ?? s.username ?? '(no name)');
 
 /** Limits of what one item can hold, from the item schema, applied before anything is built. */
 export const ITEM_LIMITS = { text: 65_536, notes: 262_144, websites: 64, customFields: 128, tags: 64, attachments: 64, attachmentBytes: 64 * 1024 * 1024, previous: 10 } as const;
@@ -132,6 +148,10 @@ export interface ReadResult {
   strippedFields: number;
   /** fields that were not imported for their characters, or their size */
   refusedFields: number;
+  /** of those, the ones refused for characters a KeePass file cannot hold (`--strip-invalid` brings them in) */
+  invalidFields: number;
+  /** entries that shared a UUID with an earlier entry of the file: each was read as an item of its own, under an id derived from the UUID */
+  duplicates: number;
 }
 
 // ---------------------------------------------------------------- small helpers
@@ -350,30 +370,42 @@ function mappingHolds(m: Mapping, candidates: Row[]): boolean {
   return Object.keys(m.keys).every((k) => roles.includes(k));
 }
 
+/** The part of an item a sentence is about: a field of the file with its own name is just "A field", so that 72 of them are one finding. */
+const partOf = (what: string): string => (/^The field "/.test(what) ? 'A field' : what);
+/** "is" or "are": the notes are plural, everything else is not. */
+const be = (what: string): string => (what === 'The notes' ? 'are' : 'is');
+const have = (what: string): string => (what === 'The notes' ? 'have' : 'has');
+
 class Collector {
   issues: ReportIssue[] = [];
   refused = 0;
+  invalid = 0;
   stripped = 0;
   stripInvalid: boolean;
   constructor(stripInvalid: boolean) { this.stripInvalid = stripInvalid; }
-  add(kind: IssueKind, item: string | undefined, detail: string) { this.issues.push(item === undefined ? { kind, detail } : { kind, item, detail }); }
+  add(kind: IssueKind, item: string | undefined, detail: string, field?: string) {
+    this.issues.push({ kind, ...(item === undefined ? {} : { item: shortName(item) }), ...(field === undefined ? {} : { field }), detail });
+  }
   /** A value of a field that is not protected: XML cannot hold some characters, so the same value could never be written back to a KeePass file. */
   clean(item: string, what: string, value: string, isProtected: boolean): string | undefined {
     if (isProtected ? value.isWellFormed() : !hasInvalidXmlCharacters(value)) return value;
+    const part = partOf(what);
     if (this.stripInvalid) {
       this.stripped++;
-      this.add('charactersStripped' as IssueKind, item, `${what} had characters that a KeePass file cannot hold; they were removed because you asked for that.`);
+      this.add('charactersStripped' as IssueKind, item, `${part} ${have(part)} characters that a KeePass file cannot hold; they were removed because you asked for that.`, part);
       return isProtected ? value.toWellFormed().replace(/\ufffd/g, '') : stripInvalidXmlCharacters(value);
     }
     this.refused++;
-    this.add('invalidCharacters', item, `${what} has characters that a KeePass file cannot hold, so it was not imported. Add --strip-invalid to import it without them.`);
+    this.invalid++;
+    this.add('invalidCharacters', item, `${part} ${have(part)} characters that a KeePass file cannot hold, so ${be(part) === 'are' ? 'they were' : 'it was'} not imported.`, part);
     return undefined;
   }
   /** A text over the size one record can hold. */
   fit(item: string, what: string, value: string, max: number): string | undefined {
     if (bytes(nfc(value)) <= max) return value;
+    const part = partOf(what);
     this.refused++;
-    this.add('tooLarge', item, `${what} is longer than the ${max.toLocaleString('en-US')} bytes one item can hold, so it was not imported.`);
+    this.add('tooLarge', item, `${part} ${be(part)} longer than the ${max.toLocaleString('en-US')} bytes one item can hold, so ${be(part) === 'are' ? 'they were' : 'it was'} not imported.`, part);
     return undefined;
   }
 }
@@ -498,6 +530,7 @@ function readEntry(db: KdbxDatabase, e: KdbxEntry, info: EntryInfo, o: ReadOptio
       case 'card': kind = 2; break;
       case 'note': kind = 3; break;
       case 'custom': kind = 4; break;
+      case 'wifi': kind = 4; break;
       case 'login': kind = 1; break;
       default:
         if (website !== '' || account !== '' || otpFound.otp || passkey) kind = 1;
@@ -535,7 +568,7 @@ function readEntry(db: KdbxDatabase, e: KdbxEntry, info: EntryInfo, o: ReadOptio
     displayed.add(key);
     if (row.protected && key !== 'Password' && key !== securityKey && key !== pinKey && key !== secretKey) {
       displayed.delete(key);
-      c.add('protectedKept', itemName, `${what} was protected in the file, so it was kept as a hidden field named "${key}".`);
+      c.add('protectedKept', itemName, `${what} was protected in the file, so it was kept as a hidden field named "${shortName(key)}".`, `${what}:${key}`);
       return undefined;
     }
     return put(what, row.value, max);
@@ -554,7 +587,7 @@ function readEntry(db: KdbxDatabase, e: KdbxEntry, info: EntryInfo, o: ReadOptio
     if (secretValue !== undefined) {
       const digits = cardDigits(secretValue);
       if (digits !== '') spec.card = { number: digits };
-      else { custom.push({ label: 'Card number', value: secretValue, concealed: true }); c.add('unreadableValue', itemName, 'The card number holds no digits, so it was kept as a hidden field named "Card number".'); }
+      else { custom.push({ label: 'Card number', value: secretValue, concealed: true }); c.add('unreadableValue', itemName, 'The card number holds no digits, so it was kept as a hidden field named "Card number".', 'The card number'); }
     }
   } else if (secretValue !== undefined) spec.password = secretValue;
 
@@ -570,7 +603,7 @@ function readEntry(db: KdbxDatabase, e: KdbxEntry, info: EntryInfo, o: ReadOptio
     const v = put('A website', f.value);
     if (v !== undefined && !sites.includes(v) && kind !== 2) sites.push(v);
   }
-  if (sites.length > ITEM_LIMITS.websites) { c.add('tooMany', itemName, `An item holds at most ${ITEM_LIMITS.websites} websites; the rest were not imported.`); c.refused++; sites.length = ITEM_LIMITS.websites; }
+  if (sites.length > ITEM_LIMITS.websites) { c.add('tooMany', itemName, `An item holds at most ${ITEM_LIMITS.websites} websites; the rest were not imported.`, 'websites'); c.refused++; sites.length = ITEM_LIMITS.websites; }
   spec.websites = sites;
 
   // card extras
@@ -582,7 +615,7 @@ function readEntry(db: KdbxDatabase, e: KdbxEntry, info: EntryInfo, o: ReadOptio
       if (parsed && spec.card) { spec.card.year = parsed.year; spec.card.month = parsed.month; }
       else if (exp.value !== '') {
         displayed.delete(expiryKey);
-        c.add('unreadableValue', itemName, `The expiry in "${expiryKey}" is not a month and a year, so it was kept as an ordinary field.`);
+        c.add('unreadableValue', itemName, `The expiry in "${expiryKey}" is not a month and a year, so it was kept as an ordinary field.`, `The expiry:${expiryKey}`);
       }
     }
     const code = securityKey === undefined ? undefined : rowOf(securityKey);
@@ -601,7 +634,7 @@ function readEntry(db: KdbxDatabase, e: KdbxEntry, info: EntryInfo, o: ReadOptio
       const s = v === undefined ? null : normalizedSecret(v);
       if (s && first('otp') !== undefined && first('otp') !== '' && s !== own) {
         const kept = putSecret('A second verification code', v!);
-        if (kept !== undefined) { custom.push({ label: key, value: kept, concealed: true }); c.add('extraCode', itemName, `The file holds a second verification code in "${key}". The item uses one; the other was kept as a hidden field.`); }
+        if (kept !== undefined) { custom.push({ label: key, value: kept, concealed: true }); c.add('extraCode', itemName, `The file holds a second verification code in "${key}". The item uses one; the other was kept as a hidden field.`, key); }
       }
     }
   } else if (kind === 1 && otpFound.tried && otpFound.badLink) {
@@ -637,13 +670,13 @@ function readEntry(db: KdbxDatabase, e: KdbxEntry, info: EntryInfo, o: ReadOptio
     if (lab === undefined || val === undefined) continue;
     cleanedCustom.push({ label: nfc(lab), value: val, concealed: f.concealed });
   }
-  if (cleanedCustom.length > ITEM_LIMITS.customFields) { c.add('tooMany', itemName, `An item holds at most ${ITEM_LIMITS.customFields} custom fields; ${cleanedCustom.length - ITEM_LIMITS.customFields} were not imported.`); c.refused += cleanedCustom.length - ITEM_LIMITS.customFields; cleanedCustom.length = ITEM_LIMITS.customFields; }
+  if (cleanedCustom.length > ITEM_LIMITS.customFields) { c.add('tooMany', itemName, `An item holds at most ${ITEM_LIMITS.customFields} custom fields; the rest were not imported.`, 'custom fields'); c.refused += cleanedCustom.length - ITEM_LIMITS.customFields; cleanedCustom.length = ITEM_LIMITS.customFields; }
   spec.custom = cleanedCustom;
 
   // tags
   const tags: string[] = [];
   for (const tag of e.tags) { const x = tag.trim(); const v = x === '' ? undefined : c.clean(itemName, 'A tag', x, false); if (v !== undefined && !tags.includes(nfc(v)) && bytes(v) <= ITEM_LIMITS.text) tags.push(nfc(v)); }
-  if (tags.length > ITEM_LIMITS.tags) { c.add('tooMany', itemName, `An item holds at most ${ITEM_LIMITS.tags} tags; the rest were not imported.`); tags.length = ITEM_LIMITS.tags; }
+  if (tags.length > ITEM_LIMITS.tags) { c.add('tooMany', itemName, `An item holds at most ${ITEM_LIMITS.tags} tags; the rest were not imported.`, 'tags'); tags.length = ITEM_LIMITS.tags; }
   spec.tags = tags;
 
   // attachments
@@ -660,7 +693,7 @@ function readEntry(db: KdbxDatabase, e: KdbxEntry, info: EntryInfo, o: ReadOptio
   const history = e.history.length > 0 ? previousPasswords(e, passwordKey) : [];
   if (kind === 1) {
     let list = history.map((h) => ({ value: putSecret('An earlier password', h.value), replaced: h.replaced })).filter((h): h is { value: string; replaced: number } => h.value !== undefined);
-    if (list.length > ITEM_LIMITS.previous) { c.add('historyTrimmed', itemName, `Only the ${ITEM_LIMITS.previous} newest earlier passwords are kept; ${list.length - ITEM_LIMITS.previous} older ones were not imported.`); list = list.slice(0, ITEM_LIMITS.previous); }
+    if (list.length > ITEM_LIMITS.previous) { c.add('historyTrimmed', itemName, `Only the ${ITEM_LIMITS.previous} newest earlier passwords are kept; older ones were not imported.`); list = list.slice(0, ITEM_LIMITS.previous); }
     spec.previous = list;
   } else if (history.length > 0) c.add('historyNotLogin', itemName, 'Earlier passwords are kept for logins only, so the earlier values of this entry were not imported.');
   if (e.history.length > 0 && historyChangedOther(e, passwordKey)) c.add('historyOtherFields', itemName, 'Earlier versions of this entry changed more than the password. Only earlier passwords are imported.');
@@ -690,20 +723,35 @@ const putSecretKeepEmpty = (c: Collector, item: string, what: string, v: string)
 /** Maps every entry of a database to an item. Entries in the Recycle Bin are left out unless `includeTrash`. Nothing here touches a vault. */
 export function readKeepass(db: KdbxDatabase, options: ReadOptions): ReadResult {
   const c = new Collector(options.stripInvalid === true);
-  const out: ReadResult = { items: [], trashed: 0, issues: c.issues, missingDates: 0, inFolders: 0, strippedFields: 0, refusedFields: 0 };
+  const out: ReadResult = { items: [], trashed: 0, issues: c.issues, missingDates: 0, inFolders: 0, strippedFields: 0, refusedFields: 0, invalidFields: 0, duplicates: 0 };
+  // an entry whose UUID an earlier entry of the file already has (a copied database, a bad merge) must never take that item's place: it is
+  // read as an item of its own, under an id made from the UUID and its place among the entries that share it, so the same file gives the same ids
+  const seen = new Map<string, number>();
   for (const { entry, ...info } of entriesOf(db)) {
+    const nth = seen.get(entry.uuid) ?? 0;
+    seen.set(entry.uuid, nth + 1);
     if (info.inBin && !options.includeTrash) { out.trashed++; continue; }
     const spec = readEntry(db, entry, info, options, c, out);
-    if (spec) out.items.push(spec);
+    if (!spec) continue;
+    if (nth > 0) {
+      spec.uuid = createHash('sha256').update(`psss/keepass-duplicate-id\u0000${entry.uuid}\u0000${nth}`).digest('hex').slice(0, 32);
+      spec.sourceId = `keepass:${spec.uuid}`;
+      out.duplicates++;
+      c.add('duplicateId', nameOf(spec), 'An entry has the same id as another entry in the file, so it was imported as an item of its own.');
+    }
+    out.items.push(spec);
   }
   out.strippedFields = c.stripped;
   out.refusedFields = c.refused;
+  out.invalidFields = c.invalid;
   return out;
 }
 
 // ---------------------------------------------------------------- the fingerprints of an item's content (idempotence)
 
-/** The content of an item as named fields, each a canonical string: what an import compares and hashes. The same keys for an `ItemSpec` and for an item of the vault. */
+/** The content of an item as named fields, each a canonical string: what an import compares and hashes. The same keys for an `ItemSpec` and for an item of the vault.
+ *  A verification code is compared by its secret, digits, period and algorithm, not by its issuer and account label: an export fills the label in
+ *  from the title and the username when the item has none, so counting it would make an export read back into the same vault look changed. */
 export interface ContentView {
   type: number;
   title?: string; username?: string; password?: string; notes?: string; cardholder?: string; cardCode?: string; cardPin?: string;
@@ -723,7 +771,7 @@ export function contentOf(v: ContentView): Map<string, string> {
   m.set('type', String(v.type));
   for (const k of ['title', 'username', 'password', 'notes', 'cardholder', 'cardCode', 'cardPin'] as const) m.set(k, (v[k] ?? '').normalize('NFC'));
   m.set('websites', JSON.stringify(v.websites.map(withScheme)));
-  m.set('otp', v.otp ? JSON.stringify([hexOf(v.otp.secret), v.otp.digits, v.otp.period, v.otp.algorithm, v.otp.issuer ?? '', v.otp.account ?? '']) : '');
+  m.set('otp', v.otp ? JSON.stringify([hexOf(v.otp.secret), v.otp.digits, v.otp.period, v.otp.algorithm]) : '');
   m.set('passkey', v.passkey ? JSON.stringify([hexOf(v.passkey.credentialId), hexOf(v.passkey.privateKey), v.passkey.relyingParty, v.passkey.userName, hexOf(v.passkey.userHandle)]) : '');
   m.set('card', v.card ? JSON.stringify([v.card.number, v.card.year ?? '', v.card.month ?? '']) : '');
   const seen = new Map<string, number>();
@@ -757,7 +805,8 @@ export function contentHash(salt: string, content: ContentView): Uint8Array {
 
 /** An item of the vault as the export needs it: its id, its group, what the schema's view says, and its attachments' bytes. */
 export interface ExportItem {
-  /** the item id, 32 hexadecimal digits: it becomes the entry's UUID, so an export imported into the same vault finds its own items */
+  /** 32 hexadecimal digits: it becomes the entry's UUID. For an item that came from a KeePass file this is the entry's original UUID (so KeePassXC's
+   *  merge pairs the entries and an export imported into the same vault finds its own items); for any other item it is the item id. */
   id: string;
   groupName: string;
   groupId: string;
@@ -819,16 +868,18 @@ export function buildKeepass(items: ExportItem[], options: ExportOptions): Built
 
   for (const item of items) {
     const v = item.view;
-    const name = exportTitle(v) || (v.websites[0] ? hostOf(v.websites[0].address) : '') || '(no name)';
+    const name = shortName(exportTitle(v) || (v.websites[0] ? hostOf(v.websites[0].address) : '') || '(no name)');
     const field = (what: string, value: string, isProtected: boolean): string | undefined => {
       if (isProtected ? value.isWellFormed() : !hasInvalidXmlCharacters(value)) return value;
       if (options.stripInvalid) {
         stripped++;
-        issues.push({ kind: 'charactersStripped', item: name, detail: `${what} had characters that a KeePass file cannot hold; they were removed because you asked for that.` });
+        const part = partOf(what);
+        issues.push({ kind: 'charactersStripped', item: name, field: part, detail: `${part} ${have(part)} characters that a KeePass file cannot hold; they were removed because you asked for that.` });
         return isProtected ? value.toWellFormed().replace(/\ufffd/g, '') : stripInvalidXmlCharacters(value);
       }
       refused++;
-      issues.push({ kind: 'fieldRefused', item: name, detail: `${what} has characters that a KeePass file cannot hold, so it was left out of the file. Add --strip-invalid to write it without them.` });
+      const part = partOf(what);
+      issues.push({ kind: 'fieldRefused', item: name, field: part, detail: `${part} ${have(part)} characters that a KeePass file cannot hold, so ${be(part) === 'are' ? 'they were' : 'it was'} left out of the file. Add --strip-invalid to write ${be(part) === 'are' ? 'them' : 'it'} without those characters.` });
       return undefined;
     };
     const entry: KdbxEntry = newEntry({ uuid: item.id }, { now, ...(rnd ? { random: rnd } : {}) });
@@ -875,7 +926,7 @@ export function buildKeepass(items: ExportItem[], options: ExportOptions): Built
         add(PK.handle, b64(v.passkey.userHandle), false, 'The passkey');
         add(PASSKEY_CREATED, iso(v.passkey.created), false, 'The passkey');
       } catch {
-        issues.push({ kind: 'passkeyNotWritten', item: name, detail: 'The passkey could not be written as a KeePassXC passkey, so it is not in the file.' });
+        issues.push({ kind: 'passkeyNotWritten', item: name, field: 'The passkey', detail: 'The passkey could not be written as a KeePassXC passkey, so it is not in the file.' });
       }
     }
     for (const f of [...v.customFields, ...extraCustom]) {
@@ -884,7 +935,7 @@ export function buildKeepass(items: ExportItem[], options: ExportOptions): Built
         const base = isInternal(label) ? `Field ${label}` : `${label} (field)`;
         let n = 2, next = base;
         while (used.has(next) || isReserved(next)) next = `${base} ${n++}`;
-        issues.push({ kind: 'renamedField', item: name, detail: `A field named "${label}" would clash with a field KeePass uses, so it is written as "${next}".` });
+        issues.push({ kind: 'renamedField', item: name, field: 'A field name', detail: 'A field has the same name as a field KeePass uses, so it was written under another name.' });
         label = next;
       }
       const x = field(`The field "${f.label}"`, f.value, f.concealed);

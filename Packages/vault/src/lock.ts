@@ -19,10 +19,13 @@ export interface LockOptions {
   waitMs?: number;
   /** a lock older than this is taken over even if its process looks alive. Default two minutes. */
   staleMs?: number;
+  /** what the holder is doing, written into the lock so that a process that has to wait can say so (for example `import`) */
+  what?: string;
 }
-interface LockInfo { pid: number; time: number; token: string }
+interface LockInfo { pid: number; time: number; token: string; what?: string }
 
 const held = new Map<string, number>();
+const tokens = new Map<string, string>();
 
 function sleep(ms: number): void {
   try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch { const end = Date.now() + ms; while (Date.now() < end) { /* spin */ } }
@@ -37,7 +40,7 @@ function readLock(path: string): LockInfo | 'unreadable' | null {
   try { text = readFileSync(path, 'utf8'); } catch (e) { return (e as NodeJS.ErrnoException).code === 'ENOENT' ? null : 'unreadable'; }
   try {
     const d = JSON.parse(text) as Partial<LockInfo>;
-    if (typeof d.pid === 'number' && typeof d.time === 'number' && typeof d.token === 'string') return { pid: d.pid, time: d.time, token: d.token };
+    if (typeof d.pid === 'number' && typeof d.time === 'number' && typeof d.token === 'string') return { pid: d.pid, time: d.time, token: d.token, ...(typeof d.what === 'string' ? { what: d.what } : {}) };
   } catch { /* fall through */ }
   return 'unreadable';
 }
@@ -79,6 +82,24 @@ function isStale(path: string, seen: LockInfo | 'unreadable', now: number, stale
 
 export function lockPath(dir: string): string { return join(dir, LOCK_NAME); }
 
+/** Tells the others that this process is still alive and holds the lock of `dir`: a long piece of work (an import) calls it now and then, at
+ *  least every `staleMs / 4`, so that the lock is never older than `staleMs` while the work goes on. Does nothing when this process holds no
+ *  lock on `dir`. The file is replaced whole, with the same token, so a reader sees the old time or the new one. */
+export function refreshLock(dir: string, opts: LockOptions = {}): void {
+  const path = lockPath(dir);
+  const token = tokens.get(path);
+  if (token === undefined) return;
+  const mine = readLock(path);
+  if (mine === null || mine === 'unreadable' || mine.token !== token) return;
+  const next: LockInfo = { ...mine, time: Date.now() };
+  const tmp = `${path}.${token}.beat`;
+  try {
+    writeFileSync(tmp, JSON.stringify(next), { flag: 'w', mode: 0o600 });
+    renameSync(tmp, path);
+  } catch { try { unlinkSync(tmp); } catch { /* gone */ } }
+  void opts;
+}
+
 /** Runs `fn` holding the exclusive lock of `dir`. Throws a VaultError `state_locked` if another psss still holds it after `waitMs`. */
 export function withLock<T>(dir: string, fn: () => T, opts: LockOptions = {}): T {
   const path = lockPath(dir);
@@ -86,7 +107,7 @@ export function withLock<T>(dir: string, fn: () => T, opts: LockOptions = {}): T
   if (depth > 0) { held.set(path, depth + 1); try { return fn(); } finally { held.set(path, depth); } }
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const waitMs = opts.waitMs ?? 5000, staleMs = opts.staleMs ?? 120_000;
-  const info: LockInfo = { pid: process.pid, time: Date.now(), token: randomBytes(8).toString('hex') };
+  const info: LockInfo = { pid: process.pid, time: Date.now(), token: randomBytes(8).toString('hex'), ...(opts.what !== undefined ? { what: opts.what } : {}) };
   const started = Date.now();
   let attempt = 0;
   for (;;) {
@@ -98,15 +119,19 @@ export function withLock<T>(dir: string, fn: () => T, opts: LockOptions = {}): T
     } else continue; // released between the two calls
     if (Date.now() - started >= waitMs) {
       const who = seen === 'unreadable' ? '' : ` (process ${seen.pid})`;
-      throw new VaultError('state_locked', `Another psss is running${who} and holds ${path}. Wait for it to finish and try again; if no psss is running, delete that file.`);
+      const err = new VaultError('state_locked', `Another psss is running${who} and holds ${path}. Wait for it to finish and try again; if no psss is running, delete that file.`);
+      if (seen !== 'unreadable' && seen.what !== undefined) err.what = seen.what;
+      throw err;
     }
     attempt++;
     sleep(Math.min(200, 5 + Math.random() * 15 * Math.min(attempt, 10)));
   }
   held.set(path, 1);
+  tokens.set(path, info.token);
   try { return fn(); }
   finally {
     held.delete(path);
+    tokens.delete(path);
     const mine = readLock(path);
     if (mine !== null && mine !== 'unreadable' && mine.token === info.token) { try { unlinkSync(path); } catch { /* gone */ } }
   }

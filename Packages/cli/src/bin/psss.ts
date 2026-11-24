@@ -16,7 +16,7 @@ const code = cwd === undefined ? 1 : await run(process.argv.slice(2), {
   stderr: process.stderr,
   cwd,
   env: process.env,
-  isTTY: { stdin: Boolean(process.stdin.isTTY), stdout: Boolean(process.stdout.isTTY) },
+  isTTY: { stdin: Boolean(process.stdin.isTTY), stdout: Boolean(process.stdout.isTTY), stderr: Boolean(process.stderr.isTTY) },
   platform: process.platform,
   inheritStdio: true,
   service: async (options) => (await import('../vault-service.ts')).createVaultService(options),
