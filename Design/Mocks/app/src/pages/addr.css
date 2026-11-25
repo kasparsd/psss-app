@@ -1,0 +1,12 @@
+/* Addresses: a new item kind. Drawn for this mock page only. */
+.adr-sel{flex:1;max-width:none}
+.adr-fr{display:grid;grid-template-columns:132px 1fr;gap:10px;align-items:center;padding:5px 14px;border-top:1px solid var(--sep)}
+.adr-fr:first-child{border-top:0}
+.adr-fr>label{text-align:right;color:var(--lab2)}
+.adr-in{width:100%;min-width:0;color:var(--lab);background:var(--field);border:0;border-radius:6px;padding:5px 8px}
+.adr-fr .mapsel{width:100%;max-width:none}
+.adr-tall .ws-grid{height:760px;min-height:760px}
+.pop button.adr-new{background:var(--accent-bg);color:var(--accent);font-weight:600}
+.adr-help{color:var(--lab2);text-align:center;padding:0 8px 10px}
+.adr-glyph{display:inline-flex;width:18px;height:18px}
+.adr-sub{margin:0 0 6px;color:var(--lab2)}

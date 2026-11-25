@@ -268,7 +268,7 @@ export function IosSafariFill() {
             <Dep><strong>A way to read the vault after Psss unlocked it.</strong> The extension runs in its own process. After Face ID in Psss it needs a short-lived grant the app leaves for it (for example a few minutes, cleared when the vault locks). Open owner decision, below.</Dep>
             <Dep><strong>Memory budget.</strong> The extension opens the vault in its own process; iOS limits an extension’s memory (spike S7, <code>ExtensionUnlockBudget</code>), so a large vault may not open.</Dep>
             <Dep><strong>Signing.</strong> Needs the paid team (3549F795T2) for the extension target and its shared Keychain and App Group.</Dep>
-            <Dep><strong>An address item.</strong> The vault has cards but no address type yet (docs/items.md: identity records are custom items). Frames 2 and 6 assume one with name, street, city, postal code, country, email and phone.</Dep>
+            <Dep><strong>An address item.</strong> The vault has cards but no address type yet (docs/items.md: identity records are custom items). Frames 2 and 6 assume one with name, street, city, postal code, country, email and phone. Proposed on <a href="#/address-item">Addresses: a new item kind</a>.</Dep>
           </ul>
         </div>
       </Section>
