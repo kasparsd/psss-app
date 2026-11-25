@@ -1,14 +1,65 @@
 import SwiftUI
 
-/// Where a vault menu is shown. The same rows everywhere; the header, "Lock" and "Add Vault…" differ (plan section 2, mock
-/// `#/vault-states` A to C).
+/// Where a vault menu is shown. The same rows everywhere; the sections after them differ (owner, 2026-11-25, mock
+/// `#/vault-switcher` section 3).
 enum VaultMenuContext {
-    /// The app window's dropdown: a header naming the open vault, "Lock <name>" first, the rows, "Add Vault…".
+    /// The app window's menu (iPhone, and iPad with the sidebar hidden): every vault in the fixed order, the current one checked;
+    /// a section named for the current vault with "Vault Settings…" and "Lock <name>"; then the three add items.
     case app
-    /// The lock screen's pop-up: header "Vault", no Lock (nothing is open), the rows, "Add Vault…".
+    /// The lock screen's pop-up: header "Vault", the rows, the three add items. No current-vault section: nothing is open.
     case lockScreen
-    /// AutoFill and the browser: header naming the current vault, the rows, no Lock and no "Add Vault…" (adding a vault is done in the app).
+    /// AutoFill and the browser: header naming the current vault, the rows, nothing else (adding a vault is done in the app).
     case `extension`
+}
+
+/// The three ways to add a vault (owner, 2026-11-25, mock `#/vault-switcher` and `#/settings`). The chooser sheet is gone: each
+/// place that adds a vault (Settings, the vault switcher, the sidebar, the File menu, the lock screens) names one of these and
+/// starts that flow directly with `.addVaultFlow`.
+enum AddVaultChoice: Hashable, Identifiable {
+    /// A new, empty vault: its form asks for a name and a password.
+    case create
+    /// A KeePass file from Files, iCloud Drive or another folder.
+    case open
+    /// A new vault made from an Apple Passwords export (a CSV file).
+    case importPasswords
+
+    var id: Self { self }
+
+    /// The words of the row that starts it (iOS) and of its push button (Mac).
+    var title: LocalizedStringKey {
+        switch self {
+        case .create: "Create a New Vault"
+        case .open: "Open a Vault File"
+        case .importPasswords: "Import from Apple Passwords"
+        }
+    }
+
+    var buttonTitle: LocalizedStringKey {
+        switch self {
+        case .create: "Create…"
+        case .open: "Open…"
+        case .importPasswords: "Import…"
+        }
+    }
+
+    /// The footer under the "Add Vault" group, the same everywhere.
+    static var footer: LocalizedStringKey {
+        "Create makes a new, empty vault. Open adds a KeePass file from iCloud Drive or another folder. Import makes a new vault from an Apple Passwords export; exports are not encrypted, so delete the file afterwards."
+    }
+}
+
+extension AddVaultChoice {
+    /// The three ways to add a vault, in the order every menu and Settings list them.
+    static let all: [AddVaultChoice] = [.create, .open, .importPasswords]
+
+    /// The words of the menu item (File menu, vault menu, sidebar foot).
+    var menuTitle: LocalizedStringKey {
+        switch self {
+        case .create: "New Vault…"
+        case .open: "Open Vault File…"
+        case .importPasswords: "Import from Apple Passwords…"
+        }
+    }
 }
 
 /// The rows of the vault menu, shared by the app, the unlock screens and the extensions (owner, 2026-11-24, mock
@@ -23,24 +74,40 @@ struct VaultMenuItems: View {
     let unlocked: Bool
     var context = VaultMenuContext.extension
     let choose: (UUID) -> Void
+    /// Starts one of the three add flows. The `.app` and `.lockScreen` contexts list them as the last section.
+    var add: ((AddVaultChoice) -> Void)?
+    /// The old single "Add Vault…" row, for a caller that has not moved to `add` yet. Ignored when `add` is given.
     var addVault: (() -> Void)?
+    /// "Lock <name>", in the `.app` context.
     var lock: (() -> Void)?
+    /// "Vault Settings…", in the `.app` context: Settings at the current vault's page.
+    var settings: (() -> Void)?
 
     var body: some View {
         let current = session.reference
         let currentName = VaultName.short(current?.name ?? String(localized: "Vault"))
-        if context == .app, let lock {
-            Section {
-                Button(String(localized: "Lock \(currentName)"), systemImage: "lock", action: lock)
-            } header: { Text(verbatim: currentName) }
-        } else {
-            Section {
-                rows(current)
-            } header: { context == .lockScreen ? Text("Vault") : Text(verbatim: currentName) }
+        switch context {
+        case .app:
+            Section { rows(current) }
+            if lock != nil || settings != nil {
+                Section {
+                    if let settings { Button(String(localized: "Vault Settings…"), systemImage: "gearshape", action: settings) }
+                    if let lock { Button(String(localized: "Lock \(currentName)"), systemImage: "lock", action: lock) }
+                } header: { Text(verbatim: currentName) }
+            }
+        case .lockScreen:
+            Section { rows(current) } header: { Text("Vault") }
+        case .extension:
+            Section { rows(current) } header: { Text(verbatim: currentName) }
         }
-        if context == .app, lock != nil { Section { rows(current) } }
-        if context != .extension, let addVault {
-            Section { Button("Add Vault…", action: addVault) }
+        if context != .extension, add != nil || addVault != nil {
+            Section {
+                if let add {
+                    ForEach(AddVaultChoice.all) { choice in Button(choice.menuTitle) { add(choice) } }
+                } else if let addVault {
+                    Button("Add Vault…", action: addVault)
+                }
+            }
         }
     }
 
@@ -71,7 +138,7 @@ struct VaultMenuItems: View {
 /// The one control for choosing a vault: a menu button with the vault icon (a stack of disks).
 struct VaultSwitcher: View {
     enum Style {
-        /// The icon alone, as the Settings gear is: a standard toolbar symbol with a spoken label and a tooltip.
+        /// The glyph alone, as the Settings gear is: iPhone. A standard toolbar symbol with the spoken label "Vault: <name>" and a tooltip.
         case icon
         /// The open vault's name and the icon: the AutoFill picker and the browser popup on Mac and iPad.
         case name
@@ -79,6 +146,9 @@ struct VaultSwitcher: View {
         case row
         /// "Choose Vault" and the icon: the unlock screens (owner, 2026-11-24).
         case choose
+        /// The vault glyph and the vault's name, tail-cut, with a chevron: iPad with the sidebar hidden (owner, 2026-11-25). The
+        /// toolbar drops the name when the room runs out; the spoken label never changes.
+        case capsule
     }
 
     let session: VaultSession
@@ -88,11 +158,19 @@ struct VaultSwitcher: View {
     /// screen `.lockScreen`.
     var context = VaultMenuContext.extension
     let choose: (UUID) -> Void
+    var add: ((AddVaultChoice) -> Void)?
     var addVault: (() -> Void)?
-    /// The app's lock, for "Lock <name>" at the top of the `.app` menu.
+    /// The app's lock, for "Lock <name>" in the current vault's section of the `.app` menu.
     var lock: (() -> Void)?
+    /// "Vault Settings…" in that section.
+    var settings: (() -> Void)?
 
     static let symbol = "cylinder.split.1x2"
+
+    /// The name as the capsule shows it: cut after about 11 characters, the full name being the spoken label.
+    static func capsuleName(_ name: String) -> String {
+        name.count > 12 ? String(name.prefix(11)).trimmingCharacters(in: .whitespaces) + "…" : name
+    }
 
     /// The switcher shows only with two or more vaults, except where `addVault` is the way to a file that is not listed.
     static func isShown(_ session: VaultSession) -> Bool { session.knownVaults.count >= 2 }
@@ -109,11 +187,13 @@ struct VaultSwitcher: View {
 
     private func menu(name: String) -> some View {
         Menu {
-            VaultMenuItems(session: session, unlocked: unlocked, context: context, choose: choose, addVault: addVault, lock: lock)
+            VaultMenuItems(session: session, unlocked: unlocked, context: context, choose: choose, add: add, addVault: addVault, lock: lock, settings: settings)
         } label: {
             switch style {
             case .icon:
-                Label("Vaults", systemImage: Self.symbol).labelStyle(.iconOnly)
+                Label("Vault: \(name)", systemImage: Self.symbol).labelStyle(.iconOnly)
+            case .capsule:
+                Label(Self.capsuleName(name), systemImage: Self.symbol).labelStyle(.titleAndIcon).lineLimit(1)
             // Plain stacks, not a Label, so the menu button shows the name and not a row's title.
             case .name:
                 HStack(spacing: 6) { Image(systemName: Self.symbol); Text(verbatim: name) }
@@ -143,8 +223,8 @@ struct VaultSwitcher: View {
         #else
         .menuIndicator(style == .icon ? .hidden : .visible)
         #endif
-        .accessibilityLabel(style == .icon ? Text("Vaults") : style == .name || style == .row ? Text("Vault: \(name). Switch Vault") : Text("Choose Vault"))
-        .help(style == .icon ? Text("Vaults") : style == .choose ? Text("Choose a vault") : Text("Switch vault"))
+        .accessibilityLabel(style == .icon || style == .capsule ? Text("Vault: \(name)") : style == .name || style == .row ? Text("Vault: \(name). Switch Vault") : Text("Choose Vault"))
+        .help(style == .icon || style == .capsule ? Text("Vault: \(name)") : style == .choose ? Text("Choose a vault") : Text("Switch vault"))
     }
 }
 
@@ -227,12 +307,15 @@ struct VaultRow: View {
     var context = VaultMenuContext.extension
     let choose: (UUID) -> Void
     var unlock: (() -> Void)?
+    /// Starts one of the three add flows (the lock screen's pop-up ends with them).
+    var add: ((AddVaultChoice) -> Void)?
+    /// The old single "Add Vault…" row, used only while `add` is nil.
     var addVault: (() -> Void)?
 
     var body: some View {
         let name = VaultName.short(session.reference?.name ?? String(localized: "Vault"))
         PopUpRow("Vault", labelInside: true) {
-            VaultSwitcher(session: session, unlocked: state == .open, style: .row, context: context, choose: choose, addVault: addVault)
+            VaultSwitcher(session: session, unlocked: state == .open, style: .row, context: context, choose: choose, add: add, addVault: addVault)
         } trailing: {
             if state.isLocked, let unlock {
                 Button("Unlock", action: unlock)

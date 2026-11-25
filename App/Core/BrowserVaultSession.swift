@@ -65,7 +65,7 @@ enum BrowserVaultFacts {
 struct StoredVaultService: BrowserVaultService {
     func vaults() -> [BrowserVault] {
         let active = VaultReference.load()
-        return ((active.map { [$0] } ?? []) + VaultReference.remembered).map { vault in
+        return VaultReference.all.map { vault in
             BrowserVaultFacts.vault(vault, active: vault.id == active?.id, open: false)
         }
     }

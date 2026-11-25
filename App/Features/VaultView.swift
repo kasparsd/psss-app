@@ -225,9 +225,17 @@ struct VaultView: View {
     private var isEditingInPlace: Bool { editingID != nil }
     @State private var showsEditorRemoved = false
     @State private var showsSetup = false
-    /// The Add a Vault sheet, from Settings or the vault switcher.
-    @State private var addingVault = false
+    /// The add-vault flow being started, from the sidebar's foot, the vault menu or the File menu (`.addVaultFlow`). Settings has its own.
+    @State private var addChoice: AddVaultChoice?
+    /// The vault a section header's Remove Vault… asks about.
+    @State private var removingVault: UUID?
     @Environment(SettingsRequests.self) private var settingsRequests
+    #if os(macOS)
+    @Environment(\.openSettings) private var openSettings
+    #else
+    /// The vault page the Settings sheet opens pushed to (empty: the root).
+    @State private var settingsPath: [UUID] = []
+    #endif
     @Environment(IncomingCodeRequests.self) private var incoming
     /// A new login started from a site's setup link; the editor opens once the link's sheet has gone.
     @State private var editorAfterLink: VaultItem?
@@ -342,20 +350,44 @@ struct VaultView: View {
         vaultSource = RootView.keePassSource
     }
 
-    /// Choosing another vault in the switcher: this one is written and locked, and the other's unlock screen shows.
+    /// Choosing another vault (sidebar header or vault menu): this one is written and locked, and the other's unlock form shows.
+    /// One vault is unlocked at a time and `VaultSession.unlock` opens the current vault, so the choice locks the open one at once.
     private func switchVault(to id: UUID) {
-        session.lock()
+        session.lockAndSwitch(to: id)
         gate.lock()
-        session.switchTo(id)
     }
 
-    /// The vault switcher, an icon beside the Settings gear (owner, 2026-11-24, mock `#/vault-switcher`). Only with two or more vaults.
+    /// The vault button of the iPhone toolbar (the glyph) and of iPad with the sidebar hidden (glyph and name): a menu with every
+    /// vault in the fixed order, the current vault's Vault Settings… and Lock, and the three add items. Shown with one vault too.
     @ViewBuilder
-    private var vaultSwitcher: some View {
-        if store is KeePassVaultStore, VaultSwitcher.isShown(session), !isEditingInPlace {
-            VaultSwitcher(session: session, unlocked: gate.isUnlocked, context: .app, choose: switchVault,
-                          addVault: { addingVault = true }, lock: { gate.lock() })
+    private func vaultMenuButton(_ style: VaultSwitcher.Style) -> some View {
+        if store is KeePassVaultStore {
+            VaultSwitcher(session: session, unlocked: gate.isUnlocked, style: style, context: .app, choose: switchVault,
+                          add: { addChoice = $0 }, lock: { gate.lock() },
+                          settings: { if let id = session.reference?.id { showVaultSettings(id) } })
+                .disabled(isEditingInPlace)
         }
+    }
+
+    /// Settings (the gear): the Mac's Settings window, or the sheet on iPhone and iPad.
+    private func showSettings() {
+        #if os(macOS)
+        openSettings()
+        #else
+        settingsPath = []
+        showsSetup = true
+        #endif
+    }
+
+    /// Settings at a vault's page.
+    private func showVaultSettings(_ id: UUID) {
+        #if os(macOS)
+        settingsRequests.show(.vault(id))
+        openSettings()
+        #else
+        settingsPath = [id]
+        showsSetup = true
+        #endif
     }
 
     /// Psss, Settings… (⌘,) on iPad with a keyboard. The Mac has its own Settings window and no sheet.
@@ -368,17 +400,33 @@ struct VaultView: View {
     }
 
     private var withSceneValues: some View {
-        withSheets
-            // Menu commands that would leave the page being edited are off until Save or Cancel.
-            .focusedSceneValue(\.newItem, isEditingInPlace ? nil : { kind in editor = VaultItem(kind: kind) })
-            .focusedSceneValue(\.addVault, isEditingInPlace ? nil : { addingVault = true })
-            .focusedSceneValue(\.vaultPlace, isEditingInPlace ? nil : placeBinding)
-            .focusedSceneValue(\.openSetup, openSetupAction)
+        withMenuCommandValues
             .focusedSceneValue(\.deleteSelection, deleteCommand)
             .focusedSceneValue(\.itemSort, showsSort && !isEditingInPlace ? sortBinding : nil)
             // Show and With describe the All list: off in Codes, Cards, Recently Deleted and search.
             .focusedSceneValue(\.itemFilter, place == .all && !isRecentlyDeleted && narrowsList && !isEditingInPlace ? filterBinding : nil)
     }
+
+    private var withMenuCommandValues: some View {
+        withSheets
+            // Menu commands that would leave the page being edited are off until Save or Cancel.
+            .focusedSceneValue(\.newItem, isEditingInPlace ? nil : { kind in editor = VaultItem(kind: kind) })
+            .focusedSceneValue(\.startAddVault, isEditingInPlace ? nil : { addChoice = $0 })
+            .focusedSceneValue(\.vaultPlace, isEditingInPlace ? nil : placeBinding)
+            .focusedSceneValue(\.openSetup, openSetupAction)
+            #if os(iOS)
+            .focusedSceneValue(\.vaultMenu, vaultMenuCommands)
+            #endif
+    }
+
+    #if os(iOS)
+    /// File, Vault Settings… and Lock <name> (iPad with a keyboard). On the Mac the root view supplies them (it also covers the
+    /// locked window).
+    private var vaultMenuCommands: VaultMenuCommands? {
+        guard !isEditingInPlace, store is KeePassVaultStore, let reference = session.reference else { return nil }
+        return VaultMenuCommands(name: VaultName.short(reference.name), settings: { showVaultSettings(reference.id) }, lock: { gate.lock() })
+    }
+    #endif
 
     /// Edit, Delete (⌘⌫) on Mac: moves the selected item to Recently Deleted (Undo follows), or asks before deleting one that is
     /// already in Recently Deleted for good. Off while the editor is open or the search field has focus (⌘⌫ edits its text there).
@@ -419,17 +467,12 @@ struct VaultView: View {
                 // Change Vault Password opens its own sheet, but only once this one has gone.
                 if wantsPasswordChange { wantsPasswordChange = false; changingPassword = true }
             }) { setupSheet.modifier(AlertSurfaceModifier(surface: .setup, owner: self)) }
-            // From the switcher; the sheet in Settings has its own.
-            .sheet(isPresented: Binding(get: { addingVault && !showsSetup }, set: { if !$0 { addingVault = false } })) {
-                AddVaultSheet(session: session) { vaultAdded() }
-            }
         #else
         return editorSheets
             // The Mac Settings window asks for Change Vault Password here, where its sheet belongs.
             .onChange(of: settingsRequests.changePassword) { _, asked in
                 if asked { settingsRequests.changePassword = false; changingPassword = true }
             }
-            .sheet(isPresented: $addingVault) { AddVaultSheet(session: session) { vaultAdded() } }
         #endif
     }
 
@@ -437,6 +480,8 @@ struct VaultView: View {
         Group {
             if usesStack { stackLayout } else { splitLayout }
         }
+        .addVaultFlow($addChoice, session: session) { vaultAdded() }
+        .modifier(VaultRemoval(request: $removingVault, session: session, gate: gate))
         .passwordsImporter(isPresented: $importing, notice: $importNotice, problem: $importProblem) { added in
             try store.save(added)
             refresh()
@@ -715,11 +760,13 @@ struct VaultView: View {
                     detail(for: id)
                 }
                 .toolbar {
+                    // The gear and the vault button are two buttons, not one group (owner, 2026-11-25).
                     ToolbarItem(placement: .topBarLeading) {
-                        Button("Settings", systemImage: "gearshape") { showsSetup = true }
+                        Button("Settings", systemImage: "gearshape") { showSettings() }
                             .labelStyle(.iconOnly)
                     }
-                    ToolbarItem(placement: .topBarLeading) { vaultSwitcher }
+                    ToolbarSpacer(.fixed, placement: .topBarLeading)
+                    ToolbarItem(placement: .topBarLeading) { vaultMenuButton(.icon) }
                     // Sort, Filter, then Add, as Apple's Passwords has Sort before Add. Filter stays in Recently Deleted: it is the
                     // way back to All.
                     if showsSort {
@@ -1030,7 +1077,7 @@ struct VaultView: View {
 
     #if os(iOS)
     private var setupButton: some View {
-        Button("Settings", systemImage: "gearshape") { showsSetup = true }
+        Button("Settings", systemImage: "gearshape") { showSettings() }
             .labelStyle(.iconOnly)
             .help("Settings")
             .disabled(isEditingInPlace)
@@ -1046,10 +1093,12 @@ struct VaultView: View {
     @ToolbarContentBuilder
     private var listToolbar: some ToolbarContent {
         #if os(iOS)
-        // While the sidebar is hidden its gear would be out of reach, so it moves here, after the system's sidebar button.
+        // While the sidebar is hidden its foot (Add Vault, the gear) is out of reach, so the gear and the vault button come here,
+        // after the system's sidebar button: two separate buttons, the vault button with its name where it fits.
         if columns != .all {
             ToolbarItem(placement: .topBarLeading) { setupButton }
-            ToolbarItem(placement: .topBarLeading) { vaultSwitcher }
+            ToolbarSpacer(.fixed, placement: .topBarLeading)
+            ToolbarItem(placement: .topBarLeading) { vaultMenuButton(.capsule) }
         }
         #endif
         // Sort applies to All, its filters and search results only.
@@ -1106,30 +1155,32 @@ struct VaultView: View {
         regularChrome(
             NavigationSplitView(columnVisibility: $columns, preferredCompactColumn: $compactColumn) {
                 List(selection: destinationBinding) {
-                    Section(store.title) {
-                        ForEach(VaultDestination.sidebar, id: \.self, content: sidebarRow)
+                    if store is KeePassVaultStore {
+                        // One section per vault, as Mail shows accounts: the open vault expanded with its places, the others
+                        // collapsed with a lock (owner, 2026-11-25, mock `#/vault-switcher` H to N).
+                        VaultSections(session: session, openID: session.reference?.id, choose: switchVault, settings: showVaultSettings,
+                                      lock: { gate.lock() }, remove: { removingVault = $0 }) {
+                            ForEach(VaultDestination.sidebar, id: \.self, content: sidebarRow)
+                        }
+                    } else {
+                        Section(store.title) {
+                            ForEach(VaultDestination.sidebar, id: \.self, content: sidebarRow)
+                        }
                     }
                 }
                 .listStyle(.sidebar)
+                .scrollBounceBehavior(.basedOnSize)
                 .modifier(DimsWhileEditing(editing: isEditingInPlace))
-                .navigationTitle("Vault")
+                // No title in the bar: each section's header names its vault (owner, 2026-11-25, mock `#/vault-switcher` H to J).
+                .columnTitleInList(true)
+                // The foot, pinned to the bottom: Add Vault and the Settings gear (the gear is not in a toolbar, on Mac or iPad).
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    VaultSidebarFoot(showsAdd: store is KeePassVaultStore, add: { addChoice = $0 }, openSettings: showSettings)
+                        .disabled(isEditingInPlace)
+                }
                 // Wide enough that "Recently Deleted" and its count stay on one line at the default text size on iPad (180 to 220 pt
                 // wrapped them), and the same on Mac.
                 .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 320)
-                #if os(iOS)
-                // The sidebar column: the system's sidebar button, and on iPad the Setup gear. On Mac, Setup is Psss, Settings… (⌘,).
-                .toolbar {
-                    if columns == .all {
-                        ToolbarItem(placement: .topBarTrailing) { setupButton }
-                        ToolbarItem(placement: .topBarTrailing) { vaultSwitcher }
-                    }
-                }
-                #else
-                // The Mac sidebar's toolbar: the vault switcher, next to the system's sidebar button.
-                .toolbar {
-                    ToolbarItem(placement: .automatic) { vaultSwitcher }
-                }
-                #endif
             } content: {
                 Group {
                     if isSearching || place == .all {
@@ -1159,55 +1210,10 @@ struct VaultView: View {
 
     #if os(iOS)
     private var setupSheet: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    if let keePass = store as? KeePassVaultStore {
-                        ForEach(session.knownVaults, id: \.id) { reference in
-                            NavigationLink {
-                                if reference.id == keePass.reference.id {
-                                    vaultPage(keePass)
-                                } else {
-                                    OtherVaultSettingsPage(reference: reference)
-                                }
-                            } label: {
-                                VaultListName(session: session, reference: reference, unlocked: gate.isUnlocked)
-                            }
-                        }
-                        Button("Add Vault…") { addingVault = true }
-                    } else {
-                        NavigationLink("Sample vault") {
-                            SampleSettingsPage(session: session, gate: gate) { showsSetup = false }
-                        }
-                    }
-                } header: {
-                    Text("Vaults")
-                } footer: {
-                    Text(AppSettingsSections.vaultsFooter)
-                }
-                AppSettingsSections(isSample: store.isSample) {
-                    showsSetup = false
-                    gate.lock()
-                }
-            }
-            .formStyle(.grouped)
-            .navigationTitle("Settings")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { showsSetup = false }
-                }
-            }
-        }
-        .modifier(SheetSize())
-        .sheet(isPresented: $addingVault) {
-            AddVaultSheet(session: session) { vaultAdded() }
-        }
-    }
-
-    private func vaultPage(_ keePass: KeePassVaultStore) -> some View {
-        VaultSettingsPage(session: session, gate: gate, reference: keePass.reference, store: keePass, itemCount: items.count,
-                          onChangePassword: { wantsPasswordChange = true; showsSetup = false },
-                          afterLeaving: { showsSetup = false })
+        SettingsSheet(session: session, gate: gate, keePass: store as? KeePassVaultStore, isSample: !(store is KeePassVaultStore),
+                      itemCount: items.count, path: $settingsPath,
+                      changePassword: { wantsPasswordChange = true; showsSetup = false },
+                      close: { showsSetup = false }, added: { vaultAdded() })
     }
     #endif
 
@@ -2329,21 +2335,41 @@ private struct AddVaultKey: FocusedValueKey {
 }
 
 extension FocusedValues {
-    /// File, Add Vault…: opens the Add a Vault sheet in the focused window.
+    /// The lock screen's own File, Add Vault… (one flow). Replaced by `startAddVault`; removed with the last caller.
     var addVault: (() -> Void)? {
         get { self[AddVaultKey.self] }
         set { self[AddVaultKey.self] = newValue }
     }
 }
 
-private struct LockVaultKey: FocusedValueKey {
-    typealias Value = () -> Void
+private struct StartAddVaultKey: FocusedValueKey {
+    typealias Value = (AddVaultChoice) -> Void
 }
 
 extension FocusedValues {
-    var lockVault: (() -> Void)? {
-        get { self[LockVaultKey.self] }
-        set { self[LockVaultKey.self] = newValue }
+    /// File, New Vault… / Open Vault File… / Import from Apple Passwords…: starts that flow in the focused window.
+    var startAddVault: ((AddVaultChoice) -> Void)? {
+        get { self[StartAddVaultKey.self] }
+        set { self[StartAddVaultKey.self] = newValue }
+    }
+}
+
+/// What the File menu's two vault items need from the focused window: the current vault's name for "Lock <name>", Settings at
+/// that vault's page, and the lock (nil while nothing is open).
+struct VaultMenuCommands {
+    let name: String
+    let settings: () -> Void
+    let lock: (() -> Void)?
+}
+
+private struct VaultMenuCommandsKey: FocusedValueKey {
+    typealias Value = VaultMenuCommands
+}
+
+extension FocusedValues {
+    var vaultMenu: VaultMenuCommands? {
+        get { self[VaultMenuCommandsKey.self] }
+        set { self[VaultMenuCommandsKey.self] = newValue }
     }
 }
 

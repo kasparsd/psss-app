@@ -3,9 +3,9 @@ import SwiftUI
 @main
 struct PsssApp: App {
     @FocusedValue(\.newItem) private var newItem
-    @FocusedValue(\.lockVault) private var lockVault
+    @FocusedValue(\.vaultMenu) private var vaultMenu
     @FocusedValue(\.openSetup) private var openSetup
-    @FocusedValue(\.addVault) private var addVault
+    @FocusedValue(\.startAddVault) private var startAddVault
     @FocusedValue(\.deleteSelection) private var deleteSelection
     // One of each for the whole app: the vault window and the Mac Settings window read the same lock state and vault.
     @State private var gate = UnlockGate()
@@ -68,11 +68,6 @@ struct PsssApp: App {
                     .keyboardShortcut(.delete, modifiers: .command)
                     .disabled(deleteSelection == nil)
             }
-            CommandGroup(after: .appVisibility) {
-                Button("Lock Psss") { lockVault?() }
-                    .keyboardShortcut("l", modifiers: .command)
-                    .disabled(lockVault == nil)
-            }
             // File, New: the standard place and shortcuts for creating things.
             CommandGroup(replacing: .newItem) {
                 Button("New Login") { newItem?(.login) }
@@ -89,8 +84,17 @@ struct PsssApp: App {
                 Button("New Wi-Fi Network") { newItem?(.wifi) }
                     .disabled(newItem == nil)
                 Divider()
-                Button("Add Vault…") { addVault?() }
-                    .disabled(addVault == nil)
+                // The three ways to add a vault, then the current vault's two actions (owner, 2026-11-25, mock `#/vault-switcher`).
+                ForEach(AddVaultChoice.all) { choice in
+                    Button(choice.menuTitle) { startAddVault?(choice) }
+                        .disabled(startAddVault == nil)
+                }
+                Divider()
+                Button("Vault Settings…") { vaultMenu?.settings() }
+                    .disabled(vaultMenu == nil)
+                Button(vaultMenu.map { String(localized: "Lock \($0.name)") } ?? String(localized: "Lock Vault")) { vaultMenu?.lock?() }
+                    .keyboardShortcut("l", modifiers: .command)
+                    .disabled(vaultMenu?.lock == nil)
             }
         }
         #if os(macOS)

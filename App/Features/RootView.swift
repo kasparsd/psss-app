@@ -16,11 +16,28 @@ struct RootView: View {
     @AppStorage("lockTiming") private var lockTiming = LockTiming.oneMinute.rawValue
     @Environment(\.scenePhase) private var scenePhase
     @Environment(IncomingCodeRequests.self) private var incomingCodes
+    @Environment(SettingsRequests.self) private var settingsRequests
+    #if os(macOS)
+    @Environment(\.openSettings) private var openSettings
+    #else
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    #endif
 
     static let keePassSource = "kdbx"
     private var usesDeviceAuth: Bool { vaultSource != Self.keePassSource }
 
     private var timing: LockTiming { LockTiming(rawValue: lockTiming) ?? .oneMinute }
+
+    /// While no vault is open: on the Mac and on iPad at regular width the vault window itself, with its sidebar of locked vaults and
+    /// the unlock form in the content area; on iPhone (and iPad at compact width, which has no sidebar) the full-screen lock screen.
+    @ViewBuilder
+    private var lockedWindow: some View {
+        #if os(macOS)
+        LockedVaultWindow(session: session, gate: gate)
+        #else
+        if sizeClass == .regular { LockedVaultWindow(session: session, gate: gate) } else { VaultPasswordView(session: session, gate: gate) }
+        #endif
+    }
 
     var body: some View {
         Group {
@@ -35,7 +52,7 @@ struct RootView: View {
                     // saved-key state the previous vault's view took when it appeared.
                     VaultView(store: store).id(ObjectIdentifier(store))
                 } else {
-                    VaultPasswordView(session: session, gate: gate)
+                    lockedWindow
                 }
             } else if gate.isUnlocked {
                 VaultView(store: sample)
@@ -51,9 +68,16 @@ struct RootView: View {
         .environment(safariExtension)
         // Locking drops the keys and the decrypted vault, after writing anything pending.
         .onChange(of: gate.isUnlocked) { _, unlocked in
-            if unlocked { Task { await autoFill.refresh(); await safariExtension.refresh() } } else { session.lock(); sample = SampleVaultStore(); incomingCodes.clear() }
+            if unlocked { Task { await autoFill.refresh(); await safariExtension.refresh() } } else { if session.isOpen { session.lock() }; sample = SampleVaultStore(); incomingCodes.clear() }
         }
-        .focusedSceneValue(\.lockVault, gate.isUnlocked ? { gate.lock() } : nil)
+        #if os(macOS)
+        // File, Vault Settings… and Lock <name>: also while the window is locked (Settings opens at the vault's page).
+        .focusedSceneValue(\.vaultMenu, vaultSource == Self.keePassSource ? session.reference.map { reference in
+            VaultMenuCommands(name: VaultName.short(reference.name),
+                              settings: { settingsRequests.show(.vault(reference.id)); openSettings() },
+                              lock: gate.isUnlocked ? { gate.lock() } : nil)
+        } : nil)
+        #endif
         .task { if !vaultSource.isEmpty { await gate.didBecomeActive(after: timing, prompt: usesDeviceAuth) } }
         // AutoFill has no change notification, so it is read at launch, after unlock and whenever the app becomes active.
         .task { await autoFill.refresh(); await safariExtension.refresh() }

@@ -19,10 +19,15 @@ import Foundation
         try await session.create(name: "Remember B", credentials: .init(password: "pw"), items: [])
         let b = session.reference!
         verify("creating another vault keeps the first one", session.remembered.map(\.id) == [a.id] && VaultReference.remembered.map(\.id) == [a.id])
-        verify("the active vault is listed first", session.knownVaults.map(\.name) == ["Remember B", "Remember A"])
+        verify("vaults are listed in the order they were added, not active first", session.knownVaults.map(\.name) == ["Remember A", "Remember B"])
         verify("both vaults' files can be found", a.isReachable && b.isReachable)
 
         session.switchTo(a.id)
+        verify("switching does not reorder the list", session.knownVaults.map(\.name) == ["Remember A", "Remember B"] && VaultReference.all.map(\.name) == ["Remember A", "Remember B"])
+        let drive = URL(fileURLWithPath: "/Users/x/Library/Mobile Documents/com~apple~CloudDocs/Downloads/Work.kdbx")
+        let driveRoot = URL(fileURLWithPath: "/Users/x/Library/Mobile Documents/com~apple~CloudDocs/Work.kdbx")
+        verify("iCloud Drive's container is shown as iCloud Drive", VaultFiles.folderWords(of: drive) == "iCloud Drive › Downloads"
+               && VaultFiles.folderWords(of: driveRoot) == "iCloud Drive" && VaultFiles.folderWords(of: URL(fileURLWithPath: "/Users/x/Documents/Work.kdbx")) == nil)
         verify("switching makes the other vault active and keeps this one", session.reference?.id == a.id && VaultReference.load()?.id == a.id
                && session.remembered.map(\.id) == [b.id] && session.store == nil)
         session.switchTo(a.id)

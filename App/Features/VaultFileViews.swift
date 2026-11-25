@@ -245,9 +245,18 @@ struct OpenVaultSheet: View {
 }
 
 /// Shown instead of the vault while a KeePass vault is locked. Locking drops the keys, so unlocking needs the vault password.
+///
+/// Built on `UnlockForm` (plan `mail-style-vaults`, slice W1; mock `#/unlock-screen`): the password form is always shown, Unlock
+/// first and then Use Touch ID (Face ID), and the system's biometric prompt appears by itself once per activation
+/// (`biometricAutoPrompt`), with the button to bring it back. `embedded` is the same form in the content column beside the
+/// sidebar: no header text and no vault pop-up row, because the sidebar chooses the vault.
 struct VaultPasswordView: View {
     let session: VaultSession
     let gate: UnlockGate
+    /// In the content area beside a sidebar: the icon and "Unlock <vault>" only, no full-screen header, no vault pop-up row.
+    var embedded = false
+    /// A line under the actions, for example "Passwords locks when Work opens."
+    var footnote: String?
     @State private var password = ""
     @State private var keyFile: Data?
     @State private var keyFileName: String?
@@ -264,29 +273,29 @@ struct VaultPasswordView: View {
     @State private var working = false
     @State private var problem: String?
     @State private var missing = false
-    @State private var addingVault = false
+    @State private var addChoice: AddVaultChoice?
     @State private var explaining = false
     @State private var lost = false
-    @State private var triedBiometric = false
     @State private var unlockingWithBiometrics = false
-    /// An unlock attempt is under way: the password was submitted, or Face ID or Touch ID was asked. Off again with any failure
-    /// or cancel; nothing waits for it. The lock icon shows the name meanwhile.
+    /// An unlock attempt is under way: the password was submitted, or Face ID or Touch ID was accepted. Off again with any
+    /// failure; nothing waits for it. The lock icon shows the name meanwhile.
     @State private var opening = false
-    /// "Use Password…" was pressed: the password form is shown in place.
-    @State private var formRequested = false
-    /// Face ID or Touch ID looked and did not recognise the person. The form opens with a line that says so.
+    /// Face ID or Touch ID looked and did not recognise the person. The notice says so.
     @State private var notRecognised = false
+    /// The system prompt does not start by itself: the vault was just locked with a notice (the saved key is probably stale, so
+    /// the prompt would only fail), or it failed once. The Use Touch ID button still asks.
+    @State private var autoPromptOff: Bool
+    @State private var prompter = BiometricPrompter()
     @FocusState private var focused: Bool
-    #if os(macOS)
-    @State private var listener = TouchIDListener()
-    @Environment(\.controlActiveState) private var controlActiveState
-    #else
-    /// The scene went to the background since Face ID last ran, so coming back asks again. The Face ID sheet itself makes the
-    /// scene inactive and active, which must not start another attempt.
-    @State private var leftScene = false
-    #endif
-    @Environment(\.scenePhase) private var scenePhase
     @AppStorage("vaultSource") private var vaultSource = ""
+
+    init(session: VaultSession, gate: UnlockGate, embedded: Bool = false, footnote: String? = nil) {
+        self.session = session
+        self.gate = gate
+        self.embedded = embedded
+        self.footnote = footnote
+        _autoPromptOff = State(initialValue: gate.lockNotice != nil)
+    }
 
     private var biometry: BiometryKind? {
         guard session.reference?.biometricUnlock == true else { return nil }
@@ -295,29 +304,10 @@ struct VaultPasswordView: View {
 
     private var vaultName: String { session.reference.map { VaultName.short($0.name) } ?? "Psss" }
 
-    /// The password form is shown straight away when there is nothing else to try (no biometrics, a missing file) or when
-    /// something needs the password (a problem, "not recognised", a lock notice); otherwise "Use Password…" shows it.
-    private var showForm: Bool {
-        formRequested || biometry == nil || missing || problem != nil || notRecognised || gate.lockNotice != nil
-    }
-
-    /// Mac: the sensor is being asked and the embedded view shows. iPhone and iPad: Face ID is not running in the background,
-    /// so this is only true while the system sheet is up (`working`).
-    private var listening: Bool {
-        #if os(macOS)
-        listener.isListening && !working
-        #else
-        false
-        #endif
-    }
+    private var canUnlock: Bool { !password.isEmpty || keyFile != nil }
 
     private var introLine: String {
         guard let biometry else { return String(localized: "Enter the vault password.") }
-        #if os(macOS)
-        if controlActiveState != .key {
-            return String(localized: "Click this window, then use \(biometry.label) or enter the vault password.")
-        }
-        #endif
         switch biometry {
         case .touchID: return String(localized: "Touch ID or enter the vault password.")
         default: return String(localized: "Use \(biometry.label) or enter the vault password.")
@@ -332,34 +322,11 @@ struct VaultPasswordView: View {
             }
             .scrollBounceBehavior(.basedOnSize)
         }
-        .background(.background)
-        .onAppear { startBiometricsOnAppear() }
-        .task {
-            // Like Apple Passwords, ask for Face ID straight away. Not when the vault was just locked because it changed
-            // elsewhere: the saved key is probably stale, so the prompt would only fail. The notice says to enter the vault
-            // password, and the glyph still tries.
-            #if os(iOS)
-            guard !triedBiometric else { return }
-            triedBiometric = true
-            await startFaceID(automatic: true)
-            #endif
+        .background { if !embedded { Rectangle().fill(.background) } }
+        .biometricAutoPrompt(prompter: prompter, vault: session.reference?.id, enabled: biometry != nil && !missing && !autoPromptOff) {
+            await askBiometrics()
         }
-        #if os(macOS)
-        // The sensor answers only the app in front, so listen while this window is key and stop when it is not.
-        .onChange(of: controlActiveState) { _, state in
-            if state == .key { startBiometrics(automatic: true) } else { listener.stop() }
-        }
-        .onDisappear { listener.stop() }
-        #else
-        // Coming back to the app asks again; the system sheet's own inactive and active changes do not.
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .background { leftScene = true }
-            else if phase == .active, leftScene {
-                leftScene = false
-                Task { await startFaceID(automatic: true) }
-            }
-        }
-        #endif
+        .onChange(of: session.reference?.id) { vaultChanged() }
         .sheet(isPresented: $explaining) { PasswordExplainerSheet() }
         .sheet(isPresented: $lost) {
             LostPasswordSheet(session: session, vaultName: vaultName,
@@ -387,37 +354,28 @@ struct VaultPasswordView: View {
                 }
             }
         }
-        .sheet(isPresented: $addingVault) {
-            AddVaultSheet(session: session) { gate.markUnlocked() }
-        }
-        // File, Add Vault… also works from the lock screen, where the vault menu has the same item.
-        .focusedSceneValue(\.addVault, working ? nil : { addingVault = true })
+        // Embedded in the main window, the window's own add-vault flow and File menu item apply.
+        .modifier(LockScreenAddVault(enabled: !embedded, session: session, choice: $addChoice, working: working) { gate.markUnlocked() })
     }
 
     private var content: some View {
         VStack(spacing: 16) {
-            LockHeader(biometry: biometry, listening: listening, dimmed: working || !listening, vaultName: vaultName, opening: opening,
-                       retry: { startBiometrics(automatic: false) }, context: lockContext)
-            statusLine
-            vaultSelector
-            if showForm {
-                form
-            } else if !working {
-                Button("Use Password…") { formRequested = true }
-                    .buttonStyle(.bordered).controlSize(.large)
+            LockHeader(biometry: nil, vaultName: vaultName, opening: opening, showsTitle: !embedded)
+            if !embedded {
+                statusLine
+                vaultSelector
+            }
+            form
+            // The screen is centred, so the notice appearing under the field would move the field up. An invisible copy of the
+            // notice below the buttons holds the same height until the notice takes its place, so the field never moves while
+            // Unlock stays where it is when nothing is happening.
+            if !embedded && !(working && !unlockingWithBiometrics) && !hasMessage {
+                progressNotice.hidden().accessibilityHidden(true)
             }
         }
         .frame(maxWidth: 340)
         .padding(.horizontal, 24)
         .padding(.vertical, 24)
-    }
-
-    private var lockContext: LAContext? {
-        #if os(macOS)
-        listener.context
-        #else
-        nil
-        #endif
     }
 
     /// The one line under the title. Face ID or Touch ID progress takes its place; the password check shows under the field instead.
@@ -454,46 +412,21 @@ struct VaultPasswordView: View {
     }
 
     private var form: some View {
-        VStack(spacing: 16) {
-            UnlockPasswordField(text: $password, focused: $focused, working: working, disabled: missing || working, onSubmit: unlock)
+        UnlockForm(vaultName: embedded ? vaultName : nil, password: $password, focused: $focused, biometry: biometry, working: working,
+                   fieldDisabled: missing, canUnlock: canUnlock, footnote: footnote,
+                   unlock: unlock, useBiometrics: { Task { await askBiometrics() } },
+                   locateFile: missing ? { choose(.relinkVault) } : nil,
+                   forgotPassword: { lost = true }, help: { explaining = true }) {
             // Under the field, where it was typed. No space is held for it, so the idle screen stays compact.
             if working && !unlockingWithBiometrics {
                 progressNotice
             } else {
                 messageLine
             }
+        } keyFile: {
             keyFileRow
-            if missing {
-                Button { choose(.relinkVault) } label: {
-                    Label("Locate Vault File…", systemImage: "folder").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent).controlSize(.large)
-            } else {
-                Button(action: unlock) {
-                    Text("Unlock").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent).controlSize(.large)
-                .disabled(working || (password.isEmpty && keyFile == nil))
-                .keyboardShortcut(.defaultAction)
-            }
-            HStack(spacing: 8) {
-                Button("Forgot Password") { lost = true }
-                Button("Help") { explaining = true }
-            }
-            .buttonStyle(.bordered)
-            .foregroundStyle(.primary)
-            .disabled(working)
-            // The screen is centred, so the notice appearing under the field would move the field up. An invisible copy of the
-            // notice below the buttons holds the same height until the notice takes its place, so the field never moves while
-            // Unlock stays where it is when nothing is happening.
-            if !(working && !unlockingWithBiometrics) && !hasMessage {
-                progressNotice
-                    .hidden()
-                    .accessibilityHidden(true)
-            }
         }
         .onAppear { focused = true }
-        .onChange(of: session.reference?.id) { keyFileRequested = false; wrongPassword = false }
     }
 
     /// The Key file row shows only when the vault is known to use a key file (Psss records that after the first unlock), a file is
@@ -507,129 +440,82 @@ struct VaultPasswordView: View {
             KeyFileRow(fileName: keyFile == nil ? nil : (keyFileName ?? ""), choose: { choose(.keyFile) }, remove: {
                 keyFile = nil; keyFileName = nil; keyFileRequested = false
             })
-            .disabled(working)
         }
     }
 
-    /// Opens the screen's one file picker for `purpose`. After a sheet or alert closes, the picker waits until it has gone,
-    /// because a picker requested while another presentation is leaving is dropped. The same goes for the keyboard: a picker
-    /// requested while the password field holds focus is often dropped on iPhone and iPad, so the field lets go first (which
-    /// closes the keyboard) and the picker follows once the keyboard has gone.
-    private func choose(_ purpose: FilePurpose, afterDismissal: Bool = false) {
-        guard afterDismissal else {
-            self.purpose = purpose
-            #if os(iOS)
-            if focused {
-                focused = false
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(350))
-                    picking = true
-                }
-                return
+    /// Opens the screen's one file picker for `purpose`. The keyboard first: a picker requested while the password field holds
+    /// focus is often dropped on iPhone and iPad, so the field lets go first (which closes the keyboard) and the picker follows
+    /// once the keyboard has gone.
+    private func choose(_ purpose: FilePurpose) {
+        self.purpose = purpose
+        #if os(iOS)
+        if focused {
+            focused = false
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(350))
+                picking = true
             }
-            #endif
-            picking = true
             return
         }
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(500))
-            self.purpose = purpose
-            picking = true
-        }
+        #endif
+        picking = true
     }
 
-    /// After the forgotten vault: another remembered vault takes its place on this lock screen, or the welcome screen shows.
+    /// After the forgotten vault: another remembered vault takes its place on this lock screen (the change of vault resets the
+    /// form), or the welcome screen shows.
     private func forgotten() {
-        if session.reference == nil { vaultSource = ""; gate.markUnlocked() } else { vaultChanged() }
+        if session.reference == nil { vaultSource = ""; gate.markUnlocked() }
     }
 
-    /// The vault this screen opens changed (chosen in the selector, or the previous one was forgotten): start from a clean
-    /// form, say so at once when its file is gone, and ask for Face ID or Touch ID for the new vault.
+    /// The vault this screen opens changed (chosen in the selector or the sidebar, or the previous one was forgotten): start from
+    /// a clean form and say so at once when its file is gone. The automatic prompt follows the vault by itself.
     private func vaultChanged() {
+        prompter.cancel()
         password = ""; keyFile = nil; keyFileName = nil
-        problem = nil; notRecognised = false; formRequested = false
+        problem = nil; notRecognised = false
         keyFileRequested = false; wrongPassword = false
         gate.lockNotice = nil
+        autoPromptOff = false
         missing = session.reference.map { !$0.isReachable } ?? false
-        if missing { problem = String(localized: "“\(vaultName)” can’t be found. Its file has moved or been deleted. Choose another vault above, locate the file, or forget this vault under Forgot Password.") }
-        #if os(macOS)
-        listener.stop()
-        #endif
-        startBiometrics(automatic: true)
+        if missing { problem = String(localized: "“\(vaultName)” can’t be found. Its file has moved or been deleted. Choose another vault, locate the file, or forget this vault under Forgot Password.") }
     }
 
-    /// The Vault row: "Vault" on the left, the vault that will open with the pop-up chevrons on the right, the system's own pop-up
-    /// idiom (a Settings row on iPhone and iPad, a pop-up button on the Mac). Its menu is the vault switcher's, every vault padlocked
-    /// closed, ending in "Add Vault…". Shown on every lock screen, also with one vault, because Add Vault… is the way to a file that
-    /// is not listed (owner, 2026-11-24).
-    private var vaultSelector: some View {
-        VaultRow(session: session, state: currentState, context: .lockScreen, choose: { id in
-            guard id != session.reference?.id else { return }
-            session.switchTo(id)
-            vaultChanged()
-        }, addVault: { addingVault = true })
-        // Not disabled while Face ID or Touch ID is being asked: the system sheet covers the screen then, and a disabled-then-enabled
-        // menu button misses the first tap that follows the sheet's dismissal (iPad). Only the password check holds it still.
-        .disabled(working && !unlockingWithBiometrics)
-    }
-
-    /// The current vault's state for the Vault row: locked here by definition, so Locked, Needs password or not available.
-    private var currentState: VaultState {
-        guard let reference = session.reference else { return .locked }
-        return session.state(of: reference, unlocked: false)
-    }
-
-    /// Mac and iPhone/iPad entry points. `automatic` is the screen appearing, the window becoming key or the scene becoming
-    /// active; false is a tap on the glyph. An automatic start is skipped when the vault was just locked with a notice (the saved
-    /// key is probably stale); the glyph still tries.
-    private func startBiometrics(automatic: Bool) {
-        #if os(macOS)
-        guard biometry != nil, !missing, !working, !(automatic && gate.lockNotice != nil) else { return }
+    /// Shows the system's Face ID or Touch ID prompt (biometric only; the vault password field is the fallback) and, when the
+    /// person passes, opens the vault with that evaluated context so the saved key is read without a second prompt. Called by the
+    /// automatic prompt and by the Use Touch ID button.
+    private func askBiometrics() async {
+        guard let biometry, !missing, !working else { return }
         notRecognised = false
-        listener.start(reason: String(localized: "Unlock \(vaultName).")) { outcome in
-            switch outcome {
-            case .matched(let context):
-                Task { await unlockWithBiometrics(evaluated: context) }
-            case .notRecognised:
-                problem = nil
-                notRecognised = true
-            case .unavailable:
-                gate.lockNotice = nil
-                problem = String(localized: "\(biometry?.label ?? "Touch ID") cannot be used right now. Enter the vault password this time.")
-            }
+        switch await prompter.evaluate(reason: String(localized: "Unlock \(vaultName).")) {
+        case .evaluated(let context):
+            await unlockWithBiometrics(evaluated: context)
+        case .cancelled:
+            break
+        case .notRecognised:
+            problem = nil
+            notRecognised = true
+            refocus()
+        case .unavailable:
+            gate.lockNotice = nil
+            autoPromptOff = true
+            problem = String(localized: "\(biometry.label) cannot be used right now. Enter the vault password this time.")
+            refocus()
         }
-        #else
-        Task { await startFaceID(automatic: automatic) }
-        #endif
     }
 
-    private func startBiometricsOnAppear() {
-        #if os(macOS)
-        if controlActiveState == .key { startBiometrics(automatic: true) }
-        #endif
-    }
-
-    #if os(iOS)
-    private func startFaceID(automatic: Bool) async {
-        guard biometry != nil, !missing, !working, !(automatic && gate.lockNotice != nil) else { return }
-        notRecognised = false
-        await unlockWithBiometrics()
-    }
-    #endif
-
-    /// `evaluated` is the Mac's embedded Touch ID context, which already passed: the saved key is read without a second prompt.
-    private func unlockWithBiometrics(evaluated: LAContext? = nil) async {
+    /// `evaluated` already passed the system prompt: the saved key is read with it.
+    private func unlockWithBiometrics(evaluated: LAContext) async {
         guard !working else { return }
         working = true
         unlockingWithBiometrics = true
-        // The icon starts changing as the attempt starts, not when the vault has opened; a failure or cancel puts the dots back.
+        // The icon changes as the attempt starts, not when the vault has opened; a failure puts the dots back.
         opening = true
         problem = nil
         notRecognised = false
         // The lock notice stays until the unlock succeeds or a new problem replaces it: cancelling the prompt explains nothing else.
         defer { working = false; unlockingWithBiometrics = false; opening = false }
         do {
-            try await session.unlockWithBiometrics(evaluated: evaluated.map(EvaluatedContext.init), accepted: {})
+            try await session.unlockWithBiometrics(evaluated: EvaluatedContext(context: evaluated), accepted: {})
             password = ""
             gate.lockNotice = nil
             gate.markUnlocked()
@@ -637,10 +523,12 @@ struct VaultPasswordView: View {
             refocus()
         } catch BiometricKeyError.unavailable {
             gate.lockNotice = nil
+            autoPromptOff = true
             problem = String(localized: "\(biometry?.label ?? "Face ID") cannot be used right now. Enter the vault password this time.")
             refocus()
         } catch BiometricKeyError.invalidated {
             gate.lockNotice = nil
+            autoPromptOff = true
             if session.reference?.biometricStale == true {
                 problem = String(localized: "\(biometry?.label ?? "Face ID") no longer opens \(vaultName), because the vault was changed elsewhere. Enter the vault password once and \(biometry?.label ?? "Face ID") is turned on again.")
             } else {
@@ -655,11 +543,13 @@ struct VaultPasswordView: View {
     }
 
     private func unlock() {
-        guard !working, !(password.isEmpty && keyFile == nil) else { return }
+        guard !working, canUnlock else { return }
+        prompter.cancel()
         working = true
         opening = true
         problem = nil
         wrongPassword = false
+        notRecognised = false
         gate.lockNotice = nil
         Task {
             do {
@@ -683,6 +573,26 @@ struct VaultPasswordView: View {
         }
     }
 
+    /// The Vault row: "Vault" on the left, the vault that will open with the pop-up chevrons on the right, the system's own pop-up
+    /// idiom (a Settings row on iPhone and iPad, a pop-up button on the Mac). Its menu is the vault switcher's, every vault padlocked
+    /// closed, ending in the add-vault items. Shown on every full-screen lock screen, also with one vault, because adding is the way
+    /// to a file that is not listed (owner, 2026-11-24).
+    private var vaultSelector: some View {
+        VaultRow(session: session, state: currentState, context: .lockScreen, choose: { id in
+            guard id != session.reference?.id else { return }
+            session.switchTo(id)
+        }, add: { addChoice = $0 })
+        // Not disabled while the system prompt is up: it covers the screen then, and a disabled-then-enabled menu button misses
+        // the first tap that follows the prompt's dismissal (iPad). Only the password check holds it still.
+        .disabled(working && !unlockingWithBiometrics)
+    }
+
+    /// The current vault's state for the Vault row: locked here by definition, so Locked, Needs password or not available.
+    private var currentState: VaultState {
+        guard let reference = session.reference else { return .locked }
+        return session.state(of: reference, unlocked: false)
+    }
+
     /// Puts the cursor back in the password field after a failed attempt, so the person can type again at once. The field was
     /// disabled while the vault was checked, and a disabled field gives up focus; asking again for focus that is still marked
     /// as held does nothing, so it is released first and taken once the field is enabled again.
@@ -691,6 +601,26 @@ struct VaultPasswordView: View {
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(150))
             if !missing { focused = true }
+        }
+    }
+}
+
+/// The full-screen lock screen's own add-vault flow and File › Add Vault… item. Not applied when the form is embedded in the main
+/// window, which has its own.
+private struct LockScreenAddVault: ViewModifier {
+    let enabled: Bool
+    let session: VaultSession
+    @Binding var choice: AddVaultChoice?
+    let working: Bool
+    let added: () -> Void
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .addVaultFlow($choice, session: session, onAdded: added)
+                .focusedSceneValue(\.addVault, working ? nil : { choice = .create })
+        } else {
+            content
         }
     }
 }

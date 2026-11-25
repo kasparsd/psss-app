@@ -1,42 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The three ways to add a vault (owner, 2026-11-25, mock `#/vault-switcher` and `#/settings`). The chooser sheet is gone: each
-/// place that adds a vault (Settings, the vault switcher, the sidebar, the File menu, the lock screens) names one of these and
-/// starts that flow directly with `.addVaultFlow`.
-enum AddVaultChoice: Hashable, Identifiable {
-    /// A new, empty vault: its form asks for a name and a password.
-    case create
-    /// A KeePass file from Files, iCloud Drive or another folder.
-    case open
-    /// A new vault made from an Apple Passwords export (a CSV file).
-    case importPasswords
-
-    var id: Self { self }
-
-    /// The words of the row that starts it (iOS) and of its push button (Mac).
-    var title: LocalizedStringKey {
-        switch self {
-        case .create: "Create a New Vault"
-        case .open: "Open a Vault File"
-        case .importPasswords: "Import from Apple Passwords"
-        }
-    }
-
-    var buttonTitle: LocalizedStringKey {
-        switch self {
-        case .create: "Create…"
-        case .open: "Open…"
-        case .importPasswords: "Import…"
-        }
-    }
-
-    /// The footer under the "Add Vault" group, the same everywhere.
-    static var footer: LocalizedStringKey {
-        "Create makes a new, empty vault. Open adds a KeePass file from iCloud Drive or another folder. Import makes a new vault from an Apple Passwords export; exports are not encrypted, so delete the file afterwards."
-    }
-}
-
 /// Runs one add-vault flow when `choice` is set, then clears it: the create form, the file picker and then the password sheet
 /// for a vault file, or the picker, the "Ready to import" alert and the create form for an Apple Passwords export. Nothing is
 /// added until the last step succeeds; then the new vault is the open one, the others stay in the list and `onAdded` runs.
@@ -143,38 +107,5 @@ struct AddVaultPane: View {
             }
         }
         .formStyle(.grouped)
-    }
-}
-
-/// Deprecated: the chooser sheet. Kept only until the remaining call sites (vault window, lock screens) use `.addVaultFlow`
-/// directly; the next slice removes them and deletes this view.
-struct AddVaultSheet: View {
-    let session: VaultSession
-    let onAdded: () -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var choice: AddVaultChoice?
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    ForEach([AddVaultChoice.create, .open, .importPasswords]) { item in
-                        Button(item.title) { choice = item }
-                    }
-                } footer: {
-                    Text(AddVaultChoice.footer)
-                }
-            }
-            .formStyle(.grouped)
-            .navigationTitle("Add Vault")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-            }
-        }
-        .modifier(VaultSheetSize())
-        .addVaultFlow($choice, session: session) { dismiss(); onAdded() }
     }
 }

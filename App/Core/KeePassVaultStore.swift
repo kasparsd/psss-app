@@ -114,7 +114,7 @@ struct VaultReference: Codable, Equatable, Sendable {
         guard !managed else { return nil }
         guard let bookmark, let url = try? VaultFiles.resolve(bookmark).url else { return fileName }
         if VaultFiles.isInPsssFolder(url) { return "\(url.lastPathComponent) · \(VaultFiles.psssFolderLabel)" }
-        let folder = url.deletingLastPathComponent().pathComponents
+        let folder = VaultFiles.folderWords(of: url) ?? url.deletingLastPathComponent().pathComponents
             .filter { $0 != "/" }
             .suffix(2)
             .joined(separator: " › ")
@@ -131,6 +131,7 @@ struct VaultReference: Codable, Equatable, Sendable {
         if let active = Self.load(), active.id != id { Self.park(active) }
         Self.setRemembered(Self.remembered.filter { $0.id != id })
         Self.write(data, Self.defaultsKey, file: "vault-reference.json")
+        Self.appendToOrder(id)
     }
 
     /// Changes fields of the stored reference of vault `id`: reads the stored reference again, applies `change` to it and writes
@@ -152,7 +153,42 @@ struct VaultReference: Codable, Equatable, Sendable {
         if let data = try? JSONEncoder().encode(Array(forgotten)) { write(data, forgottenKey, file: "vault-reference-forgotten.json") }
         setRemembered(remembered.filter { $0.id != id })
         if load()?.id == id { remove(defaultsKey, file: "vault-reference.json") }
+        setOrder(order.filter { $0 != id })
     }
+
+    // MARK: Fixed order
+
+    private static let orderKey = "vaultOrder"
+
+    /// The one order every list of vaults uses (sidebar, menus, lock screen, Settings, the browser popup): the order the vaults
+    /// were added in. Opening, locking or switching never moves a vault; removing one only drops it.
+    private static var order: [UUID] {
+        read(orderKey, file: "vault-order.json").flatMap { try? JSONDecoder().decode([String].self, from: $0) }?
+            .compactMap(UUID.init(uuidString:)) ?? []
+    }
+
+    private static func setOrder(_ list: [UUID]) {
+        if list.isEmpty { remove(orderKey, file: "vault-order.json"); return }
+        if let data = try? JSONEncoder().encode(list.map(\.uuidString)) { write(data, orderKey, file: "vault-order.json") }
+    }
+
+    private static func appendToOrder(_ id: UUID) {
+        let current = order
+        if !current.contains(id) { setOrder(current + [id]) }
+    }
+
+    /// `references` in the fixed order. A vault the order does not know yet (stored before the order existed) goes after the
+    /// known ones, in the order given, and is added to the order, so it keeps its place from then on.
+    static func inFixedOrder(_ references: [VaultReference]) -> [VaultReference] {
+        let current = order
+        let known = references.filter { current.contains($0.id) }.sorted { current.firstIndex(of: $0.id)! < current.firstIndex(of: $1.id)! }
+        let unknown = references.filter { !current.contains($0.id) }
+        if !unknown.isEmpty { setOrder(current + unknown.map(\.id)) }
+        return known + unknown
+    }
+
+    /// Every vault Psss knows, the active one and the remembered ones, in the fixed order.
+    static var all: [VaultReference] { inFixedOrder([load()].compactMap { $0 } + remembered) }
 
     // MARK: Remembered vaults
 
@@ -215,6 +251,7 @@ struct VaultReference: Codable, Equatable, Sendable {
         if managed { return String(localized: "On this device") }
         guard let bookmark, let url = try? VaultFiles.resolve(bookmark).url else { return fileName }
         if VaultFiles.isInPsssFolder(url) { return VaultFiles.psssFolderLabel }
+        if let words = VaultFiles.folderWords(of: url) { return words }
         // Sandbox plumbing (identifier folders, the File Provider copy) tells a person nothing.
         let parts = url.deletingLastPathComponent().pathComponents.filter { part in
             part != "/" && part != "File Provider Storage" && UUID(uuidString: part) == nil
@@ -267,6 +304,16 @@ enum VaultFiles {
     static var psssFolderLabel: String { String(localized: "iCloud Drive › Psss") }
 
     static let iCloudContainerID = "iCloud.app.psss"
+
+    /// "iCloud Drive" or "iCloud Drive › Downloads" for a file in the user's iCloud Drive (the `com~apple~CloudDocs` container,
+    /// whose name tells a person nothing), at most the two folders nearest the file. Nil for a file elsewhere. Psss's own
+    /// container is `psssFolderLabel`.
+    static func folderWords(of url: URL) -> String? {
+        let parts = url.deletingLastPathComponent().pathComponents
+        guard let index = parts.firstIndex(of: "com~apple~CloudDocs") else { return nil }
+        let folders = Array(parts[(index + 1)...]).suffix(2)
+        return (["iCloud Drive"] + folders).joined(separator: " › ")
+    }
 
     /// Whether `url` is inside Psss's own iCloud Drive container, on this device or as another device's copy of it.
     static func isInPsssFolder(_ url: URL) -> Bool {
@@ -688,14 +735,40 @@ final class VaultSession {
     /// last attempt to open them in this process. Shown as "Can't be read"; cleared when the vault opens.
     private(set) var unreadable: Set<UUID> = []
 
-    /// The active vault first, then the remembered ones: what the selector lists.
-    var knownVaults: [VaultReference] { (reference.map { [$0] } ?? []) + remembered }
+    /// Every vault in the fixed order (the order they were added in): what every list shows. The open vault never moves.
+    var knownVaults: [VaultReference] { VaultReference.inFixedOrder((reference.map { [$0] } ?? []) + remembered) }
+
+    /// The name of the vault that was open when the person chose another one, which locked it: the unlock form of the chosen vault
+    /// says so. Cleared by any unlock or lock that is not that choice.
+    var lockedForSwitch: String?
 
     /// Makes `id` the vault the lock screen opens. Only while locked. The vault left stays remembered.
     func switchTo(_ id: UUID) {
         guard id != reference?.id, let chosen = VaultReference.activate(id) else { return }
         store = nil
         reference = chosen
+        remembered = VaultReference.remembered
+    }
+
+    /// Choosing another vault while one is open: writes and locks the open one, makes `id` the one that opens next. One vault is
+    /// unlocked at a time, and `unlock` opens the current reference, so the other vault's form shows with the first one locked.
+    func lockAndSwitch(to id: UUID) {
+        guard id != reference?.id else { return }
+        let left = isOpen ? reference.map { VaultName.short($0.name) } : nil
+        lock()
+        switchTo(id)
+        lockedForSwitch = left
+    }
+
+    /// Removes a vault that is not the current one, without touching the open vault. Its file is left alone unless it is a
+    /// vault Psss created and `deletingFile` is set.
+    func forgetOther(_ id: UUID, deletingFile: Bool) {
+        guard id != reference?.id, let other = knownVaults.first(where: { $0.id == id }) else { return }
+        if other.managed, deletingFile { try? FileManager.default.removeItem(at: VaultFiles.managedURL(fileName: other.fileName)) }
+        VaultFiles.removeBackups(for: other.id)
+        UsageLog.erase(for: other.id)
+        BiometricKey.delete(for: other.id)
+        VaultReference.forget(other.id)
         remembered = VaultReference.remembered
     }
 
@@ -892,6 +965,7 @@ final class VaultSession {
             }
             self.reference = reference
             unreadable.remove(reference.id)
+            lockedForSwitch = nil
             store = KeePassVaultStore(reference: reference, url: url, scoped: scoped, document: document, fileData: data)
             // The 30-day purge of Recently Deleted. Off unless the app switched it on, so the AutoFill extension, which opens the
             // vault through this same path, never writes because of it. A failed write is retried the next time the app unlocks.
@@ -960,6 +1034,7 @@ final class VaultSession {
     func lock() {
         try? store?.flush()
         store = nil
+        lockedForSwitch = nil
     }
 
     /// Forgets the vault. A file the person opened is never touched. A vault Psss created is deleted when `deletingFile` (its
