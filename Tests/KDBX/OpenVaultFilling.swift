@@ -25,9 +25,9 @@ import Foundation
     var transcript = ""
     func ask(_ type: String, _ fields: [String: Any] = [:]) -> [String: Any] {
         let reply = BrowserProtocol.handle(["v": BrowserProtocol.version, "id": "t", "type": type].merging(fields) { $1 })
-        // Everything the host would send back, kept to look for a secret that should never be there. The one reply that is meant to
-        // carry a password is a successful `credential`; it is checked on its own.
-        if !(type == "credential" && reply["ok"] as? Bool == true) { transcript += "\(reply)\n" }
+        // Everything the host would send back, kept to look for a secret that should never be there. The only replies meant to
+        // carry a password are a successful `credential` and `generate`; they are checked on their own.
+        if !((type == "credential" || type == "generate") && reply["ok"] as? Bool == true) { transcript += "\(reply)\n" }
         return reply
     }
     func error(_ reply: [String: Any]) -> String { reply["error"] as? String ?? "none" }
@@ -72,6 +72,54 @@ import Foundation
                nowhere.allSatisfy { error(ask("candidates", ["origin": site, "vault": $0])) == "not-found" && error(ask("search", ["origin": site, "query": "git", "vault": $0])) == "not-found" }
                && error(ask("candidates", ["origin": site])) == "not-found" && error(ask("credential", ["ref": refA, "origin": site])) == "not-found")
 
+        // The offer ledger: a password is released only for a login the app has just shown for this page. A fake clock stands in for time.
+        final class Clock: @unchecked Sendable { var now = Date(); func advance(_ seconds: TimeInterval) { now.addTimeInterval(seconds) } }
+        let clock = Clock()
+        BrowserProtocol.ledger = OfferLedger(now: { clock.now })
+        let refB = ((ask("candidates", ["origin": site, "vault": b.id.uuidString])["candidates"] as? [[String: Any]])?.first?["ref"] as? String) ?? ""
+        BrowserProtocol.ledger.clear()
+        let bare = ask("credential", ["ref": refB, "origin": site, "vault": b.id.uuidString])
+        verify("a bare reference that nothing offered releases nothing", error(bare) == "not-found" && bare["secret"] == nil && !"\(bare)".contains(secretB))
+        verify("manual without a search releases nothing, and a wrongly typed manual is not manual",
+               error(ask("credential", ["ref": refB, "origin": site, "vault": b.id.uuidString, "manual": true])) == "not-found"
+               && [1, "true", NSNull(), [true]].allSatisfy { error(ask("credential", ["ref": refB, "origin": site, "vault": b.id.uuidString, "manual": $0])) == "not-found" })
+        _ = ask("candidates", ["origin": site, "vault": b.id.uuidString])
+        verify("after the list offered it, the login for this page is released", ask("credential", ["ref": refB, "origin": site, "vault": b.id.uuidString])["secret"] as? String == secretB)
+        verify("the offer is for this page only", error(ask("credential", ["ref": refB, "origin": "https://other.example", "vault": b.id.uuidString, "manual": true])) == "not-found"
+               && error(ask("credential", ["ref": refB, "origin": "https://other.example", "vault": b.id.uuidString])) == "forbidden")
+        // Other Matches: the Ledger login belongs to another site; only a search on this page offers it as manual.
+        let searched = ask("search", ["origin": site, "query": "ledger", "vault": b.id.uuidString])
+        let refLedger = ((searched["results"] as? [[String: Any]])?.first?["ref"] as? String) ?? ""
+        verify("the search offered a login saved for another site", !refLedger.isEmpty && (searched["results"] as? [[String: Any]])?.first?["matches"] as? Bool == false)
+        verify("without manual, the origin rule still refuses it", error(ask("credential", ["ref": refLedger, "origin": site, "vault": b.id.uuidString])) == "forbidden")
+        verify("manual releases a login the search returned", ask("credential", ["ref": refLedger, "origin": site, "vault": b.id.uuidString, "manual": true])["secret"] as? String == secretB)
+        verify("manual is never released over plain http outside localhost",
+               error(ask("credential", ["ref": refLedger, "origin": "http://gitforge.example", "vault": b.id.uuidString, "manual": true])) == "forbidden"
+               && error(ask("search", ["origin": "http://gitforge.example", "query": "ledger", "vault": b.id.uuidString])) == "forbidden")
+        verify("an over-long or wrongly typed reference is not found",
+               [String(repeating: "r", count: 65), String(repeating: "r", count: 10_000), ""].allSatisfy { error(ask("credential", ["ref": $0, "origin": site, "vault": b.id.uuidString, "manual": true])) == "not-found" }
+               && error(ask("credential", ["ref": 7, "origin": site, "vault": b.id.uuidString])) == "forbidden")
+        verify("A's offer is not B's: a search in A does not let B release", {
+            let inA = ask("search", ["origin": site, "query": "gitforge", "vault": a.id.uuidString])
+            let ref = ((inA["results"] as? [[String: Any]])?.first?["ref"] as? String) ?? ""
+            return !ref.isEmpty && error(ask("credential", ["ref": ref, "origin": site, "vault": b.id.uuidString, "manual": true])) == "not-found"
+        }())
+        clock.advance(OfferLedger.lifetime - 1)
+        verify("an offer stands for five minutes", ask("credential", ["ref": refB, "origin": site, "vault": b.id.uuidString])["secret"] as? String == secretB)
+        clock.advance(2)
+        let expired = ask("credential", ["ref": refB, "origin": site, "vault": b.id.uuidString])
+        verify("an expired offer releases nothing", error(expired) == "not-found" && expired["secret"] == nil
+               && error(ask("credential", ["ref": refLedger, "origin": site, "vault": b.id.uuidString, "manual": true])) == "not-found")
+        let made = ask("generate")
+        verify("generate is made in the app", made["ok"] as? Bool == true && ((made["password"] as? String)?.count ?? 0) >= 12 && made["password"] as? String != ask("generate")["password"] as? String)
+        // The ledger stays under its cap and holds no more than references.
+        BrowserProtocol.ledger.clear()
+        for index in 0..<(OfferLedger.capacity + 50) { BrowserProtocol.ledger.offer(["r\(index)"], vault: "v", host: "h.example", searched: false) }
+        verify("the ledger is bounded", BrowserProtocol.ledger.count == OfferLedger.capacity)
+        BrowserProtocol.ledger = OfferLedger()
+        _ = ask("search", ["origin": site, "query": "gitforge", "vault": a.id.uuidString])
+        verify("a search offers something before the lock", BrowserProtocol.ledger.count > 0)
+
         // Save: the vault the request names, any open vault, never another one.
         let account = "new@example.net"
         let created = ask("save", ["origin": site, "account": account, "secret": secretNew, "vault": a.id.uuidString])
@@ -92,6 +140,9 @@ import Foundation
         let ref = ((search["results"] as? [[String: Any]])?.first?["ref"] as? String) ?? ""
         verify("the search found something to fill", !ref.isEmpty)
         session.lock(a.id)
+        verify("locking a vault empties the ledger", BrowserProtocol.ledger.count == 0)
+        let afterLock = ask("credential", ["ref": ref, "origin": site, "vault": a.id.uuidString])
+        verify("a lock between the search and the fill: locked, no data", error(afterLock) == "locked" && afterLock["secret"] == nil)
         let raced = ask("credential", ["ref": ref, "origin": site, "vault": a.id.uuidString])
         verify("locked between search and fill: a plain locked error, no data", error(raced) == "locked" && raced["secret"] == nil && raced["fields"] == nil && !"\(raced)".contains(secretA))
         verify("B is not asked in A's place, and still serves", titles(ask("candidates", ["origin": site, "vault": b.id.uuidString])) == ["Gitforge (B)"])

@@ -569,6 +569,9 @@
       showVaultState();
       return;
     }
+    // The app released nothing because it had not shown that login for this page lately (the list is over five minutes old, or the
+    // app locked or restarted since): listing again is the way forward.
+    if (!cred.ok && cred.error === PROTOCOL.errors.notFound) { say('That list is out of date. Open Psss again.'); return; }
     if (!cred.ok) { say(card ? 'Psss could not release that card.' : 'Psss could not release that login.'); button.disabled = false; return; }
     const fields = cred.fields ?? { username: cred.account, 'current-password': cred.secret };
     const [{ result } = {}] = await api.scripting.executeScript({

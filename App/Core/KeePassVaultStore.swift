@@ -754,6 +754,10 @@ final class VaultSession {
     /// Where the person was in each vault, kept in memory across a lock (see `ReturnPlaces`).
     let returnPlaces = ReturnPlaces()
 
+    /// Called whenever a vault stops being open, by a lock, Lock All or a removal (not by quitting: the process ends). The browser
+    /// relay empties its offer ledger here (`SessionVaultService`).
+    @ObservationIgnored var onVaultClosed: (@MainActor (UUID) -> Void)?
+
     /// Vaults whose file was found but could not be read (damaged, not a vault, a format Psss does not open), as learned by the
     /// last attempt to open them in this process. Shown as "Can't be read"; cleared when the vault opens.
     private(set) var unreadable: Set<UUID> = []
@@ -1132,6 +1136,7 @@ final class VaultSession {
         try? stores[id]?.flush()
         stores[id] = nil
         returnPlaces.didLock(id)
+        onVaultClosed?(id)
     }
 
     // MARK: Removing
@@ -1143,7 +1148,9 @@ final class VaultSession {
     func remove(_ id: UUID, deletingFile: Bool = true) {
         guard let gone = knownVaults.first(where: { $0.id == id }) else { return }
         let wasShown = id == reference?.id
+        let wasOpen = stores[id] != nil
         stores[id] = nil
+        if wasOpen { onVaultClosed?(id) }
         returnPlaces.forget(id)
         if lastShownOpen == id { lastShownOpen = nil }
         if gone.managed, deletingFile { try? FileManager.default.removeItem(at: VaultFiles.managedURL(fileName: gone.fileName)) }
@@ -1179,6 +1186,8 @@ extension KDBXError {
         case .wrongCredentials: String(localized: "The vault password or key file is not right.")
         case .corrupted: String(localized: "The vault file is damaged or was changed by something else. Nothing was modified.")
         case .invalidKeyFile: String(localized: "This key file cannot be used. Choose the key file that was used when the vault was made.")
+        case .tooMuchMemory: String(localized: "This vault asks for more memory than Psss allows (256 MiB is the most). Open it in the app that made it, lower the memory in its encryption settings, save it, then try again.")
+        case .tooLarge: String(localized: "This vault is larger than Psss allows to open safely. Nothing was modified.")
         case .invalidParameters: String(localized: "This vault's protection settings cannot be opened by Psss, usually because they ask for more memory or time than Psss allows. Open it in the app that made it, save it again with the default settings, then try again.")
         }
     }

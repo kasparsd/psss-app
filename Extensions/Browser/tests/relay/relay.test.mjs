@@ -217,11 +217,17 @@ test('requests with wrong types and over-long fields get a plain protocol error,
   await r.kill();
 });
 
-test('only the allowed request types reach the protocol (the app in slice R1 serves ping and vaults)', async () => {
-  const r = await relay({ args: ['--allowed-types', 'ping,vaults'] });
-  assert.equal((await ask(r.socket, ping('1'))).ok, true);
-  assert.equal((await ask(r.socket, { v: 5, id: '2', type: 'vaults' })).ok, true);
-  for (const type of ['candidates', 'search', 'credential', 'save', 'unlock-vault', 'switch-vault', 'generate', 'card', 'card-candidates', 'nope']) {
+const SERVED = ['ping', 'vaults', 'candidates', 'search', 'credential', 'generate']; // what the real app serves (BrowserRelayLauncher.servedTypes)
+test('only the allowed request types reach the protocol (the app serves what BrowserRelayLauncher.servedTypes lists)', async () => {
+  const source = readFileSync(join(ROOT, 'App/Features/BrowserRelayLauncher.swift'), 'utf8');
+  const listed = [...source.match(/servedTypes: Set<String> = \[([^\]]*)\]/)[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(listed.sort(), [...SERVED].sort(), 'this test and the launcher name the same types');
+  const r = await relay({ args: ['--allowed-types', SERVED.join(',')] });
+  for (const type of SERVED) {
+    const reply = await ask(r.socket, { v: 5, id: type, type, vault: 'passwords', origin: 'http://localhost', ref: 'x' });
+    assert.notEqual(reply.error, 'unsupported', type);
+  }
+  for (const type of ['save', 'unlock-vault', 'switch-vault', 'card', 'card-candidates', 'nope']) {
     const reply = await ask(r.socket, { v: 5, id: type, type, vault: 'passwords', origin: 'http://localhost', ref: 'x' });
     assert.deepEqual([reply.ok, reply.error, reply.id], [false, 'unsupported', type], type);
   }
@@ -458,6 +464,213 @@ test('kill -9 of the relay in the middle of a request: the host answers at once,
   await again.kill();
 });
 
+// ---- R2: candidates, search, credential and generate from the vault a request names, and the offer ledger ----------------------
+
+const SITE = 'https://gitforge.example';
+/** Two vaults open (Passwords and Work) while a third, Archive (locked), is the one the app shows. */
+function twoOpen() {
+  const store = fresh('two');
+  writeFileSync(join(store, 'vaults.json'), JSON.stringify({ active: 'archive', open: ['passwords', 'work'] }));
+  return store;
+}
+const req = (type, fields = {}) => ({ v: 5, id: type, type, ...fields });
+const candidatesOf = async (r, vault, origin) => (await ask(r.socket, req('candidates', { vault, origin }))).candidates ?? [];
+const credential = (r, fields) => ask(r.socket, req('credential', fields));
+const SECRETS = ['Demo-only-Sample1!', 'Demo-only-Work1!', 'Demo-only-Work2!', 'Demo-only-Sample2!', 'Demo-only-Maple7!'];
+
+test('two vaults open while another is shown: each fills from its own vault, a locked one gives nothing, nothing is switched', async () => {
+  const r = await relay({ store: twoOpen() });
+  const list = (await ask(r.socket, req('vaults'))).vaults.map((v) => `${v.id}:${v.state}:${v.active}`);
+  assert.deepEqual(list.slice(0, 3), ['passwords:open:false', 'work:open:false', 'archive:locked:true']);
+  const work = await candidatesOf(r, 'work', SITE);
+  assert.deepEqual(work.map((c) => c.title), ['Gitforge (work)']);
+  const mine = await candidatesOf(r, 'passwords', 'http://localhost:8080');
+  assert.equal(mine.length, 1);
+  const fromWork = await credential(r, { ref: work[0].ref, origin: SITE, vault: 'work' });
+  assert.deepEqual([fromWork.ok, fromWork.secret, fromWork.account], [true, 'Demo-only-Work1!', 'sam@harbor.example']);
+  const fromPasswords = await credential(r, { ref: mine[0].ref, origin: 'http://localhost:8080', vault: 'passwords' });
+  assert.deepEqual([fromPasswords.ok, fromPasswords.secret], [true, 'Demo-only-Sample1!']);
+  for (const type of ['candidates', 'search']) {
+    const reply = await ask(r.socket, req(type, { vault: 'archive', origin: SITE, query: 'git' }));
+    assert.deepEqual([reply.ok, reply.error, reply.candidates, reply.results], [false, 'locked', undefined, undefined], type);
+  }
+  const locked = await credential(r, { ref: work[0].ref, origin: SITE, vault: 'archive' });
+  assert.deepEqual([locked.ok, locked.error, locked.secret, locked.fields], [false, 'locked', undefined, undefined]);
+  assert.equal((await ask(r.socket, req('vaults'))).vaults.find((v) => v.active).id, 'archive', 'the shown vault did not change');
+  await r.kill();
+});
+
+test('a credential is released only for a login the app has just shown for this page: a bare ref is nothing', async () => {
+  const store = twoOpen();
+  const r = await relay({ store });
+  // Learn a real ref from a relay that is not this one's ledger: a second relay on the same store lists it, this one is never asked.
+  const other = await relay({ store });
+  const ref = (await candidatesOf(other, 'work', SITE))[0].ref;
+  await other.kill();
+  for (const manual of [false, true, 'true', 1]) {
+    const reply = await credential(r, { ref, origin: SITE, vault: 'work', manual });
+    assert.deepEqual([reply.ok, reply.error, reply.secret, reply.account, reply.fields], [false, 'not-found', undefined, undefined, undefined], `manual=${manual}`);
+  }
+  assert.equal((await candidatesOf(r, 'work', SITE))[0].ref, ref);
+  assert.equal((await credential(r, { ref, origin: SITE, vault: 'work' })).secret, 'Demo-only-Work1!', 'after it is listed, it is released');
+  // The offer is for that page: another site's page with the same ref gets nothing, with or without manual.
+  for (const origin of ['https://other.example', 'https://gitforge.example.evil.example', 'https://sub.gitforge.example']) {
+    for (const manual of [false, true]) {
+      const reply = await credential(r, { ref, origin, vault: 'work', manual });
+      assert.equal(reply.ok, false, `${origin} manual=${manual}`);
+      assert.equal(reply.secret, undefined);
+    }
+  }
+  await alive(r);
+  await r.kill();
+});
+
+test('Other Matches: manual releases only a login a search on this page returned, never on plain http outside localhost', async () => {
+  const r = await relay({ store: twoOpen() });
+  const search = (fields) => ask(r.socket, req('search', { vault: 'passwords', ...fields }));
+  // A login saved for another site is listed by candidates for nothing: manual without a search is refused.
+  const found = await search({ origin: SITE, query: 'google' });
+  const other = found.results.find((x) => x.website === 'google.com');
+  assert.equal(other.matches, false);
+  const mine = await candidatesOf(r, 'passwords', 'http://localhost:8080');
+  const viaList = await credential(r, { ref: mine[0].ref, origin: SITE, vault: 'passwords', manual: true });
+  assert.deepEqual([viaList.ok, viaList.error], [false, 'not-found'], 'a candidates list for another page offered nothing here');
+  // Without manual, a login saved for another site is refused by the origin rule even though a search showed it.
+  const plain = await credential(r, { ref: other.ref, origin: SITE, vault: 'passwords' });
+  assert.deepEqual([plain.ok, plain.error, plain.secret], [false, 'forbidden', undefined]);
+  for (const manual of ['true', 1, null, [true]]) {
+    const wrong = await credential(r, { ref: other.ref, origin: SITE, vault: 'passwords', manual });
+    assert.deepEqual([wrong.ok, wrong.error, wrong.secret], [false, 'forbidden', undefined], `manual=${JSON.stringify(manual)}`);
+  }
+  const filled = await credential(r, { ref: other.ref, origin: SITE, vault: 'passwords', manual: true });
+  assert.deepEqual([filled.ok, filled.secret], [true, 'Demo-only-Sample2!']);
+  // Plain http is refused for the search and for the fill, whatever the ref.
+  for (const origin of ['http://gitforge.example', 'http://192.168.0.7', 'http://localhost.evil.example']) {
+    assert.equal((await search({ origin, query: 'google' })).error, 'forbidden', origin);
+    const reply = await credential(r, { ref: other.ref, origin, vault: 'passwords', manual: true });
+    assert.deepEqual([reply.ok, reply.error, reply.secret], [false, 'forbidden', undefined], origin);
+  }
+  const local = await search({ origin: 'http://localhost:3000', query: 'google' });
+  assert.equal((await credential(r, { ref: local.results[0].ref, origin: 'http://localhost:3000', vault: 'passwords', manual: true })).ok, true, 'localhost may be filled over http');
+  // Another vault's id never reaches this vault's login.
+  const crossed = await credential(r, { ref: other.ref, origin: SITE, vault: 'work', manual: true });
+  assert.deepEqual([crossed.ok, crossed.error], [false, 'not-found']);
+  await alive(r);
+  await r.kill();
+});
+
+test('a ref from one open vault sent with another open vault’s id is not found, even when the other vault was searched', async () => {
+  const r = await relay({ store: twoOpen() });
+  const work = (await candidatesOf(r, 'work', SITE))[0];
+  const searched = await ask(r.socket, req('search', { vault: 'passwords', origin: SITE, query: 'localhost' }));
+  const mine = searched.results[0];
+  for (const [ref, vault] of [[work.ref, 'passwords'], [mine.ref, 'work']]) {
+    for (const manual of [false, true]) {
+      const reply = await credential(r, { ref, origin: SITE, vault, manual });
+      assert.deepEqual([reply.ok, reply.error, reply.secret, reply.account], [false, 'not-found', undefined, undefined], `${vault} manual=${manual}`);
+    }
+  }
+  await r.kill();
+});
+
+test('an offer expires after five minutes and the ledger is emptied by a lock (injected clock and signal)', async () => {
+  const r = await relay({ store: twoOpen() });
+  const first = (await candidatesOf(r, 'work', SITE))[0];
+  assert.equal((await credential(r, { ref: first.ref, origin: SITE, vault: 'work' })).ok, true);
+  r.proc.kill('SIGUSR2'); // the ledger's clock moves six minutes on
+  await sleep(300);
+  const expired = await credential(r, { ref: first.ref, origin: SITE, vault: 'work' });
+  assert.deepEqual([expired.ok, expired.error, expired.secret], [false, 'not-found', undefined], 'an expired offer releases nothing');
+  const again = (await candidatesOf(r, 'work', SITE))[0];
+  assert.equal((await credential(r, { ref: again.ref, origin: SITE, vault: 'work' })).ok, true, 'a new list offers it again');
+  const searched = await ask(r.socket, req('search', { vault: 'passwords', origin: SITE, query: 'google' }));
+  r.proc.kill('SIGUSR2'); await sleep(300);
+  const manual = await credential(r, { ref: searched.results[0].ref, origin: SITE, vault: 'passwords', manual: true });
+  assert.equal(manual.error, 'not-found', 'a searched offer expires too');
+  // A lock, sleep or screen lock empties it at once.
+  const fresh1 = (await candidatesOf(r, 'work', SITE))[0];
+  r.proc.kill('SIGUSR1'); await sleep(300);
+  const cleared = await credential(r, { ref: fresh1.ref, origin: SITE, vault: 'work' });
+  assert.deepEqual([cleared.ok, cleared.error, cleared.secret], [false, 'not-found', undefined], 'a cleared ledger releases nothing');
+  await alive(r);
+  await r.kill();
+});
+
+test('a vault locked between search and fill answers locked, never another vault’s data, and the other open vault still serves', async () => {
+  const store = twoOpen();
+  const r = await relay({ store });
+  const work = (await candidatesOf(r, 'work', SITE))[0];
+  const mine = (await candidatesOf(r, 'passwords', 'http://localhost:8080'))[0];
+  writeFileSync(join(store, 'vaults.json'), JSON.stringify({ active: 'archive', open: ['passwords'] })); // Work locks
+  const raced = await credential(r, { ref: work.ref, origin: SITE, vault: 'work' });
+  assert.deepEqual([raced.ok, raced.error, raced.secret, raced.account, raced.fields], [false, 'locked', undefined, undefined, undefined]);
+  assert.ok(!JSON.stringify(raced).includes('Demo-only'));
+  const wrongVault = await credential(r, { ref: work.ref, origin: SITE, vault: 'passwords' });
+  assert.equal(wrongVault.error, 'not-found', 'Passwords does not answer in Work’s place');
+  assert.equal((await credential(r, { ref: mine.ref, origin: 'http://localhost:8080', vault: 'passwords' })).secret, 'Demo-only-Sample1!');
+  for (const type of ['candidates', 'search']) assert.equal((await ask(r.socket, req(type, { vault: 'work', origin: SITE, query: 'git' }))).error, 'locked');
+  await r.kill();
+});
+
+test('generate is made in the app: a different strong password each time, and it is in no log or file', async () => {
+  const r = await relay();
+  const made = [];
+  for (let i = 0; i < 5; i++) { const reply = await ask(r.socket, req('generate')); assert.equal(reply.ok, true); made.push(reply.password); }
+  assert.equal(new Set(made).size, 5);
+  assert.ok(made.every((p) => typeof p === 'string' && p.length >= 12));
+  const reply = await ask(r.socket, req('generate', { vault: 7, origin: { a: 1 }, extra: 'x'.repeat(5000) }));
+  assert.equal(reply.ok, true, 'extra and wrongly typed fields are ignored');
+  await r.kill();
+  const everything = [r.stdout(), r.stderr(), ...readdirSync(join(r.root, 'Relay')).map((f) => f)].join('\n');
+  for (const password of made) assert.ok(!everything.includes(password));
+});
+
+test('hostile values in every new field get a plain error and never a secret or a crash', async () => {
+  const r = await relay({ store: twoOpen() });
+  const ref = (await candidatesOf(r, 'work', SITE))[0].ref;
+  await ask(r.socket, req('search', { vault: 'passwords', origin: SITE, query: 'google' }));
+  const long = (n) => 'x'.repeat(n);
+  const bad = [undefined, null, 7, true, [ref], { ref }, '', long(65), long(10000), '../../etc/passwd', `${ref}\n`, `${ref}\u202e`, '\u0000'];
+  for (const value of bad) {
+    for (const field of ['ref', 'vault', 'origin']) {
+      const request = { ref, vault: 'work', origin: SITE, [field]: value };
+      const reply = await credential(r, request);
+      assert.equal(reply.ok, false, `${field}=${JSON.stringify(value)?.slice(0, 30)}`);
+      assert.ok(['not-found', 'forbidden'].includes(reply.error), `${field}: ${reply.error}`);
+      assert.ok(!SECRETS.some((s) => JSON.stringify(reply).includes(s)));
+    }
+    for (const type of ['candidates', 'search']) {
+      const reply = await ask(r.socket, req(type, { vault: 'work', origin: SITE, query: value, fields: value, ref: value }));
+      assert.ok(typeof reply.ok === 'boolean' && reply.v === 5, `${type} ${JSON.stringify(value)?.slice(0, 30)}`);
+      assert.ok(!SECRETS.some((s) => JSON.stringify(reply).includes(s)));
+    }
+  }
+  for (const fields of [[7], [null], ['name', 7], 'name', { a: 1 }, Array(500).fill('name'), [long(10000)]]) {
+    const reply = await ask(r.socket, req('search', { vault: 'work', origin: SITE, query: 'git', fields }));
+    assert.equal(reply.ok, true, JSON.stringify(fields).slice(0, 40));
+  }
+  assert.equal((await ask(r.socket, req('search', { vault: 'work', origin: SITE, query: long(101) }))).results.length, 0, 'an over-long query finds nothing');
+  assert.equal((await credential(r, { ref: long(10000), origin: SITE, vault: 'work', manual: true })).error, 'not-found');
+  assert.equal((await credential(r, { ref, origin: SITE, vault: 'work' })).secret, 'Demo-only-Work1!', 'hostile requests changed nothing');
+  await alive(r);
+  await r.kill();
+});
+
+test('twenty concurrent fills across two open vaults each get their own vault’s answer', async () => {
+  const r = await relay({ store: twoOpen() });
+  const work = (await candidatesOf(r, 'work', SITE))[0];
+  const mine = (await candidatesOf(r, 'passwords', 'http://localhost:8080'))[0];
+  const replies = await Promise.all(Array.from({ length: 20 }, (_, i) => i % 2
+    ? credential(r, { ref: work.ref, origin: SITE, vault: 'work' })
+    : credential(r, { ref: mine.ref, origin: 'http://localhost:8080', vault: 'passwords' })));
+  replies.forEach((reply, i) => {
+    if (reply?.error === 'busy') return;
+    assert.equal(reply.secret, i % 2 ? 'Demo-only-Work1!' : 'Demo-only-Sample1!', `request ${i}`);
+  });
+  await alive(r);
+  await r.kill();
+});
+
 // ---- what the replies say ------------------------------------------------------------------------------------------
 
 test('hostile vault names reach the host as one short safe line, and the list never carries a secret', async () => {
@@ -480,7 +693,7 @@ test('hostile vault names reach the host as one short safe line, and the list ne
 test('no secret in any log, output, folder or reply except the ones that are meant to carry it', async () => {
   const store = fresh('secrets');
   const r = await relay({ store });
-  const known = ['Demo-only-Sample1!', 'Demo-only-Work1!', '4242424242424242', '5555555555554444'];
+  const known = ['Demo-only-Sample1!', 'Demo-only-Work1!', 'Demo-only-Work2!', '4242424242424242', '5555555555554444'];
   const typed = 'Typed-fixture-secret-9f3a!'; // sent in a `save`, and read back by a `credential`
   const messages = [
     ping('1'), { v: 5, id: '2', type: 'vaults' }, { v: 5, id: '3', type: 'candidates', vault: 'passwords', origin: 'http://localhost:8080' },
@@ -488,9 +701,12 @@ test('no secret in any log, output, folder or reply except the ones that are mea
     { v: 5, id: '6', type: 'switch-vault', vault: 'work' }, { v: 5, id: '7', type: 'unlock-vault', vault: 'work' },
     { v: 5, id: '8', type: 'save', vault: 'passwords', origin: 'http://localhost:8080', account: 'fixture@example.net', secret: typed },
     { v: 5, id: '9', type: 'save', vault: 'work', origin: 'https://gitforge.example', account: 'refused@example.net', secret: typed + 'x', extra: 'y'.repeat(50) },
+    { v: 5, id: '10', type: 'candidates', vault: 'work', origin: 'https://gitforge.example' }, { v: 5, id: '11', type: 'search', vault: 'work', origin: 'https://gitforge.example', query: 'ledger' },
+    { v: 5, id: '12', type: 'credential', vault: 'work', ref: 'nothing', origin: 'https://gitforge.example' }, { v: 5, id: '13', type: 'card', vault: 'passwords', ref: 'sample-card-0', origin: 'https://shop.example' },
   ];
   const out = await host(r.socket, messages);
   const secretFree = out.replies.filter((x) => x.id !== 'c1');
+  assert.ok(secretFree.length >= messages.length - 1);
   const firstCandidates = out.replies.find((x) => x.id === '3').candidates;
   const credential = await host(r.socket, [{ v: 5, id: 'c1', type: 'credential', vault: 'passwords', ref: firstCandidates[0].ref, origin: 'http://localhost:8080' }]);
   assert.equal(credential.replies[0].ok, true); assert.ok(credential.replies[0].secret, 'the credential reply is the one that carries the password');

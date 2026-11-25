@@ -1,11 +1,15 @@
 #if os(macOS)
+import AppKit
 import Foundation
 
 /// Starts the browser relay once, when the app's `VaultSession` exists, and says what became of it. The relay is macOS only: iOS has
 /// no long-running app to relay to (docs/plans/browser-relay.md, section 7).
 ///
-/// It serves `ping` and `vaults` from the real session (slice R1). Every other request type is answered `unsupported` by the
-/// server before it reaches the protocol, until the slices that add the offer ledger (R2), unlock (R3) and save (R4) land.
+/// It serves `ping`, `vaults`, `candidates`, `search`, `credential` and `generate` from the real session (slices R1 and R2).
+/// Logins are read only from the open vault a request names, and a password is released only for a login the app has just shown
+/// (`OfferLedger`). Every other request type is answered `unsupported` by the server before it reaches the protocol, until the
+/// slices that add unlock (R3) and save (R4) land. Cards are the prototype's samples only, so `card-candidates` and `card` are
+/// not served either.
 @MainActor
 final class BrowserRelayLauncher {
     enum Status: Equatable {
@@ -25,7 +29,21 @@ final class BrowserRelayLauncher {
     private var server: BrowserRelayServer?
 
     /// What the relay answers in this slice.
-    static let servedTypes: Set<String> = ["ping", "vaults"]
+    static let servedTypes: Set<String> = ["ping", "vaults", "candidates", "search", "credential", "generate"]
+
+    private var observers: [NSObjectProtocol] = []
+
+    /// The offer ledger is emptied when the Mac sleeps, the display sleeps, the screen locks and the app quits (a vault locking
+    /// empties it too: `SessionVaultService`). It holds no secret, but an old offer must not outlive the person's presence.
+    private func clearLedgerOnAbsence() {
+        let clear: @Sendable (Notification) -> Void = { _ in BrowserProtocol.ledger.clear() }
+        let workspace = NSWorkspace.shared.notificationCenter
+        observers = [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification].map {
+            workspace.addObserver(forName: $0, object: nil, queue: nil, using: clear)
+        }
+        observers.append(DistributedNotificationCenter.default().addObserver(forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: nil, using: clear))
+        observers.append(NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil, using: clear))
+    }
 
     func startIfNeeded(session: VaultSession) {
         guard status == .notStarted else { return }
@@ -35,6 +53,7 @@ final class BrowserRelayLauncher {
 
         let service = SessionVaultService(session: session)
         BrowserProtocol.vaultService = service
+        clearLedgerOnAbsence()
         let server = BrowserRelayServer(.init(
             directory: container.appendingPathComponent(RelayLimits.folderName, isDirectory: true),
             policy: policy,

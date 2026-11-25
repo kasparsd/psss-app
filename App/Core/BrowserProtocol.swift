@@ -26,6 +26,10 @@ enum BrowserProtocol {
     /// (read only). Nil answers `vaults` and `switch-vault` with `unsupported`.
     nonisolated(unsafe) static var vaultService: BrowserVaultService?
 
+    /// What this process has shown the popup, and so may release (`OfferLedger`). One for the process: `SessionVaultService` empties
+    /// it when a vault locks, the relay launcher on sleep, screen lock and quit. Tests replace it to inject a clock.
+    nonisolated(unsafe) static var ledger = OfferLedger()
+
     // MARK: Origin rule, mirrored from the extension (src/lib/origin.js). Both sides enforce it.
 
     static func fillableHost(_ origin: String) -> String? {
@@ -61,6 +65,12 @@ enum BrowserProtocol {
 
     /// Sample cards have a fixed order across native-host invocations. The connected vault uses record IDs.
     private static func sampleCardReference(_ index: Int) -> String { "sample-card-\(index)" }
+
+    /// A JSON `true` and nothing else: the number 1 reads as a Bool through `as? Bool`, and must not be taken for the flag.
+    private static func isTrue(_ value: Any?) -> Bool {
+        guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return false }
+        return number.boolValue
+    }
 
     static func handle(_ request: [String: Any]) -> [String: Any] {
         let id = request["id"] as? String ?? ""
@@ -111,6 +121,7 @@ enum BrowserProtocol {
             let matches = items.filter {
                 $0.fillValue(for: .password) != nil && SharedVault.matches($0, host: requested)
             }
+            ledger.offer(matches.map(refOf), vault: opened?.vault ?? "", host: requested, searched: false)
             return ok(["candidates": matches.map { ["ref": refOf($0), "title": $0.displayTitle, "account": $0.visibleAccount,
                                                     "website": $0.visibleWebsite, "passkey": $0.passkey != nil] as [String: Any] }])
 
@@ -129,6 +140,9 @@ enum BrowserProtocol {
                 .filter { ItemSearch.matches($0, query: query, in: chosen) }
                 .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
             let perField = ItemSearch.counts(logins, query: query)
+            // Every result shown is offered for this page, the ones saved for other sites too: only a login the person's own search
+            // returned can be filled as "Other Matches".
+            ledger.offer(found.prefix(20).map(refOf), vault: opened?.vault ?? "", host: requested, searched: true)
             return ok([
                 "results": found.prefix(20).map { item -> [String: Any] in
                     var row: [String: Any] = ["ref": refOf(item), "title": item.displayTitle, "account": item.visibleAccount,
@@ -212,13 +226,15 @@ enum BrowserProtocol {
         case "credential":
             guard let origin = request["origin"] as? String, let host = fillableHost(origin),
                   let ref = request["ref"] as? String else { return fail("forbidden") }
-            guard let item = items.first(where: { $0.kind == .login && refOf($0) == ref }),
+            guard ref.count <= 64, let item = items.first(where: { $0.kind == .login && refOf($0) == ref }),
                   let password = item.fillValue(for: .password) else { return fail("not-found") }
-            // Recheck the origin here. A reference alone never releases a secret. `manual` is the
-            // person's explicit choice of a login saved for another site, confirmed in the popup.
-            // The shipping app asks for approval itself instead of trusting this flag.
-            let manual = request["manual"] as? Bool == true
-            guard manual || SharedVault.matches(item, host: SharedVault.host(host)) else { return fail("forbidden") }
+            // Recheck the origin here. A reference alone never releases a secret: it must be one this app showed for this page
+            // (`ledger`) a moment ago. `manual` is the person's choice of a login saved for another site, in Other Matches; it is
+            // released only for a login that a search on this page returned.
+            let manual = isTrue(request["manual"])
+            let requested = SharedVault.host(host)
+            guard manual || SharedVault.matches(item, host: requested) else { return fail("forbidden") }
+            guard let vault = opened?.vault, ledger.allows(ref: ref, vault: vault, host: requested, manual: manual) else { return fail("not-found") }
             let username = item.fillValue(for: .username) ?? ""
             let fields = [FieldRole.username.rawValue: username, FieldRole.password.rawValue: password]
             return ok(["account": username, "secret": password, "fields": fields])

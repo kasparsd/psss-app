@@ -9,6 +9,8 @@ import Foundation
 //   environment: PSSS_PROTOTYPE_DIR (the prototype vault folder), PSSS_STANDIN_PEER (accept | refuse | cdhash:HEX | signed, default accept;
 //                `signed` is the shipping policy: a host signed by this binary's own team as app.psss.native-host),
 //                PSSS_STANDIN_DELAY_MS (every reply waits this long)
+// Signals stand in for what the app does to its offer ledger: SIGUSR1 empties it (a vault locked, the Mac slept), SIGUSR2 moves the
+// ledger's clock forward by six minutes (an expired offer).
 //
 // Prints `ready <socket path>` once it listens. Any other start is a one-line reason on stderr and a non-zero exit.
 
@@ -28,6 +30,22 @@ if let prototype = environment["PSSS_PROTOTYPE_DIR"] {
     try? FileManager.default.createDirectory(at: BrowserPrototypeStore.directory!, withIntermediateDirectories: true)
 }
 BrowserProtocol.vaultService = BrowserPrototypeStore.vaultService
+final class Skew: @unchecked Sendable {
+    private let lock = NSLock()
+    private var seconds = 0.0
+    var value: Double { lock.lock(); defer { lock.unlock() }; return seconds }
+    func add(_ more: Double) { lock.lock(); seconds += more; lock.unlock() }
+}
+let skew = Skew()
+BrowserProtocol.ledger = OfferLedger(now: { Date().addingTimeInterval(skew.value) })
+signal(SIGUSR1, SIG_IGN)
+signal(SIGUSR2, SIG_IGN)
+let clearSignal = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
+clearSignal.setEventHandler { BrowserProtocol.ledger.clear() }
+clearSignal.resume()
+let skewSignal = DispatchSource.makeSignalSource(signal: SIGUSR2, queue: .main)
+skewSignal.setEventHandler { skew.add(360) }
+skewSignal.resume()
 let delay = Int(environment["PSSS_STANDIN_DELAY_MS"] ?? "") ?? 0
 let anyCaller = argument("--callers") != "compiled"
 let types = argument("--allowed-types").map { Set($0.split(separator: ",").map(String.init)) }

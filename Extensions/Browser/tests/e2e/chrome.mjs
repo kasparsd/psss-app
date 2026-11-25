@@ -1,7 +1,14 @@
 // End-to-end test in real Chrome (or any Chromium: pass --browser PATH).
 //
 //   node Extensions/Browser/tests/e2e/chrome.mjs [--browser PATH] [--keep]
+//   node Extensions/Browser/tests/e2e/chrome.mjs --app [--host /Applications/PsssDevHost]
 //
+// --app runs a short check against the REAL app instead of the stand-in: the production dev extension, the team-signed dev host
+// (registered with `build.py install-host --host /Applications/PsssDevHost`) and the running Psss. It never unlocks, switches or
+// saves anything: it lists the vaults, and asks each locked vault for logins and expects `locked` and no data. A vault that the
+// person has open answers for real, and the check then only says that no password is in a list or a search.
+//
+
 // Loads the test variant, a throwaway profile and the test site, then drives the real popup,
 // native host and injection through DevTools. --keep instead opens a persistent dev profile with
 // the production dev build (real activeTab path) for trying it by hand.
@@ -19,20 +26,23 @@ const args = process.argv.slice(2);
 const arg = (name, fallback) => (args.includes(name) ? args[args.indexOf(name) + 1] : fallback);
 const BROWSER = arg('--browser', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome');
 const KEEP = args.includes('--keep');
+const APP = args.includes('--app');
+const APP_HOST = arg('--host', '/Applications/PsssDevHost');
 
 const sh = (...a) => execFileSync('python3', [join(ROOT, 'Extensions/Browser/build.py'), ...a], { encoding: 'utf8' });
 const devId = sh('dev-key').match(/ID: (\w+)/)[1];
 // The host is a relay client. The suites run the test host (`build.py host --testing`) against the stand-in relay (the app's real
 // relay server over the prototype's vaults), so nothing here needs a signed app. See docs/browser-extension.md, "Testing".
 for (const [binary, command] of [['host-test/psss-native-host', ['host', '--testing']], ['relay-standin/psss-relay-standin', ['standin']]]) {
-  if (!existsSync(join(BUILD, binary))) sh(...command);
+  if (!APP && !existsSync(join(BUILD, binary))) sh(...command);
 }
 
 // Branded Chrome 137+ ignores --load-extension, so extensions load through the DevTools protocol
 // (Extensions.loadUnpacked), which needs a debugging pipe and --enable-unsafe-extension-debugging.
-async function launch({ profile, extensions, headless, url, hostEnv = {} }) {
+async function launch({ profile, extensions, headless, url, hostEnv = {}, app = false }) {
   // A custom --user-data-dir makes Chrome look for native host manifests inside that directory.
-  sh('install-host', '--testing', '--dir', `chromium=${profile}`);
+  if (app) sh('install-host', '--host', APP_HOST, '--dir', `chromium=${profile}`);
+  else sh('install-host', '--testing', '--dir', `chromium=${profile}`);
   const flags = [
     `--user-data-dir=${profile}`, '--remote-debugging-pipe', '--enable-unsafe-extension-debugging',
     '--no-first-run', '--no-default-browser-check',
@@ -60,6 +70,43 @@ if (KEEP) {
   await new Promise((done) => child.on('exit', done));
   keepRelay.stop();
   process.exit(0);
+}
+
+if (APP) {
+  if (!existsSync(join(APP_HOST, 'psss-native-host'))) throw new Error(`build and sign the dev host first: build.py host --sign "Apple Development: …" --output ${APP_HOST}`);
+  sh('package', '--dev');
+  const profile = mkdtempSync(join(tmpdir(), 'psss-chrome-app-'));
+  const { child, cdp, ids } = await launch({ profile, extensions: [join(BUILD, 'chromium')], headless: true, url: 'about:blank', app: true });
+  let failed = 0;
+  const check = (name, ok, detail = '') => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${ok ? '' : ` ${detail}`}`); if (!ok) failed++; };
+  try {
+    check('the dev key gives the id the host allows', ids[0] === devId);
+    const view = await cdp.openTab('about:blank');
+    await view.goto(`chrome-extension://${devId}/popup.html`);
+    const ping = await view.eval('Host.ping()');
+    if (ping.error === 'not-running') { console.log('Psss is not running: open the app and run again.'); process.exitCode = 2; }
+    else {
+      check('ping is answered by the app', ping.ok === true && ping.app === true && ping.protocol === 5, JSON.stringify(ping));
+      const list = await view.eval('Host.vaults()');
+      check('the real vaults are listed with their states', list.ok === true && Array.isArray(list.vaults) && list.vaults.every((v) => typeof v.state === 'string'), JSON.stringify(list));
+      const origin = 'https://gitforge.example';
+      const found = [];
+      for (const v of list.vaults ?? []) {
+        const c = await view.eval(`Host.candidates(${JSON.stringify(origin)}, ${JSON.stringify(v.id)})`);
+        const q = await view.eval(`Host.search(${JSON.stringify(origin)}, 'a', [], ${JSON.stringify(v.id)})`);
+        found.push(c, q);
+        if (v.state === 'open') check(`${v.id.slice(0, 8)} is open: a list and a search carry no password`, c.ok && q.ok && !/"(secret|password)"/.test(JSON.stringify([c, q])));
+        else check(`${v.id.slice(0, 8)} is ${v.state}: no data`, c.ok === false && q.ok === false && c.candidates === undefined && q.results === undefined && ['locked', 'not-available'].includes(c.error), JSON.stringify([c.error, q.error]));
+      }
+      const bare = await view.eval(`Host.credential('00000000-0000-0000-0000-000000000000', ${JSON.stringify(origin)}, ${JSON.stringify(list.vaults?.[0]?.id ?? 'x')})`);
+      check('a bare credential request releases nothing', bare.ok === false && bare.secret === undefined && ['locked', 'not-found', 'not-available'].includes(bare.error), JSON.stringify(bare));
+      const generated = await view.eval('Host.generate()');
+      check('generate is answered by the app', generated.ok === true && typeof generated.password === 'string' && generated.password.length >= 12);
+      check('nothing but a generate reply carries a password', !/"(secret|password)"/.test(JSON.stringify([ping, list, ...found, bare])));
+    }
+    await view.close();
+  } finally { cdp.close(); child.kill(); await sleep(300); rmSync(profile, { recursive: true, force: true }); }
+  process.exit(failed ? 1 : (process.exitCode ?? 0));
 }
 
 sh('package', '--test', '-t', 'chromium');

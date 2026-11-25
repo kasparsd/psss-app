@@ -149,6 +149,8 @@ final class SessionVaultService: BrowserVaultService, @unchecked Sendable {
         self.session = session
         self.lockedOut = lockedOut
         self.unlock = unlock
+        // What was offered to the popup is forgotten the moment any vault locks (docs/plans/browser-relay.md, section 3).
+        session.onVaultClosed = { _ in BrowserProtocol.ledger.clear() }
     }
 
     func vaults() -> [BrowserVault] { MainActor.assumeIsolated { BrowserVaultSwitch.vaults(session, lockedOut: lockedOut()) } }
