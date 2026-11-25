@@ -39,7 +39,7 @@ export function VaultStates() {
   return (
     <Page
       title="Vault states: one picture everywhere"
-      status={<><strong>Proposal, 2026-11-24: not built; the lead decided the open questions.</strong> Redrawn from the plan after the owner’s review (“all over the place”). One list of states, one vault menu, one Vault row, one table of every surface against every state.</>}
+      status={<><strong>Built (2026-11-24 to 2026-11-25); the lead decided the open questions.</strong> Redrawn from the plan after the owner’s review (“all over the place”). One list of states, one vault menu, one Vault row, one table of every surface against every state.</>}
     >
       <Clarity
         intro={<p>A vault is the same thing wherever it is shown: the app, the lock screen, AutoFill and the browser. The words and the glyph for each state are drawn once and every page uses them.</p>}
@@ -60,16 +60,16 @@ export function VaultStates() {
         <thead><tr><th>Fact</th><th>Values</th></tr></thead>
         <tbody>
           <R cells={['File', 'available · not downloaded yet (iCloud) · not found (moved, deleted, bookmark stale) · can’t be read (damaged, not a vault) · changed elsewhere while open']} />
-          <R cells={['Lock', 'locked · unlocked (only the current vault, only in the process that opened it)']} />
+          <R cells={['Lock', 'locked · unlocked (any number of vaults, only in the process that opened them)']} />
           <R cells={['Quick unlock (saved key)', 'ready (Face ID, Touch ID, passcode) · off (setting) · lost (biometry changed, reinstall) · unavailable now (lockout, no passcode)']} />
           <R cells={['Needs', 'vault password · vault password and key file']} />
-          <R cells={['Role', 'current vault (one per device) · other known vault · sample vault (app only, never AutoFill)']} />
+          <R cells={['Role', 'the vault on screen · other known vault · sample vault (app only, never AutoFill)']} />
         </tbody>
       </table>
       <table className="cmp">
         <thead><tr><th>State</th><th>Glyph</th><th>Subtitle</th><th>It means</th><th>The way forward</th></tr></thead>
         <tbody>
-          <R cells={[<strong key="s">Unlocked</strong>, <Glyph s="open">open padlock</Glyph>, 'Where it is kept (iCloud Drive)', 'Unlocked.', 'Lock it: Lock Passwords, Lock Now, ⌘L.']} />
+          <R cells={[<strong key="s">Unlocked</strong>, 'none: an open vault has no mark; its sidebar section or checked row is the sign', 'Where it is kept (iCloud Drive)', 'Unlocked. Any number of vaults can be open at once.', 'Lock it: Lock [name] on its sidebar header or in the vault menu, Lock All Vaults (⌘L with two or more open), Lock Now.']} />
           <R cells={[<strong key="s">Locked</strong>, <Glyph s="locked">closed padlock</Glyph>, 'Where it is kept (Work.kdbx)', 'Locked, and quick unlock is ready.', 'Face ID or Touch ID opens it; the vault password always works.']} />
           <R cells={[<strong key="s">Needs password</strong>, <Glyph s="needs-password">closed padlock</Glyph>, '“Needs vault password”', 'Locked, and quick unlock is off, lost or unavailable now.', 'The vault password. In the app that is the lock screen’s field; in AutoFill and the browser, the Unlock button.']} />
           <R cells={[<strong key="s">Not available</strong>, <Glyph s="not-found">warning</Glyph>, '“Not downloaded yet”, “Not found” or “Can’t be read”', 'The file cannot be opened at all.', 'Download, Locate… or details, all in Psss. Never solved in AutoFill or the popup.']} />
@@ -84,7 +84,7 @@ export function VaultStates() {
       <Frames>
         <Frame phone label="A · The app’s vault menu (iPhone, iPad)" caption="Safari’s profile-menu structure with the fixed vault order: Passwords (checked, open, so no padlock), then Work locked, Family locked and needs its vault password, Travel, Archive and Taxes with the warning glyph and the reason; a divider, the section “Passwords” with Vault Settings… and Lock Passwords, a divider, then the add items. The Mac and iPad sidebar shows vaults as sections instead."><VaultMenu inline vaults={everyState} /></Frame>
         <Frame phone label="B · The lock screen’s menu" caption="Every lock screen, behind the Vault row: the header “Vault”, every vault in the fixed order (every working vault is locked, Passwords checked) and the add items; no section and no Vault Settings… or Lock (nothing is open). Passwords is the one that will open."><VaultMenu inline locked vaults={everyState.map((v) => (v.state === 'open' ? { ...v, state: 'locked' as const } : v))} /></Frame>
-        <Frame phone label="C · AutoFill and the browser" caption="The real picker variant: header “Vault”, no Lock, no add items (adding a vault is done in the app). Passwords is unlocked here, so it shows the open padlock and is ready to fill; the locked ones are closed (they need unlocking) and the others warning. Choosing a vault changes which vault fills from; no other vault locks."><VaultMenu inline picker vaults={everyState} /></Frame>
+        <Frame phone label="C · AutoFill and the browser" caption="The real picker variant: header “Vault”, no Lock, no add items (adding a vault is done in the app). An open vault has no mark and is ready to fill; locked ones have the closed padlock (they need unlocking) and the others the warning glyph. The popup’s own pick list is a native select with names only, so it has none of these marks. Choosing a vault changes which vault fills from; no other vault locks."><VaultMenu inline picker vaults={everyState} /></Frame>
       </Frames>
 
       <Section title="3. The Vault row, in each state">
@@ -105,7 +105,7 @@ export function VaultStates() {
       <Frames>
         <Frame phone label="L · Popup header, unlocked" caption="Compact: the vault glyph (outside, as a label), then the name with a chevron as a plain pick list, beside “Psss”. The site is not repeated: the address bar shows it."><PopupHeader below={<Logins />}><VaultRow state="unlocked" variant="compact" /></PopupHeader></Frame>
         <Frame phone label="M · Popup header, locked" caption="Unlock beside the pick list. One notice, no list."><PopupHeader below={<VaultNotice kind="needs-password" bio="Touch ID" />}><VaultRow state="locked" variant="compact" /></PopupHeader></Frame>
-        <Frame phone label="N · Popup header, not available" caption="No Unlock; the pick list stays, with the orange warning glyph beside it."><PopupHeader below={<VaultNotice kind="unreadable" name="Taxes" />}><VaultRow name="Taxes" state="unavailable" variant="compact" /></PopupHeader></Frame>
+        <Frame phone label="N · Popup header, not available" caption="No Unlock; the pick list stays and shows the name only (a native select cannot draw a warning glyph); the notice says what is wrong."><PopupHeader below={<VaultNotice kind="unreadable" name="Taxes" />}><VaultRow name="Taxes" state="unavailable" variant="compact" /></PopupHeader></Frame>
       </Frames>
 
       <Frames>
@@ -128,7 +128,7 @@ export function VaultStates() {
             'The app locks with a notice; the new file is read on unlock.']} />
           <R cells={[<strong key="s">Lock screen</strong>,
             'Not shown: nothing to unlock.',
-            'Face ID or Touch ID starts by itself. Way forward: Use Password….',
+            'Face ID or Touch ID starts by itself. Way forward: type the vault password in the form (always shown); Use Face ID asks again.',
             'Password field. Way forward: type the vault password (a Key file row only when the vault uses one).',
             'Vault row names it; notice and Locate Vault File… or Download. Another vault is one tap away in the menu.',
             'Same screen with the notice; unlocking reads the new file.']} />
@@ -171,7 +171,7 @@ export function VaultStates() {
       <Decisions
         items={[
           {
-            decision: <>Five states, the same words and glyphs on every surface: Unlocked (open padlock, spoken “Unlocked”), Locked (closed padlock, spoken “Locked”), Needs password (closed padlock, “Needs vault password”), Not available (warning, “Not downloaded yet”, “Not found” or “Can’t be read”), and Changed elsewhere (no glyph, a notice).</>,
+            decision: <>Five states, the same words and glyphs on every surface: Unlocked (no mark in menus and pickers, spoken “Unlocked”), Locked (closed padlock, spoken “Locked”), Needs password (closed padlock, “Needs vault password”), Not available (warning, “Not downloaded yet”, “Not found” or “Can’t be read”), and Changed elsewhere (no glyph, a notice).</>,
             why: <>The facts are many (file, lock, quick unlock, needs, role); a person needs the few that change what they do next.</>,
           },
           {
@@ -202,9 +202,9 @@ export function VaultStates() {
       </Section>
 
       <History
-        proposal
         entries={[
-          { date: '2026-11-25', text: <>Several vaults can be open at once (owner): the app’s menu shows no padlock on an open vault and the closed one on a locked vault, and offers Lock All Vaults with two or more open; the AutoFill and browser select lists open vaults as ready to fill and locked ones as needing unlock (its open padlock stays); the table says auto-lock locks every vault and that a vault added with Open Vault File… shows the password only on its first unlock. Replaces “one current vault per device”, where choosing another vault locked the open one, and the open padlock on the current vault in frame A. See <a href="#/vault-switcher">Vaults</a>.</> },
+          { date: '2026-11-25', text: <>Built that way, mock follows: no open padlock anywhere. The AutoFill picker shows the closed padlock only on a locked vault and nothing on an open one; the browser popup’s pick list is a native select with names only (no padlock, no warning glyph), and the notice says the state. Replaces the open padlock the AutoFill picker (frame C) and the table’s Unlocked row kept, and the warning glyph on the popup’s pick list (frame N).</> },
+          { date: '2026-11-25', text: <>Several vaults can be open at once (owner): the app’s menu shows no padlock on an open vault and the closed one on a locked vault, and offers Lock All Vaults with two or more open; the AutoFill picker and the browser select list open vaults as ready to fill and locked ones as needing unlock; the table says auto-lock locks every vault and that a vault added with Open Vault File… shows the password only on its first unlock. Replaces “one current vault per device”, where choosing another vault locked the open one, and the open padlock on the current vault in frame A. See <a href="#/vault-switcher">Vaults</a>.</> },
           { date: '2026-11-25', text: <>Vaults keep one order everywhere (Settings › Vaults): the app’s menu (frame A) and the lock screen’s menu (frame B) list every vault with a check on the current one; there are no “Switch to …” rows and the open vault no longer moves into the section header. Replaces the Switch rows. See <a href="#/vault-switcher">Vaults</a>.</> },
           { date: '2026-11-25', text: <>Review fixes: frame A is “The app’s vault menu”, not “dropdown”, and the app-window cell of the table names the sidebar sections and the capsule menu, not “the vault icon’s menu”. The iPhone and iPad menus (A, B) follow Safari’s profile menu (see <a href="#/vault-switcher">Vaults</a>); the Mac sheet frames (J, K, Q) use Mac push buttons and the Unlock in J is the default button; the popup header (L to N) draws the vault glyph outside the pick list and no longer repeats the site, as on <a href="#/browser-extension">Browser extension</a>. Replaces the list with a check on every vault.</> },
           { date: '2026-11-25', text: <>The app’s menu (frame A) lists the vaults first, then Vault Settings… and Lock Passwords, then New Vault…, Open Vault File… and Import from Apple Passwords…; the lock screen’s menu (frame B) ends in the same three add items. Replaces the header naming the open vault, Lock first and the single Add Vault… item. See <a href="#/vault-switcher">Vaults</a>.</> },

@@ -1,34 +1,27 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Against, Approved, Clarity, Decisions, Frame, Frames, History, Page, Section } from '../components/page';
-import { IPad, IPhone, MacWindow } from '../components/devices';
+import { IPhone } from '../components/devices';
+import { Workspace } from '../components/Workspace';
 import { iconU, Mark } from './Logo';
 import { PopUpRow } from '../components/PopUpRow';
 import { Notice } from '../components/Notice';
 import { VaultNotice } from '../components/VaultRow';
-import { BioPrompt } from '../components/BioPrompt';
 import { PasswordField, UnlockRow } from '../components/UnlockRow';
 import { VaultMenu, archiveVault, isUnavailable, passwordsVault, sampleVaults } from '../components/VaultMenu';
 
 type Bio = 'touch' | 'face' | 'none';
-type State = 'ready' | 'password' | 'inactive' | 'failed' | 'working' | 'missing' | 'checking' | 'wrong' | 'changed' | 'reason';
+type State = 'ready' | 'password' | 'failed' | 'working' | 'missing' | 'checking' | 'wrong' | 'changed' | 'reason';
 
 /**
- * The app icon with the live biometric glyph on its corner, as Apple Passwords
- * draws it. The icon is the logo's field: hidden (p and three dots) while
- * locked, shown (psss) while the vault opens. In the mock, clicking the glyph
- * stands in for a recognised finger or face.
+ * The app icon alone (as built, 2026-11-25: no biometric glyph on it; Use Touch ID or Use Face ID under the field asks again). The icon is the logo's field: hidden
+ * (p and three dots) while locked, shown (psss) while the vault opens.
  */
-function LockIcon({ bio, dim, open, onRecognised }: { bio: Bio; dim?: boolean; open?: boolean; onRecognised?: () => void }) {
+export function LockIcon({ open }: { open?: boolean }) {
   return (
     <div className="lk-icon">
       <div className="lg-appicon" style={{ width: 76, height: 76 }}>
         <Mark u={iconU(76)} mask={!open} fade icon />
       </div>
-      {bio !== 'none' && (
-        <button className={`lk-badge${dim ? ' dim' : ''}`} style={{ border: 0, padding: 0, cursor: 'pointer' }} aria-label={bio === 'touch' ? 'Touch ID' : 'Face ID'} onClick={onRecognised}>
-          {bio === 'touch' ? <Fingerprint /> : <FaceGlyph />}
-        </button>
-      )}
     </div>
   );
 }
@@ -65,14 +58,13 @@ function VaultPicker({ current, open: open0, onPick, mac }: { current: string; o
   );
 }
 
-/** The lock screen body, shared by every device. Click "Use Password…" to see the password state. */
+/** The full-screen lock screen of iPhone and compact iPad, as built: the password field and the Unlock row are always there; there is no "Use Password…" step. Mac and regular-width iPad show the same form in the main window (Workspace). */
 export function Lock({ bio, state: s0, vault: vault0 = passwordsVault.name, phone, menu, keyfile, title }: { bio: Bio; state: State; vault?: string; phone?: boolean; menu?: boolean; keyfile?: 'uses' | 'chosen'; title?: string }) {
   // The key file row shows only when it is needed: the vault is known to use one, or one was chosen from the warning.
   const [keyState, setKeyState] = useState<'uses' | 'chosen' | undefined>(keyfile);
   const [vault, setVault] = useState(vault0);
   const [pw, setPw] = useState(s0 === 'checking' ? '••••••••••••' : s0 === 'wrong' ? 'hunter2hunter2' : '');
-  const macTouch = !phone && bio === 'touch';
-  const missing = isUnavailable(vaults.find((v) => v.name === vault)?.state ?? 'locked');
+    const missing = isUnavailable(vaults.find((v) => v.name === vault)?.state ?? 'locked');
   const initial: State = bio === 'none' && s0 === 'ready' ? 'password' : s0;
   void missing;
   const [state, setState] = useState<State>(initial);
@@ -84,22 +76,17 @@ export function Lock({ bio, state: s0, vault: vault0 = passwordsVault.name, phon
   }, [state, initial]);
   const name = bio === 'touch' ? 'Touch ID' : 'Face ID';
   const isMissing = state === 'missing' || missing;
-  const showPassword = macTouch || state === 'password' || state === 'failed' || state === 'wrong' || state === 'checking' || state === 'changed' || state === 'reason' || bio === 'none' || isMissing;
   let line: ReactNode;
   if (state === 'working') line = 'Opening your vault…';
   else if (bio === 'none' || state === 'changed' || state === 'reason') line = <>Enter the vault password.</>;
-  else if (state === 'inactive') line = <>Click this window to use {name}, or enter the vault password.</>;
   else line = <>Use {name} or enter the vault password.</>;
   return (
     <div className={`lk${phone ? " onphone" : ""}`}>
-      <LockIcon bio={macTouch ? 'none' : bio} dim={state === 'inactive' || state === 'working'} open={state === 'working'} onRecognised={() => setState('working')} />
-      <div className="lk-title">{title ?? 'Psss Is Locked'}</div>
+      <LockIcon open={state === 'working'} />
+      <div className="lk-title">{title ?? `Unlock ${vault}`}</div>
       <div className="lk-line">{line}</div>
       {state !== 'working' && <VaultPicker current={vault} open={menu} onPick={setVault} mac={!phone && bio === 'touch'} />}
-      {!showPassword && state !== 'working' && (
-        <button className="btn sq lk-use" onClick={() => setState('password')}>Use Password…</button>
-      )}
-      {showPassword && (
+      {state !== 'working' && (
         <div className="lk-form">
           <PasswordField value={pw} onChange={setPw} dim={state === 'checking'} />
           {state === 'checking' && (
@@ -136,103 +123,81 @@ export function UnlockScreen() {
   return (
     <Page
       title="Unlock screen"
-      status={<><Approved on="2026-11-23" /> One lock screen on every device, as in Apple Passwords. The icon showing the name while the vault opens was approved on 2026-11-24 and is built. The Vault pop-up row shares its rows with the proposed vault menu (sample vaults Passwords and Work); that part is a proposal, not built.</>}
+      status={<><Approved on="2026-11-23" /> As built (2026-11-25): the unlock form is one form on every device. On the Mac and on iPad at regular width it is the content area of the main window beside the sidebar; on iPhone and compact iPad it is a full-screen lock screen with the app icon and a Vault pop-up row. The icon showing the name while the vault opens is built.</>}
     >
       <Clarity
-        intro={<p>One calm screen: the app icon, one line, the vault password field and the buttons Unlock and Use Touch ID (or Face ID), Unlock first. On iPhone and iPad Face ID starts by itself and the form is one tap away (“Use Password…”). On the Mac, when the lock window becomes active and Touch ID is on, Psss shows the system’s Touch ID prompt by itself, without a click, and the form is already under it.</p>}
+        intro={<p>One calm form: a title (“Unlock Passwords”), one line, the vault password field, then one row, Unlock and Use Touch ID (Use Face ID on iPhone and iPad), Unlock first. The form is always there; there is no “Use Password…” step and no biometric glyph on the icon. On iPhone and iPad Face ID starts by itself and Use Face ID asks again. On the Mac, when the form becomes active and Touch ID is on, Psss shows the system’s Touch ID prompt by itself, without a click, and the form is already under it.</p>}
         items={[
-          ['Which thing?', 'The vault named in the line (“Passwords”). Psss stays locked until it is opened.'],
-          ['What must they give?', 'A finger on Touch ID or a glance for Face ID. The vault password works at any time through “Use Password…”.'],
+          ['Which thing?', 'The vault named in the title (“Unlock Passwords”). Other open vaults stay open; this one stays locked until it is opened.'],
+          ['What must they give?', 'A finger on Touch ID or a glance for Face ID, or the vault password, which is always typed straight into the field.'],
           ['What can go wrong?', 'Touch ID or Face ID does not recognise them; it is turned off or no longer matches the vault (changed elsewhere); the vault file is missing; they forgot the password.'],
           ['How do they leave?', 'Quit, or choose or add another vault from the selector under the line. Other open vaults stay open; nothing changes until this vault opens. A vault just added with Open Vault File… shows this screen too, and cancelling leaves it in the list, locked.'],
         ]}
       />
 
       <Section title="1. Mac">
-        <p><strong>Proposal to confirm:</strong> on the Mac the lock screen with its Vault pop-up could become the normal window, with every vault collapsed and locked in the sidebar and the unlock form in the content area. See frame I on <a href="#/vault-switcher">Vaults</a>. These frames stay until the owner decides.</p>
+        <p>On the Mac there is no full-window lock screen (as built, 2026-11-25). The window is always the main window: the sidebar with every locked vault collapsed (or the open vaults expanded), and the unlock form in the content area, spanning the list and the detail, in place of them. Choosing a locked vault while another is open swaps the window to these two columns, the sidebar and the form; the vault’s places reappear in the sidebar once it unlocks. After the auto-lock every vault is locked and the form is for the vault last on screen.</p>
       </Section>
       <Frames>
-        <Frame label="A. Locked, Touch ID prompt" caption="When the window becomes active and Touch ID is on, Psss shows the system’s prompt (“Psss wants to unlock Passwords”) by itself, without a click; the finger answers it. The password form is already under it. Honest limit: macOS shows Touch ID only through this system prompt; Psss cannot listen for a finger silently, so there is always a prompt on screen while Touch ID is waiting.">
-          <MacWindow><div className="lk-win" style={{ position: 'relative' }}><Lock bio="touch" state="ready" /><BioPrompt bio="Touch ID" reason="Psss wants to unlock Passwords" mac sheet /></div></MacWindow>
+        <Frame label="A. Locked, Touch ID prompt" caption="When the form becomes active and Touch ID is on, Psss shows the system’s prompt (“Psss wants to unlock Passwords”) by itself, without a click; the finger answers it. The form is already under it. The prompt belongs to the window in front: while the window is behind another none is shown, and it appears by itself once more when the window comes forward. Honest limit: macOS shows Touch ID only through this system prompt; Psss cannot listen for a finger silently.">
+          <Workspace device="mac" init={{ locked: true, bioPrompt: true }} />
         </Frame>
-        <Frame label="B. Prompt cancelled" caption="After Cancel the window shows what was under the prompt: the password field, then one row, Unlock and Use Touch ID. Unlock is the default button (Return) and is dimmed until a password is typed (click the field and type to see it); the password is the main way in, and Touch ID the alternative people reach for second, so it comes second (in macOS alerts the default button sits on the trailing side, but this is an in-window form, not an alert). Use Touch ID is a normal push button that shows the system prompt again. A key file row appears only for a vault that uses one. Forgot Password and Help are below.">
-          <MacWindow><div className="lk-win"><Lock bio="touch" state="ready" /></div></MacWindow>
-        </Frame>
-        <Frame label="C. Window not in front" caption="The Touch ID prompt belongs to the window in front. While this window is behind another, no prompt is shown and the line says to click it; when the window becomes active again the prompt appears by itself once more. The form stays usable.">
-          <MacWindow><div className="lk-win"><Lock bio="touch" state="inactive" /></div></MacWindow>
+        <Frame label="B. Prompt cancelled" caption="After Cancel the window shows what was under the prompt: the title, the password field, then one row, Unlock and Use Touch ID. Unlock is the default button (Return) and is dimmed until a password is typed (click the field and type to see it); the password is the main way in, and Touch ID the alternative people reach for second, so it comes second (in macOS alerts the default button sits on the trailing side, but this is an in-window form, not an alert). Use Touch ID brings the prompt back. Forgot Password and Help are under the row.">
+          <Workspace device="mac" init={{ locked: true }} />
         </Frame>
         <Frame label="D. Not recognised" caption="After the system’s failed attempts the prompt closes and a notice under the field says so in plain words; Use Touch ID tries again. The prompt comes back by itself when the window is next brought forward. Other problems (turned off, changed elsewhere, vault file missing) have their own messages, shown in this same spot.">
-          <MacWindow><div className="lk-win"><Lock bio="touch" state="failed" /></div></MacWindow>
+          <Workspace device="mac" init={{ locked: true, unlockState: 'failed' }} />
         </Frame>
         <Frame label="E. Touch ID not turned on" caption="No prompt and no Use Touch ID button: the field is focused and Unlock is the only button on the row.">
-          <MacWindow><div className="lk-win"><Lock bio="none" state="ready" /></div></MacWindow>
+          <Workspace device="mac" init={{ locked: true, noBio: true }} />
         </Frame>
       </Frames>
 
-      <Section title="2. iPhone and iPad" />
+<Section title="2. iPhone and iPad" />
       <Frames>
-        <Frame phone label="F. iPhone, Face ID" caption="Face ID starts by itself when the screen appears and each time the app returns to the front. “Use Password…” shows the form (click it): the field, then Unlock with Use Face ID below it.">
+        <Frame phone label="F. iPhone, Face ID" caption="The full-screen lock screen: the app icon, the title “Unlock Passwords” (the vault’s name, not “Psss Is Locked”), one line, the Vault row, then the field with Unlock and, stacked under it, Use Face ID. Face ID starts by itself when the screen appears and each time the app returns to the front; the keyboard is not forced up over it. Use Face ID asks again.">
           <IPhone><Lock bio="face" state="ready" phone /></IPhone>
         </Frame>
-        <Frame phone label="G. iPhone, password" caption="The keyboard comes up with the field focused. Under it Unlock, the filled button, dimmed until a password is typed, and below it Use Face ID. Face ID’s glyph stays; tapping it tries again.">
+        <Frame phone label="G. iPhone, password" caption="The field focused with the keyboard up. Unlock, the filled button, is dimmed until a password is typed, and Use Face ID is below it.">
           <IPhone><Lock bio="face" state="password" phone /></IPhone>
         </Frame>
-        <Frame label="H. iPad" caption="The same screen, centred in the window. On an iPad with Touch ID in the top button, the row reads Unlock and Use Touch ID, and the system prompt is used as on the Mac.">
-          <IPad><div className="lk-win ipad"><Lock bio="face" state="ready" /></div></IPad>
+        <Frame label="H. iPad" caption="At regular width iPad is the Mac’s layout: the sidebar and the form in the content area, with Unlock and Use Face ID (Use Touch ID on an iPad with the Touch ID button) on one row. The full-screen screen above is for iPhone and iPad at compact width (Slide Over, narrow Split View), which have no sidebar.">
+          <Workspace device="ipad" init={{ locked: true }} />
         </Frame>
       </Frames>
 
-      <Section title="3. Choosing another vault">
-        <p>The vault selector sits under the line that names the vault, on every lock screen and every device, even with one vault (its menu is where New Vault…, Open Vault File… and Import from Apple Passwords… live). It is a standard pop-up button: it shows the vault that will open, and its menu lists every available or remembered vault with a checkmark on the current one and where it lives in secondary text. After a separator come the three add items, New Vault…, Open Vault File… and Import from Apple Passwords…. Vaults are always listed in the same order, the order of Settings › Vaults (Passwords, Work, then Archive), on every platform, and the current one never moves to the top. Choosing a vault switches this screen to it at once; nothing is forgotten or opened until its own Touch ID, Face ID or password, and the vaults that are already open stay open (several vaults can be open at once; the auto-lock locks all of them). A vault added with Open Vault File… is shown here at once, with the password field only (frames AD and AE). Click the selector in any frame to try it.</p>
+<Section title="3. Choosing another vault">
+        <p>On the Mac and on iPad at regular width the sidebar is the vault selector: each vault is a section, and choosing a locked one shows this form (see <a href="#/vault-switcher">Vaults</a>). The full-screen lock screen of iPhone and compact iPad has no sidebar, so a <strong>Vault</strong> pop-up row sits under the line that names the vault, even with one vault (its menu is where New Vault…, Open Vault File… and Import from Apple Passwords… live). It is a standard pop-up button: it shows the vault that will open, and its menu lists every known vault in the fixed order of Settings › Vaults, with a checkmark on the current one and where it lives in secondary text; a locked vault has the closed padlock and an unavailable one the warning glyph. After a separator come the three add items. The title follows the choice (“Unlock Work”). Choosing a vault switches this screen to it at once; nothing is opened until its own Face ID or password, and the vaults that are already open stay open (several vaults can be open at once; the auto-lock locks all of them). A vault added with Open Vault File… is shown here at once, with the password field only (frames AD and AE). Click the selector to try it.</p>
       </Section>
       <Frames>
-        <Frame label="I. Mac, menu open" caption="Items say the vault name with, under it in secondary text, where it lives (iCloud Drive, or the file’s name). A vault that cannot be reached says why in the same place, with the orange warning glyph at the row’s end (here “Not found”). It stays in the list so it can still be chosen, read about and removed.">
-          <MacWindow><div className="lk-win" style={{ alignItems: 'start', paddingTop: 20, height: 560 }}><Lock bio="touch" state="ready" menu /></div></MacWindow>
-        </Frame>
-        <Frame phone label="J. iPhone, menu open" caption="The same menu, as a pull-down under the button.">
+        <Frame phone label="J. iPhone, menu open" caption="Items say the vault name with, under it in secondary text, where it lives (iCloud Drive, or the file’s name). A vault that cannot be reached says why in the same place, with the orange warning glyph at the row’s end (here “Not found”). It stays in the list so it can still be chosen, read about and removed.">
           <IPhone><Lock bio="face" state="ready" phone menu /></IPhone>
         </Frame>
-        <Frame label="K. iPad, menu open" caption="The same on iPad.">
-          <IPad><div className="lk-win ipad" style={{ alignItems: 'start', paddingTop: 30, height: 600 }}><Lock bio="face" state="ready" menu /></div></IPad>
-        </Frame>
-        <Frame label="L. Mac, vault not found" caption="Choosing “Archive” (or opening with it remembered) shows the password form and a line naming the vault, where its file was, and the two ways out: choose another vault here, or remove it under Forgot Password. Nothing is deleted by choosing it.">
-          <MacWindow><div className="lk-win"><Lock bio="touch" state="ready" vault="Archive" /></div></MacWindow>
-        </Frame>
-        <Frame phone label="M. iPhone, vault not found" caption="The same on iPhone. The selector stays, so the way out is always one tap away.">
+        <Frame phone label="M. iPhone, vault not found" caption="Choosing “Archive” (or opening with it remembered) shows the title “Unlock Archive”, the password form and a line naming the vault, where its file was, and the two ways out: choose another vault here, or remove it under Forgot Password. The selector stays, so the way out is always one tap away. Nothing is deleted by choosing it.">
           <IPhone><Lock bio="face" state="ready" vault="Archive" phone /></IPhone>
         </Frame>
-        <Frame label="N. iPad, vault not found" caption="The same on iPad.">
-          <IPad><div className="lk-win ipad"><Lock bio="face" state="ready" vault="Archive" /></div></IPad>
-        </Frame>
-
-        <Frame label="AD. Mac, a vault file was just opened" caption="After Open Vault File… the vault is added and this screen is shown, “Unlock Family”, with the password field only: Touch ID is offered after the first unlock. Cancelling leaves Family in the list, locked.">
-          <MacWindow><div className="lk-win"><Lock bio="none" state="ready" vault="Family" title="Unlock Family" /></div></MacWindow>
+        <Frame label="AD. Mac, a vault file was just opened" caption="After Open Vault File… the vault is added and its form is shown in the content area, “Unlock Family”, with the password field only: Touch ID is offered after the first unlock. Cancelling leaves Family in the list, locked.">
+          <Workspace device="mac" init={{ vaults: 'two', added: 'Family', unlock: 'Family' }} />
         </Frame>
         <Frame phone label="AE. iPhone, a vault file was just opened" caption="The same on iPhone: no Use Face ID button until the vault has been unlocked once.">
           <IPhone><Lock bio="none" state="ready" vault="Family" phone title="Unlock Family" /></IPhone>
         </Frame>
-        <Frame label="O. Mac, checking the password" caption="Progress sits under the field with no space held for it beforehand, so the form is not pushed down when idle: the field stays where it was, locked and dimmed, the notice appears under it, and Unlock, which dims, moves down by the notice's height; and the selector and help buttons stay. The same slot is used on iPhone and iPad.">
-          <MacWindow><div className="lk-win"><Lock bio="touch" state="checking" /></div></MacWindow>
+        <Frame label="O. Mac, checking the password" caption="Progress sits under the field with no space held for it beforehand, so the form is not pushed down when idle: the field stays where it was, locked and dimmed, the notice appears under it, and Unlock, which dims, moves down by the notice's height. The same slot is used on iPhone and iPad.">
+          <Workspace device="mac" init={{ locked: true, unlockState: 'checking' }} />
         </Frame>
         <Frame phone label="P. iPhone, checking the password" caption="Same place, under the field; the keyboard stays up.">
           <IPhone><Lock bio="face" state="checking" phone /></IPhone>
         </Frame>
-        <Frame label="Q. iPad, checking the password" caption="Same place.">
-          <IPad><div className="lk-win ipad"><Lock bio="face" state="checking" /></div></IPad>
-        </Frame>
       </Frames>
 
-      <Section title="4. While the vault opens">
+<Section title="4. While the vault opens">
         <p>The icon is the logo's field. Locked, it is hidden: a p and three dots. Once the finger or the face is accepted, or the vault password has been entered, the dots become “sss” one after another while the vault is opened, and then the vault's list replaces the screen. The icon here is drawn by the app, flat, so that it can change; it is not the glass icon from the Home Screen or the Dock. In any frame above, click the glyph on the icon, or Unlock in the password form, to play it; the mock then returns to where it started.</p>
       </Section>
       <Frames>
-        <Frame phone label="R. iPhone, opening" caption="The moment Face ID is asked or the password is entered. The line changes to “Opening your vault…” and the icon reads “psss”. It lasts only as long as opening the vault takes and adds no waiting of its own. With the password that is the second or so the password check needs. With Face ID or Touch ID the vault opens almost at once, so the switch may be cut short or not seen at all.">
+        <Frame phone label="R. iPhone, opening" caption="The moment Face ID is asked or the password is entered. The form beside the sidebar on Mac and iPad draws the same icon and changes it the same way. The line changes to “Opening your vault…” and the icon reads “psss”. It lasts only as long as opening the vault takes and adds no waiting of its own. With the password that is the second or so the password check needs. With Face ID or Touch ID the vault opens almost at once, so the switch may be cut short or not seen at all.">
           <IPhone><Lock bio="face" state="working" phone /></IPhone>
         </Frame>
-        <Frame label="S. Mac, opening" caption="The same on Mac, and on iPad. A finger or face that is not recognised leaves the dots as they are. A wrong password is only known once it has been checked, so the name shows while it is checked and the dots come back together with the message. The sample vault's lock screen keeps the dots: its only wait is the system's prompt. When the app locks again the icon is back to the dots. With Reduce Motion the three letters change at once, with no stagger.">
-          <MacWindow><div className="lk-win"><Lock bio="touch" state="working" /></div></MacWindow>
-        </Frame>
-      </Frames>
+</Frames>
 
       <Section title="5. Notices under the field">
         <p>Progress, a wrong password and every other message share one place: a notice directly under the password field, above the key file row, Unlock and the help buttons. It is a small card with a filled symbol, so it reads as a notice and not as stray text: an orange warning triangle for something that went wrong, a blue “i” for information, a spinner for progress. Red is kept for deletion. Nothing is held in advance, so the idle screen stays compact.</p>
@@ -241,20 +206,19 @@ export function UnlockScreen() {
         <Frame phone label="T. iPhone, wrong password" caption="The field keeps its text and focus; the notice appears under it and is spoken at once (“Warning: …”). Unlock stays below it."><IPhone><Lock bio="face" state="wrong" phone /></IPhone></Frame>
         <Frame phone label="U. iPhone, checking" caption="The same card and place, with a spinner. The field is dimmed and locked."><IPhone><Lock bio="face" state="checking" phone /></IPhone></Frame>
         <Frame phone label="V. iPhone, not recognised" caption="Information, not a mistake in what was typed: a blue “i”, same place."><IPhone><Lock bio="face" state="failed" phone /></IPhone></Frame>
-        <Frame label="W. Mac, wrong password" caption="The same on Mac and iPad."><MacWindow><div className="lk-win" style={{ height: 580 }}><Lock bio="touch" state="wrong" /></div></MacWindow></Frame>
+        <Frame label="W. Mac, wrong password" caption="The same on Mac and iPad, in the form beside the sidebar."><Workspace device="mac" init={{ locked: true, unlockState: 'wrong' }} /></Frame>
         <Frame phone label="X. iPhone, changed elsewhere" caption="The app locks itself when another app or device changed the vault file, and says so in the info notice it shows: “The vault was changed by another app or device and needs your vault password again.” The password form is open; the new file is read when it unlocks."><IPhone><Lock bio="face" state="changed" phone /></IPhone></Frame>
         <Frame phone label="Y. iPhone, why the password is needed" caption="Quick unlock was lost: the same “why” sentence the AutoFill sheet and the popup show (“Face ID changed since Passwords was set up.”), then the way forward. The other two reasons, “Face ID is off for …” and “Face ID is locked out right now.”, read the same way and are drawn on Vault states."><IPhone><Lock bio="face" state="reason" phone /></IPhone></Frame>
-        <Frame label="Z. Mac, changed elsewhere" caption="The same on Mac and iPad."><MacWindow><div className="lk-win" style={{ height: 580 }}><Lock bio="touch" state="changed" /></div></MacWindow></Frame>
+        <Frame label="Z. Mac, changed elsewhere" caption="The same on Mac and iPad, in the form beside the sidebar."><Workspace device="mac" init={{ locked: true, unlockState: 'changed' }} /></Frame>
       </Frames>
 
       <Section title="6. Key file: only when it is needed, and the Mac layout">
-        <p>A key file is rare, so the lock screen shows nothing for it by default: no row, link, pill or disclosure. It appears in two cases. When the vault is known to use one (Psss records that after the first unlock), the Key file row is on the screen from the start (frames AA to AC). When a vault made elsewhere turns out to need one, the wrong-password notice carries a <strong>Choose Key File…</strong> button (frames T and W), which adds the row with the file’s name and a remove button. The Open a Vault File sheet always has its key file field. A hardware key would follow the same rule. On the Mac the label sits right next to its control, right-aligned with a colon, the pair meeting on the window’s centre line.</p>
+        <p>A key file is rare, so the lock screen shows nothing for it by default: no row, link, pill or disclosure. It appears in two cases. When the vault is known to use one (Psss records that after the first unlock), the Key file row is on the screen from the start (frames AA and AB). When a vault made elsewhere turns out to need one, the wrong-password notice carries a <strong>Choose Key File…</strong> button (frames T and W), which adds the row with the file’s name and a remove button. The Open a Vault File sheet always has its key file field. A hardware key would follow the same rule. On the Mac the label sits right next to its control, right-aligned with a colon, the pair meeting on the window’s centre line.</p>
       </Section>
       <Frames>
         <Frame phone label="AA. iPhone, vault uses a key file" caption="The Key file row is under the field from the start, in the same grey row as Vault. Nothing else changes."><IPhone><Lock bio="face" state="password" phone keyfile="uses" /></IPhone></Frame>
         <Frame phone label="AB. iPhone, file chosen" caption="After Choose Key File… (from the warning) or Choose…: the file’s name and a remove button replace “Choose…”."><IPhone><Lock bio="face" state="password" phone keyfile="chosen" /></IPhone></Frame>
-        <Frame label="AC. Mac, vault uses a key file" caption="Labels right-aligned with colons and controls beside them, meeting on the window’s centre line."><MacWindow><div className="lk-win" style={{ height: 520 }}><Lock bio="touch" state="password" keyfile="uses" /></div></MacWindow></Frame>
-      </Frames>
+</Frames>
 
       <Section title="7. Decisions to approve" />
       <Decisions
@@ -283,7 +247,7 @@ export function UnlockScreen() {
             why: <>One place for one action. Two entries for the same action would make the help page look like the place to switch vaults, which is what hid it.</>,
           },
           {
-            decision: <>One calm lock screen on every device: icon, “Psss Is Locked”, one line naming the vault, the password field and Unlock and Use Touch ID (Face ID), Unlock first (one row on Mac and iPad, stacked on iPhone), Unlock the default button and dimmed until a password is typed; the password is the main way in and Touch ID the alternative people reach for second (in macOS alerts the default button is on the trailing side, but this is an in-window form, not an alert). iPhone and iPad show the icon’s Face ID glyph and “Use Password…” first; the Mac shows the form at once.</>,
+            decision: <>One calm unlock form on every device: the app icon, a title naming the vault (“Unlock Passwords”), the password field, and Unlock and Use Touch ID (Face ID), Unlock first (one row on Mac and iPad, stacked on iPhone), Unlock the default button and dimmed until a password is typed; the password is the main way in and Touch ID the alternative people reach for second (in macOS alerts the default button is on the trailing side, but this is an in-window form, not an alert). The form is always shown: there is no “Use Password…” step and no Face ID glyph on the icon. On the Mac and iPad at regular width it is the content area beside the sidebar; iPhone and compact iPad draw it full screen with one line and the Vault row.</>,
             rejected: <>a password-first screen with the help paragraph always shown; Use Touch ID before Unlock; Unlock full width above Use Touch ID on the Mac.</>,
             why: <>Most unlocks are a finger or a face. The password form is one click away and still always works, and help is behind labelled buttons, not hidden.</>,
           },
@@ -293,7 +257,7 @@ export function UnlockScreen() {
             why: <>The owner’s direction, and the honest one: macOS shows Touch ID only through the system prompt, so an app cannot listen for a finger without a prompt on screen. The row’s Use Touch ID is the way back when the prompt was cancelled.</>,
           },
           {
-            decision: <>iPhone and iPad: Face ID starts when the lock screen appears and each time the app comes to the front; the glyph retries.</>,
+            decision: <>iPhone and iPad: Face ID starts when the lock screen appears and each time the app comes to the front; Use Face ID asks again.</>,
           },
           {
             decision: <>The line names the vault and says “vault password”, not “your password”.</>,
@@ -305,7 +269,7 @@ export function UnlockScreen() {
             why: <>Hidden while locked and shown when opened is what the logo already means. It starts as soon as an attempt starts (password submitted, Face ID or Touch ID asked), not when the vault has opened, and nothing is ever held for it (owner, 2026-11-24): if the vault is open first, the list simply replaces the screen. Apple's guidance is to launch instantly and not to brand the launch, and the top left of the main screen is taken by the back button, the sidebar and the window controls.</>,
           },
           {
-            decision: <>The key file row only appears for a vault that uses one, and moves under “Use Password…”.</>,
+            decision: <>The key file row only appears for a vault that uses one, between the notice and the Unlock row.</>,
           },
         ]}
       />
@@ -315,6 +279,7 @@ export function UnlockScreen() {
 
       <History
         entries={[
+          { date: '2026-11-25', text: <>Built that way, mock follows. The unlock form is always shown: “Use Password…” and the biometric glyph on the icon are gone (Use Touch ID or Use Face ID under the field asks again; the system prompt appears by itself). The full-screen lock screen of iPhone and compact iPad is titled “Unlock [name]”, not “Psss Is Locked”. On the Mac and regular-width iPad the form is drawn in the main window beside the sidebar, spanning the list and detail (the icon, “Unlock [name]”, the field, the row, Forgot Password and Help), and choosing a locked vault while another is open swaps the window to those two columns; frames A, B, D, E, H, AD, O, W and Z use it. Replaces the Mac and iPad full-window frames, the Mac’s “window not in front” frame (now said in frame A), the Mac and iPad vault pop-up, vault-not-found, opening and key-file frames (the Mac window has no Vault pop-up; iPhone frames J, M, R, AA and AB stay), and the Face ID glyph and “Use Password…” wording.</> },
           { date: '2026-11-25', text: <>Open Vault File… no longer asks for the password in the add flow: the vault is added and this screen is shown for it, “Unlock [name]”, with the password field and no Touch ID (Face ID) button until the first unlock (new frames AD and AE). Several vaults can be open at once, so choosing a vault here never locks another one. Replaces a password step inside the add flow (none was drawn) and the one-vault-at-a-time wording.</> },
           { date: '2026-11-25', text: <>Unlock form: Unlock first, then Use Touch ID (Face ID), one row on Mac and iPad and stacked on iPhone, Unlock the default button and dimmed until a password is typed; on the Mac the form is shown at once and the system Touch ID prompt appears by itself when the window becomes active, with Use Touch ID, after Unlock, to bring it back (frames A to E). The iPhone and iPad captions follow. Vault menus list every vault in the fixed Settings › Vaults order, current one checked. Replaces a first draft with Use Touch ID before Unlock, the Mac’s silently listening Touch ID glyph (Apple’s embedded view), “Use Password…” on the Mac, Unlock full width above the help buttons, and the “Switch to …” rows on iOS.</> },
           { date: '2026-11-25', text: <>Review fixes. The three add items replace the old “Add Vault…” wording in the section text and the decision, and a vault that is no longer wanted is “removed” (Remove Vault…), not “forgotten”; “dropdown” is gone from the status line. On iPhone and iPad the Vault pop-up’s menu has the structure of Safari’s profile menu (“Switch to …” rows for the other vaults, a divider, the three add items; no section for the locked vault); the Mac keeps its list with a check (frames J and M redrawn). The iPhone menus no longer run past the bottom of the screen. Frame letters now read in page order (A to H, I to Q, R and S, T to W, X to Z, then AA to AC); the Unlock buttons of the Mac window are macOS push buttons. Replaces the out-of-order letters and the old wording.</> },

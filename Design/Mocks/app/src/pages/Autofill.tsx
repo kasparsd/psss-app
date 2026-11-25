@@ -127,7 +127,7 @@ const Unlocking = ({ device, state, keyfile }: { device: Dev; state?: 'idle' | '
 /** Work's logins for the site, after the vault opened (Face ID, or the vault password in the sheet). */
 const WorkList = ({ search = true }: { search?: boolean }) => (
   <Screen device="iphone" title="Choose a Login" vault={<Vr name="Work" />} search={search ? <Field /> : undefined}>
-    <Head>For gitforge.example</Head><div className="grp"><ListRow item={gitforge2} traits={false} trailing={<FillBtn main />} /></div>
+    <Head>For This Site</Head><div className="grp"><ListRow item={gitforge2} traits={false} trailing={<FillBtn main />} /></div>
   </Screen>
 );
 
@@ -168,7 +168,7 @@ export function Autofill() {
   return (
     <Page
       title="AutoFill: choosing a login"
-      status={<><strong>Redrawn 2026-11-24 from the vault-states model; lead-approved, being built.</strong> The picker is built without Unlock beside the Vault row, the in-sheet unlock, the list header, the passkey section and the save frames; those are being built from this page. The browser extension has <a href="#/browser-extension">its own page</a>.</>}
+      status={<><strong>Built (2026-11-24 to 2026-11-25).</strong> The picker, Unlock beside the Vault row, the in-sheet unlock, the list header, the passkey section and the save frames are built from this page; with several vaults open the suggestions are kept per vault. The browser extension has <a href="#/browser-extension">its own page</a>.</>}
     >
       <Clarity
         intro={<p>The system opens this sheet over another app or a web page, in the middle of signing in or saving. The person did not come to browse: they want one login in the field, or a new one saved, and to be back where they were.</p>}
@@ -192,16 +192,16 @@ export function Autofill() {
         <Frame label="D · iPad, searching" caption="Same sheet; the rows are the iPad list’s rounded rows. The pills touch the search field."><Screen device="ipad" title="Choose a Login" vault={<Vr />} search={<Field text="git" />} pills={<Pills counts={counts} />}><SearchList mac /></Screen></Frame>
       </Frames>
       <Frames>
-        <Frame label="E · iPhone, nothing for this site in this vault" phone caption="A notice, the same card as the vault notices: “No logins for this site”, the vault named, and the ways on: search all items below, or choose another vault in the Vault row. No button, because both are controls already on screen. Psss does not search the other vault for the person. The menu is closed here so the notice can be read; frame F opens it."><Screen device="iphone" title="Choose a Login" vault={<Vr />} search={<Field />}><Head>For cloudnest.example</Head><Notice kind="info" title="No logins for this site">Passwords has none for cloudnest.example. Search all items below, or choose another vault above.</Notice></Screen></Frame>
+        <Frame label="E · iPhone, nothing for this site in this vault" phone caption="A notice, the same card as the vault notices: “No logins for this site”, the vault named, and the ways on: search all items below, or choose another vault in the Vault row. No button, because both are controls already on screen. Psss does not search the other vault for the person. The menu is closed here so the notice can be read; frame F opens it."><Screen device="iphone" title="Choose a Login" vault={<Vr />} search={<Field />}><Head>For This Site</Head><Notice kind="info" title="No logins for this site">Passwords has none for this site. Search all items below, or choose another vault above.</Notice></Screen></Frame>
       </Frames>
 
       <Section title="2. Another vault: locked, needs password, not available">
-        <p>Choosing a vault changes which vault the sheet fills from; no other vault locks. A vault that is locked gets a labeled Unlock button at the end of the Vault row and one notice saying why. The vault menu lists every vault with its location, or its state when it is not simply locked; a vault that is open here shows the open padlock (spoken “Unlocked”) and is ready to fill, and one that is not shows the closed one (“Locked”) and needs unlocking.</p>
+        <p>Choosing a vault changes which vault the sheet fills from; no other vault locks. A vault that is locked gets a labeled Unlock button at the end of the Vault row and one notice saying why. The vault menu lists every vault with its location, or its state when it is not simply locked; a vault that is open here has no mark and is ready to fill, and one that is locked shows the closed padlock (“Locked”) and needs unlocking.</p>
         <p>The main story, with Face ID ready: the empty line (frame E), choose Work (F), Face ID (G), Work’s list (H).</p>
       </Section>
       <Frames>
-        <Frame label="F · iPhone, choosing Work" phone caption="From frame E. Passwords, the current vault, has the open padlock; Work’s row has the closed padlock (spoken “Locked”) and its location. Face ID is ready for Work, so choosing it goes straight to the prompt. No Lock and no Add Vault… here; the vault that is open locks."><Screen device="iphone" title="Choose a Login" vault={<Vr menu />} search={<Field />}><Head>For cloudnest.example</Head></Screen></Frame>
-        <Frame label="G · iPhone, Face ID" phone caption="Work is now the current vault and Face ID is asked at once, over the sheet. This is the system’s prompt, not Psss’s. Cancelling it leaves Work locked with Unlock beside the Vault row (frame J)."><Screen device="iphone" title="Choose a Login" vault={<Vr name="Work" unlock />} search={<Field />} overlay={<BioPrompt bio="Face ID" reason="Unlock Work" />}><Head>For cloudnest.example</Head></Screen></Frame>
+        <Frame label="F · iPhone, choosing Work" phone caption="From frame E. Passwords, the current vault, is checked and has no padlock because it is open; Work’s row has the closed padlock (spoken “Locked”) and its location. Face ID is ready for Work, so choosing it goes straight to the prompt. No Lock and no Add Vault… here; the vault that is open locks."><Screen device="iphone" title="Choose a Login" vault={<Vr menu />} search={<Field />}><Head>For This Site</Head></Screen></Frame>
+        <Frame label="G · iPhone, Face ID" phone caption="Work is now the current vault and Face ID is asked at once, over the sheet. This is the system’s prompt, not Psss’s. Cancelling it leaves Work locked with Unlock beside the Vault row (frame J)."><Screen device="iphone" title="Choose a Login" vault={<Vr name="Work" unlock />} search={<Field />} overlay={<BioPrompt bio="Face ID" reason="Unlock Work" />}><Head>For This Site</Head></Screen></Frame>
         <Frame label="H · iPhone, Work’s logins" phone caption="Face ID accepted (or the vault password, frame L): Work’s logins for the site. The Unlock button is gone and the padlock is open; the vault stays open until the sheet closes."><WorkList /></Frame>
       </Frames>
       <Frames>
@@ -282,7 +282,7 @@ export function Autofill() {
             why: <>The sheet cannot open the app, and a notice with words only left the person stuck. One lock screen is one thing to learn; help for a forgotten password lives in the app, which the sheet cannot open.</>,
           },
           {
-            decision: <>The list heading (“For gitforge.example”) is above the card. Rows show name over account, and the website when the name is the account. The pills touch the search field.</>,
+            decision: <>The list heading (“For This Site”) is above the card. Rows show name over account, and the website when the name is the account. The pills touch the search field.</>,
             why: <>The same rows as the app’s list. A heading inside the card read as a row.</>,
           },
           {
@@ -307,7 +307,7 @@ export function Autofill() {
             why: <>“Needs its password” alone left the person guessing what had changed.</>,
           },
           {
-            decision: <>Face ID first: choosing a vault whose quick unlock is ready goes straight to the system’s prompt, then to that vault’s list (frames E to H). The vault menu shows the open padlock on the current vault when it is unlocked here, and the closed one otherwise; the spoken labels are “Unlocked” and “Locked”.</>,
+            decision: <>Face ID first: choosing a vault whose quick unlock is ready goes straight to the system’s prompt, then to that vault’s list (frames E to H). The vault menu shows the closed padlock only on a locked vault and nothing on an open one; the spoken label of the padlock is “Locked”.</>,
             why: <>The common case should be the shortest one, and the glyph must tell the truth about the vault that is current.</>,
           },
           {
@@ -340,6 +340,7 @@ export function Autofill() {
       <History
         proposal
         entries={[
+          { date: '2026-11-25', text: <>Built that way, mock follows. The picker shows the closed padlock only on a locked vault and nothing on an open one (before, the current vault carried an open padlock); frame E’s heading is “For This Site” like the other frames, and its notice reads “Passwords has none for this site” (the page’s host is not repeated, as in the app). With several vaults open, AutoFill suggestions are kept per vault, and a vault not opened since the app launched drops out of the suggestions until it is opened (an open item in the roadmap). Replaces the open padlock, “For cloudnest.example” and the host in the notice.</> },
           { date: '2026-11-25', text: <>Several vaults can be open at once (owner): the Vault select lists open vaults as ready to fill and locked ones as needing unlock (the notice says which), and choosing a vault no longer locks the other one. No frame redrawn. Replaces “one current vault per device”, where choosing a vault made it the app’s vault and locked the open one.</> },
           { date: '2026-11-25', text: <>Fill… and its confirmation are replaced by grouped results with a uniform Fill, at the owner’s request: “For This Site” (website matches), then “Other Matches” (matched by name or search, saved for another site or with no website), each of those rows keeping “Saved for githosting.example” or “No website” as the lookalike-site signal. Frame B and the site list’s heading (“For This Site”, was “For gitforge.example”) redrawn; the “Fill… asks first” footer is gone. The browser popup has the same groups.</> },
           { date: '2026-11-25', text: <>Frame E, nothing for this site: a notice titled “No logins for this site” (the vault notices’ card) with one sentence naming the vault, the search field and the Vault row. Replaces the single line of plain text. The browser popup has the same notice.</> },

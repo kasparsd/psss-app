@@ -73,7 +73,7 @@ export const addItems = ['New Vault…', 'Open Vault File…', 'Import from Appl
 
 /**
  * The vault menu, drawn once (owner, 2026-11-25). Vaults always appear in the same order, the order of Settings › Vaults (the order they were added); the open vault never jumps to the top.
- * A vault that is open has no padlock in the app's menu; a locked one has the closed padlock (owner, 2026-11-25: several vaults can be open at once, so the closed one is what stands out). The picker keeps its open padlock.
+ * A vault that is open has no padlock in the app's menu; a locked one has the closed padlock (owner, 2026-11-25: several vaults can be open at once, so the closed one is what stands out). The AutoFill picker is the same (owner, 2026-11-25, as built): a closed padlock only on a locked vault, nothing on an open one.
  * In the app (iPhone and iPad capsule): one row per vault in that order (a check on the current vault, its name, under it where it is kept or the state's words, a padlock or warning glyph at the trailing end), a divider,
  * a section header with the current vault's name holding Vault Settings… and Lock [name] (and Lock All Vaults when two or more vaults are open), a divider, then the three add items (New Vault…, Open Vault File…, Import from Apple Passwords…). It is there even with one vault.
  *
@@ -97,7 +97,7 @@ export function VaultMenu({ onPick, align = 'left', locked = false, current = pa
   shift?: number;
   /** One vault only: the list holds just the current vault. */
   single?: boolean;
-  /** The names of the vaults that are open (default: only the current one). Open vaults have an open padlock, locked ones a closed one; with two or more open the menu also offers Lock All Vaults. */
+  /** The names of the vaults that are open (default: only the current one). Open vaults have no glyph, locked ones a closed padlock; with two or more open the menu also offers Lock All Vaults. */
   open?: string[];
 }) {
   const pos = inline ? { position: 'static' as const } : align === 'center' ? { left: '50%', transform: 'translateX(-50%)' } : align === 'right' ? { right: -shift, left: 'auto' as const } : { left: 0, right: 'auto' as const };
@@ -113,7 +113,7 @@ export function VaultMenu({ onPick, align = 'left', locked = false, current = pa
         <button key={v.name} role="menuitemradio" aria-checked={v.name === current} onClick={() => (onChoose ? onChoose(v.name) : onPick?.())}>
           <span className="chk">{v.name === current && <CheckIcon />}</span>
           <span><div>{v.name}</div><div className="s">{vaultSubtitle(v)}</div></span>
-          {(v.state !== 'open' || picker) && <VaultStateMark state={v.state} />}
+          {v.state !== 'open' && <VaultStateMark state={v.state} />}
         </button>
       ))}
       {!locked && (

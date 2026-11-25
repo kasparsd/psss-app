@@ -36,7 +36,7 @@ export function VaultRow({ name = 'Passwords', state, variant, menu }: { name?: 
             {menu}
           </span>
         </span>
-        {unlock}
+        {state === 'locked' && unlock}
       </span>
     );
   }

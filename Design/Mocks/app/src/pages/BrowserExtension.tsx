@@ -4,7 +4,7 @@ import type { Item } from '../data';
 import { Notice } from '../components/Notice';
 import { BioPrompt } from '../components/BioPrompt';
 import { VaultRow, VaultNotice } from '../components/VaultRow';
-import { VaultMenu, type VaultState } from '../components/VaultMenu';
+import { CheckIcon } from '../icons';
 import { Caret, FillBtn, Hit, Pills, gitforge, gitforge2, harbor, hosting } from '../components/loginParts';
 
 /* ---------- the browser extension popup ---------- */
@@ -25,11 +25,23 @@ function Browser({ children, title = 'Sign in · Gitforge', url = 'gitforge.exam
   );
 }
 
+/**
+ * The open pick list of the popup's vault select: names only, in the app's fixed order, a check on the chosen one. A native select cannot show a location, a padlock or a warning glyph (built that way, 2026-11-25), so open and locked vaults look the same here; the notice under the header says the state.
+ */
+const vaultNames = ['Passwords', 'Work', 'Archive'];
+const PickList = ({ current }: { current: string }) => (
+  <div className="pop" role="listbox" aria-label="Vault" style={{ minWidth: 150, right: 0, left: 'auto' }}>
+    {vaultNames.map((n) => (
+      <button key={n} role="option" aria-selected={n === current}><span className="chk">{n === current && <CheckIcon />}</span>{n}</button>
+    ))}
+  </div>
+);
+
 /** The header: the title, then (with two or more vaults) the vault glyph and the compact vault picker, with Unlock beside it when the current vault is locked. No site: the address bar shows it. */
-const XHead = ({ vaults, menu, vault = 'Passwords', unlock, gone, states }: { vaults?: boolean; menu?: boolean; vault?: string; unlock?: boolean; gone?: boolean; states?: Record<string, VaultState> }) => (
+const XHead = ({ vaults, menu, vault = 'Passwords', unlock, gone }: { vaults?: boolean; menu?: boolean; vault?: string; unlock?: boolean; gone?: boolean }) => (
   <div className="xp-h" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
     <div style={{ flex: 1, minWidth: 0 }}><div className="t">Psss</div></div>
-    {vaults && <VaultRow name={vault} state={gone ? 'unavailable' : unlock ? 'locked' : 'unlocked'} variant="compact" menu={menu && <VaultMenu picker align="right" current={vault} states={states} />} />}
+    {vaults && <VaultRow name={vault} state={gone ? 'unavailable' : unlock ? 'locked' : 'unlocked'} variant="compact" menu={menu && <PickList current={vault} />} />}
   </div>
 );
 
@@ -57,7 +69,7 @@ export function BrowserExtension() {
   return (
     <Page
       title="Browser extension: the popup"
-      status={<><strong>Redrawn 2026-11-24 from the vault-states model; lead-approved, being built.</strong> The popup, its search and the compact vault picker are built; Unlock beside it, the list heading, the empty-in-this-vault line and the save wording are being built from this page. The system picker has <a href="#/autofill">its own page</a>.</>}
+      status={<><strong>Built (2026-11-24 to 2026-11-25).</strong> The popup, its search, the vault pick list with Unlock beside it, the list heading, the empty-in-this-vault line and the save wording are built from this page; with several vaults open every request names its vault (protocol 4). The system picker has <a href="#/autofill">its own page</a>.</>}
     >
       <Clarity
         intro={<p>The person clicks the Psss button in the toolbar while a page waits. The popup is a small web page that depends on the Mac app’s helper, and the browser closes it the moment it loses focus.</p>}
@@ -160,11 +172,11 @@ export function BrowserExtension() {
       </Frames>
 
       <Section title="3. Vaults, locking and unlocking">
-        <p>The vault select lists the vaults that are open in the app as ready to fill and the locked ones as needing unlock. Choosing another vault here changes which vault the popup fills from; no other vault locks, and several can be open at once. When the chosen vault is locked an Unlock button sits beside the vault pick list and one notice says why. Touch ID takes focus, so the browser closes the popup: the design carries the result to the next click with a check on the toolbar button.</p>
+        <p>The vault pick list is the browser’s own select: names only, in the app’s fixed order, with no padlock or warning glyph; the notice says the state. Choosing another vault here changes which vault the popup lists, searches, fills from and saves into (every request names it); no other vault locks, and several can be open at once. The popup also asks the app to show that vault, so Unlock works on it. When the chosen vault is locked an Unlock button sits beside the vault pick list and one notice says why. Touch ID takes focus, so the browser closes the popup: the design carries the result to the next click with a check on the toolbar button.</p>
         <p>The main story, with Touch ID ready: choose Work (G), Unlock (H), the prompt (I), the check on the toolbar (J), the next click lists Work (K).</p>
       </Section>
       <Frames>
-        <Frame label="G · Choosing Work" caption="Same rows as the app’s menu: name, location, a check on the current vault, a padlock or warning at the end. Passwords, the current vault, shows the open padlock (spoken “Unlocked”); Work shows the closed one (“Locked”): it needs unlocking. No Lock item and no add items here.">
+        <Frame label="G · Choosing Work" caption="The popup’s vault pick list is the browser’s own select, so it lists names only, in the app’s fixed order, with a check on the current vault: no location, no padlock and no warning glyph, because a native select cannot draw them. Whether a vault is open or locked is said by the notice after the choice (frame H), not by the list. No Lock item and no add items here.">
           <Browser>
             <XHead vaults menu />
             <XSearch off />
@@ -172,9 +184,9 @@ export function BrowserExtension() {
             <XFoot />
           </Browser>
         </Frame>
-        <Frame label="G2 · Both vaults open" caption="When Work is open in the app too, its row has the open padlock like Passwords: both are ready to fill, and choosing Work needs no Unlock.">
+        <Frame label="G2 · Both vaults open" caption="The same list when Work is open in the app too: nothing in it changes, and no open padlock is drawn. Both vaults are ready to fill, and choosing Work needs no Unlock (frame K).">
           <Browser>
-            <XHead vaults menu states={{ Work: 'open' }} />
+            <XHead vaults menu />
             <XSearch off />
             <div style={{ height: 120 }} />
             <XFoot />
@@ -196,7 +208,7 @@ export function BrowserExtension() {
         <Frame label="J · Unlocked, popup closed" caption="The app keeps the unlocked vault. The toolbar button shows a small check, and the next click lists that vault’s logins with no second prompt. Where the browser allows it, the extension reopens the popup itself (open question).">
           <Browser closed badge><div /></Browser>
         </Frame>
-        <Frame label="K · The next click: Work’s logins" caption="Work is open here (open padlock in its menu), so the header has no Unlock. The login is Gitforge (work), whose account is sam@work.example.">
+        <Frame label="K · The next click: Work’s logins" caption="Work is open in the app, so the header has no Unlock and no notice. The login is Gitforge (work), whose account is sam@work.example.">
           <Browser>
             <XHead vaults vault="Work" />
             <XSearch />
@@ -231,7 +243,7 @@ export function BrowserExtension() {
             <XFoot />
           </Browser>
         </Frame>
-        <Frame label="O · Not available" caption="No Unlock: nothing here can fix it. The pick list sits beside the vault glyph and carries the orange warning glyph at its end; the notice says what Psss will do, and the pick list stays so Passwords is one click away.">
+        <Frame label="O · Not available" caption="No Unlock: nothing here can fix it. The pick list sits beside the vault glyph and shows the name only, with no warning glyph (a native select cannot draw one); the orange notice says what Psss will do, and the pick list stays so Passwords is one click away.">
           <Browser>
             <XHead vaults vault="Archive" gone />
             <XSearch off />
@@ -258,7 +270,7 @@ export function BrowserExtension() {
       <Decisions
         items={[
           {
-            decision: <>Keep the compact vault picker in the header with two or more vaults, drawn as a plain web select (the name and a chevron) with the app’s vault glyph outside it, to its left, as a label, and add a labeled Unlock button beside it when the chosen vault is locked. The select lists open vaults as ready to fill and locked ones as needing unlock; several vaults can be open at once.</>,
+            decision: <>Keep the compact vault picker in the header with two or more vaults, drawn as a plain web select (the name and a chevron) with the app’s vault glyph outside it, to its left, as a label, and add a labeled Unlock button beside it when the chosen vault is locked. The select lists names only; the notice says whether the chosen vault is open, locked or not available. Several vaults can be open at once.</>,
             why: <>The owner’s review of the earlier drawing (“all over the place”): keep the vault picker, Unlock beside it, one current vault. The browser relay lives in the app, so a separate choice here could not hold anyway.</>,
           },
           {
@@ -298,7 +310,7 @@ export function BrowserExtension() {
             why: <>The popup is Mac only, and the system’s prompt closes it, so the story is drawn end to end.</>,
           },
           {
-            decision: <>The vault menu (picker variant) shows the open padlock on the current vault when it is unlocked, and a not-available vault shows the orange warning glyph on the vault button too. Spoken labels are “Unlocked” and “Locked”.</>,
+            decision: <>The popup’s vault pick list shows names only (a native select), with no padlock or warning glyph on any vault; the notice under the header says whether the chosen vault is locked, needs its password or is not available. Built that way, 2026-11-25.</>,
           },
           {
             decision: <>Losing the popup to the Touch ID prompt is expected: no error, a check on the toolbar button after success, a notice with Unlock after a cancel.</>,
@@ -338,6 +350,7 @@ export function BrowserExtension() {
       <History
         proposal
         entries={[
+          { date: '2026-11-25', text: <>Built that way, mock follows. The vault pick list (frames G, G2) is a native select, which cannot draw a padlock, a location or a warning glyph: it lists names only, in the fixed order, with a check on the current vault, and the state is said by the notice; the warning glyph beside the pick list in frame O is gone too. Every request now names its vault (protocol 4): the popup fills and saves from the vault chosen in it, whichever vault the app shows, and never falls back to another one when that vault locks. Unlock applies to the vault the app shows, so choosing a vault in the popup first asks the app to show it. Replaces the open and closed padlocks and the location lines drawn in the pick list.</> },
           { date: '2026-11-25', text: <>Several vaults can be open at once (owner): the vault select lists open vaults as ready to fill and locked ones as needing unlock, and choosing a vault no longer locks the other one. New frame G2 shows both vaults open. Replaces “one current vault per device”, where choosing another vault made it the app’s vault and locked the open one. The select itself is unchanged.</> },
           { date: '2026-11-25', text: <>Fill… and its ask-first confirmation (frame B2) are replaced by grouped results with a uniform Fill, at the owner’s request. Frame B now shows “For This Site” and “Other Matches”; the second line “Saved for githosting.example” (or “No website”) stays on every Other Matches row as the lookalike-site signal. Replaces the “Fill…” button on logins saved for another site, frame B2 and its Fill Anyway card, and the one flat list.</> },
           { date: '2026-11-25', text: <>Footer, Fill… and the empty state. (1) Every open popup ends with the same Settings button; before, only frame A had one. Only Psss not running (P) has none. Settings is said to open the extension’s own settings page in the browser (as docs/browser-extension.md has it); Safari’s popup has none. (2) Fill… was kept and explained, then replaced the same day (see the next entry). (3) “Nothing for this site” (frame C) is a notice titled “No logins for this site” with a sentence naming the vault and the ways on. Replaces the single line of plain text, “No logins for this site in Passwords. Choose another vault above.”</> },
