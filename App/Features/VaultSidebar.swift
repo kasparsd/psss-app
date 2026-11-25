@@ -75,14 +75,14 @@ struct VaultSections<Places: View>: View {
         let name = VaultName.short(vault.name)
         let state = session.state(of: vault)
         let showing = vault.id == session.reference?.id
-        let tint: Color = state.isAvailable ? (isOpen || showing ? .primary : .secondary) : .orange
+        let tint: Color = state.isAvailable ? (showing ? .primary : .secondary) : .orange
         let label = Label {
             Text(verbatim: name).lineLimit(1).truncationMode(.middle)
         } icon: {
             Image(systemName: isOpen ? VaultSwitcher.symbol : state.symbol)
                 .foregroundStyle(tint)
         }
-        .foregroundStyle(isOpen || showing ? Color.primary : Color.secondary)
+        .foregroundStyle(showing ? Color.primary : Color.secondary)
         #if os(iOS)
         let row = HStack {
             label

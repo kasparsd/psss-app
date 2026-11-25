@@ -35,7 +35,7 @@ rm -rf build/relay-test && mkdir -p build/relay-test
 VAULT_SOURCES=$(sed -n '/^SOURCES="/,/"$/p' scripts/test-kdbx.sh | sed 's/^SOURCES="//; s/"$//; s/\\$//' | tr -s ' \n' '\n\n' | grep -v '^Tests/KDBX/' | grep -v '^$' | tr '\n' ' ')
 # shellcheck disable=SC2086
 scripts/heavy.sh swiftc -O -swift-version 6 -D HOSTLESS_TESTS -D HOSTLESS_UNLOCKGATE $VAULT_SOURCES App/Core/UnlockGate.swift \
-  App/Core/Relay/PeerIdentity.swift App/Features/BrowserRelayServer.swift Tests/Relay/VaultRelay/main.swift -o build/relay-test/psss-relay-vault
+  App/Core/Relay/PeerIdentity.swift App/Core/Relay/RelayClient.swift App/Core/SafariRelay.swift App/Features/BrowserRelayServer.swift Tests/Relay/VaultRelay/main.swift -o build/relay-test/psss-relay-vault
 export PSSS_VAULT_RELAY="$PWD/build/relay-test/psss-relay-vault"
 python3 Extensions/Browser/build.py host --output build/relay-test/release-host
 PSSS_RELEASE_HOST="$PWD/build/relay-test/release-host/psss-native-host" "$NODE" --disable-warning=ExperimentalWarning --test Extensions/Browser/tests/relay/relay.test.mjs

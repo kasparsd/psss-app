@@ -49,7 +49,7 @@ final class BrowserRelayLauncher {
         guard status == .notStarted else { return }
         guard let group = SharedVault.teamPrefixedGroup(in: [SharedVault.groupID]),
               let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group),
-              let policy = PeerPolicy.signedNativeHost() else { status = .notSigned; return }
+              let policy = PeerPolicy.signed() else { status = .notSigned; return }
 
         let service = SessionVaultService(session: session)
         BrowserProtocol.vaultService = service

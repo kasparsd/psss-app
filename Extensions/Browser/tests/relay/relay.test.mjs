@@ -937,3 +937,126 @@ test('save over real vaults: two saves at once make one login, an update needs a
   assert.ok(!SAVE_SECRETS.concat(['Twin-secret-0']).some((s) => server.output().includes(s)), 'no secret in the output');
   await server.kill();
 });
+
+// ---- the Safari extension as a relay client (R5) -----------------------------------------------------------------------
+
+// `psss-relay-vault safari` runs the Safari extension's own logic (`SafariRelay`, App/Core/SafariRelay.swift) for one message,
+// without the app check (an ad hoc client), over a relay that may not exist. The raw socket tests above and below stand for what the
+// app does with the Safari peer: its kind comes from the signature (injected here as `safari` or `safari-cdhash:`), never the message.
+const safariAsk = (data, socket, message, launch = 'no') => {
+  const out = spawnSync(VAULT_RELAY, ['safari', '--socket', socket, '--message', JSON.stringify(message), '--launch', launch], { env: vaultEnv(data), encoding: 'utf8', timeout: 30000 });
+  assert.equal(out.status, 0, `the Safari client ran: ${out.stderr}`);
+  return JSON.parse(out.stdout);
+};
+const cdhash = (binary) => /CDHash=([0-9a-f]+)/.exec(spawnSync('codesign', ['-d', '-vvv', binary], { encoding: 'utf8' }).stderr)?.[1];
+
+test('Safari peer: its caller is fixed to the one name Safari has, and it cannot claim a Chrome origin or the Firefox id', async () => {
+  const r = await relay({ env: { PSSS_STANDIN_PEER: 'safari' }, args: ['--callers', 'compiled'] });
+  assert.deepEqual([(await ask(r.socket, ping('s'), { caller: 'safari' })).ok], [true]);
+  const served = await ask(r.socket, { v: 5, id: 'v', type: 'vaults' }, { caller: 'safari' });
+  assert.deepEqual([served.ok, served.vaults.length > 0], [true, true], 'a Safari peer is served the browser protocol');
+  for (const caller of [CALLER, 'chrome-extension://edkafkibdigcfaipfibhgakgaphaicof/', 'passwords@psss.app', 'Safari', 'safari ', 'Safari-extension', 'x']) {
+    const reply = await ask(r.socket, ping('c'), { caller });
+    assert.deepEqual([reply.ok, reply.error, reply.id], [false, 'forbidden', 'c'], JSON.stringify(caller));
+  }
+  // A caller that is not even text, or empty, is not a Safari caller either.
+  for (const caller of [7, null, '', ['safari'], 'safari\n']) assert.equal((await ask(r.socket, ping('c'), { caller })).ok, false, JSON.stringify(caller));
+  assert.deepEqual([r.proc.exitCode, r.proc.signalCode], [null, null]);
+  await r.kill();
+});
+
+test('native host peer: it cannot claim to be Safari, whatever the message says', async () => {
+  const r = await relay({ args: ['--callers', 'compiled'] });
+  for (const caller of ['safari', 'Safari', 'safari-web-extension']) assert.deepEqual([(await ask(r.socket, ping('n'), { caller })).error], ['forbidden'], caller);
+  assert.equal((await ask(r.socket, ping('n'), { caller: 'passwords@psss.app' })).ok, true);
+  await r.kill();
+});
+
+test('Safari peer by code signature: the client the policy names is served as Safari, a host is not, and Safari is not served as a host', async (t) => {
+  if (!VAULT_RELAY) return t.skip('PSSS_VAULT_RELAY is not set');
+  const data = fresh('data');
+  const wanted = cdhash(VAULT_RELAY);
+  assert.ok(wanted, 'the Safari client stand-in\'s code directory hash is readable');
+  const r = await relay({ env: { PSSS_STANDIN_PEER: `safari-cdhash:${wanted}` }, args: ['--callers', 'compiled'] });
+  const viaClient = safariAsk(data, r.socket, { v: 5, id: 'sp', type: 'ping' });
+  assert.deepEqual([viaClient.ok, viaClient.id, viaClient.app], [true, 'sp', true], 'the Safari client reaches the app through the relay');
+  const asHost = await host(r.socket, [ping('h')]);
+  assert.equal(asHost.replies[0].error, 'failed', 'the native host has another signature: closed with no reply');
+  const other = await exchange(r.socket, [frame(envelope(ping('node'), { caller: 'safari' }))], { readFor: 1500 });
+  assert.deepEqual([other.frames, other.closed], [[], true], 'another process claiming to be Safari gets nothing');
+  await r.kill();
+  // The same signature named as a native host: the Safari client's caller is not on the compiled list, so it is refused.
+  const h = await relay({ env: { PSSS_STANDIN_PEER: `cdhash:${wanted}` }, args: ['--callers', 'compiled'] });
+  const refused = safariAsk(data, h.socket, { v: 5, id: 'sp', type: 'ping' });
+  assert.deepEqual([refused.ok, refused.error, refused.id], [false, 'forbidden', 'sp'], 'the signature says native host, so "safari" is not a caller it may use');
+  await h.kill();
+});
+
+test('Safari client: the app’s reply goes back unchanged, for every kind of request, and nothing changes in the relay', async (t) => {
+  if (!VAULT_RELAY) return t.skip('PSSS_VAULT_RELAY is not set');
+  const data = fresh('data');
+  const r = await relay({ env: { PSSS_STANDIN_PEER: 'safari' }, args: ['--callers', 'compiled'] });
+  const vaults = { v: 5, id: 'a', type: 'vaults' };
+  const direct = await ask(r.socket, vaults, { caller: 'safari' });
+  assert.deepEqual(safariAsk(data, r.socket, vaults), direct, 'vaults');
+  const bad = { v: 5, id: 'b', type: 'credential', vault: 'nope', origin: 'https://x.example', ref: 'r' };
+  assert.deepEqual(safariAsk(data, r.socket, bad), await ask(r.socket, bad, { caller: 'safari' }), 'an error is the app’s error');
+  const unknownType = safariAsk(data, r.socket, { v: 5, id: 'u', type: 'nope' });
+  assert.deepEqual([unknownType.ok, unknownType.error, unknownType.id], [false, 'unsupported', 'u']);
+  const old = safariAsk(data, r.socket, { v: 4, id: 'o', type: 'ping' });
+  assert.deepEqual([old.ok, old.error], [false, 'unsupported'], 'a version mismatch is the protocol’s');
+  // Too large for the relay (64 KiB): answered by the client, never sent.
+  const huge = safariAsk(data, r.socket, { v: 5, id: 'h', type: 'search', vault: 'x', origin: 'https://x.example', query: 'q'.repeat(70 * 1024) });
+  assert.deepEqual([huge.ok, huge.error, huge.id], [false, 'unsupported', 'h']);
+  // Hostile text in the id comes back as it is the app’s: one plain string, no crash.
+  const odd = safariAsk(data, r.socket, { v: 5, id: 'x‮\n../../' + 'y'.repeat(300), type: 'ping' });
+  assert.equal(odd.ok, true);
+  assert.deepEqual([r.proc.exitCode, r.proc.signalCode], [null, null]);
+  await r.kill();
+});
+
+test('Safari client with no app: vaults come from the App Group (every vault locked), unlock needs the app, everything else is not running', async (t) => {
+  if (!VAULT_RELAY) return t.skip('PSSS_VAULT_RELAY is not set');
+  const data = fresh('data');
+  const prepared = vaultTool(data, 'prepare');
+  assert.equal(prepared.status, 0, prepared.stderr);
+  const [, idA, idB] = prepared.stdout.trim().split(' ');
+  const gone = join(fresh('none'), 'Relay/browser.sock'); // nothing there at all
+  const stale = (await (async () => { const r = await relay({ env: { PSSS_STANDIN_PEER: 'safari' } }); await r.kill(); return r.socket; })()); // an app killed with kill -9 leaves its socket file
+  assert.ok(existsSync(stale), 'a killed relay leaves its socket file');
+  for (const socket of [gone, stale, undefined]) {
+    const label = socket === undefined ? 'no group container' : socket === gone ? 'no socket' : 'a stale socket';
+    const ask1 = (message, launch) => spawnSync(VAULT_RELAY, ['safari', ...(socket ? ['--socket', socket] : []), '--message', JSON.stringify(message), '--launch', launch ?? 'no'], { env: vaultEnv(data), encoding: 'utf8', timeout: 30000 });
+    const run = (message, launch) => { const out = ask1(message, launch); assert.equal(out.status, 0, out.stderr); return JSON.parse(out.stdout); };
+    const list = run({ v: 5, id: 'l', type: 'vaults' });
+    assert.deepEqual([list.ok, list.id], [true, 'l'], label);
+    assert.deepEqual(list.vaults.map((v) => v.name).sort(), ['Save A', 'Save B'], `${label}: the stored vaults`);
+    assert.ok(list.vaults.every((v) => v.state !== 'open'), `${label}: none is open without the app`);
+    const active = list.vaults.find((v) => v.active);
+    const other = list.vaults.find((v) => !v.active);
+    assert.ok(active && other);
+    const needs = run({ v: 5, id: 'u', type: 'unlock-vault', vault: active.id });
+    assert.deepEqual([needs.ok, needs.error, needs.id], [false, 'needs-app', 'u'], `${label}: unlock needs the app`);
+    assert.ok(needs.vaults.length === 2);
+    const launched = run({ v: 5, id: 'u', type: 'unlock-vault', vault: active.id }, 'yes');
+    assert.deepEqual([launched.ok, launched.app], [true, 'opened'], `${label}: an app the extension could start has come forward`);
+    const notCurrent = run({ v: 5, id: 'u', type: 'unlock-vault', vault: other.id }, 'yes');
+    assert.equal(notCurrent.error, 'forbidden', `${label}: only the shown vault is unlocked, and the app is not launched for another`);
+    assert.equal(run({ v: 5, id: 'u', type: 'unlock-vault', vault: '00000000-0000-0000-0000-000000000000' }, 'yes').error, 'not-found');
+    for (const message of [
+      { v: 5, id: 'p', type: 'ping' }, { v: 5, id: 'c', type: 'candidates', vault: active.id, origin: 'https://gitforge.example' },
+      { v: 5, id: 's', type: 'search', vault: active.id, origin: 'https://gitforge.example', query: 'git' },
+      { v: 5, id: 'k', type: 'credential', vault: active.id, origin: 'https://gitforge.example', ref: 'x' },
+      { v: 5, id: 'g', type: 'generate' }, { v: 5, id: 'w', type: 'save', vault: active.id, origin: 'https://gitforge.example', account: 'a@b.c', secret: 'Never-sent-secret-1' },
+      { v: 5, id: 'sw', type: 'switch-vault', vault: other.id }, { v: 5, id: 'x', type: 'nope' }]) {
+      const reply = run(message, 'yes');
+      assert.deepEqual([reply.ok, reply.error, reply.id], [false, 'not-running', message.id], `${label}: ${message.type}`);
+    }
+  }
+  // Nothing was written or started by any of it, and no secret is anywhere.
+  const files = [];
+  const walk = (dir) => { for (const f of readdirSync(dir, { withFileTypes: true })) f.isDirectory() ? walk(join(dir, f.name)) : files.push(join(dir, f.name)); };
+  walk(data);
+  for (const file of files) assert.ok(!readFileSync(file).includes('Never-sent-secret-1'), `no secret in ${file.replace(data, '')}`);
+  void idA; void idB;
+});

@@ -311,7 +311,10 @@ test('a sign-up form: generates, fills password and confirmation identically, an
   assert.equal(saved.secret, p, 'the saved secret is the one in the page');
   assert.equal(saved.website, 'localhost');
   assert.equal(await popup.eval(`document.documentElement.outerHTML.includes(${JSON.stringify(p)})`), false, 'the popup never shows the password');
-  // A second run on the same account updates instead of duplicating.
+  // A second run on the same account updates instead of duplicating. The app updates only a login it has just offered for this page
+  // (R4), which is what the popup's list does when it opens, so the popup is opened again first.
+  await popup.eval(`location.reload()`);
+  await until(() => popup.eval(`!document.getElementById('create').hidden && document.getElementById('account').value === 'signup.person@example.net'`), 'create section again');
   await popup.eval(`document.getElementById('generate').click()`);
   await until(async () => /Updated the login/.test(await popup.eval(`document.getElementById('created').textContent`)), 'updated message');
 }));

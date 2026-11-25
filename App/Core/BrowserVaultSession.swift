@@ -60,9 +60,14 @@ enum BrowserVaultFacts {
 /// AutoFill extension read), every vault locked, because this process never holds a key and cannot ask the running app to
 /// open one. A switch is `unsupported`: writing the stored reference from here would leave the running app's `VaultSession` on
 /// another vault than the file says, and its own settings changes would then be dropped (`VaultReference.update` refuses a
-/// stored reference of another vault). Unlock answers `needs-app` ("Open Psss to unlock Work."). Replaced by the app relay
-/// (docs/browser-extension.md).
+/// stored reference of another vault). Unlock answers `needs-app` ("Open Psss to unlock Work."), or `came-forward` when `launchApp`
+/// started the app. The Safari extension uses this only as the fallback when the app is not running; while it runs, every request
+/// goes to the app over the relay (docs/browser-extension.md, "Safari on Mac").
 struct StoredVaultService: BrowserVaultService {
+    /// Starts the app, for an unlock when it is not running. True when it was started. Nothing by default.
+    var launchApp: @Sendable () -> Bool = { false }
+
+
     func vaults() -> [BrowserVault] {
         let active = VaultReference.load()
         return VaultReference.all.map { vault in
@@ -75,7 +80,8 @@ struct StoredVaultService: BrowserVaultService {
     func unlockVault(id: String) -> BrowserUnlockOutcome {
         guard let vault = vaults().first(where: { $0.id == id }) else { return .notFound }
         guard vault.active else { return .notCurrent }
-        return vault.state.isAvailable ? .needsApp : .notAvailable
+        guard vault.state.isAvailable else { return .notAvailable }
+        return launchApp() ? .cameForward : .needsApp
     }
 }
 

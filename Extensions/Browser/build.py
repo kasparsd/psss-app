@@ -261,7 +261,7 @@ def safari_project() -> None:
 # MARK: Native host ------------------------------------------------------------------------
 
 HOST_IDENTIFIER = "app.psss.native-host"
-RELAY_SOURCES = [ROOT / "App" / "Core" / "Relay" / name for name in ("RelayFrame.swift", "PeerIdentity.swift")]
+RELAY_SOURCES = [ROOT / "App" / "Core" / "Relay" / name for name in ("RelayFrame.swift", "PeerIdentity.swift", "RelayClient.swift")]
 HOST_SOURCES = [HERE / "host" / "main.swift", *RELAY_SOURCES]
 HOST_BINARY = OUT / "host" / "psss-native-host"
 TEST_HOST_BINARY = OUT / "host-test" / "psss-native-host"

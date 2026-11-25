@@ -29,6 +29,9 @@ enum RelayLimits {
     static let maxConnections = 8
     /// The longest caller text (an extension origin or an add-on id).
     static let maxCaller = 256
+    /// What the Safari extension puts in `caller`. The app accepts exactly this from a peer whose signature says Safari: a Safari
+    /// peer naming a Chrome origin, or a native host naming this, is refused.
+    static let safariCaller = "safari"
     /// Deepest JSON nesting accepted. Real messages nest three levels (`search` has an array in an object in the envelope).
     static let maxDepth = 8
     static let socketName = "browser.sock"

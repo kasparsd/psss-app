@@ -7,6 +7,9 @@ import Foundation
 //
 //   psss-relay-vault prepare                     make two vaults, "Save A" and "Save B", each with one login; prints `ids A B`
 //   psss-relay-vault serve --directory RELAY_DIR  unlock both and serve; prints `ready <socket>`
+//   psss-relay-vault safari --socket PATH --message JSON [--launch yes|no]
+//                                                the Safari extension's logic (`SafariRelay`) for one message, over a relay at PATH
+//                                                that need not exist (the fallback), without the app check; prints the reply
 //   psss-relay-vault check --vault ID            open the vault from its file in a new process; prints one JSON line of its logins
 //   environment: PSSS_TEST_ROOT (every file lives there; the build refuses to run without it), PSSS_VAULT_PASSWORD
 //
@@ -82,9 +85,19 @@ let credentials = KDBXCredentials(password: password)
     print(String(decoding: json ?? Data("{}".utf8), as: UTF8.self))
 }
 
+func safari() {
+    guard let text = argument("--message"), let data = text.data(using: .utf8), let message = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+        fail("usage: safari --socket PATH --message JSON", code: 64)
+    }
+    let launched = argument("--launch") == "yes"
+    let reply = SafariRelay.answer(message, socketPath: argument("--socket"), verifyApp: false, launchApp: { launched })
+    print(String(decoding: (try? JSONSerialization.data(withJSONObject: reply, options: [.sortedKeys])) ?? Data("{}".utf8), as: UTF8.self))
+}
+
 switch CommandLine.arguments.dropFirst().first {
+case "safari": safari()
 case "prepare": await prepare()
 case "serve": await serve()
 case "check": await check()
-default: fail("usage: psss-relay-vault prepare | serve --directory DIR | check --vault ID", code: 64)
+default: fail("usage: psss-relay-vault prepare | serve --directory DIR | check --vault ID | safari --socket PATH --message JSON", code: 64)
 }

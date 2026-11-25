@@ -16,7 +16,7 @@ final class BrowserRelayServer: @unchecked Sendable {
         /// The `Relay` folder (0700). It holds the socket and the lock file and nothing else.
         var directory: URL
         var policy: PeerPolicy
-        /// Whether the extension that the host names as `caller` may use the relay (the app's compiled list of extension ids).
+        /// Whether the extension that a native host names as `caller` may use the relay (the app's compiled list of extension ids).
         var callerAllowed: @Sendable (String) -> Bool
         /// The request types served. Anything else is answered `unsupported` before it reaches the handler. Nil: every type.
         var allowedTypes: Set<String>?
@@ -175,7 +175,7 @@ final class BrowserRelayServer: @unchecked Sendable {
 
     /// One connection: peer check, one request, one reply. The caller closes `fd`. True when a reply was written.
     private func serve(_ fd: Int32) -> Bool {
-        guard configuration.policy.accepts(fd) else {
+        guard let kind = configuration.policy.identify(fd) else {
             log.debug("peer refused")
             return false
         }
@@ -191,7 +191,12 @@ final class BrowserRelayServer: @unchecked Sendable {
         case .truncated, .failed: return false
         }
         guard case .success(let envelope) = RelayFrame.parse(body) else { return reply("unsupported") }
-        guard configuration.callerAllowed(envelope.caller) else { return reply("forbidden", id: envelope.id) }
+        // Who is calling is what the signature says. A native host names the extension that started it, from the app's compiled list;
+        // the Safari extension has one possible caller. Neither can claim the other's.
+        switch kind {
+        case .nativeHost: guard configuration.callerAllowed(envelope.caller) else { return reply("forbidden", id: envelope.id) }
+        case .safari: guard envelope.caller == RelayLimits.safariCaller else { return reply("forbidden", id: envelope.id) }
+        }
         if let allowed = configuration.allowedTypes, !(envelope.type.map(allowed.contains) ?? false) { return reply("unsupported", id: envelope.id) }
 
         // The request runs on the main actor, one at a time in arrival order. This thread waits for it, and watches the connection:

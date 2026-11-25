@@ -51,11 +51,11 @@ let anyCaller = argument("--callers") != "compiled"
 let types = argument("--allowed-types").map { Set($0.split(separator: ",").map(String.init)) }
 
 if environment["PSSS_STANDIN_PEER"] == "signed" {
-    FileHandle.standardError.write(Data("signed policy: team \(PeerIdentity.ownTeam() ?? "none"), policy \(PeerPolicy.signedNativeHost() == nil ? "missing" : "built")\n".utf8))
+    FileHandle.standardError.write(Data("signed policy: team \(PeerIdentity.ownTeam() ?? "none"), policy \(PeerPolicy.signed() == nil ? "missing" : "built")\n".utf8))
 }
 let server = BrowserRelayServer(.init(
     directory: URL(fileURLWithPath: directory, isDirectory: true),
-    policy: environment["PSSS_STANDIN_PEER"] == "signed" ? (PeerPolicy.signedNativeHost() ?? PeerPolicy.testing("refuse")) : PeerPolicy.testing(environment["PSSS_STANDIN_PEER"] ?? "accept"),
+    policy: environment["PSSS_STANDIN_PEER"] == "signed" ? (PeerPolicy.signed() ?? PeerPolicy.testing("refuse")) : PeerPolicy.testing(environment["PSSS_STANDIN_PEER"] ?? "accept"),
     callerAllowed: { anyCaller || ExtensionIDs.callers.contains($0) },
     allowedTypes: types,
     handler: { request in

@@ -16,6 +16,8 @@ enum PeerIdentity {
     static let hostIdentifier = "app.psss.native-host"
     /// The Mac app's bundle identifier.
     static let appIdentifier = "app.psss.Psss"
+    /// The Safari app extension's bundle identifier (the signing identifier of the embedded `.appex`).
+    static let safariIdentifier = "app.psss.Psss.Safari"
 
     private static let solLocal: Int32 = 0  // SOL_LOCAL
     private static let localPeerToken: Int32 = 0x006  // LOCAL_PEERTOKEN
@@ -77,28 +79,45 @@ enum PeerIdentity {
     }
 }
 
+/// Which kind of caller a verified peer is. It comes only from the peer's signature, never from the message: each kind gets its own
+/// rules for what the envelope's `caller` may say (`BrowserRelayServer`).
+enum PeerKind: Sendable, Equatable {
+    /// The native messaging host that Chrome and Firefox start. The envelope names the extension that started it.
+    case nativeHost
+    /// The Safari app extension of the Mac app. Its one possible `caller` is `RelayLimits.safariCaller`.
+    case safari
+}
+
 /// What the relay server asks of each connection before it reads a byte.
 struct PeerPolicy: Sendable {
-    /// Whether the process on the other end of the connected socket may talk to the relay.
-    let accepts: @Sendable (Int32) -> Bool
+    /// Which kind of caller the process on the other end of the connected socket is, or nil when it may not talk to the relay.
+    let identify: @Sendable (Int32) -> PeerKind?
 
-    /// The shipping policy: the native host, signed with this process's own team.
-    static func signedNativeHost() -> PeerPolicy? {
+    /// The shipping policy: the native host or the Safari extension, signed with this process's own team. An ad hoc build has no
+    /// team and gets no policy.
+    static func signed() -> PeerPolicy? {
         guard let team = PeerIdentity.ownTeam(),
-              let requirement = PeerIdentity.requirement(team: team, identifier: PeerIdentity.hostIdentifier) else { return nil }
-        return PeerPolicy { PeerIdentity.peerSatisfies($0, requirement: requirement) }
+              let host = PeerIdentity.requirement(team: team, identifier: PeerIdentity.hostIdentifier),
+              let safari = PeerIdentity.requirement(team: team, identifier: PeerIdentity.safariIdentifier) else { return nil }
+        return PeerPolicy { fd in
+            if PeerIdentity.peerSatisfies(fd, requirement: host) { return .nativeHost }
+            if PeerIdentity.peerSatisfies(fd, requirement: safari) { return .safari }
+            return nil
+        }
     }
 
     #if HOSTLESS_TESTS || PSSS_RELAY_TESTING
-    /// For hostless tests only (the release app has none of this). `accept`, `refuse`, or `cdhash:<hex>`: accept only the peer
-    /// whose code directory hash is this one, which exercises the real audit-token path with an ad hoc signed client.
+    /// For hostless tests only (the release app has none of this). `accept` (a native host), `safari` (a Safari extension), `refuse`,
+    /// or `cdhash:<hex>` / `safari-cdhash:<hex>`: accept only the peer whose code directory hash is this one, as that kind, which
+    /// exercises the real audit-token path with an ad hoc signed client.
     static func testing(_ mode: String) -> PeerPolicy {
-        if mode == "accept" { return PeerPolicy { _ in true } }
-        if mode.hasPrefix("cdhash:") {
-            let wanted = String(mode.dropFirst(7))
-            return PeerPolicy { fd in PeerIdentity.peerCDHash(fd).map { $0.map { String(format: "%02x", $0) }.joined() } == wanted }
+        if mode == "accept" { return PeerPolicy { _ in .nativeHost } }
+        if mode == "safari" { return PeerPolicy { _ in .safari } }
+        for (prefix, kind) in [("cdhash:", PeerKind.nativeHost), ("safari-cdhash:", PeerKind.safari)] where mode.hasPrefix(prefix) {
+            let wanted = String(mode.dropFirst(prefix.count))
+            return PeerPolicy { fd in PeerIdentity.peerCDHash(fd).map { $0.map { String(format: "%02x", $0) }.joined() } == wanted ? kind : nil }
         }
-        return PeerPolicy { _ in false }
+        return PeerPolicy { _ in nil }
     }
     #endif
 }

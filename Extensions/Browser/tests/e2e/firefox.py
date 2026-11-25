@@ -509,6 +509,9 @@ class FirefoxTests(unittest.TestCase):
             saved = [i for i in json.loads((self.store / "saved-logins.json").read_text()) if i["account"] == "signup.person@example.net"]
             self.assertEqual([(i["secret"], i["website"]) for i in saved], [(p, "localhost")])
             self.assertNotIn(p, self.js(popup, "return document.documentElement.outerHTML"))
+            # The app updates only a login it has just offered for this page (R4): the popup's list does that when it opens.
+            self.m.call("WebDriver:Refresh")
+            wait_for(lambda: not self.js(popup, "return document.getElementById('create').hidden") and self.js(popup, "return document.getElementById('account').value") == "signup.person@example.net", "create section again")
             self.js(popup, "document.getElementById('generate').click()")
             wait_for(lambda: "Updated the login" in self.js(popup, "return document.getElementById('created').textContent"), "updated")
         self.with_popup(f"{SITE}/signup.html", body)
