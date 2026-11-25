@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { BUILD, ROOT, SITE, CDP, until, sleep, startSite } from './lib.mjs';
+import { BUILD, ROOT, SITE, CDP, until, sleep, startSite, startStandIn } from './lib.mjs';
 const sleepMs = sleep;
 
 const args = process.argv.slice(2);
@@ -22,12 +22,17 @@ const KEEP = args.includes('--keep');
 
 const sh = (...a) => execFileSync('python3', [join(ROOT, 'Extensions/Browser/build.py'), ...a], { encoding: 'utf8' });
 const devId = sh('dev-key').match(/ID: (\w+)/)[1];
+// The host is a relay client. The suites run the test host (`build.py host --testing`) against the stand-in relay (the app's real
+// relay server over the prototype's vaults), so nothing here needs a signed app. See docs/browser-extension.md, "Testing".
+for (const [binary, command] of [['host-test/psss-native-host', ['host', '--testing']], ['relay-standin/psss-relay-standin', ['standin']]]) {
+  if (!existsSync(join(BUILD, binary))) sh(...command);
+}
 
 // Branded Chrome 137+ ignores --load-extension, so extensions load through the DevTools protocol
 // (Extensions.loadUnpacked), which needs a debugging pipe and --enable-unsafe-extension-debugging.
 async function launch({ profile, extensions, headless, url, hostEnv = {} }) {
   // A custom --user-data-dir makes Chrome look for native host manifests inside that directory.
-  sh('install-host', '--dir', `chromium=${profile}`);
+  sh('install-host', '--testing', '--dir', `chromium=${profile}`);
   const flags = [
     `--user-data-dir=${profile}`, '--remote-debugging-pipe', '--enable-unsafe-extension-debugging',
     '--no-first-run', '--no-default-browser-check',
@@ -46,10 +51,14 @@ if (KEEP) {
   await startSite({ detach: true });
   const profile = join(BUILD, 'profiles/chrome');
   mkdirSync(profile, { recursive: true });
-  const { child, ids } = await launch({ profile, extensions: [join(BUILD, 'chromium')], headless: false, url: `${SITE}/login.html` });
+  const keepStore = join(BUILD, 'profiles/chrome-store');
+  mkdirSync(keepStore, { recursive: true });
+  const keepRelay = await startStandIn(keepStore); // the prototype's vaults, in build/browser/profiles/chrome-store
+  const { child, ids } = await launch({ profile, extensions: [join(BUILD, 'chromium')], headless: false, url: `${SITE}/login.html`, hostEnv: { PSSS_RELAY_SOCKET: keepRelay.socket } });
   console.log(`Chrome opened with the extension (ID ${ids[0]}). Click its toolbar button or press ⌘⇧P on ${SITE}/login.html.`);
   console.log('Keep this process running: Chrome closes with the debugging pipe. Quit Chrome to finish.');
   await new Promise((done) => child.on('exit', done));
+  keepRelay.stop();
   process.exit(0);
 }
 
@@ -61,12 +70,13 @@ cpSync(ext, foreign, { recursive: true });
 const m = JSON.parse(readFileSync(join(foreign, 'manifest.json'), 'utf8'));
 delete m.key;
 writeFileSync(join(foreign, 'manifest.json'), JSON.stringify(m, null, 2));
-let stopSite, browser, cdp, profile, foreignId, store, hostAccess = true;
+let stopSite, browser, cdp, profile, foreignId, store, relay, hostAccess = true;
 before(async () => {
   stopSite = await startSite();
   profile = mkdtempSync(join(tmpdir(), 'psss-chrome-'));
   store = mkdtempSync(join(tmpdir(), 'psss-store-')); // the host inherits this, so saves stay out of the real prototype directory
-  const started = await launch({ profile, extensions: [ext, foreign], headless: true, url: 'about:blank', hostEnv: { PSSS_PROTOTYPE_DIR: store } });
+  relay = await startStandIn(store); // the relay keeps the vaults (in `store`); the host only talks to it
+  const started = await launch({ profile, extensions: [ext, foreign], headless: true, url: 'about:blank', hostEnv: { PSSS_RELAY_SOCKET: relay.socket } });
   ({ child: browser, cdp } = started);
   assert.equal(started.ids[0], devId, 'the dev key must give the ID the host allows');
   foreignId = started.ids[1];
@@ -81,7 +91,7 @@ before(async () => {
   if (!hostAccess) console.log('# This browser withholds the test variant\'s host permission: tests that need a tab URL are skipped.');
 });
 after(async () => {
-  cdp?.close(); browser?.kill(); stopSite?.();
+  cdp?.close(); browser?.kill(); stopSite?.(); relay?.stop();
   await sleep(300);
   rmSync(profile, { recursive: true, force: true });
   rmSync(store, { recursive: true, force: true });
@@ -135,7 +145,7 @@ test('the registered host answers a ping from the extension', async () => {
   const popup = await cdp.openTab('about:blank');
   await popup.goto(`chrome-extension://${devId}/popup.html`);
   const reply = await popup.eval(`Host.ping()`);
-  assert.deepEqual({ ok: reply.ok, protocol: reply.protocol }, { ok: true, protocol: 4 }, JSON.stringify(reply));
+  assert.deepEqual({ ok: reply.ok, protocol: reply.protocol }, { ok: true, protocol: 5 }, JSON.stringify(reply));
   await popup.close();
 });
 
@@ -534,10 +544,23 @@ test('the create section is not offered while the current vault is locked, and r
   } finally { setVaults(null); }
 }));
 
+test('without the app the popup says Psss is not open, and it works again once the app is back', { skip: false }, (t) => !hostAccess ? t.skip('host permission withheld in this browser') : withPopup(`${SITE}/login.html`, async ({ popup }) => {
+  await relay.kill(); // the app is gone with no goodbye: its socket file is left behind
+  try {
+    await popup.eval(`location.reload()`);
+    await until(async () => (await text(popup, 'status')) === 'Psss is not open.', 'the not-open notice');
+    assert.equal(await visible(popup, 'search'), false, 'nothing to search without the app');
+    assert.equal(await popup.eval(`Host.ping().then((r) => r.error)`), 'not-running');
+  } finally {
+    relay = await startStandIn(store, [], relay.root); // the next app run takes the lock and replaces the old socket
+  }
+  assert.equal(await popup.eval(`Host.ping().then((r) => r.ok && r.app)`), true);
+}));
+
 test('a different extension ID cannot use the native host', async () => {
   const popup = await cdp.openTab('about:blank');
   await popup.goto(`chrome-extension://${foreignId}/popup.html`);
-  const error = await popup.eval(`api.runtime.sendNativeMessage(PROTOCOL.host, {v: 4, id: 'x', type: 'ping'}).then(() => null, (e) => e.message)`);
+  const error = await popup.eval(`api.runtime.sendNativeMessage(PROTOCOL.host, {v: 5, id: 'x', type: 'ping'}).then(() => null, (e) => e.message)`);
   assert.match(error, /forbidden/i, 'Chrome must refuse an extension that is not in allowed_origins');
   const reply = await popup.eval(`Host.ping()`);
   assert.equal(reply.ok, false);

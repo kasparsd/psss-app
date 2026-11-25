@@ -42,6 +42,10 @@ struct PsssApp: App {
                 .environment(incomingCodes)
                 // A site's “set up authenticator” link. It only queues; the unlocked vault asks which login it belongs to.
                 .onOpenURL { incomingCodes.receive($0) }
+                #if os(macOS)
+                // The browser relay starts once, as soon as the session exists. Later windows find it running.
+                .task { BrowserRelayLauncher.shared.startIfNeeded(session: session) }
+                #endif
         }
         #if os(macOS)
         .defaultSize(width: 1100, height: 680)

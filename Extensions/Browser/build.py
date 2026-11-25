@@ -7,7 +7,10 @@ Output goes to build/browser (ignored by git). See docs/browser-extension.md.
   build.py check                      validate every target against store requirements
   build.py package [-t TARGET]        stage, validate and zip: chromium, firefox, safari, all
   build.py safari-project             run Apple's packager on the staged Safari extension
-  build.py host [--sign IDENTITY]     compile the universal native host
+  build.py host [--sign IDENTITY]     compile the universal native host (a relay client, signed with -i app.psss.native-host)
+  build.py host --output DIR          build into DIR instead of build/browser/host
+  build.py host --testing             the test host: reads PSSS_RELAY_SOCKET, skips the app check (build/browser/host-test, never shipped)
+  build.py standin                    compile the stand-in relay the tests talk to (tests/relay-standin)
   build.py dev-key                    create a stable dev extension ID for Chromium browsers
   build.py install-host [--uninstall] register the host for installed browsers (development)
   build.py doctor                     report which browsers are registered and whether it will work
@@ -257,31 +260,66 @@ def safari_project() -> None:
 
 # MARK: Native host ------------------------------------------------------------------------
 
-HOST_SOURCES = [HERE / "host" / "main.swift"] + [
+HOST_IDENTIFIER = "app.psss.native-host"
+RELAY_SOURCES = [ROOT / "App" / "Core" / "Relay" / name for name in ("RelayFrame.swift", "PeerIdentity.swift")]
+HOST_SOURCES = [HERE / "host" / "main.swift", *RELAY_SOURCES]
+HOST_BINARY = OUT / "host" / "psss-native-host"
+TEST_HOST_BINARY = OUT / "host-test" / "psss-native-host"
+HEAVY = ROOT / "scripts" / "heavy.sh"  # every compile shares the machine's heavy-job slots (AGENTS.md)
+# What the stand-in relay compiles besides the relay itself: the browser protocol and the prototype's vaults.
+STANDIN_SOURCES = [HERE / "tests" / "relay-standin" / "main.swift", *sorted((ROOT / "App" / "Core" / "Relay").glob("*.swift")), ROOT / "App" / "Features" / "BrowserRelayServer.swift"] + [
     ROOT / "App" / "Core" / name for name in ("VaultItem.swift", "SampleVault.swift", "SharedVault.swift", "SiteMatch.swift", "PublicSuffixList.swift", "Passkey.swift", "TOTP.swift", "PasswordGenerator.swift", "BrowserPrototypeStore.swift", "BrowserProtocol.swift", "BrowserVaults.swift", "DisplayText.swift", "HostDisplay.swift", "ItemSearch.swift", "CardNumber.swift", "CardBrand.swift", "GeneratorSettings.swift", "GeneratorText.swift", "PasswordRules.swift", "AppleStyle.swift", "OffensiveFilter.swift", "WordList.swift")
 ]
-HOST_BINARY = OUT / "host" / "psss-native-host"
+STANDIN_BINARY = OUT / "relay-standin" / "psss-relay-standin"
+ONLY_IN_TEST_HOST = [b"PSSS_RELAY_SOCKET"]  # the release host must not contain these
 
 
-def build_host(identity: str | None) -> None:
-    HOST_BINARY.parent.mkdir(parents=True, exist_ok=True)
+def release_host_problems(binary: Path = HOST_BINARY) -> list[str]:
+    """The release host takes nothing from the environment: a variable that moves its socket would let any local process stand in for the app."""
+    if not binary.exists():
+        return []
+    data = binary.read_bytes()
+    return [f"{binary.relative_to(ROOT)} contains {name.decode()}: the release host must not read a socket path from the environment"
+            for name in ONLY_IN_TEST_HOST if name in data]
+
+
+def compile_swift(output: Path, sources: list[Path], flags: list[str], universal: bool) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
     slices = []
-    for arch in ("arm64", "x86_64"):
-        path = HOST_BINARY.with_name(f"host-{arch}")
-        subprocess.run(["swiftc", "-O", "-target", f"{arch}-apple-macos14.0", "-o", str(path),
-                        *map(str, HOST_SOURCES)], check=True)
+    for arch in (("arm64", "x86_64") if universal else (None,)):
+        path = output.with_name(f"{output.name}-{arch}") if arch else output
+        target = ["-target", f"{arch}-apple-macos14.0"] if arch else []
+        subprocess.run([str(HEAVY), "swiftc", "-O", "-swift-version", "6", *target, *flags, "-o", str(path), *map(str, sources)], check=True)
         slices.append(str(path))
-    subprocess.run(["lipo", "-create", "-output", str(HOST_BINARY), *slices], check=True)
-    for s in slices:
-        os.remove(s)
-    # Ad hoc by default. A release host needs Developer ID, the hardened runtime and notarization.
-    sign = ["codesign", "--force", "--sign", identity or "-"] + (["--options", "runtime", "--timestamp"] if identity else [])
-    subprocess.run([*sign, str(HOST_BINARY)], check=True)
-    print(f"host: {HOST_BINARY.relative_to(ROOT)}")
+    if universal:
+        subprocess.run(["lipo", "-create", "-output", str(output), *slices], check=True)
+        for s in slices:
+            os.remove(s)
 
 
-def host_manifest(kind: str, callers: list[str]) -> dict:
-    base = {"name": HOST_NAME, "description": HOST_DESCRIPTION, "path": str(HOST_BINARY), "type": "stdio"}
+def build_host(identity: str | None, testing: bool = False, output: str | None = None) -> None:
+    binary = Path(output).resolve() / "psss-native-host" if output else TEST_HOST_BINARY if testing else HOST_BINARY
+    compile_swift(binary, HOST_SOURCES, ["-D", "PSSS_RELAY_TESTING"] if testing else [], universal=True)
+    # Signed with a fixed identifier, which is what the app's requirement names. Ad hoc by default (then the host cannot know its
+    # team and answers `not-verified`: only the test host works that way). The real relay needs the team's Apple Development
+    # identity here; a release host needs Developer ID, the hardened runtime and notarization.
+    release = identity is not None and identity.startswith("Developer ID")
+    sign = ["codesign", "--force", "--sign", identity or "-", "-i", HOST_IDENTIFIER] + (["--options", "runtime", "--timestamp"] if release else [])
+    subprocess.run([*sign, str(binary)], check=True)
+    if not testing:
+        problems = release_host_problems(binary)
+        if problems:
+            fail("\n".join(problems))
+    print(f"host: {binary.relative_to(ROOT) if binary.is_relative_to(ROOT) else binary}{' (testing: reads PSSS_RELAY_SOCKET, skips the app check; never ship it)' if testing else ''}")
+
+
+def build_standin() -> None:
+    compile_swift(STANDIN_BINARY, STANDIN_SOURCES, ["-D", "PSSS_RELAY_TESTING", "-D", "DEBUG"], universal=False)
+    print(f"stand-in relay: {STANDIN_BINARY.relative_to(ROOT)}")
+
+
+def host_manifest(kind: str, callers: list[str], binary: Path = HOST_BINARY) -> dict:
+    base = {"name": HOST_NAME, "description": HOST_DESCRIPTION, "path": str(binary), "type": "stdio"}
     if kind == "chromium":
         base["allowed_origins"] = [f"chrome-extension://{c}/" for c in callers]  # no wildcards allowed
     else:
@@ -306,19 +344,24 @@ def installed(app_names: list[str], support: Path) -> bool:
     return support.is_dir() or any((d / n).exists() for d in APP_DIRS for n in app_names)
 
 
-def install_host(chrome_ids: list[str] | None, uninstall: bool, extra_dirs: list[str] | None) -> None:
+def install_host(chrome_ids: list[str] | None, uninstall: bool, extra_dirs: list[str] | None, testing: bool = False, host_dir: str | None = None) -> None:
     """Writes one manifest per browser that has a profile directory. Any other Chromium or Firefox
-    derivative works with --dir (its user-data directory) plus --kind."""
+    derivative works with --dir (its user-data directory) plus --kind. `testing` registers the test host."""
+    host_binary = Path(host_dir).resolve() / "psss-native-host" if host_dir else TEST_HOST_BINARY if testing else HOST_BINARY
     ids = chromium_ids(chrome_ids)
     if not uninstall:
-        if not HOST_BINARY.exists():
-            fail("build the host first: build.py host")
+        if not host_binary.exists():
+            fail("build the host first: build.py host" + (" --testing" if testing else ""))
         if not ids:
             fail("pass --chrome-id, or run build.py dev-key so a dev ID exists")
         callers = [f"chrome-extension://{i}/" for i in ids] + [firefox_id()]
-        (HOST_BINARY.parent / "allowed-callers.txt").write_text("\n".join(callers) + "\n")
-    targets = [(n, SUPPORT / d, "chromium", s) for n, (d, s, _) in CHROMIUM_BROWSERS.items()]
-    targets.append(("Firefox and forks", SUPPORT / "Mozilla", "firefox", "documented"))
+        (host_binary.parent / "allowed-callers.txt").write_text("\n".join(callers) + "\n")
+    # The test host is registered only where --dir says (a throwaway profile): it must never replace the person's own registration.
+    targets = [] if testing else [(n, SUPPORT / d, "chromium", s) for n, (d, s, _) in CHROMIUM_BROWSERS.items()]
+    if not testing:
+        targets.append(("Firefox and forks", SUPPORT / "Mozilla", "firefox", "documented"))
+    elif not extra_dirs:
+        fail("--testing needs --dir KIND=DIRECTORY: the test host is never registered in a browser's own folders")
     for entry in extra_dirs or []:
         kind, _, directory = entry.partition("=")
         if kind not in ("chromium", "firefox") or not directory:
@@ -334,7 +377,7 @@ def install_host(chrome_ids: list[str] | None, uninstall: bool, extra_dirs: list
                 print(f"{name}: removed")
             continue
         manifest_path.parent.mkdir(exist_ok=True)
-        manifest_path.write_text(json.dumps(host_manifest(kind, ids if kind == "chromium" else [firefox_id()]), indent=2) + "\n")
+        manifest_path.write_text(json.dumps(host_manifest(kind, ids if kind == "chromium" else [firefox_id()], host_binary), indent=2) + "\n")
         print(f"{name}: {manifest_path} ({status} location)")
 
 
@@ -393,30 +436,37 @@ def main() -> None:
         p.add_argument("--test", action="store_true", help="build the automated-test variant (localhost host permissions and a hook; never archived)")
     sub.add_parser("safari-project")
     h = sub.add_parser("host")
-    h.add_argument("--sign", metavar="IDENTITY")
+    h.add_argument("--sign", metavar="IDENTITY", help="a code-signing identity name (the team's Apple Development certificate for the real relay)")
+    h.add_argument("--output", metavar="DIR", help="build into DIR instead of build/browser/host (the tests use a scratch folder, so the registered host is not replaced)")
+    h.add_argument("--testing", action="store_true", help="the test host (PSSS_RELAY_SOCKET, no app check); built beside, never over, the release host")
+    sub.add_parser("standin")
     sub.add_parser("dev-key")
     i = sub.add_parser("install-host")
     i.add_argument("--chrome-id", action="append", help="extra Chromium extension ID to allow (repeatable)")
     i.add_argument("--dir", action="append", metavar="KIND=DIRECTORY", help="register in another Chromium or Firefox derivative's user directory")
     i.add_argument("--uninstall", action="store_true")
+    i.add_argument("--testing", action="store_true", help="register the test host (build.py host --testing)")
+    i.add_argument("--host", metavar="DIR", help="register the host built in DIR (build.py host --output DIR) instead of build/browser/host")
     sub.add_parser("doctor")
     args = parser.parse_args()
 
     if args.command in ("check", "package"):
         targets = TARGET_NAMES if args.target == "all" else [args.target]
         if args.command == "check":
-            problems = [p for t in targets for p in check(t, stage(t, args.dev, args.test), args.test)]
+            problems = [p for t in targets for p in check(t, stage(t, args.dev, args.test), args.test)] + release_host_problems()
             print("\n".join(problems) if problems else f"ok: {', '.join(targets)}")
             sys.exit(1 if problems else 0)
         package(targets, args.dev, args.test)
     elif args.command == "safari-project":
         safari_project()
     elif args.command == "host":
-        build_host(args.sign)
+        build_host(args.sign, args.testing, args.output)
+    elif args.command == "standin":
+        build_standin()
     elif args.command == "dev-key":
         dev_key()
     elif args.command == "install-host":
-        install_host(args.chrome_id, args.uninstall, args.dir)
+        install_host(args.chrome_id, args.uninstall, args.dir, args.testing, args.host)
     elif args.command == "doctor":
         sys.exit(doctor())
 

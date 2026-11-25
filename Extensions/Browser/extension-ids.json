@@ -1,7 +1,9 @@
 {
-  "comment": "Chromium extension IDs the native host must accept. The dev ID is derived from build/browser/dev-key.pem. Chrome Web Store and Edge Add-ons each assign their own ID on first upload; fill them in then. Brave, Arc, Vivaldi and Opera install from the Chrome Web Store and share its ID. Firefox and its forks use the add-on ID in targets/firefox.json.",
+  "comment": "Chromium extension IDs the native host must accept. Chrome Web Store and Edge Add-ons each assign their own ID on first upload; fill them in then. Brave, Arc, Vivaldi and Opera install from the Chrome Web Store and share its ID. Firefox and its forks use the add-on ID in targets/firefox.json. The app compiles these (scripts/generate-extension-ids.mjs) and checks the caller against them.",
   "chromium": {
     "chrome-web-store": null,
     "edge-add-ons": null
-  }
+  },
+  "development": "edkafkibdigcfaipfibhgakgaphaicof",
+  "developmentComment": "The ID that build/browser/dev-key.pem gives (python3 Extensions/Browser/build.py dev-key). Known to debug builds of the app only. A new dev key means a new ID here, then run node scripts/generate-extension-ids.mjs."
 }

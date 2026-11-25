@@ -2,7 +2,8 @@
 import { spawn } from 'node:child_process';
 import { createConnection } from 'node:net';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { mkdtempSync, rmSync } from 'node:fs';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 export const BUILD = resolve(ROOT, 'build/browser');
@@ -31,6 +32,29 @@ export async function startSite({ detach = false } = {}) {
   if (detach) child.unref();
   await until(() => portOpen(8080), 'test site on :8080');
   return () => { if (!detach) child.kill(); };
+}
+
+/**
+ * Starts the stand-in relay (build.py standin): the app's relay server over the prototype's vaults, which keeps its state in
+ * `store`. Its socket sits in a short folder under /tmp (a socket path holds at most 103 bytes). Resolves when it listens.
+ * Returns the socket path for the host (`PSSS_RELAY_SOCKET`) and a stop function.
+ */
+export async function startStandIn(store, args = [], folder) {
+  const root = folder ?? mkdtempSync('/tmp/psss-rl-');
+  const child = spawn(join(BUILD, 'relay-standin/psss-relay-standin'), ['--directory', join(root, 'Relay'), ...args],
+    { stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, PSSS_PROTOTYPE_DIR: store } });
+  await new Promise((ok, fail) => {
+    child.stdout.once('data', (d) => (String(d).startsWith('ready ') ? ok() : fail(new Error(`stand-in relay: ${d}`))));
+    child.once('exit', (code) => fail(new Error(`stand-in relay exited with ${code}`)));
+  });
+  const exited = new Promise((done) => child.once('close', done));
+  return {
+    socket: join(root, 'Relay/browser.sock'),
+    root,
+    /** SIGKILL, as a crash: the socket file and lock file stay behind, and a new relay on the same folder must take over. */
+    async kill() { child.kill('SIGKILL'); await exited; },
+    stop() { child.kill(); rmSync(root, { recursive: true, force: true }); },
+  };
 }
 
 /**

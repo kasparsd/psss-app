@@ -1,6 +1,10 @@
 """Protocol test for the native host: framing, caller check, origin rules and matching.
 
-Run after `build.py host`:  python3 -m unittest discover -s Extensions/Browser/tests
+The host is a relay client. These tests run the test host (`build.py host --testing`) against the stand-in relay
+(`build.py standin`: the app's real relay server over the prototype's vaults), so the whole path is the shipping one except the
+two signature checks. Build both first, or run scripts/test-relay.sh, which does:
+  python3 Extensions/Browser/build.py host --testing && python3 Extensions/Browser/build.py standin
+  python3 -m unittest discover -s Extensions/Browser/tests -p "host_test.py"
 Uses the sample vault, whose login for "localhost" is the Sample Site login.
 """
 import json
@@ -13,7 +17,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-BINARY = ROOT / "build" / "browser" / "host" / "psss-native-host"
+BINARY = ROOT / "build" / "browser" / "host-test" / "psss-native-host"
+STANDIN = ROOT / "build" / "browser" / "relay-standin" / "psss-relay-standin"
 CALLER = "chrome-extension://abcdefghijklmnopabcdefghijklmnop/"
 
 
@@ -31,7 +36,22 @@ def replies(data: bytes) -> list[dict]:
     return out
 
 
-@unittest.skipUnless(BINARY.exists(), "build the host first: Extensions/Browser/build.py host")
+def start_standin(store, extra_env=None, *args):
+    """Starts a stand-in relay on its own short socket path. Returns (process, socket path, folder to delete)."""
+    root = tempfile.mkdtemp(prefix="psss-rl-", dir="/tmp")
+    p = subprocess.Popen([str(STANDIN), "--directory", f"{root}/Relay", *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                         env={**os.environ, "PSSS_PROTOTYPE_DIR": str(store), **(extra_env or {})})
+    line = p.stdout.readline()
+    assert line.startswith("ready "), f"the stand-in relay did not start: {line!r} {p.stderr.read() if p.poll() is not None else ''}"
+    return p, f"{root}/Relay/browser.sock", root
+
+
+def stop_standin(p, root):
+    p.kill(); p.wait(); p.stdout.close(); p.stderr.close()
+    shutil.rmtree(root, ignore_errors=True)
+
+
+@unittest.skipUnless(BINARY.exists() and STANDIN.exists(), "build both first: build.py host --testing && build.py standin")
 class HostTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -41,15 +61,17 @@ class HostTests(unittest.TestCase):
         (cls.dir / "allowed-callers.txt").write_text(CALLER + "\npasswords@psss.app\n")
         cls.store = cls.dir / "store"  # saved logins never touch the real prototype directory
         cls.store.mkdir()
+        cls.relay, cls.socket, cls.relay_root = start_standin(cls.store)
 
     @classmethod
     def tearDownClass(cls):
+        stop_standin(cls.relay, cls.relay_root)
         shutil.rmtree(cls.dir)
 
-    def run_host(self, messages, args=(CALLER,), raw=None):
+    def run_host(self, messages, args=(CALLER,), raw=None, socket=None):
         data = raw if raw is not None else b"".join(frame(m) for m in messages)
         p = subprocess.run([str(self.host), *args], input=data, capture_output=True, timeout=20,
-                           env={**os.environ, "PSSS_PROTOTYPE_DIR": str(self.store)})
+                           env={**os.environ, "PSSS_RELAY_SOCKET": socket or self.socket})
         return p, replies(p.stdout)
 
     NAMED = ("candidates", "search", "credential", "card-candidates", "card")
@@ -57,11 +79,12 @@ class HostTests(unittest.TestCase):
     def req(self, type, **fields):
         """Requests that read logins name their vault (protocol 4); the first vault is the default of these tests."""
         named = {"vault": "passwords"} if type in self.NAMED else {}
-        return {"v": 4, "id": "1", "type": type, **named, **fields}
+        return {"v": 5, "id": "1", "type": type, **named, **fields}
 
     def test_ping(self):
         _, (r,) = self.run_host([self.req("ping")])
-        self.assertTrue(r["ok"]); self.assertEqual(r["id"], "1"); self.assertEqual(r["protocol"], 4)
+        self.assertTrue(r["ok"]); self.assertEqual(r["id"], "1"); self.assertEqual(r["protocol"], 5)
+        self.assertIs(r["app"], True, "a ping answered through the relay says the app answered")
 
     def test_refuses_unknown_caller(self):
         p, out = self.run_host([self.req("ping")], args=("chrome-extension://evil/",))
@@ -72,8 +95,45 @@ class HostTests(unittest.TestCase):
         self.assertTrue(r["ok"])
 
     def test_version_mismatch(self):
-        _, (r,) = self.run_host([{"v": 3, "id": "9", "type": "ping"}])
-        self.assertEqual((r["ok"], r["error"]), (False, "unsupported"))
+        for v in (3, 4, 6, "5", None):
+            _, (r,) = self.run_host([{"v": v, "id": "9", "type": "ping"}])
+            self.assertEqual((r["ok"], r["error"], r["id"]), (False, "unsupported", "9"), repr(v))
+
+    def test_no_app_is_not_running(self):
+        """Nothing listens (no socket, or a leftover socket file nobody serves): the reply says so, with the request's id."""
+        gone = tempfile.mkdtemp(prefix="psss-rl-", dir="/tmp")
+        self.addCleanup(shutil.rmtree, gone, ignore_errors=True)
+        _, (r,) = self.run_host([self.req("ping")], socket=f"{gone}/Relay/browser.sock")
+        self.assertEqual((r["v"], r["id"], r["ok"], r["error"]), (5, "1", False, "not-running"))
+        import socket as sock_module
+        leftover = f"{gone}/stale.sock"
+        s = sock_module.socket(sock_module.AF_UNIX); s.bind(leftover); s.close()  # a file with no listener: connection refused
+        _, (r,) = self.run_host([self.req("vaults")], socket=leftover)
+        self.assertEqual(r["error"], "not-running")
+        _, (r,) = self.run_host([self.req("ping")], socket="/tmp/" + "x" * 120)
+        self.assertEqual(r["error"], "not-running", "a path too long for a socket cannot be listened on")
+
+    def test_requests_the_relay_cannot_take_are_unsupported_with_their_id(self):
+        _, (r,) = self.run_host([{"v": 5, "id": "big", "type": "ping", "pad": "x" * 70000}])
+        self.assertEqual((r["ok"], r["error"], r["id"]), (False, "unsupported", "big"))
+        _, replied = self.run_host([], raw=struct.pack("=I", 2) + b"[]")
+        self.assertEqual((replied[0]["error"], replied[0]["id"]), ("unsupported", ""))
+        deep = ('{"a":' * 50 + "1" + "}" * 50).encode()
+        _, replied = self.run_host([], raw=struct.pack("=I", len(deep)) + deep)
+        self.assertEqual(replied[0]["error"], "unsupported")
+        bad = b'{"v":5,"id":"\xff","type":"ping"}'
+        _, replied = self.run_host([], raw=struct.pack("=I", len(bad)) + bad)
+        self.assertEqual(replied[0]["error"], "unsupported")
+
+    def test_the_host_names_the_caller_it_was_started_by(self):
+        """The app is told which allowed argument matched, and can refuse it (here: a stand-in that checks the compiled list)."""
+        store = Path(tempfile.mkdtemp()); self.addCleanup(shutil.rmtree, store, ignore_errors=True)
+        p, sock, root = start_standin(store, None, "--callers", "compiled")
+        self.addCleanup(stop_standin, p, root)
+        _, (r,) = self.run_host([self.req("ping")], args=(CALLER,), socket=sock)
+        self.assertEqual((r["ok"], r["error"]), (False, "forbidden"), "the app's own list does not know this extension")
+        _, (r,) = self.run_host([self.req("ping")], args=("/manifest.json", "passwords@psss.app"), socket=sock)
+        self.assertTrue(r["ok"], "the Firefox add-on id is on the app's list")
 
     def test_candidates_for_localhost(self):
         _, (r,) = self.run_host([self.req("candidates", origin="http://localhost:8080")])
@@ -132,10 +192,12 @@ class HostTests(unittest.TestCase):
         if vaults is not None:
             (store / "vaults.json").write_text(json.dumps({"vaults": vaults}))
         self.addCleanup(shutil.rmtree, store)
+        relay, sock, root = start_standin(store)  # a vault state belongs to the relay process, so each of these tests has its own
+        self.addCleanup(stop_standin, relay, root)
 
         def ask(*messages):
             p = subprocess.run([str(self.host), CALLER], input=b"".join(frame(m) for m in messages), capture_output=True, timeout=20,
-                               env={**os.environ, "PSSS_PROTOTYPE_DIR": str(store)})
+                               env={**os.environ, "PSSS_RELAY_SOCKET": sock})
             return replies(p.stdout)
         return ask, store
 
@@ -213,7 +275,7 @@ class HostTests(unittest.TestCase):
         for bad in ("", "x" * 65, 7, None):
             (r,) = ask(self.req("unlock-vault", vault=bad))
             self.assertEqual((r["ok"], r["error"]), (False, "not-found"), repr(bad))
-        (r,) = ask({"v": 4, "id": "1", "type": "unlock-vault"})
+        (r,) = ask({"v": 5, "id": "1", "type": "unlock-vault"})
         self.assertEqual(r["error"], "not-found")
 
     def test_not_available_vault_serves_nothing(self):

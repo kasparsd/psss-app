@@ -33,6 +33,10 @@ FOREIGN_ID = "foreign@example.invalid"
 MARIONETTE_PORT = 28228 if "--keep" in sys.argv else 28229  # a hand-driven session and a test run can coexist
 
 
+MOZILLA = Path.home() / "Library/Application Support/Mozilla"
+HOST_MANIFEST = MOZILLA / "NativeMessagingHosts/app.psss.passwords.json"
+
+
 def build(*args):
     return subprocess.run([sys.executable, str(BUILD_PY), *args], check=True, capture_output=True, text=True).stdout
 
@@ -162,6 +166,13 @@ class FirefoxTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         build("package", "--test", "-t", "firefox")
+        for binary, command in (("host-test/psss-native-host", ["host", "--testing"]), ("relay-standin/psss-relay-standin", ["standin"])):
+            if not (BUILD / binary).exists():
+                build(*command)
+        # Firefox reads one per-user folder, not the profile, so the test host is registered there for the run and the person's own
+        # registration is put back afterwards (tearDownClass).
+        cls.saved_manifest = HOST_MANIFEST.read_bytes() if HOST_MANIFEST.exists() else None
+        build("install-host", "--testing", "--dir", f"firefox={MOZILLA}")
         foreign = BUILD / "firefox-test-foreign"
         shutil.rmtree(foreign, ignore_errors=True)
         shutil.copytree(BUILD / "firefox-test", foreign)
@@ -171,8 +182,13 @@ class FirefoxTests(unittest.TestCase):
         cls.site = start_site()
         cls.profile = Path(tempfile.mkdtemp(prefix="psss-ff-"))
         cls.store = Path(tempfile.mkdtemp(prefix="psss-store-"))  # the host inherits this env, so saves stay out of the real directory
+        root = tempfile.mkdtemp(prefix="psss-rl-", dir="/tmp")  # a socket path holds at most 103 bytes
+        cls.relay_root = root
+        cls.relay = subprocess.Popen([str(BUILD / "relay-standin/psss-relay-standin"), "--directory", f"{root}/Relay"], stdout=subprocess.PIPE, text=True,
+                                     env={**os.environ, "PSSS_PROTOTYPE_DIR": str(cls.store)})
+        assert cls.relay.stdout.readline().startswith("ready "), "the stand-in relay did not start"
         cls.child, cls.m = launch(cls.profile, {GECKO_ID: UUID, FOREIGN_ID: FOREIGN_UUID}, headless=True,
-                                  host_env={"PSSS_PROTOTYPE_DIR": str(cls.store)})
+                                  host_env={"PSSS_RELAY_SOCKET": f"{root}/Relay/browser.sock"})
         origins = ["http://localhost/*", "http://127.0.0.1/*", "http://*.test/*"]
         install(cls.m, BUILD / "firefox-test", GECKO_ID, origins)
         install(cls.m, foreign, FOREIGN_ID, origins)
@@ -183,6 +199,12 @@ class FirefoxTests(unittest.TestCase):
         cls.child.wait(timeout=20)
         if cls.site:
             cls.site.terminate()
+        cls.relay.kill(); cls.relay.wait(); cls.relay.stdout.close()
+        shutil.rmtree(cls.relay_root, ignore_errors=True)
+        if cls.saved_manifest is None:
+            HOST_MANIFEST.unlink(missing_ok=True)
+        else:
+            HOST_MANIFEST.write_bytes(cls.saved_manifest)
         shutil.rmtree(cls.profile, ignore_errors=True)
         shutil.rmtree(cls.store, ignore_errors=True)
 
@@ -234,7 +256,7 @@ class FirefoxTests(unittest.TestCase):
             reply = wait_for(lambda: self.js(popup, "return null") is None, "popup page") and self.m.script(
                 "const done = arguments[arguments.length - 1]; Host.ping().then(done)", async_=True)
             self.assertTrue(reply["ok"], reply)
-            self.assertEqual(reply["protocol"], 4)
+            self.assertEqual(reply["protocol"], 5)
         finally:
             self.close(popup)
 
@@ -527,7 +549,7 @@ class FirefoxTests(unittest.TestCase):
         try:
             error = self.m.script(
                 "const done = arguments[arguments.length - 1];"
-                "api.runtime.sendNativeMessage(PROTOCOL.host, {v: 4, id: 'x', type: 'ping'}).then(() => done(null), (e) => done(e.message))", async_=True)
+                "api.runtime.sendNativeMessage(PROTOCOL.host, {v: 5, id: 'x', type: 'ping'}).then(() => done(null), (e) => done(e.message))", async_=True)
             self.assertTrue(error, "Firefox must refuse an add-on that is not in allowed_extensions")
             self.assertFalse(self.m.script("const done = arguments[arguments.length - 1]; Host.ping().then((r) => done(r.ok))", async_=True))
         finally:

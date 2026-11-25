@@ -2,8 +2,11 @@
 // extension ship through different channels and will not always update together.
 // The extension sends only an origin. It never sends a page URL path, query or form contents.
 var PROTOCOL = Object.freeze({
-  version: 4,
+  version: 5,
   host: 'app.psss.passwords',
+  // Version 5 (2026-11-25): the host relays to the running Psss app. New errors: not-running (nothing is listening: Psss is not open),
+  // not-verified (the app, or the host, could not be shown to be ours), timeout and busy (the relay's limits). `ping` carries
+  // `app: true` when the app answered. Otherwise as 4.
   // Version 4 (2026-11-25): several vaults can be open at once. candidates, search, credential, card-candidates and card carry the `vault`
   // they read (any open vault; a locked one answers `locked`, an unknown one `not-found`, never another vault's data), and save writes
   // into any open vault. `active` in vaults is the vault the app shows: only the popup's default.
@@ -33,7 +36,11 @@ var PROTOCOL = Object.freeze({
     cancelled: 'cancelled',
     failed: 'failed',
     needsApp: 'needs-app',
-    notAvailable: 'not-available'
+    notAvailable: 'not-available',
+    notRunning: 'not-running',
+    notVerified: 'not-verified',
+    timeout: 'timeout',
+    busy: 'busy'
   })
 });
 if (typeof module !== 'undefined') module.exports = { PROTOCOL };

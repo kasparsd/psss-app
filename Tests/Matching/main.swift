@@ -468,7 +468,7 @@ do {
     }
     func names(_ reply: [String: Any]) -> String { ((reply["vaults"] as? [[String: Any]]) ?? []).map { "\($0["name"] ?? ""):\($0["active"] ?? ""):\($0["state"] ?? "")" }.joined(separator: ",") }
 
-    expect("protocol is version 4", BrowserProtocol.version == 4, true)
+    expect("protocol is version 5", BrowserProtocol.version == 5, true)
     same("an old version is refused", ask("ping", ["v": 3])["error"] as? String, "unsupported")
     let all = search("studio north")
     let counts = all["counts"] as? [String: Int] ?? [:]

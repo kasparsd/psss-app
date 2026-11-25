@@ -59,6 +59,12 @@
   const footer = (visible) => { settingsEl.parentElement.hidden = !(visible && hasSettings); };
   footer(true);
   const notRunning = (text) => { say(text); footer(false); };
+  // What the host says when it cannot reach the app, in the words the person sees. Everything else that fails is "could not be reached".
+  const RELAY_WORDS = {
+    [PROTOCOL.errors.notRunning]: 'Psss is not open.',
+    [PROTOCOL.errors.notVerified]: 'Psss could not be verified.'
+  };
+  const relayDown = (error) => error === 'not-installed' || Object.hasOwn(RELAY_WORDS, error);
   settingsEl.addEventListener('click', async () => {
     await api.tabs.create({ url: api.runtime.getURL('settings.html') });
     window.close();
@@ -224,7 +230,8 @@
     const hint = reply.ok ? 'opened' : reply.error;
     if (reply.vaults) { showVaultState(hint); return; }
     unlockBtn.disabled = noticeUnlock.disabled = false;
-    if (reply.error === 'not-installed') notRunning('Psss is not connected. Open the Psss app once, then try again.');
+    if (Object.hasOwn(RELAY_WORDS, reply.error)) notRunning(RELAY_WORDS[reply.error]);
+    else if (reply.error === 'not-installed') notRunning('Psss is not connected. Open the Psss app once, then try again.');
     else say(`Psss could not unlock ${vaultName(v)}.`, 'warning');
   }
   unlockBtn.addEventListener('click', unlock);
@@ -254,10 +261,11 @@
       }
       const words = {
         'not-installed': 'Psss is not connected. Open the Psss app once, then try again.',
+        ...RELAY_WORDS,
         [PROTOCOL.errors.locked]: 'Psss is locked. Open the app to unlock.',
       }[reply.error] ?? 'Psss could not be reached.';
       if (reply.error === PROTOCOL.errors.locked) say(words); else notRunning(words);
-      searchEl.hidden = reply.error === PROTOCOL.errors.locked || reply.error === 'not-installed';
+      searchEl.hidden = reply.error === PROTOCOL.errors.locked || relayDown(reply.error);
       return;
     }
     searchEl.hidden = false;

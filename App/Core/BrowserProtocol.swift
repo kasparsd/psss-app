@@ -10,6 +10,9 @@ import Foundation
 /// every request that would read or write a credential is answered `unsupported`. The shipping design keeps the vault key out of the host: it relays each
 /// request to the running app, which verifies the peer, unlocks and approves release.
 enum BrowserProtocol {
+    /// 5 (2026-11-25): the host relays to the running app (`docs/browser-extension.md`, "Host and app"), which adds the errors
+    /// `not-running` (no app is serving), `not-verified` (the app or the host could not be shown to be ours), `timeout` and `busy`
+    /// (the relay's limits), and `ping` says `app: true` when the app answered. Everything else is as 4.
     /// 4 (2026-11-25): several vaults can be open at once. `candidates`, `search`, `credential`, `card-candidates` and `card` name the
     /// `vault` they read (any open vault; a locked one answers `locked`, never another vault's data), `save` writes into any open
     /// vault, `switch-vault` only changes which vault the app shows (nothing locks) and `active` in `vaults` is only the popup's
@@ -17,7 +20,7 @@ enum BrowserProtocol {
     /// `switch-vault` only makes the vault current (it no longer asks for the unlock), `save` carries the `vault` it saves into and
     /// `candidates` carry the `website`. 2 added field-aware `search`, `vaults` and `switch-vault`. Hosts and extensions of
     /// different versions are not mixed: a mismatch is `unsupported`.
-    static let version = 4
+    static let version = RelayLimits.protocolVersion
 
     /// Who holds the vaults in this process. The native host installs the prototype's, the Safari app extension the stored list
     /// (read only). Nil answers `vaults` and `switch-vault` with `unsupported`.
