@@ -1,0 +1,23 @@
+/* Leaving and coming back: the cover, the app switcher and Control Center drawings. */
+.as-cover{position:absolute;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;background:#FFD84D;color:#1F1F23}
+.as-cover.flat{position:relative;inset:auto;width:100%;height:100%}
+.as-wall{width:300px;height:640px;border-radius:46px;background:linear-gradient(160deg,#6f8fb8,#b7a6d3 55%,#e8c1a8);box-shadow:var(--shadow);position:relative;overflow:hidden}
+.as-label{position:absolute;left:0;right:0;top:70px;display:flex;align-items:center;justify-content:center;gap:8px;color:#fff;font-weight:600;text-shadow:0 1px 2px rgba(0,0,0,.35)}
+.as-label .lg-appicon{box-shadow:none}
+.as-card{position:absolute;left:57px;top:104px;width:186px;height:403px;border-radius:22px;overflow:hidden;background:var(--screen);box-shadow:0 6px 22px rgba(0,0,0,.35)}
+.as-card .as-scale{width:300px;height:640px;transform:scale(.62);transform-origin:0 0}
+.as-card .phone{box-shadow:none;border-radius:0;padding:0;background:none;min-height:0}
+.as-card .phone .scr{border-radius:0;height:640px}
+.as-hint{position:absolute;left:0;right:0;bottom:22px;display:flex;justify-content:center}
+.as-hint i{width:120px;height:5px;border-radius:3px;background:rgba(255,255,255,.8)}
+.as-cc{position:absolute;inset:0;z-index:30;background:rgba(40,40,46,.55);backdrop-filter:blur(14px);display:flex;flex-direction:column;gap:12px;padding:56px 18px 0}
+.as-cc .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.as-cc .tile{height:92px;border-radius:24px;background:rgba(255,255,255,.22)}
+.as-cc .tile.sm{height:44px;border-radius:22px}
+.as-pad{width:700px;height:470px;display:flex;gap:10px;padding:10px;background:linear-gradient(160deg,#6f8fb8,#b7a6d3 55%,#e8c1a8);border-radius:16px}
+.as-pad .pane{flex:1;position:relative;border-radius:14px;overflow:hidden}
+.as-vs{display:grid;grid-template-columns:1fr 1fr;gap:12px 28px}
+@media (max-width:760px){.as-vs{grid-template-columns:1fr}}
+.as-blur{background:rgba(255,255,255,.45);backdrop-filter:blur(28px) saturate(1.2);-webkit-backdrop-filter:blur(28px) saturate(1.2)}
+.as-blur.dark{background:rgba(24,24,28,.5)}
+.as-card .as-blur{backdrop-filter:blur(40px) saturate(1.2);-webkit-backdrop-filter:blur(40px) saturate(1.2)}
