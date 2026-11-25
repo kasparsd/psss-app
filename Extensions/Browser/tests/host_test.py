@@ -52,12 +52,16 @@ class HostTests(unittest.TestCase):
                            env={**os.environ, "PSSS_PROTOTYPE_DIR": str(self.store)})
         return p, replies(p.stdout)
 
+    NAMED = ("candidates", "search", "credential", "card-candidates", "card")
+
     def req(self, type, **fields):
-        return {"v": 3, "id": "1", "type": type, **fields}
+        """Requests that read logins name their vault (protocol 4); the first vault is the default of these tests."""
+        named = {"vault": "passwords"} if type in self.NAMED else {}
+        return {"v": 4, "id": "1", "type": type, **named, **fields}
 
     def test_ping(self):
         _, (r,) = self.run_host([self.req("ping")])
-        self.assertTrue(r["ok"]); self.assertEqual(r["id"], "1"); self.assertEqual(r["protocol"], 3)
+        self.assertTrue(r["ok"]); self.assertEqual(r["id"], "1"); self.assertEqual(r["protocol"], 4)
 
     def test_refuses_unknown_caller(self):
         p, out = self.run_host([self.req("ping")], args=("chrome-extension://evil/",))
@@ -68,7 +72,7 @@ class HostTests(unittest.TestCase):
         self.assertTrue(r["ok"])
 
     def test_version_mismatch(self):
-        _, (r,) = self.run_host([{"v": 2, "id": "9", "type": "ping"}])
+        _, (r,) = self.run_host([{"v": 3, "id": "9", "type": "ping"}])
         self.assertEqual((r["ok"], r["error"]), (False, "unsupported"))
 
     def test_candidates_for_localhost(self):
@@ -159,13 +163,15 @@ class HostTests(unittest.TestCase):
         self.assertEqual([(v["id"], v["state"], v.get("reason")) for v in r["vaults"]],
                          [("a", "open", None), ("b", "needs-password", "changed"), ("c", "needs-password", "locked-out"), ("d", "locked", None)])
 
-    def test_switch_makes_current_without_unlocking(self):
+    def test_switch_shows_a_vault_without_locking_or_unlocking_any(self):
         ask, _ = self.vault_host()
         (r,) = ask(self.req("switch-vault", vault="work"))
         self.assertTrue(r["ok"])
-        self.assertEqual(self.states(r)[:2], [("Passwords", False, "locked", None), ("Work", True, "locked", None)], "the list keeps its order: the current vault is not moved first")
-        (c,) = ask(self.req("candidates", origin="https://gitforge.example"))
+        self.assertEqual(self.states(r)[:2], [("Passwords", False, "open", None), ("Work", True, "locked", None)], "nothing locked, and the list keeps its order: the shown vault is not moved first")
+        (c,) = ask(self.req("candidates", origin="https://gitforge.example", vault="work"))
         self.assertEqual((c["ok"], c["error"]), (False, "locked"), "nothing is listed until the unlock")
+        (c,) = ask(self.req("search", origin="http://localhost", query="localhost"))
+        self.assertTrue(c["ok"] and c["results"], "Passwords is still open and still fills while Work is the shown vault")
         (r,) = ask(self.req("switch-vault", vault="work"))
         self.assertTrue(r["ok"], "choosing the current vault changes nothing")
         (r,) = ask(self.req("switch-vault", vault="nope"))
@@ -183,8 +189,8 @@ class HostTests(unittest.TestCase):
         ask(self.req("switch-vault", vault="ok"))
         (r,) = ask(self.req("unlock-vault", vault="ok"))
         self.assertTrue(r["ok"]); self.assertEqual(self.states(r)[0], ("Ready", True, "open", None))
-        (c,) = ask(self.req("candidates", origin="https://gitforge.example"))
-        self.assertTrue(c["ok"], "unlocked: the current vault serves again")
+        (c,) = ask(self.req("candidates", origin="https://gitforge.example", vault="ok"))
+        self.assertTrue(c["ok"], "unlocked: the vault serves again")
         ask(self.req("switch-vault", vault="ready2"))
         (r,) = ask(self.req("unlock-vault", vault="ok"))
         self.assertEqual((r["ok"], r["error"]), (False, "forbidden"), "unlock applies to the current vault only")
@@ -207,13 +213,13 @@ class HostTests(unittest.TestCase):
         for bad in ("", "x" * 65, 7, None):
             (r,) = ask(self.req("unlock-vault", vault=bad))
             self.assertEqual((r["ok"], r["error"]), (False, "not-found"), repr(bad))
-        (r,) = ask({"v": 3, "id": "1", "type": "unlock-vault"})
+        (r,) = ask({"v": 4, "id": "1", "type": "unlock-vault"})
         self.assertEqual(r["error"], "not-found")
 
     def test_not_available_vault_serves_nothing(self):
         ask, _ = self.vault_host()
         ask(self.req("switch-vault", vault="travel"))
-        for message in (self.req("candidates", origin="https://gitforge.example"), self.req("search", origin="https://gitforge.example", query="git"),
+        for message in (self.req("candidates", origin="https://gitforge.example", vault="travel"), self.req("search", origin="https://gitforge.example", query="git", vault="travel"),
                         self.req("save", origin="https://gitforge.example", vault="travel", account="a@b.c", secret="x")):
             (r,) = ask(message)
             self.assertEqual((r["ok"], r["error"]), (False, "not-available"), message["type"])
@@ -281,33 +287,68 @@ class HostTests(unittest.TestCase):
     def test_update_changes_only_the_password_of_the_existing_login(self):
         ask, store = self.vault_host()
         ask(self.req("switch-vault", vault="work")); ask(self.req("unlock-vault", vault="work"))
-        (before,) = ask(self.req("candidates", origin="https://gitforge.example"))
+        (before,) = ask(self.req("candidates", origin="https://gitforge.example", vault="work"))
         self.assertEqual([(c["title"], c["account"]) for c in before["candidates"]], [("Gitforge (work)", "sam@harbor.example")])
         (r,) = ask(self.req("save", origin="https://gitforge.example", vault="work", account="sam@harbor.example", secret="Changed-secret-1"))
         self.assertEqual((r["ok"], r["result"]), (True, "updated"))
-        (after,) = ask(self.req("candidates", origin="https://gitforge.example"))
+        (after,) = ask(self.req("candidates", origin="https://gitforge.example", vault="work"))
         self.assertEqual([(c["title"], c["account"], c["website"]) for c in after["candidates"]], [("Gitforge (work)", "sam@harbor.example", "gitforge.example")],
                          "same title, username and website, still one login")
-        (cred,) = ask(self.req("credential", ref=after["candidates"][0]["ref"], origin="https://gitforge.example"))
+        (cred,) = ask(self.req("credential", ref=after["candidates"][0]["ref"], origin="https://gitforge.example", vault="work"))
         self.assertEqual(cred["secret"], "Changed-secret-1")
         (r,) = ask(self.req("save", origin="https://gitforge.example", vault="work", account="someone.else@harbor.example", secret="Other-secret-1"))
         self.assertEqual(r["result"], "created")
         self.assertTrue((store / "saved-logins-work.json").exists() and not (store / "saved-logins.json").exists(), "saved into the work vault only")
 
-    def test_save_refuses_a_vault_that_is_not_the_current_open_one(self):
+    def test_save_refuses_a_vault_that_is_not_open_or_not_known(self):
         ask, store = self.vault_host()
         base = {"origin": "https://gitforge.example", "account": "a@b.c", "secret": "Never-saved-1"}
-        for vault, error in (("work", "forbidden"), ("nope", "not-found"), ("x" * 65, "not-found"), ("", "not-found"), (3, "not-found")):
+        for vault, error in (("nope", "not-found"), ("x" * 65, "not-found"), ("", "not-found"), (3, "not-found"), ("work", "locked"), ("travel", "not-available")):
             (r,) = ask(self.req("save", vault=vault, **base))
             self.assertEqual((r["ok"], r["error"]), (False, error), repr(vault))
         (r,) = ask(self.req("save", **base))
         self.assertEqual((r["ok"], r["error"]), (False, "not-found"), "a save that names no vault")
-        ask(self.req("switch-vault", vault="work"))
-        (r,) = ask(self.req("save", vault="work", **base))
-        self.assertEqual((r["ok"], r["error"]), (False, "locked"), "the current vault is locked: not written")
-        (r,) = ask(self.req("save", vault="passwords", **base))
-        self.assertEqual((r["ok"], r["error"]), (False, "locked"), "a popup that is out of date cannot write into the vault the person left")
         self.assertEqual([p.name for p in store.glob("saved-logins*")], [], "a refused save writes nothing")
+
+    def test_second_open_vault_fills_and_saves_while_another_is_shown(self):
+        ask, store = self.vault_host()
+        ask(self.req("switch-vault", vault="work")); ask(self.req("unlock-vault", vault="work"))  # Work shown and open, Passwords open too
+        (r,) = ask(self.req("vaults"))
+        self.assertEqual(self.states(r)[:2], [("Passwords", False, "open", None), ("Work", True, "open", None)])
+        (work,) = ask(self.req("candidates", origin="https://gitforge.example", vault="work"))
+        self.assertEqual([c["title"] for c in work["candidates"]], ["Gitforge (work)"])
+        (mine,) = ask(self.req("search", origin="http://localhost", query="localhost", vault="passwords"))
+        self.assertTrue(mine["ok"] and mine["results"], "Passwords is not the shown vault and fills with no unlock")
+        (r,) = ask(self.req("save", origin="https://gitforge.example", vault="passwords", account="pat@example.org", secret="Saved-in-passwords-1"))
+        self.assertEqual((r["ok"], r["result"], r["vault"]), (True, "created", "passwords"), "a save goes to the chosen vault, not the shown one")
+        self.assertTrue((store / "saved-logins.json").exists() and not (store / "saved-logins-work.json").exists())
+
+    def test_vault_locked_between_search_and_fill_answers_a_plain_error(self):
+        ask, store = self.vault_host()
+        ask(self.req("switch-vault", vault="work")); ask(self.req("unlock-vault", vault="work"))
+        (c,) = ask(self.req("candidates", origin="https://gitforge.example", vault="work"))
+        ref = c["candidates"][0]["ref"]
+        (state,) = [store / "vaults.json"]
+        before = state.read_text()
+        state.write_text(json.dumps({"active": "work", "open": ["passwords"]}))  # Work locks: the app locked it meanwhile
+        (r,) = ask(self.req("credential", ref=ref, origin="https://gitforge.example", vault="work"))
+        self.assertEqual((r["ok"], r["error"]), (False, "locked"))
+        self.assertTrue(all(k not in r for k in ("secret", "account", "fields")), "no data at all")
+        self.assertNotIn("Demo-only", json.dumps(r))
+        (r,) = ask(self.req("credential", ref=ref, origin="https://gitforge.example", vault="passwords"))
+        self.assertEqual((r["ok"], r["error"]), (False, "not-found"), "another vault never answers in its place")
+        self.assertNotIn("Demo-only", state.read_text(), "the state file holds no secret")
+        self.assertNotIn("Demo-only", before)
+
+    def test_requests_that_name_no_vault_read_nothing(self):
+        for fields in ({"vault": None}, {"vault": ""}, {"vault": "nope"}, {"vault": "x" * 65}, {"vault": 3}):
+            for message in (self.req("candidates", origin="http://localhost", **fields), self.req("search", origin="http://localhost", query="localhost", **fields),
+                            self.req("credential", ref="0000", origin="http://localhost", **fields)):
+                _, (r,) = self.run_host([message])
+                self.assertEqual((r["ok"], r["error"]), (False, "not-found"), (message["type"], fields))
+        no_vault = {k: v for k, v in self.req("candidates", origin="http://localhost").items() if k != "vault"}
+        _, (r,) = self.run_host([no_vault])
+        self.assertEqual((r["ok"], r["error"]), (False, "not-found"), "a request with no vault field")
 
     def test_save_validates_input_and_origin(self):
         for fields in ({"account": "", "secret": "x"}, {"account": "a@b.c", "secret": ""}, {"account": "a" * 321, "secret": "x"},

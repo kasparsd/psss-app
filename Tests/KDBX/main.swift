@@ -1878,10 +1878,11 @@ do {
     check("creating a vault asks nothing of the identity store", "\(VaultIdentities.takeCalls().count)", "0")
     let identityItem = VaultItem(kind: .login, title: "Id", website: "id.example", secret: "s")
     try session.store!.save([identityItem])
-    VaultIdentities.register(for: session.store!.items())
-    expect("registering reports the vault's items to the identity store", VaultIdentities.takeCalls() == [.registered([identityItem.id])])
+    let identityVault = session.reference!.id
+    VaultIdentities.register(vault: identityVault, items: session.store!.items())
+    expect("registering reports the vault's items to the identity store", VaultIdentities.takeCalls() == [.registered(vault: identityVault, ids: [identityItem.id])])
     session.forget()
-    expect("forgetting a vault removes every identity, once", VaultIdentities.takeCalls() == [.removedAll])
+    expect("forgetting a vault removes that vault's identities, once", VaultIdentities.takeCalls() == [.removed(vault: identityVault)])
     session.forget()
     check("forgetting with no vault removes none", "\(VaultIdentities.takeCalls().count)", "0")
 
@@ -2279,6 +2280,7 @@ do {  // Verification codes and the fill site (release rules for the AutoFill pr
 
 failures += runTimeParserTests()
 failures += await runRememberedVaultTests()
+failures += await runOpenVaultFillingTests()
 failures += await runBackToBackVaultTests()
 failures += await runSeveralOpenVaultTests()
 failures += await runVaultStateTests()
@@ -3815,7 +3817,7 @@ do {  // Delete is a move; Undo and Restore; Delete Now and Delete All; AutoFill
     }
     func onDisk(_ url: URL) throws -> KDBXDocument { try KDBX.open(Data(contentsOf: url), credentials: .init(password: "pw")) }
     func ids(_ calls: [VaultIdentities.Call]) -> [String] {
-        calls.flatMap { call -> [String] in if case .registered(let ids) = call { return ids.map(\.uuidString).sorted() } else { return ["removedAll"] } }
+        calls.flatMap { call -> [String] in if case .registered(_, let ids) = call { return ids.map(\.uuidString).sorted() } else { return ["removed"] } }
     }
     let acorn = VaultItem(kind: .login, title: "Acorn Fitness", account: "alex@example.net", website: "acornfitness.example", secret: "a1")
     let birch = VaultItem(kind: .login, title: "Birch Library", account: "alex", website: "birchlibrary.example", secret: "b1")
@@ -3832,13 +3834,13 @@ do {  // Delete is a move; Undo and Restore; Delete Now and Delete All; AutoFill
            try onDisk(v.url).recycledItems().map(\.item.id) == [acorn.id] && deletedObjects(try onDisk(v.url)) == 0)
     // AutoFill is told about live items only, so the system stops offering the deleted login at once.
     _ = VaultIdentities.takeCalls()
-    VaultIdentities.register(for: v.store.items())
+    VaultIdentities.register(vault: v.id, items: v.store.items())
     check("delete: AutoFill identities leave out the deleted item", "\(ids(VaultIdentities.takeCalls()))",
           "\([birch.id, cedar.id, daybreak.id].map(\.uuidString).sorted())")
     // Undo is a restore: the item comes back and is offered again.
     try v.store.restore(acorn.id)
     expect("undo: the item is back in the list and the bin is empty", v.store.items().contains { $0.id == acorn.id } && v.store.recentlyDeleted().isEmpty)
-    VaultIdentities.register(for: v.store.items())
+    VaultIdentities.register(vault: v.id, items: v.store.items())
     check("undo: AutoFill identities include the restored item", "\(ids(VaultIdentities.takeCalls()).contains(acorn.id.uuidString))", "true")
     try v.store.restore(acorn.id)
     check("restoring what is not in the bin changes nothing", "\(v.store.items().count)", "4")

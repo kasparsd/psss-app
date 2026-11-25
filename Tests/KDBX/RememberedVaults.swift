@@ -125,7 +125,7 @@ import Foundation
            && S.needsPassword(.off).subtitle(location: "x") == "Needs vault password")
     verify("words: not available reasons", S.notDownloaded.subtitle == "Not downloaded yet" && S.notFound.subtitle == "Not found"
            && S.unreadable.subtitle == "Can’t be read")
-    verify("glyphs: open padlock, closed padlock, warning", S.open.symbol == "lock.open" && S.locked.symbol == "lock"
+    verify("glyphs: no open padlock anywhere, closed padlock, warning", S.open.symbol != "lock.open" && S.locked.symbol == "lock"
            && S.needsPassword(.off).symbol == "lock" && [S.notDownloaded, .notFound, .unreadable].allSatisfy { $0.symbol == "exclamationmark.triangle" })
     verify("available: only the three file states are not", S.open.isAvailable && S.locked.isAvailable && S.needsPassword(.off).isAvailable
            && ![S.notDownloaded, .notFound, .unreadable].contains { $0.isAvailable })

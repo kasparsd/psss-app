@@ -58,6 +58,7 @@ enum SharedVault {
         ASCredentialIdentityStore.shared.removeAllCredentialIdentities { _, _ in }
     }
 
+
     /// The host of a service identifier or a stored website, lowercased and without a leading `www.`.
     static func host(_ text: String) -> String { SiteMatch.normalizedHost(text) }
 
@@ -74,8 +75,9 @@ enum SharedVault {
     /// Nothing is sent while AutoFill is off. `knownEnabled` is for the moment the app has just found AutoFill on (or been told
     /// so by the system's prompt): it sends at once, so the logins that were saved while AutoFill was off are offered without
     /// waiting for the next unlock, and a state that has not caught up yet cannot make it skip.
-    static func registerIdentities(for items: [VaultItem], knownEnabled: Bool = false) {
-        let identities = identities(for: items)
+    static func registerIdentities(_ identities: [any ASCredentialIdentity], knownEnabled: Bool = false) {
+        // The identities are plain values the system only reads; the task is the only one that touches this copy.
+        nonisolated(unsafe) let identities = identities
         Task {
             let store = ASCredentialIdentityStore.shared
             if !knownEnabled, await !store.state().isEnabled { return }
@@ -101,16 +103,16 @@ enum SharedVault {
     /// so the request is not completed (and the extension torn down) before the suggestion exists. Adds only `changed` when the
     /// store supports incremental updates, and replaces everything with `all` when it does not. Retries once when the store is
     /// busy. Does nothing when AutoFill is not enabled for Psss. A failure is logged with its error code only.
-    static func registerSavedAndWait(_ changed: [VaultItem], all: [VaultItem]) async {
+    static func registerSavedAndWait(_ changed: [VaultItem], in vault: UUID, all: [any ASCredentialIdentity]) async {
         let store = ASCredentialIdentityStore.shared
         let state = await store.state()
         guard state.isEnabled else { return }
         for attempt in 0..<2 {
             do {
                 if state.supportsIncrementalUpdates {
-                    try await store.saveCredentialIdentities(identities(for: changed))
+                    try await store.saveCredentialIdentities(identities(for: changed, vault: vault))
                 } else {
-                    try await store.replaceCredentialIdentities(identities(for: all))
+                    try await store.replaceCredentialIdentities(all)
                 }
                 return
             } catch {
@@ -129,7 +131,8 @@ enum SharedVault {
         item.fillValue(for: .oneTimeCode) != nil
     }
 
-    private static func identities(for items: [VaultItem]) -> [any ASCredentialIdentity] {
+    /// The system's suggestions for one vault's items, each tied to its vault by `IdentityRecord` (the provider finds the vault from it).
+    static func identities(for items: [VaultItem], vault: UUID) -> [any ASCredentialIdentity] {
         var identities: [any ASCredentialIdentity] = items.compactMap { item in
             guard item.fillValue(for: .password) != nil, !item.visibleWebsite.isEmpty, !item.visibleAccount.isEmpty else { return nil }
             let site = host(item.visibleWebsite)
@@ -137,7 +140,7 @@ enum SharedVault {
             return ASPasswordCredentialIdentity(
                 serviceIdentifier: ASCredentialServiceIdentifier(identifier: site, type: .domain),
                 user: item.visibleAccount,
-                recordIdentifier: item.id.uuidString)
+                recordIdentifier: IdentityRecord.make(vault: vault, item: item.id))
         }
         identities += items.compactMap { item in
             guard let passkey = item.passkey else { return nil }
@@ -146,7 +149,7 @@ enum SharedVault {
                 userName: item.visibleAccount.isEmpty ? item.displayTitle : item.visibleAccount,
                 credentialID: passkey.credentialID,
                 userHandle: passkey.userHandle,
-                recordIdentifier: item.id.uuidString)
+                recordIdentifier: IdentityRecord.make(vault: vault, item: item.id))
         }
         // One-time codes (iOS 18, macOS 15): a login with a readable code and a website. The label is the account, or the name
         // when the account is empty.
@@ -158,9 +161,24 @@ enum SharedVault {
                 return ASOneTimeCodeCredentialIdentity(
                     serviceIdentifier: ASCredentialServiceIdentifier(identifier: site, type: .domain),
                     label: item.visibleAccount.isEmpty ? item.displayTitle : item.visibleAccount,
-                    recordIdentifier: item.id.uuidString)
+                    recordIdentifier: IdentityRecord.make(vault: vault, item: item.id))
             }
         }
         return identities
+    }
+}
+
+/// The record identifier of an AutoFill suggestion: the vault and the item it belongs to, so the provider opens that vault and finds
+/// the item there, and two vaults that hold the same item (a copied file) never mix. Both are random identifiers; nothing about the
+/// site or the account is in it.
+enum IdentityRecord {
+    static func make(vault: UUID, item: UUID) -> String { "\(vault.uuidString)/\(item.uuidString)" }
+
+    /// Nil for anything that is not exactly two identifiers (a hostile or an old record): the provider then offers its list instead.
+    static func parse(_ record: String?) -> (vault: UUID, item: UUID)? {
+        guard let record else { return nil }
+        let parts = record.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 2, let vault = UUID(uuidString: String(parts[0])), let item = UUID(uuidString: String(parts[1])) else { return nil }
+        return (vault, item)
     }
 }

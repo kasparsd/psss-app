@@ -19,17 +19,19 @@ var Host = (function () {
     return reply;
   }
 
+  // Every request that reads or writes a login names the vault it means (the popup's chosen one): the host answers from that vault
+  // if it is open, `locked` if it is not, and never from another.
   return {
     ping: () => send('ping'),
-    candidates: (origin) => send('candidates', { origin }),
-    cardCandidates: (origin) => send('card-candidates', { origin }),
-    card: (ref, origin) => send('card', { ref, origin }),
+    candidates: (origin, vault) => send('candidates', { origin, vault }),
+    cardCandidates: (origin, vault) => send('card-candidates', { origin, vault }),
+    card: (ref, origin, vault) => send('card', { ref, origin, vault }),
     generate: () => send('generate'),
     save: (origin, vault, account, secret) => send('save', { origin, vault, account, secret }),
-    search: (origin, query, fields = []) => send('search', { origin, query, fields }),
+    search: (origin, query, fields = [], vault) => send('search', { origin, query, fields, vault }),
     vaults: () => send('vaults'),
     switchVault: (vault) => send('switch-vault', { vault }),
     unlockVault: (vault) => send('unlock-vault', { vault }),
-    credential: (ref, origin, manual = false) => send('credential', { ref, origin, ...(manual ? { manual: true } : {}) })
+    credential: (ref, origin, vault, manual = false) => send('credential', { ref, origin, vault, ...(manual ? { manual: true } : {}) })
   };
 })();

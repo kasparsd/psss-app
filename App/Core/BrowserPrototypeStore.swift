@@ -33,15 +33,12 @@ enum BrowserPrototypeStore {
         VaultItem(kind: .login, title: "Harbor Ledger", account: "sam@harbor.example", website: "ledger.harbor.example", secret: "Demo-only-Work2!"),
     ]
 
-    /// The current vault's items: the sample items plus the saved ones (first vault), the work vault's, or only what was saved
-    /// into another vault. Empty when the store is not available or the current vault is not open.
-    static var allItems: [VaultItem] {
-        guard let service = vaultService else { return [] }
-        let current = service.current
-        guard current.unlocked, let spec = service.specs.first(where: { $0.id == current.id }), spec.file == nil else { return [] }
-        let saved = loadSaved(vault: current.id)
+    /// One vault's items: the sample items plus the saved ones (first vault), the work vault's, or only what was saved into another
+    /// vault. The caller has checked that the vault is open (`PrototypeVaultService.items`).
+    static func items(vault id: String) -> [VaultItem] {
+        let saved = loadSaved(vault: id)
         let base: [VaultItem]
-        switch current.id {
+        switch id {
         case "passwords": base = SampleVault.items
         case "work": base = workItems
         default: base = []
@@ -52,11 +49,12 @@ enum BrowserPrototypeStore {
         } + saved
     }
 
-    static func save(_ item: VaultItem, vault: String = "passwords") {
-        guard let url = fileURL(vault: vault) else { return }
+    @discardableResult
+    static func save(_ item: VaultItem, vault: String = "passwords") -> Bool {
+        guard let url = fileURL(vault: vault) else { return false }
         var saved = loadSaved(vault: vault)
         saved.removeAll { $0.id == item.id }
         saved.append(item)
-        try? JSONEncoder().encode(saved).write(to: url, options: .atomic)
+        return (try? JSONEncoder().encode(saved).write(to: url, options: .atomic)) != nil
     }
 }

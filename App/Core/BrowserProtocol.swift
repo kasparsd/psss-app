@@ -10,11 +10,14 @@ import Foundation
 /// every request that would read or write a credential is answered `unsupported`. The shipping design keeps the vault key out of the host: it relays each
 /// request to the running app, which verifies the peer, unlocks and approves release.
 enum BrowserProtocol {
-    /// 3 (2026-11-24): `vaults` answers each vault's `state` (and `reason`) instead of a `locked` flag, `unlock-vault` is new,
+    /// 4 (2026-11-25): several vaults can be open at once. `candidates`, `search`, `credential`, `card-candidates` and `card` name the
+    /// `vault` they read (any open vault; a locked one answers `locked`, never another vault's data), `save` writes into any open
+    /// vault, `switch-vault` only changes which vault the app shows (nothing locks) and `active` in `vaults` is only the popup's
+    /// default. 3 (2026-11-24): `vaults` answers each vault's `state` (and `reason`) instead of a `locked` flag, `unlock-vault` is new,
     /// `switch-vault` only makes the vault current (it no longer asks for the unlock), `save` carries the `vault` it saves into and
     /// `candidates` carry the `website`. 2 added field-aware `search`, `vaults` and `switch-vault`. Hosts and extensions of
     /// different versions are not mixed: a mismatch is `unsupported`.
-    static let version = 3
+    static let version = 4
 
     /// Who holds the vaults in this process. The native host installs the prototype's, the Safari app extension the stored list
     /// (read only). Nil answers `vaults` and `switch-vault` with `unsupported`.
@@ -38,8 +41,8 @@ enum BrowserProtocol {
         SHA256.hash(data: Data("\(item.website)|\(item.account)".utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
     }
 
-    /// What a request may not read or write while the current vault is not open: `locked` when the person can open it (Touch ID or
-    /// the vault password), `not-available` when the file cannot be used.
+    /// What a request may not read or write unless the vault it names is open: `locked` when the person can open it (Touch ID or
+    /// the vault password), `not-available` when the file cannot be used, `not-found` for a vault that is not named or not known.
     private static let vaultRequests = ["candidates", "search", "save", "credential", "card-candidates", "card"]
 
     private static func vaultsReply(_ service: BrowserVaultService) -> [String: Any] { ["vaults": service.vaults().map(\.json)] }
@@ -66,14 +69,34 @@ enum BrowserProtocol {
         guard request["v"] as? Int == version else { return fail("unsupported") }
 
         let type = request["type"] as? String
-        // No credential is served or stored unless the native host enabled the prototype file.
-        if let type, vaultRequests.contains(type), !BrowserPrototypeStore.isAvailable { return fail("unsupported") }
-
-        // The current vault may not be open (locked, needs its password, not available). Nothing is served from it.
-        if let type, vaultRequests.contains(type), let service = vaultService, let current = service.vaults().first(where: \.active),
-           !current.isOpen {
-            return fail(current.state.isAvailable ? "locked" : "not-available")
+        // No credential is served or stored unless the service holds logins (the native host's prototype file, or the app's session).
+        // The sample cards exist only in the prototype.
+        var service: BrowserVaultService?
+        if let type, vaultRequests.contains(type) {
+            guard let held = vaultService, held.servesCredentials else { return fail("unsupported") }
+            if type.hasPrefix("card"), !BrowserPrototypeStore.isAvailable { return fail("unsupported") }
+            service = held
         }
+
+        /// The vault a request names, when it is open: its id and its items now. Anything else is a plain error and nothing is served:
+        /// a vault that closed since the popup listed it answers `locked` (or `not-available`), and no other vault is read instead.
+        enum Named { case open(String, [VaultItem]), refused([String: Any]) }
+        func openVault(_ held: BrowserVaultService) -> Named {
+            guard let vault = request["vault"] as? String, !vault.isEmpty, vault.count <= 64,
+                  let listed = held.vaults().first(where: { $0.id == vault }) else { return .refused(fail("not-found")) }
+            guard listed.isOpen else { return .refused(fail(listed.state.isAvailable ? "locked" : "not-available")) }
+            guard let items = held.items(vault: vault) else { return .refused(fail("locked")) }
+            return .open(vault, items)
+        }
+        var opened: (vault: String, items: [VaultItem])?
+        if let held = service, type != "save" {
+            switch openVault(held) {
+            case .refused(let error): return error
+            case .open(let vault, let items): opened = (vault, items)
+            }
+        }
+        let items = opened?.items ?? []
+        func refOf(_ item: VaultItem) -> String { service?.reference(for: item) ?? reference(item) }
 
         switch type {
         case "ping":
@@ -82,10 +105,10 @@ enum BrowserProtocol {
         case "candidates":
             guard let origin = request["origin"] as? String, let host = fillableHost(origin) else { return fail("forbidden") }
             let requested = SharedVault.host(host)
-            let matches = BrowserPrototypeStore.allItems.filter {
+            let matches = items.filter {
                 $0.fillValue(for: .password) != nil && SharedVault.matches($0, host: requested)
             }
-            return ok(["candidates": matches.map { ["ref": reference($0), "title": $0.displayTitle, "account": $0.visibleAccount,
+            return ok(["candidates": matches.map { ["ref": refOf($0), "title": $0.displayTitle, "account": $0.visibleAccount,
                                                     "website": $0.visibleWebsite, "passkey": $0.passkey != nil] as [String: Any] }])
 
         case "search":
@@ -98,14 +121,14 @@ enum BrowserProtocol {
             guard !query.isEmpty, query.count <= 100 else { return ok(["results": [Any](), "counts": counts, "total": 0]) }
             let chosen = Set((request["fields"] as? [String] ?? []).compactMap(searchField))
             let requested = SharedVault.host(host)
-            let logins = BrowserPrototypeStore.allItems.filter { $0.kind == .login && !$0.secret.isEmpty }
+            let logins = items.filter { $0.kind == .login && !$0.secret.isEmpty }
             let found = logins
                 .filter { ItemSearch.matches($0, query: query, in: chosen) }
                 .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
             let perField = ItemSearch.counts(logins, query: query)
             return ok([
                 "results": found.prefix(20).map { item -> [String: Any] in
-                    var row: [String: Any] = ["ref": reference(item), "title": item.displayTitle, "account": item.visibleAccount,
+                    var row: [String: Any] = ["ref": refOf(item), "title": item.displayTitle, "account": item.visibleAccount,
                                               "website": item.visibleWebsite, "matches": SharedVault.matches(item, host: requested),
                                               "passkey": item.passkey != nil]
                     if let hit = ItemSearch.hit(of: item, query: query, chosen: chosen) {
@@ -124,8 +147,8 @@ enum BrowserProtocol {
             return ok(vaultsReply(service))
 
         case "switch-vault":
-            // Makes the vault the app's current one (the open vault locks) and does not unlock it: the popup shows Unlock when
-            // the new vault is locked. The reply carries the new list so the popup draws the states as they are now.
+            // Makes the vault the one the app shows. No vault locks and none unlocks: the popup shows Unlock when the new vault is
+            // locked. The reply carries the new list so the popup draws the states as they are now.
             guard let service = vaultService else { return fail("unsupported") }
             guard let vault = request["vault"] as? String, !vault.isEmpty, vault.count <= 64 else { return fail("not-found") }
             switch service.switchVault(id: vault) {
@@ -157,35 +180,36 @@ enum BrowserProtocol {
             return ok(["password": PasswordGenerator.strong()])
 
         case "save":
-            // Creates a login in the current vault, or updates the password of the saved login there for the same site and account.
-            // The request names the vault so a popup that is out of date cannot write into a vault the person has since left: only
-            // the current, open vault is written (`forbidden` for another one, `locked` or `not-available` when it is not open).
+            // Creates a login in the vault the request names, or updates the password of the saved login there for the same site and
+            // account. Any open vault can be written; one that is not open is not (`locked` or `not-available`, `not-found` for an
+            // unknown one), so a popup that is out of date never writes into another vault than the one its button names.
             guard let origin = request["origin"] as? String, let host = fillableHost(origin) else { return fail("forbidden") }
             guard let account = (request["account"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !account.isEmpty, account.count <= 320,
                   let secret = request["secret"] as? String, !secret.isEmpty, secret.count <= 1024 else { return fail("unsupported") }
-            guard let vault = request["vault"] as? String, !vault.isEmpty, vault.count <= 64 else { return fail("not-found") }
-            guard let service = vaultService else { return fail("unsupported") }
-            let vaults = service.vaults()
-            guard vaults.contains(where: { $0.id == vault }) else { return fail("not-found") }
-            guard let current = vaults.first(where: \.active), current.id == vault else { return fail("forbidden") }
-            guard current.isOpen else { return fail(current.state.isAvailable ? "locked" : "not-available") }
+            guard let held = service else { return fail("unsupported") }
             let website = SharedVault.host(host)
-            if var existing = BrowserPrototypeStore.allItems.first(where: {
-                $0.kind == .login && SharedVault.host($0.website) == website && $0.account == account
-            }) {
+            let vault: String
+            var existing: VaultItem?
+            switch openVault(held) {
+            case .refused(let error): return error
+            case .open(let id, let stored):
+                vault = id
+                existing = stored.first { $0.kind == .login && SharedVault.host($0.website) == website && $0.account == account }
+            }
+            if var existing {
                 // Only the password changes: never the username, title or website.
                 existing.secret = secret
-                BrowserPrototypeStore.save(existing, vault: vault)
+                guard held.save(existing, vault: vault) else { return fail("locked") }
                 return ok(["result": "updated", "vault": vault])
             }
-            BrowserPrototypeStore.save(VaultItem(kind: .login, account: account, website: website, secret: secret), vault: vault)
+            guard held.save(VaultItem(kind: .login, account: account, website: website, secret: secret), vault: vault) else { return fail("locked") }
             return ok(["result": "created", "vault": vault])
 
         case "credential":
             guard let origin = request["origin"] as? String, let host = fillableHost(origin),
                   let ref = request["ref"] as? String else { return fail("forbidden") }
-            guard let item = BrowserPrototypeStore.allItems.first(where: { $0.kind == .login && reference($0) == ref }),
+            guard let item = items.first(where: { $0.kind == .login && refOf($0) == ref }),
                   let password = item.fillValue(for: .password) else { return fail("not-found") }
             // Recheck the origin here. A reference alone never releases a secret. `manual` is the
             // person's explicit choice of a login saved for another site, confirmed in the popup.

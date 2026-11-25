@@ -99,10 +99,14 @@
   }
 
   let vaults = [];
-  let siteLogins = [];  // this site's logins in the current vault: what makes "Create" say "Update"
-  const currentVault = () => vaults.find((v) => v.active);
+  let siteLogins = [];  // this site's logins in the chosen vault: what makes "Create" say "Update"
+  // The vault the popup lists, fills from and saves into. It starts as the vault the app shows and changes only when the person
+  // picks another here. Any number of vaults can be open, so there is no "the" open vault: every request names this one.
+  let chosenId;
+  const currentVault = () => Vaults.pick(vaults, chosenId);
+  const vaultId = () => currentVault()?.id;
   const isOpen = () => { const v = currentVault(); return !v || v.state === 'open'; };  // no list at all: an older host, nothing to unlock
-  const vaultName = (v, max = 32) => line(v?.name || 'Vault', max);
+  const vaultName = (v, max = 32) => Vaults.name(v, max);
 
   // ---------- vaults: the button, the menu and what each state says ----------
 
@@ -112,20 +116,22 @@
       list = reply.ok && Array.isArray(reply.vaults) ? reply.vaults : [];
     }
     vaults = list;
+    chosenId = currentVault()?.id;
     drawVaultBar();
   }
 
   // With two or more vaults: the vault glyph, then a plain native pick list of the vault names in the order the app reports them
-  // (the current vault is not moved first). No Lock and no Add Vault here: those are the app's. States are said by the notice.
+  // (its fixed order: the chosen or shown vault is not moved first, an open vault is not moved up). Names only, no padlock: the
+  // notice says when a vault is locked. No Lock and no Add Vault here: those are the app's.
   function drawVaultBar() {
     vaultBar.hidden = vaults.length < 2;
     vaultSelect.replaceChildren();
     if (vaultBar.hidden) return;
-    for (const v of vaults) {
+    for (const o of Vaults.options(vaults, chosenId)) {
       const option = document.createElement('option');
-      option.value = v.id;
-      option.textContent = vaultName(v, 40);
-      option.selected = v.active === true;
+      option.value = o.value;
+      option.textContent = o.text;
+      option.selected = o.selected;
       vaultSelect.append(option);
     }
   }
@@ -134,29 +140,7 @@
     if (v) chooseVault(v);
   });
 
-  // What the notice says for a vault that cannot list logins, and whether Unlock is offered. `hint` is how the last Unlock ended.
-  function notice(v, hint) {
-    const n = vaultName(v);
-    const another = vaults.length >= 2 ? ', or choose another vault' : '';
-    switch (hint) {
-      case 'cancelled': return { text: 'Touch ID was cancelled. Choose Unlock to try again.', kind: 'warning', unlock: true };
-      case 'failed': return { text: 'Touch ID did not work. Choose Unlock to try again.', kind: 'warning', unlock: true };
-      case 'needs-app': return { text: `Open Psss to unlock ${n}.`, kind: 'info', unlock: false };
-      case 'opened': return { text: `Unlock ${n} in Psss.`, kind: 'info', unlock: false };
-      default:
-    }
-    switch (v.state) {
-      case 'needs-password': {
-        const why = v.reason === 'changed' ? `Touch ID changed since ${n} was set up.`
-          : v.reason === 'locked-out' ? 'Touch ID is locked out right now.' : `Touch ID is off for ${n}.`;
-        return { text: `${why} Unlock with the vault password.`, kind: 'info', unlock: true };
-      }
-      case 'not-downloaded': return { text: `${n} isn’t downloaded yet. Psss lists nothing from it here. Open Psss to download it${another}.`, kind: 'warning', unlock: false };
-      case 'not-found': return { text: `${n} was not found. Psss lists nothing from it here. Open Psss to locate it${another}.`, kind: 'warning', unlock: false };
-      case 'unreadable': return { text: `${n} can’t be read. Psss lists nothing from it here. Open Psss for details${another}.`, kind: 'warning', unlock: false };
-      default: return { text: `${n} is locked. Choose Unlock to use Touch ID.`, kind: 'info', unlock: true };
-    }
-  }
+  const notice = (v, hint) => Vaults.notice(v, hint, vaults.length);
 
   function hideEverything() {
     searchEl.hidden = true;
@@ -187,21 +171,24 @@
     return false;
   }
 
-  // Choosing a vault makes it the app's current vault (one per device) and locks the open one. It does not unlock: when the new
-  // vault is locked, the header shows Unlock.
+  // Choosing a vault changes which vault the popup fills from. Other vaults stay as they are: none locks, and an open one needs no
+  // unlock. The app is told too (it shows that vault, which is also what Unlock works on), but a refusal to switch never stops the
+  // popup from using a vault that is open.
   async function chooseVault(v) {
-    if (v.active) return;
+    if (v.id === chosenId) return;
+    const before = chosenId;
+    chosenId = v.id;
     vaultSelect.disabled = true;
     const reply = await Host.switchVault(v.id);
     vaultSelect.disabled = false;
-    if (reply.vaults) { vaults = reply.vaults; }
-    drawVaultBar();  // the pick list shows the vault that is current now, also when the switch failed
-    if (!reply.ok) {
-      say(reply.error === PROTOCOL.errors.unsupported
-        ? `Psss cannot switch vaults from the browser yet. Open Psss and choose ${vaultName(v)}.`
-        : 'Psss could not switch vaults.', 'warning');
+    if (reply.vaults) vaults = reply.vaults;
+    if (!reply.ok && reply.error === PROTOCOL.errors.notFound) {
+      chosenId = Vaults.pick(vaults, before)?.id;
+      drawVaultBar();
+      say('Psss could not switch vaults.', 'warning');
       return;
     }
+    drawVaultBar();  // the pick list shows the vault chosen now
     say('');
     if (showVaultState()) await afterOpen();
   }
@@ -257,7 +244,7 @@
     say('');
     listEl.replaceChildren();
     siteNote.hidden = true;
-    const reply = await Host.candidates(origin);
+    const reply = await Host.candidates(origin, vaultId());
     if (!reply.ok) {
       siteGroup.hidden = true;
       if (reply.error === PROTOCOL.errors.locked || reply.error === PROTOCOL.errors.notAvailable) {
@@ -278,7 +265,7 @@
     siteLogins = logins;
     let sampleCards = [];
     if (checkout) {
-      const cards = await Host.cardCandidates(origin);
+      const cards = await Host.cardCandidates(origin, vaultId());
       if (cards.ok && cards.candidates.length) {
         sampleCards = cards.candidates.map((c) => ({ ...c, card: true, matches: true }));
       }
@@ -354,10 +341,16 @@
       return;
     }
     if (!isOpen()) return;
-    const found = await Host.search(origin, query, [...chosen]);
+    const found = await Host.search(origin, query, [...chosen], vaultId());
     if (mine !== latest) return; // a newer search is on its way
     if (!found.ok) {
-      say(found.error === PROTOCOL.errors.locked ? 'Psss is locked. Open the app to unlock.' : 'Psss could not search.');
+      if (found.error === PROTOCOL.errors.locked || found.error === PROTOCOL.errors.notAvailable) {
+        // The chosen vault closed since the list was read: ask what it is now. Nothing from another vault is shown instead.
+        await refreshVaults();
+        showVaultState();
+        return;
+      }
+      say('Psss could not search.');
       return;
     }
     // While searching, the results replace this site's list: the counts count every login, this site's included.
@@ -385,7 +378,7 @@
 
   // Generate a strong password, fill the password and its confirmation, and save the login, in one labeled action. The popup
   // closes when focus leaves it, so saving later could lose the password. The save happens with the click. The login goes into
-  // the current vault, which the button names with two or more vaults; when that vault already has this site and username
+  // the chosen vault, which the button names with two or more vaults; when that vault already has this site and username
   // the button says Update, which changes only the password.
   const accountEl = $('account');
   const generateEl = $('generate');
@@ -432,11 +425,11 @@
       createdEl.textContent = 'The page changed. Open Psss again.';
       return;
     }
-    // The save goes into the vault named on the button. Check it is still the current, open one before anything is filled.
+    // The save goes into the vault named on the button. Check it is still open before anything is filled.
     const before = currentVault();
     const fresh = await Host.vaults();
-    const now = fresh.ok ? fresh.vaults?.find((v) => v.active) : undefined;
-    if (before && (!now || now.id !== before.id || now.state !== 'open')) {
+    const now = fresh.ok ? fresh.vaults?.find((v) => v.id === before?.id) : undefined;
+    if (before && (!now || now.state !== 'open')) {
       if (fresh.ok) { await refreshVaults(fresh.vaults); showVaultState(); }
       createdEl.textContent = 'The vault changed. Open Psss again.';
       return;
@@ -561,7 +554,13 @@
       return;
     }
     // `manual`: the login is in Other Matches, saved for another site or none. The person chose it in the list.
-    const cred = card ? await Host.card(ref, origin) : await Host.credential(ref, origin, manual);
+    const cred = card ? await Host.card(ref, origin, vaultId()) : await Host.credential(ref, origin, vaultId(), manual);
+    if (!cred.ok && (cred.error === PROTOCOL.errors.locked || cred.error === PROTOCOL.errors.notAvailable)) {
+      // The vault closed between the list and this click (a lock in the app): say so and offer Unlock. Nothing was released.
+      await refreshVaults();
+      showVaultState();
+      return;
+    }
     if (!cred.ok) { say(card ? 'Psss could not release that card.' : 'Psss could not release that login.'); button.disabled = false; return; }
     const fields = cred.fields ?? { username: cred.account, 'current-password': cred.secret };
     const [{ result } = {}] = await api.scripting.executeScript({

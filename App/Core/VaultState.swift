@@ -92,10 +92,12 @@ enum VaultState: Equatable, Sendable {
     /// The second line of the vault's row: the state's words when it has some, otherwise where the file is kept.
     func subtitle(location: String) -> String { subtitle ?? location }
 
-    /// The glyph at the row's trailing end: open padlock, closed padlock or the warning triangle.
+    /// The glyph at the row's trailing end: closed padlock or the warning triangle. An open vault has no padlock (owner, 2026-11-25:
+    /// several vaults are open at once, and a padlock means locked); callers draw nothing for it, and the vault glyph stands in
+    /// here so no open padlock can ever appear.
     var symbol: String {
         switch self {
-        case .open: "lock.open"
+        case .open: "cylinder.split.1x2"
         case .locked, .needsPassword: "lock"
         case .notDownloaded, .notFound, .unreadable: "exclamationmark.triangle"
         }

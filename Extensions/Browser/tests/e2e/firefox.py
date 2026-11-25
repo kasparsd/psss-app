@@ -357,7 +357,7 @@ class FirefoxTests(unittest.TestCase):
     def test_2e_one_vault_notice_carries_unlock_and_hostile_names_are_text(self):
         def body(page, popup):
             self.settled(popup)
-            self.set_vaults({"active": "passwords", "unlocked": False, "vaults": [{"id": "passwords", "name": "Only"}]})
+            self.set_vaults({"active": "passwords", "open": [], "vaults": [{"id": "passwords", "name": "Only"}]})
             try:
                 self.use(popup)
                 self.m.call("WebDriver:Refresh")
@@ -381,7 +381,7 @@ class FirefoxTests(unittest.TestCase):
                 self.set_vaults()
         self.with_popup(f"{SITE}/login.html", body)
 
-    def test_2f_save_refuses_other_vaults_and_signup_names_the_vault(self):
+    def test_2f_save_refuses_a_vault_that_is_not_open_and_signup_names_the_vault(self):
         def body(page, popup):
             wait_for(lambda: self.shown(popup, "create"), "create section")
             self.assertEqual(self.text(popup, "generate"), "Generate, Fill and Save")
@@ -389,13 +389,13 @@ class FirefoxTests(unittest.TestCase):
             self.assertEqual(self.text(popup, "createtitle"), "Update a login")
             self.assertEqual(self.text(popup, "accountlabel"), "Passwords already has alex@example.net for this site.")
             refused = self.m.script("const done = arguments[arguments.length - 1]; Host.save('http://localhost:8080', 'work', 'refused@example.net', 'Never-saved-1').then((r) => done(r.error), () => done('x'))", async_=True)
-            self.assertEqual(refused, "forbidden")
+            self.assertEqual(refused, "locked")  # Work is not open: a save is never written into it
         self.with_popup(f"{SITE}/signup.html", body)
 
     def test_2g_return_fills_the_only_match(self):
         def body(page, popup):
             self.settled(popup)
-            self.set_vaults({"active": "work", "unlocked": True})
+            self.set_vaults({"active": "work", "open": ["work"]})
             try:
                 self.m.script("const done = arguments[arguments.length - 1]; Host.save('http://localhost:8080', 'work', 'solo@example.net', 'Solo-secret-1').then(done)", async_=True)
                 self.use(popup)
@@ -527,7 +527,7 @@ class FirefoxTests(unittest.TestCase):
         try:
             error = self.m.script(
                 "const done = arguments[arguments.length - 1];"
-                "api.runtime.sendNativeMessage(PROTOCOL.host, {v: 3, id: 'x', type: 'ping'}).then(() => done(null), (e) => done(e.message))", async_=True)
+                "api.runtime.sendNativeMessage(PROTOCOL.host, {v: 4, id: 'x', type: 'ping'}).then(() => done(null), (e) => done(e.message))", async_=True)
             self.assertTrue(error, "Firefox must refuse an add-on that is not in allowed_extensions")
             self.assertFalse(self.m.script("const done = arguments[arguments.length - 1]; Host.ping().then((r) => done(r.ok))", async_=True))
         finally:

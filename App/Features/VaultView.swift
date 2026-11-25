@@ -371,7 +371,7 @@ struct VaultView: View {
             .onChange(of: place) { hideSignal += 1 }
             .onChange(of: inSearchTab) { hideSignal += 1 }
             .onChange(of: selections) { hideSignal += 1 }
-            .task { if store.isSample { VaultIdentities.remove() } else { registerIdentities() } }
+            .task { if store.isSample { VaultIdentities.removeAll() } else { registerIdentities() } }
             // Another open vault's place was chosen, or a vault was just unlocked: land on that place.
             .onAppear { applyLanding() }
             .onChange(of: landing) { applyLanding() }
@@ -1640,8 +1640,8 @@ struct VaultView: View {
     /// Tells the system which sites have logins. The sample vault registers none: nothing in it may ever be offered by AutoFill.
     /// `knownEnabled` is for the moment AutoFill has just been found on: the logins go to the system at once.
     private func registerIdentities(knownEnabled: Bool = false) {
-        guard !store.isSample else { return }
-        if knownEnabled { SharedVault.registerIdentities(for: items, knownEnabled: true) } else { VaultIdentities.register(for: items) }
+        guard !store.isSample, let id = (store as? KeePassVaultStore)?.reference.id else { return }
+        VaultIdentities.register(vault: id, items: items, knownEnabled: knownEnabled)
     }
 
     /// Picks up what the AutoFill extension or another app wrote to the vault file while this view was in the background.

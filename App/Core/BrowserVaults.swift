@@ -38,7 +38,8 @@ struct BrowserVault: Equatable, Sendable {
     var name: String
     /// Where the vault is kept, in the words the app's menu uses ("iCloud Drive", "On this device", a folder).
     var location: String
-    /// Whether this vault is the app's current one (one per device).
+    /// Whether this vault is the one the app shows (one per device). It is only the popup's default choice: several vaults can be open,
+    /// and every request that reads or writes logins names the vault it means.
     var active: Bool
     var state: BrowserVaultState
     /// Only with `.needsPassword`.
@@ -56,7 +57,7 @@ struct BrowserVault: Equatable, Sendable {
 
 /// What a request to make a vault the current one came to.
 enum BrowserVaultOutcome: Equatable, Sendable {
-    /// The vault is now the app's current one (the open vault locked). It stays locked until `unlock-vault`.
+    /// The vault is now the one the app shows. No vault was locked or unlocked: a locked one stays locked until `unlock-vault`.
     case switched
     case notFound
     /// This process cannot switch vaults (the Safari app extension today: it never holds a key and cannot reach the app).
@@ -84,16 +85,34 @@ enum BrowserUnlockOutcome: Equatable, Sendable {
 }
 
 /// What the protocol needs from whoever holds the vaults. The native host relays to the app, which owns the `VaultSession`
-/// (`BrowserVaultSwitch`, in the app). The calls are synchronous because the host waits for the reply either way.
+/// (`BrowserVaultSwitch` and `SessionVaultService`, in the app). The calls are synchronous because the host waits for the reply either way.
 protocol BrowserVaultService {
     func vaults() -> [BrowserVault]
     func switchVault(id: String) -> BrowserVaultOutcome
     func unlockVault(id: String) -> BrowserUnlockOutcome
+
+    /// Whether this service holds logins to search, fill and save. The Safari app extension's stored list does not (it never holds a
+    /// key): every request that would read or write a login is answered `unsupported` there.
+    var servesCredentials: Bool { get }
+    /// The vault's items while it is open, or nil when it is not (locked since the list was read, unknown). Nothing from a vault that
+    /// is not open is ever returned, and never another vault's items instead.
+    func items(vault id: String) -> [VaultItem]?
+    /// Saves one login into the vault if it is open. False: nothing was written.
+    func save(_ item: VaultItem, vault id: String) -> Bool
+    /// The reference a login has in replies. It only has to be unique inside one vault: a request names its vault.
+    func reference(for item: VaultItem) -> String
+}
+
+extension BrowserVaultService {
+    var servesCredentials: Bool { false }
+    func items(vault id: String) -> [VaultItem]? { nil }
+    func save(_ item: VaultItem, vault id: String) -> Bool { false }
+    func reference(for item: VaultItem) -> String { BrowserProtocol.reference(item) }
 }
 
 /// The prototype host's vaults, kept next to the prototype file (`vaults.json`) so a switch survives the per-message host
 /// process. Nothing here is a real vault; the file also lets the end-to-end tests put every state on screen (`vaults` replaces the
-/// default list; see `Spec`).
+/// default list; see `Spec`). Any number of vaults can be open (`open` in the state file); a switch locks none.
 ///
 /// By default there are seven: "Passwords" and "Work" open with Touch ID; "Archive" asks for Touch ID, which is cancelled; "Family"
 /// needs its password (the prototype has no app to bring forward); "Travel" is not downloaded, "Taxes" cannot be read and "Old" is
@@ -145,52 +164,56 @@ struct PrototypeVaultService: BrowserVaultService {
         return specs.isEmpty ? Self.defaults : specs
     }
 
-    /// The current vault and whether it is open. The first vault, open, until a switch says otherwise.
-    var current: (id: String, unlocked: Bool) {
+    /// The vault the app shows. The first vault until a switch says otherwise.
+    var active: String {
         let all = specs
-        let object = object
-        guard let active = object["active"] as? String, all.contains(where: { $0.id == active }) else { return (all[0].id, true) }
-        return (active, object["unlocked"] as? Bool ?? true)
+        guard let active = object["active"] as? String, all.contains(where: { $0.id == active }) else { return all[0].id }
+        return active
     }
 
-    private func write(active: String, unlocked: Bool) {
+    /// The vaults that are open: any number. The first one until a request says otherwise (`open` in the state file lists them).
+    var open: Set<String> {
+        let all = specs
+        guard let list = object["open"] as? [String] else { return [all[0].id] }
+        return Set(list.filter { id in all.contains { $0.id == id } })
+    }
+
+    private func write(active: String, open: Set<String>) {
         var object = object
         object["active"] = active
-        object["unlocked"] = unlocked
+        object["open"] = specs.map(\.id).filter(open.contains)
         if let data = try? JSONSerialization.data(withJSONObject: object) { try? data.write(to: stateURL, options: .atomic) }
     }
 
-    private func state(of spec: Spec, in current: (id: String, unlocked: Bool)) -> (BrowserVaultState, BrowserPasswordReason?) {
+    private func state(of spec: Spec, open: Set<String>) -> (BrowserVaultState, BrowserPasswordReason?) {
         if let file = spec.file { return (file, nil) }
-        if spec.id == current.id && current.unlocked { return (.open, nil) }
+        if open.contains(spec.id) { return (.open, nil) }
         if let off = spec.quickUnlockOff { return (.needsPassword, off) }
         return (.locked, nil)
     }
 
     func vaults() -> [BrowserVault] {
-        let current = current
-        let all = specs
-        // In the fixed order of the list, the current vault not moved first: the popup's pick list keeps each vault where it is.
-        return all.map { spec in
-            let (state, reason) = state(of: spec, in: current)
-            return BrowserVault(id: spec.id, name: spec.name, location: spec.location, active: spec.id == current.id, state: state, reason: reason)
+        let active = active
+        let open = open
+        // In the fixed order of the list: the shown vault is not moved first, and the popup's pick list keeps each vault where it is.
+        return specs.map { spec in
+            let (state, reason) = state(of: spec, open: open)
+            return BrowserVault(id: spec.id, name: spec.name, location: spec.location, active: spec.id == active, state: state, reason: reason)
         }
     }
 
+    /// Makes the vault the shown one. No vault is locked or unlocked.
     func switchVault(id: String) -> BrowserVaultOutcome {
         guard specs.contains(where: { $0.id == id }) else { return .notFound }
-        let current = current
-        // Choosing the open vault changes nothing. Any other becomes current and the open one locks.
-        if id == current.id { return .switched }
-        write(active: id, unlocked: false)
+        if id != active { write(active: id, open: open) }
         return .switched
     }
 
     func unlockVault(id: String) -> BrowserUnlockOutcome {
         guard let spec = specs.first(where: { $0.id == id }) else { return .notFound }
-        let current = current
-        guard id == current.id else { return .notCurrent }
-        switch state(of: spec, in: current).0 {
+        guard id == active else { return .notCurrent }
+        let open = open
+        switch state(of: spec, open: open).0 {
         case .open: return .unlocked
         case .notDownloaded, .notFound, .unreadable: return .notAvailable
         case .needsPassword: return spec.appComesForward ? .cameForward : .needsApp
@@ -199,9 +222,21 @@ struct PrototypeVaultService: BrowserVaultService {
             case "cancelled": return .cancelled
             case "failed": return .failed
             default:
-                write(active: id, unlocked: true)
+                write(active: id, open: open.union([id]))
                 return .unlocked
             }
         }
+    }
+
+    var servesCredentials: Bool { true }
+
+    func items(vault id: String) -> [VaultItem]? {
+        guard let spec = specs.first(where: { $0.id == id }), spec.file == nil, open.contains(id) else { return nil }
+        return BrowserPrototypeStore.items(vault: id)
+    }
+
+    func save(_ item: VaultItem, vault id: String) -> Bool {
+        guard let spec = specs.first(where: { $0.id == id }), spec.file == nil, open.contains(id) else { return false }
+        return BrowserPrototypeStore.save(item, vault: id)
     }
 }

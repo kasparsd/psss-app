@@ -116,7 +116,18 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         // A tapped suggestion shows the same list as the key button, for the suggestion's site: one matching login has the main
         // Fill button, and the search field and the Vault row are there. There is no one-login Fill screen. Nothing leaves the
         // vault until a row is chosen.
+        showVault(of: credentialIdentity.recordIdentifier)
         unlocked(title: "Choose a Login") { [self] in presentLoginList(site: credentialIdentity.serviceIdentifier.identifier) }
+    }
+
+    /// Makes the vault a suggestion belongs to the one this request opens and lists from, so the system's suggestion for a login in
+    /// another vault opens that vault (unlocked here with Face ID, Touch ID or its password) and not whichever the app last showed.
+    /// Returns the item the record names, or nil for a record that is not this app's (the shown vault stays).
+    @discardableResult
+    private func showVault(of record: String?) -> UUID? {
+        guard let parsed = IdentityRecord.parse(record) else { return nil }
+        if session.knownVaults.contains(where: { $0.id == parsed.vault }) { session.show(parsed.vault) }
+        return parsed.item
     }
 
     #if os(iOS)
@@ -229,12 +240,15 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     /// The system's suggestion list learns of the saved item. Waits for it so the extension is not torn down mid-call, but never
     /// longer than a few seconds: the file is already written, and the app registers every login again the next time it opens.
     @MainActor private static func registerBriefly(_ item: VaultItem, in vault: any VaultStore) async {
-        let all = vault.items()
+        guard let id = (vault as? KeePassVaultStore)?.reference.id else { return }
+        // Every vault this sheet has opened, each tied to its own vault (the replacement path must not drop the others').
+        // Plain values the system only reads; only the registering task touches this copy.
+        nonisolated(unsafe) let all = VaultIdentities.record(vault: id, items: vault.items())
         var finished = false
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             // Whichever comes first ends the wait; the other is ignored (a structured group would wait for both).
             func finish() { if !finished { finished = true; continuation.resume() } }
-            Task { await SharedVault.registerSavedAndWait([item], all: all); finish() }
+            Task { await SharedVault.registerSavedAndWait([item], in: id, all: all); finish() }
             Task { try? await Task.sleep(for: .seconds(2)); finish() }
         }
     }
@@ -413,11 +427,12 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 
     override func prepareInterfaceToProvideCredential(for credentialRequest: any ASCredentialRequest) {
         let isCode = credentialRequest.credentialIdentity is ASOneTimeCodeCredentialIdentity
+        let itemID = showVault(of: credentialRequest.credentialIdentity.recordIdentifier)
         unlocked(title: isCode ? "Choose a Code" : "Choose a Login") { [self] in
             if let request = credentialRequest as? ASPasskeyCredentialRequest,
                let identity = request.credentialIdentity as? ASPasskeyCredentialIdentity {
                 // Sign only with the passkey the identity names: same relying party and same credential ID.
-                guard let item = items.first(where: { $0.id.uuidString == identity.recordIdentifier }),
+                guard let itemID, let item = items.first(where: { $0.id == itemID }),
                       let passkey = item.passkey,
                       ReleaseCheck.passkey(record: passkey, relyingParty: identity.relyingPartyIdentifier,
                                            credentialID: identity.credentialID) else { return cancel(.credentialIdentityNotFound) }
@@ -610,21 +625,20 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         resume?()
     }
 
-    /// The Vault row's choice: the vault becomes the current vault for the whole app (it works only while locked, so the session is
-    /// locked first), then the request runs again, which opens that vault with Face ID or Touch ID (or shows its Unlock) and lists
-    /// its logins. A values screen is replaced by that list; a save screen is replaced by the same form for the new destination.
-    /// Nothing here closes the sheet.
+    /// The Vault row's choice: the vault becomes the shown vault of the app (nothing is locked: a vault this sheet already opened stays
+    /// open and lists at once, and each open vault lives only in this process), then the request runs again, which opens that vault
+    /// with Face ID or Touch ID (or shows its Unlock) and lists its logins. A values screen is replaced by that list; a save screen is
+    /// replaced by the same form for the new destination. Nothing here closes the sheet.
     private func switchVault(to id: UUID) {
         guard resume != nil else { return }
         unlockLog.notice("provider switches vault")
-        session.lock()
         vault = nil
         openScreenShown = false
         session.show(id)
         // The old list, its search text and its results go at once: the person sees the new vault's name and that it is opening
         // while Face ID asks. A save keeps its form, which has nothing to clear.
         if lockedScreen == nil {
-            present(ProviderLoadingScreen(title: requestTitle, vaults: makeVaultSwitch(state: .locked),
+            present(ProviderLoadingScreen(title: requestTitle, vaults: makeVaultSwitch(state: session.isOpen ? .open : .locked),
                                           cancel: { [weak self] in self?.cancel(.userCanceled) }))
         }
         reopen()

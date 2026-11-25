@@ -1,3 +1,4 @@
+import AuthenticationServices
 import CryptoKit
 import Foundation
 import Synchronization
@@ -1138,7 +1139,7 @@ final class VaultSession {
         VaultFiles.removeBackups(for: gone.id)
         UsageLog.erase(for: gone.id)
         BiometricKey.delete(for: gone.id)
-        VaultIdentities.remove()
+        VaultIdentities.remove(vault: id)
         unreadable.remove(id)
         // Final: a copy of this reference that another process still holds cannot write it back.
         VaultReference.forget(id)
@@ -1203,10 +1204,81 @@ extension VaultStoreError {
     }
 }
 
-/// The app's way to tell the system's AutoFill suggestions about the vault. Hostless tests never touch the real credential
-/// identity store: they get a recorder instead, so a test can say what would have been sent.
+/// What the system's identity store should hold, kept per vault: replacing one vault's suggestions leaves the others', and the
+/// whole is what the system is given. Pure, so the rules are tested.
+struct IdentityRegistry<Entry> {
+    private(set) var byVault: [UUID: [Entry]] = [:]
+
+    mutating func set(_ entries: [Entry], for vault: UUID) { byVault[vault] = entries }
+
+    /// Whether the vault had suggestions.
+    @discardableResult mutating func remove(_ vault: UUID) -> Bool { byVault.removeValue(forKey: vault) != nil }
+
+    mutating func removeAll() { byVault = [:] }
+
+    /// Every vault's suggestions, one vault after the other in a fixed order.
+    var merged: [Entry] { byVault.keys.sorted { $0.uuidString < $1.uuidString }.flatMap { byVault[$0] ?? [] } }
+
+    var isEmpty: Bool { byVault.values.allSatisfy(\.isEmpty) }
+}
+
+/// The app's way to tell the system's AutoFill suggestions about its vaults. Every open vault's suggestions are sent together (the
+/// system's store is replaced as a whole), each tied to its vault (`IdentityRecord`), so another vault opening, a vault being
+/// removed or a vault's own change never drops what the others offer. Locking a vault removes nothing: the system's store belongs
+/// to the system and suggestions stay while a vault is locked, so choosing one asks to unlock it. Hostless tests never touch the real
+/// credential identity store: they get a recorder instead, so a test can say what would have been sent.
 enum VaultIdentities {
-    static func remove() {
+    #if HOSTLESS_TESTS
+    typealias Entry = String
+    #else
+    typealias Entry = any ASCredentialIdentity
+    #endif
+
+    private nonisolated(unsafe) static var registry = IdentityRegistry<Entry>()
+    private static let lock = NSLock()
+
+    /// Replaces vault `id`'s suggestions with those of `items` and sends every vault's to the system. `knownEnabled` is for the moment
+    /// AutoFill was just found on: send at once.
+    static func register(vault id: UUID, items: [VaultItem], knownEnabled: Bool = false) {
+        lock.lock(); defer { lock.unlock() }
+        #if HOSTLESS_TESTS
+        registry.set(items.map { IdentityRecord.make(vault: id, item: $0.id) }, for: id)
+        recorder.withLock { $0.append(.registered(vault: id, ids: items.map(\.id))) }
+        _ = knownEnabled
+        #else
+        registry.set(SharedVault.identities(for: items, vault: id), for: id)
+        SharedVault.registerIdentities(registry.merged, knownEnabled: knownEnabled)
+        #endif
+    }
+
+    /// Notes vault `id`'s suggestions and returns every vault's, without sending anything: for the AutoFill extension, which waits for
+    /// the system itself (`SharedVault.registerSavedAndWait`).
+    static func record(vault id: UUID, items: [VaultItem]) -> [Entry] {
+        lock.lock(); defer { lock.unlock() }
+        #if HOSTLESS_TESTS
+        registry.set(items.map { IdentityRecord.make(vault: id, item: $0.id) }, for: id)
+        #else
+        registry.set(SharedVault.identities(for: items, vault: id), for: id)
+        #endif
+        return registry.merged
+    }
+
+    /// Removes vault `id`'s suggestions; the other vaults' stay (and are sent again). With none known, the store is cleared: this
+    /// process may not know what an earlier run registered, and a removed vault's sites and usernames must not stay in the system.
+    static func remove(vault id: UUID) {
+        lock.lock(); defer { lock.unlock() }
+        registry.remove(id)
+        #if HOSTLESS_TESTS
+        recorder.withLock { $0.append(.removed(vault: id)) }
+        #else
+        if registry.isEmpty { SharedVault.removeIdentities() } else { SharedVault.registerIdentities(registry.merged) }
+        #endif
+    }
+
+    /// Clears every suggestion: the sample vault (it never offers any) or leaving everything.
+    static func removeAll() {
+        lock.lock(); defer { lock.unlock() }
+        registry.removeAll()
         #if HOSTLESS_TESTS
         recorder.withLock { $0.append(.removedAll) }
         #else
@@ -1214,18 +1286,12 @@ enum VaultIdentities {
         #endif
     }
 
-    static func register(for items: [VaultItem]) {
-        #if HOSTLESS_TESTS
-        recorder.withLock { $0.append(.registered(items.map(\.id))) }
-        #else
-        SharedVault.registerIdentities(for: items)
-        #endif
-    }
-
     #if HOSTLESS_TESTS
-    enum Call: Equatable { case removedAll, registered([VaultItem.ID]) }
+    enum Call: Equatable { case removedAll, registered(vault: UUID, ids: [VaultItem.ID]), removed(vault: UUID) }
     private static let recorder = Mutex<[Call]>([])
     /// Everything asked of the identity store since the last call, oldest first.
     static func takeCalls() -> [Call] { recorder.withLock { let calls = $0; $0 = []; return calls } }
+    /// What the system would hold now: every registered vault's record identifiers.
+    static var held: [String] { lock.lock(); defer { lock.unlock() }; return registry.merged }
     #endif
 }

@@ -135,7 +135,7 @@ func leaveVault(_ id: UUID, session: VaultSession, vaultSource: inout String, de
 /// Closes the sample vault: the welcome screen shows.
 @MainActor
 func leaveSampleVault(session: VaultSession, gate: UnlockGate, vaultSource: inout String) {
-    VaultIdentities.remove()
+    VaultIdentities.removeAll()
     session.forget()
     vaultSource = ""
     gate.lock()

@@ -413,7 +413,7 @@ test('a vault that is not available has no Unlock, and the vault button stays', 
 }));
 
 test('with one vault the notice carries Unlock', { skip: false }, (t) => !hostAccess ? t.skip('host permission withheld in this browser') : withPopup('http://localhost:8080/login.html', async ({ popup }) => {
-  setVaults({ active: 'passwords', unlocked: false, vaults: [{ id: 'passwords', name: 'Only' }] });
+  setVaults({ active: 'passwords', open: [], vaults: [{ id: 'passwords', name: 'Only' }] });
   try {
     await popup.eval(`location.reload()`);
     await until(async () => (await text(popup, 'status')) !== '', 'the notice');
@@ -428,11 +428,11 @@ test('with one vault the notice carries Unlock', { skip: false }, (t) => !hostAc
   } finally { setVaults(null); }
 }));
 
-test('the host refuses a save into a vault that is not the current open one', { skip: false }, (t) => !hostAccess ? t.skip('host permission withheld in this browser') : withPopup(`${SITE}/login.html`, async ({ popup }) => {
+test('the host refuses a save into a vault that is not open or not known', { skip: false }, (t) => !hostAccess ? t.skip('host permission withheld in this browser') : withPopup(`${SITE}/login.html`, async ({ popup }) => {
   const save = (vault) => popup.eval(`Host.save('http://localhost:8080', ${JSON.stringify(vault)}, 'refused@example.net', 'Never-saved-1').then((r) => r.error ?? r.result)`);
-  assert.equal(await save('work'), 'forbidden');
+  assert.equal(await save('work'), 'locked');
   assert.equal(await save('nope'), 'not-found');
-  assert.equal(await popup.eval(`Host.save('http://localhost:8080', 'passwords', 'refused@example.net', 'Never-saved-1').then((r) => r.result)`), 'created', 'the current open vault is written');
+  assert.equal(await popup.eval(`Host.save('http://localhost:8080', 'passwords', 'refused@example.net', 'Never-saved-1').then((r) => r.result)`), 'created', 'an open vault is written');
 }));
 
 test('hostile vault names are shown as one short line, as text', { skip: false }, (t) => !hostAccess ? t.skip('host permission withheld in this browser') : withPopup('http://localhost:8080/login.html', async ({ popup }) => {
@@ -456,7 +456,7 @@ test('hostile vault names are shown as one short line, as text', { skip: false }
 
 /** The work vault, open, with exactly one login for localhost, so "exactly one match" does not depend on what other tests saved. */
 async function withSoloWork(popup, body) {
-  setVaults({ active: 'work', unlocked: true });
+  setVaults({ active: 'work', open: ['work'] });
   const solo = join(store, 'saved-logins-work.json');
   try {
     assert.equal(await popup.eval(`Host.save('http://localhost:8080', 'work', 'solo@example.net', 'Solo-secret-1').then((r) => r.result)`), 'created');
@@ -537,7 +537,7 @@ test('the create section is not offered while the current vault is locked, and r
 test('a different extension ID cannot use the native host', async () => {
   const popup = await cdp.openTab('about:blank');
   await popup.goto(`chrome-extension://${foreignId}/popup.html`);
-  const error = await popup.eval(`api.runtime.sendNativeMessage(PROTOCOL.host, {v: 3, id: 'x', type: 'ping'}).then(() => null, (e) => e.message)`);
+  const error = await popup.eval(`api.runtime.sendNativeMessage(PROTOCOL.host, {v: 4, id: 'x', type: 'ping'}).then(() => null, (e) => e.message)`);
   assert.match(error, /forbidden/i, 'Chrome must refuse an extension that is not in allowed_origins');
   const reply = await popup.eval(`Host.ping()`);
   assert.equal(reply.ok, false);

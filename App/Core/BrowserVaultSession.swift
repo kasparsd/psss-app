@@ -82,7 +82,8 @@ struct StoredVaultService: BrowserVaultService {
 /// The app's half of a request from the browser popup: what the relay calls inside the running app, where the `VaultSession`
 /// lives. It does what the app's own switcher does (`VaultSession.show`: no vault is locked or unlocked by it), and it unlocks
 /// through the app's own flows, passed in as closures so this stays free of any screen: one shown vault and one unlock flow for
-/// the whole app. Slice M2 (several open vaults for the popup) will let `vaults` and the fill requests read every open vault.
+/// the whole app. Several vaults can be open: `vaults` lists each one's own state, and `items` and `save` work on any open vault by
+/// its id, never on "the shown one" (a request names the vault it means, so a popup that is out of date cannot read another).
 @MainActor
 enum BrowserVaultSwitch {
     /// The vaults as the popup lists them: the same rows, order and states as `VaultMenuItems`. `lockedOut` says Touch ID is locked
@@ -94,8 +95,8 @@ enum BrowserVaultSwitch {
         }
     }
 
-    /// Makes `id` the current vault. No vault is locked (several can be open) and none is unlocked (`unlockVault` does that).
-    /// Choosing the current vault changes nothing.
+    /// Makes `id` the shown vault. No vault is locked (several can be open) and none is unlocked (`unlockVault` does that).
+    /// Choosing the shown vault changes nothing.
     static func switchVault(id: String, session: VaultSession) -> BrowserVaultOutcome {
         guard let target = UUID(uuidString: id), session.knownVaults.contains(where: { $0.id == target }) else { return .notFound }
         session.show(target)
@@ -117,4 +118,57 @@ enum BrowserVaultSwitch {
         case .locked: return await touchID()
         }
     }
+
+    /// The items of vault `id` while it is open in this session; nil when it is not open (locked, unknown or not an id). Reads the
+    /// vault the id names, whichever is shown.
+    static func items(vault id: String, session: VaultSession) -> [VaultItem]? {
+        guard let target = UUID(uuidString: id), let store = session.store(for: target) else { return nil }
+        return store.items()
+    }
+
+    /// Saves `item` into vault `id` while it is open. False: the vault is not open or the file could not be written, and nothing
+    /// was saved.
+    static func save(_ item: VaultItem, vault id: String, session: VaultSession) -> Bool {
+        guard let target = UUID(uuidString: id), let store = session.store(for: target), (try? store.save([item])) != nil else { return false }
+        // The vault may not be the shown one, so its window never notices: its new login is offered by AutoFill from here.
+        VaultIdentities.register(vault: target, items: store.items())
+        return true
+    }
+}
+
+/// The relay's view of the running app: the protocol's `BrowserVaultService` over the app's `VaultSession`. Its calls must be made
+/// on the main actor (the relay hops there before it calls `BrowserProtocol.handle`). Unlock is the app's own flow, passed in: the
+/// service never decides it. Without one, a locked vault answers `needs-app`.
+final class SessionVaultService: BrowserVaultService, @unchecked Sendable {
+    private let session: VaultSession
+    private let unlock: @MainActor (String) -> BrowserUnlockOutcome
+    private let lockedOut: @MainActor () -> Bool
+
+    @MainActor init(session: VaultSession, lockedOut: @escaping @MainActor () -> Bool = { false },
+                    unlock: @escaping @MainActor (String) -> BrowserUnlockOutcome = { _ in .needsApp }) {
+        self.session = session
+        self.lockedOut = lockedOut
+        self.unlock = unlock
+    }
+
+    func vaults() -> [BrowserVault] { MainActor.assumeIsolated { BrowserVaultSwitch.vaults(session, lockedOut: lockedOut()) } }
+
+    func switchVault(id: String) -> BrowserVaultOutcome { MainActor.assumeIsolated { BrowserVaultSwitch.switchVault(id: id, session: session) } }
+
+    func unlockVault(id: String) -> BrowserUnlockOutcome {
+        MainActor.assumeIsolated {
+            guard let target = UUID(uuidString: id), session.knownVaults.contains(where: { $0.id == target }) else { return .notFound }
+            guard target == session.reference?.id else { return .notCurrent }
+            return unlock(id)
+        }
+    }
+
+    var servesCredentials: Bool { true }
+
+    func items(vault id: String) -> [VaultItem]? { MainActor.assumeIsolated { BrowserVaultSwitch.items(vault: id, session: session) } }
+
+    func save(_ item: VaultItem, vault id: String) -> Bool { MainActor.assumeIsolated { BrowserVaultSwitch.save(item, vault: id, session: session) } }
+
+    /// A real vault's login has a stable identifier of its own.
+    func reference(for item: VaultItem) -> String { item.id.uuidString }
 }

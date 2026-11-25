@@ -458,14 +458,18 @@ do {
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     BrowserPrototypeStore.directory = dir
     BrowserProtocol.vaultService = BrowserPrototypeStore.vaultService
+    // A request that reads or writes logins names its vault (protocol 4); the first vault is the default of these tests.
     func ask(_ type: String, _ fields: [String: Any] = [:]) -> [String: Any] {
-        BrowserProtocol.handle(["v": BrowserProtocol.version, "id": "t", "type": type].merging(fields) { $1 })
+        let named = ["candidates", "search", "credential", "card-candidates", "card"].contains(type) ? ["vault": "passwords"] : [:]
+        return BrowserProtocol.handle(["v": BrowserProtocol.version, "id": "t", "type": type].merging(named) { $1 }.merging(fields) { $1 })
     }
-    func search(_ query: String, fields: [String] = []) -> [String: Any] { ask("search", ["origin": "https://example.org", "query": query, "fields": fields]) }
+    func search(_ query: String, fields: [String] = [], vault: String = "passwords") -> [String: Any] {
+        ask("search", ["origin": "https://example.org", "query": query, "fields": fields, "vault": vault])
+    }
     func names(_ reply: [String: Any]) -> String { ((reply["vaults"] as? [[String: Any]]) ?? []).map { "\($0["name"] ?? ""):\($0["active"] ?? ""):\($0["state"] ?? "")" }.joined(separator: ",") }
 
-    expect("protocol is version 3", BrowserProtocol.version == 3, true)
-    same("an old version is refused", ask("ping", ["v": 1])["error"] as? String, "unsupported")
+    expect("protocol is version 4", BrowserProtocol.version == 4, true)
+    same("an old version is refused", ask("ping", ["v": 3])["error"] as? String, "unsupported")
     let all = search("studio north")
     let counts = all["counts"] as? [String: Int] ?? [:]
     same("search counts per field", "\(counts["name"] ?? -1) \(counts["website"] ?? -1) \(counts["username"] ?? -1)", "1 0 0")
@@ -476,46 +480,75 @@ do {
     same("a blank search finds nothing", "\((search("  ")["results"] as? [Any])?.count ?? -1)", "0")
     expect("a result for another site says so", rows.allSatisfy { $0["matches"] as? Bool == false }, true)
 
-    func ids(_ reply: [String: Any]) -> [String] { ((reply["vaults"] as? [[String: Any]]) ?? []).map { "\($0["id"] ?? "")" } }
     func state(_ reply: [String: Any], _ id: String) -> String {
         (((reply["vaults"] as? [[String: Any]]) ?? []).first { $0["id"] as? String == id }).map { "\($0["state"] ?? "")/\($0["reason"] ?? "-")" } ?? "none"
+    }
+    func titles(_ vault: String, origin: String = "https://gitforge.example") -> String {
+        ((ask("candidates", ["origin": origin, "vault": vault])["candidates"] as? [[String: Any]]) ?? []).map { "\($0["title"] ?? "")" }.joined(separator: ",")
     }
     let listed = ask("vaults")
     same("vaults: Passwords open, then each state", names(listed),
          "Passwords:true:open,Work:false:locked,Archive:false:locked,Family:false:needs-password,Travel:false:not-downloaded,Taxes:false:unreadable,Old:false:not-found")
     same("a vault that needs its password says why", state(listed, "family"), "needs-password/off")
     expect("an unlock of the open vault is a no-op", ask("unlock-vault", ["vault": "passwords"])["ok"] as? Bool == true, true)
-    same("switching to Work makes it current and locks Passwords, without unlocking", names(ask("switch-vault", ["vault": "work"])),
-         "Work:true:locked,Passwords:false:locked,Archive:false:locked,Family:false:needs-password,Travel:false:not-downloaded,Taxes:false:unreadable,Old:false:not-found")
-    same("a locked vault serves nothing", ask("candidates", ["origin": "https://gitforge.example"])["error"] as? String, "locked")
-    same("a locked vault searches nothing", search("studio")["error"] as? String, "locked")
+    same("switching to Work shows it and locks nothing: Passwords stays open, the order is fixed", names(ask("switch-vault", ["vault": "work"])),
+         "Passwords:false:open,Work:true:locked,Archive:false:locked,Family:false:needs-password,Travel:false:not-downloaded,Taxes:false:unreadable,Old:false:not-found")
+    same("a locked vault serves nothing", ask("candidates", ["origin": "https://gitforge.example", "vault": "work"])["error"] as? String, "locked")
+    same("a locked vault searches nothing", search("studio", vault: "work")["error"] as? String, "locked")
     same("a locked vault is not saved into", ask("save", ["origin": "https://gitforge.example", "account": "a@b.c", "secret": "pw", "vault": "work"])["error"] as? String, "locked")
-    same("unlock of a vault that is not current is refused", ask("unlock-vault", ["vault": "passwords"])["error"] as? String, "forbidden")
+    expect("Passwords is open and fills while Work is the shown vault", !((search("studio", vault: "passwords")["results"] as? [Any]) ?? []).isEmpty, true)
+    same("unlock of a vault that is not the shown one is refused", ask("unlock-vault", ["vault": "passwords"])["error"] as? String, "forbidden")
     same("unlock of an unknown vault", ask("unlock-vault", ["vault": "nope"])["error"] as? String, "not-found")
     same("unlock with no vault", ask("unlock-vault")["error"] as? String, "not-found")
     same("unlock with a vault id over 64 characters", ask("unlock-vault", ["vault": String(repeating: "x", count: 65)])["error"] as? String, "not-found")
-    expect("Touch ID unlocks Work", names(ask("unlock-vault", ["vault": "work"])).hasPrefix("Work:true:open"), true)
-    same("Work serves its own logins", ((ask("candidates", ["origin": "https://gitforge.example"])["candidates"] as? [[String: Any]]) ?? []).map { "\($0["title"] ?? "")" }.joined(separator: ","), "Gitforge (work)")
+    expect("Touch ID unlocks Work, and Passwords stays open", names(ask("unlock-vault", ["vault": "work"])).hasPrefix("Passwords:false:open,Work:true:open"), true)
+    same("Work serves its own logins", titles("work"), "Gitforge (work)")
+    same("Passwords, open too, serves its own (none for this site)", titles("passwords"), "")
     let target = ["origin": "https://gitforge.example", "account": "sam@harbor.example", "secret": "pw-new", "vault": "work"]
-    same("a save names the current open vault: it updates the same site and username", ask("save", target)["result"] as? String, "updated")
-    same("a save outside the current vault is refused", ask("save", target.merging(["vault": "passwords"]) { $1 })["error"] as? String, "forbidden")
+    same("a save names an open vault: it updates the same site and username", ask("save", target)["result"] as? String, "updated")
+    same("a save into another open vault than the shown one goes there", ask("save", target.merging(["vault": "passwords", "account": "pat@example.org"]) { $1 })["result"] as? String, "created")
+    same("a login saved into Passwords is not in Work", titles("work"), "Gitforge (work)")
     same("a save into an unknown vault", ask("save", target.merging(["vault": "nope"]) { $1 })["error"] as? String, "not-found")
     same("a save with no vault", ask("save", target.filter { $0.key != "vault" })["error"] as? String, "not-found")
     same("a save with a vault id over 64 characters", ask("save", target.merging(["vault": String(repeating: "x", count: 65)]) { $1 })["error"] as? String, "not-found")
-    same("a new login is created in the current vault", ask("save", target.merging(["account": "new@harbor.example"]) { $1 })["result"] as? String, "created")
-    same("Archive becomes current, locked", state(ask("switch-vault", ["vault": "archive"]), "archive"), "locked/-")
+    same("a new login is created in the vault named", ask("save", target.merging(["account": "new@harbor.example"]) { $1 })["result"] as? String, "created")
+    same("a request naming no vault reads nothing", ask("candidates", ["origin": "https://gitforge.example", "vault": NSNull()])["error"] as? String, "not-found")
+    same("Archive becomes the shown vault, locked", state(ask("switch-vault", ["vault": "archive"]), "archive"), "locked/-")
     same("Touch ID cancelled: error, still locked, with the list", "\(ask("unlock-vault", ["vault": "archive"])["error"] ?? "") \(state(ask("vaults"), "archive"))", "cancelled locked/-")
+    expect("the open vaults stay open through a cancelled unlock", names(ask("vaults")).hasPrefix("Passwords:false:open,Work:false:open"), true)
     _ = ask("switch-vault", ["vault": "family"])
     same("a vault that needs its password: needs-app, with the list", { let r = ask("unlock-vault", ["vault": "family"]); return "\(r["error"] ?? "") \(state(r, "family"))" }(), "needs-app needs-password/off")
     _ = ask("switch-vault", ["vault": "travel"])
     same("a vault that is not downloaded cannot be unlocked", { let r = ask("unlock-vault", ["vault": "travel"]); return "\(r["error"] ?? "") \(state(r, "travel"))" }(), "not-available not-downloaded/-")
-    same("a vault that is not available serves nothing", ask("candidates", ["origin": "https://gitforge.example"])["error"] as? String, "not-available")
+    same("a vault that is not available serves nothing", ask("candidates", ["origin": "https://gitforge.example", "vault": "travel"])["error"] as? String, "not-available")
     same("unknown vault", ask("switch-vault", ["vault": "nope"])["error"] as? String, "not-found")
     expect("the vault list never carries a secret", "\(ask("vaults"))".contains("Demo-only") || "\(ask("vaults"))".contains("pw-new"), false)
-    same("back to Passwords, locked", state(ask("switch-vault", ["vault": "passwords"]), "passwords"), "locked/-")
-    _ = ask("unlock-vault", ["vault": "passwords"])
-    same("a login saved into Work is not in Passwords", "\(((ask("candidates", ["origin": "https://gitforge.example"])["candidates"] as? [Any]) ?? []).count)", "0")
-    same("the current vault is listed first", ids(ask("vaults")).first, "passwords")
+
+    // The race: the vault the popup chose locks between the search and the fill (the state file changes under the host).
+    let stateFile = dir.appendingPathComponent("vaults.json")
+    _ = ask("switch-vault", ["vault": "work"])
+    let workRef = (((ask("candidates", ["origin": "https://gitforge.example", "vault": "work"])["candidates"] as? [[String: Any]]) ?? []).first?["ref"] as? String) ?? ""
+    expect("Work offers a login to fill", !workRef.isEmpty, true)
+    try? JSONSerialization.data(withJSONObject: ["active": "work", "open": ["passwords"]]).write(to: stateFile)
+    let raced = ask("credential", ["ref": workRef, "origin": "https://gitforge.example", "vault": "work"])
+    same("locked between search and fill: a plain error", raced["error"] as? String, "locked")
+    expect("and no data, not Work's and not another vault's", raced["secret"] == nil && raced["fields"] == nil && !"\(raced)".contains("Demo-only-Work"), true)
+    same("Passwords' reference is nothing in Work, and Work's is nothing in Passwords", ask("credential", ["ref": workRef, "origin": "https://gitforge.example", "vault": "passwords"])["error"] as? String, "not-found")
+    let stateText = (try? String(contentsOf: stateFile, encoding: .utf8)) ?? ""
+    expect("the state file holds no secret", !stateText.contains("Demo-only") && !stateText.contains("pw-new"), true)
+
+    // Hostile vault names in the list.
+    let hostileName = "Wo\u{202E}rk\nTaxes\u{200B}" + String(repeating: "x", count: 300)
+    let specs: [[String: Any]] = [["id": "h", "name": hostileName, "location": hostileName], ["id": "ok", "name": "Fine"]]
+    try? JSONSerialization.data(withJSONObject: ["vaults": specs, "open": ["h"]]).write(to: stateFile)
+    let hostileList = (ask("vaults")["vaults"] as? [[String: Any]]) ?? []
+    expect("a hostile vault name and location are one safe, short line",
+           hostileList.first.map { v in ["name", "location"].allSatisfy { key in
+               let text = v[key] as? String ?? ""
+               return !text.contains("\n") && !text.contains("\u{202E}") && !text.contains("\u{200B}") && text.count <= 80
+           } } ?? false, true)
+    same("the hostile vault is open and the other is locked, in the fixed order", hostileList.map { "\($0["id"] ?? ""):\($0["state"] ?? "")" }.joined(separator: ","), "h:open,ok:locked")
+    try? FileManager.default.removeItem(at: stateFile)
     BrowserPrototypeStore.directory = nil
     BrowserProtocol.vaultService = nil
     try? FileManager.default.removeItem(at: dir)
