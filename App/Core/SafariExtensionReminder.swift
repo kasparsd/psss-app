@@ -81,23 +81,23 @@ struct UnavailableSafariExtensionSystem: SafariExtensionSystem {
 }
 
 #if os(macOS) && !HOSTLESS_TESTS
+/// Uses Safari's async calls, not the reply-closure ones: Safari answers on its own XPC queue, and a reply closure there was checked
+/// against the caller's main actor and stopped the app at launch (`_dispatch_assert_queue_fail`, found 2026-11-25, still with
+/// `@Sendable` closures).
 struct LiveSafariExtensionSystem: SafariExtensionSystem {
     /// The bundle identifier of the `SafariExtension-macOS` target.
     static let identifier = "app.psss.Psss.Safari"
 
     func isEnabled() async -> Bool? {
-        await withCheckedContinuation { continuation in
-            SFSafariExtensionManager.getStateOfSafariExtension(withIdentifier: Self.identifier) { state, _ in
-                continuation.resume(returning: state?.isEnabled)
-            }
-        }
+        (try? await SFSafariExtensionManager.stateOfSafariExtension(withIdentifier: Self.identifier))?.isEnabled
     }
 
     func openSettings() async -> Bool {
-        await withCheckedContinuation { continuation in
-            SFSafariApplication.showPreferencesForExtension(withIdentifier: Self.identifier) { error in
-                continuation.resume(returning: error == nil)
-            }
+        do {
+            try await SFSafariApplication.showPreferencesForExtension(withIdentifier: Self.identifier)
+            return true
+        } catch {
+            return false
         }
     }
 }
