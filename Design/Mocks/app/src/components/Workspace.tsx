@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { deletedItems, items as sampleItems, type Item } from '../data';
-import { ChevronDownIcon, ChevronIcon, GearIcon, LockClosedIcon, SearchIcon, SidebarIcon } from '../icons';
+import { ChevronDownIcon, GearIcon, LockClosedIcon, SearchIcon, SidebarIcon, VaultsIcon } from '../icons';
 import { VaultMenu, addItems } from './VaultMenu';
 import { VaultCapsule } from './VaultCapsule';
 import { ItemCard } from './ItemCard';
@@ -93,13 +93,24 @@ function listFor(entries: Entry[], side: SideKey): Entry[] {
 /** A page that draws its own item column: the body, whether it is being edited, and a sheet over the window. */
 export interface WorkspaceCustom { body: ReactNode; editing?: boolean; overlay?: ReactNode }
 
-/** A vault's section header in the sidebar, as Mail draws an account: the name in secondary text, a lock after it when locked, a disclosure chevron at the end. */
-function VaultHeader({ name, open, locked, sel, onClick, onContext }: { name: string; open?: boolean; locked?: boolean; sel?: boolean; onClick?: () => void; onContext?: () => void }) {
+/**
+ * A vault's section header in the sidebar (owner, 2026-11-25, as built): a plain label at the size of a sidebar row, icon on the left (a closed padlock when locked, the vault glyph when open), then the name; nothing after the name.
+ * The vault on screen (its places, or its unlock form) is in the primary colour, the others secondary. No own chevron: the system's disclosure chevron appears on hover for an open vault only (a locked vault shows none).
+ * The vault's actions are the right-click menu (long-press on iPad), opened at the pointer.
+ */
+function VaultHeader({ name, open, locked, sel, onClick, onContext }: { name: string; open?: boolean; locked?: boolean; sel?: boolean; onClick?: () => void; onContext?: (at: { x: number; y: number }) => void }) {
   return (
-    <div className={`vsh${sel ? ' sel' : ''}`} role="button" aria-expanded={!!open} aria-label={locked ? `${name}, locked` : name} data-tip={locked ? `${name} is locked. Choose it to unlock.` : `${name}. Right-click for vault actions.`} onClick={onClick} onContextMenu={(e) => { e.preventDefault(); onContext?.(); }}>
+    <div className={`vsh${sel || open ? ' on' : ''}`} role="button" aria-expanded={open ? true : undefined} aria-label={locked ? `${name}, locked` : name} data-tip={locked ? `${name} is locked. Choose it to unlock.` : `${name}. Right-click for vault actions.`} onClick={onClick}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        const host = e.currentTarget.parentElement as HTMLElement;
+        const r = host.getBoundingClientRect();
+        const k = r.width ? host.offsetWidth / r.width : 1;
+        onContext?.({ x: (e.clientX - r.left) * k, y: (e.clientY - r.top) * k });
+      }}>
+      <span className="vhi" aria-hidden="true">{locked ? <LockClosedIcon /> : <VaultsIcon />}</span>
       <span className="vhn">{name}</span>
-      {locked && <span className="vhl" aria-hidden="true"><LockClosedIcon /></span>}
-      <span className="vhc" aria-hidden="true">{open ? <ChevronDownIcon /> : <ChevronIcon />}</span>
+      {open && <span className="vhc" aria-hidden="true"><ChevronDownIcon /></span>}
     </div>
   );
 }
@@ -170,6 +181,8 @@ export function Workspace({ device, init = {}, empty = false, extra, custom }: {
   const [showSide, setShowSide] = useState(init.showSide ?? true);
   const [unlocking, setUnlocking] = useState<string | null>(init.locked ? 'Passwords' : init.unlock ?? null);
   const [ctx, setCtx] = useState<string | null>(init.sideMenu === 'context' ? 'Passwords' : init.sideMenu === 'context-locked' ? 'Work' : null);
+  /** Where the context menu opens: at the pointer, inside the section. The drawn frames put it a little right of the name. */
+  const [ctxAt, setCtxAt] = useState<{ x: number; y: number }>({ x: 96, y: 22 });
   const [vault, setVault] = useState<string>('Passwords');
   const [workUnlocked, setWorkUnlocked] = useState(init.vaults === 'both');
   const [capMenu, setCapMenu] = useState(init.sideMenu === 'capsule');
@@ -242,7 +255,7 @@ export function Workspace({ device, init = {}, empty = false, extra, custom }: {
   const inDeleted = side === 'deleted' && !q;
   const filterLine = !q && sortable(side) ? featLine(feats, oneType(side)) : '';
   /** With two or more vaults open the list says which vault the place belongs to. */
-  const line = openNames.length >= 2 ? [vault, filterLine].filter(Boolean).join(' · ') : filterLine;
+  const line = filterLine;
   const codesList = side === 'codes' && !q;
   const cardsList = side === 'cards' && !q;
   const allHead = side === 'codes' ? 'All codes' : side === 'cards' ? 'All cards' : allHeading(oneType(side));
@@ -258,13 +271,13 @@ export function Workspace({ device, init = {}, empty = false, extra, custom }: {
   const expiredRows = cardsList ? rows.filter((r) => r.expired) : [];
   const mainRows = cardsList ? rows.filter((r) => !r.expired) : rows;
 
-  /** One vault's section of the sidebar: the header (with its own menu), and its places when the vault is open. */
+  /** One vault's section of the sidebar: the header (its actions are the right-click menu), and its places when the vault is open. */
   const section = (name: string, isOpen: boolean) => (
     <Fragment key={name}>
       <div className="vsec">
-        <VaultHeader name={name} open={isOpen} locked={!isOpen} sel={unlocking === name} onClick={() => (isOpen ? undefined : setUnlocking(name))} onContext={() => setCtx(ctx === name ? null : name)} />
+        <VaultHeader name={name} open={isOpen} locked={!isOpen} sel={unlocking === name} onClick={() => (isOpen ? undefined : setUnlocking(name))} onContext={(at) => { setCtxAt(at); setCtx(name); }} />
         {ctx === name && (
-          <div className="pop vctx" role="menu">
+          <div className="pop vctx" role="menu" style={{ left: ctxAt.x, top: ctxAt.y }}>
             <button role="menuitem">Vault Settings…</button>
             <button role="menuitem">{isOpen ? `Lock ${name}` : `Unlock ${name}…`}</button>
             {mac && <><div className="ph sepd" style={{ padding: 0 }} /><button role="menuitem">Show in Finder</button></>}
