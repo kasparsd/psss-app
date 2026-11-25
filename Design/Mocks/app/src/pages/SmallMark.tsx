@@ -14,14 +14,15 @@ const B = 56; // drawn in a 56 unit box, the field's height
 const C = B / 2;
 const BUTTER = '#FFD84D';
 const CHARCOAL = '#1F1F23';
+const CREAM = '#FFF9E5';
 
-function SmallMark({ size, heavy, filled }: { size: number; heavy?: boolean; filled?: boolean }) {
+function SmallMark({ size, heavy, filled, lightRing }: { size: number; heavy?: boolean; filled?: boolean; lightRing?: boolean }) {
   const w = heavy ? 7 : FIELD.line;
   const r = C - w / 2;
   const ink = filled ? CHARCOAL : 'currentColor';
   return (
     <svg width={size} height={size} viewBox={`0 0 ${B} ${B}`} role="img" aria-label="Psss">
-      <circle cx={C} cy={C} r={r} fill={filled ? BUTTER : 'none'} stroke={ink} strokeWidth={w} />
+      <circle cx={C} cy={C} r={r} fill={filled ? BUTTER : 'none'} stroke={lightRing ? CREAM : ink} strokeWidth={w} />
       <circle cx={C} cy={C} r={heavy ? 10 : 8} fill={ink} />
     </svg>
   );
@@ -29,27 +30,27 @@ function SmallMark({ size, heavy, filled }: { size: number; heavy?: boolean; fil
 
 const SIZES = [16, 19, 24, 32, 48, 96];
 
-function Strip({ filled, on }: { filled?: boolean; on: 'cream' | 'charcoal' | 'butter' }) {
+function Strip({ filled, lightRing, on }: { filled?: boolean; lightRing?: boolean; on: 'cream' | 'charcoal' | 'butter' }) {
   return (
     <div className={`lg-tile ${on} sm-strip`}>
       {SIZES.map((s) => (
-        <div key={s} className="sm-cell"><SmallMark size={s} heavy={s <= 24} filled={filled} /><span>{s}</span></div>
+        <div key={s} className="sm-cell"><SmallMark size={s} heavy={s <= 24} filled={filled} lightRing={lightRing} /><span>{s}</span></div>
       ))}
     </div>
   );
 }
 
 /** A browser's tab strip and toolbar at real size, with the mark as the tab's favicon and the extension's button. */
-function InBrowser({ filled, dark }: { filled?: boolean; dark?: boolean }) {
+function InBrowser({ filled, dark, lightRing }: { filled?: boolean; dark?: boolean; lightRing?: boolean }) {
   return (
     <div className={`sm-browser${dark ? ' dark' : ''}`}>
       <div className="sm-tabs">
-        <div className="sm-tab on"><SmallMark size={16} heavy filled={filled} /><span>Psss: passwords that stay on your devices</span></div>
+        <div className="sm-tab on"><SmallMark size={16} heavy filled={filled} lightRing={lightRing} /><span>Psss: passwords that stay on your devices</span></div>
         <div className="sm-tab"><span className="sm-fav" /><span>Inbox</span></div>
       </div>
       <div className="sm-bar">
         <div className="sm-url">psss.app</div>
-        <button className="sm-ext" aria-label="Psss"><SmallMark size={16} heavy filled={filled} /></button>
+        <button className="sm-ext" aria-label="Psss"><SmallMark size={16} heavy filled={filled} lightRing={lightRing} /></button>
         <span className="sm-puzzle" />
       </div>
     </div>
@@ -83,6 +84,16 @@ export function SmallMarkPage() {
         </Frame>
       </Frames>
 
+      <Section title="A3 · Filled, light ring: for dark toolbars" />
+      <Frames>
+        <Frame label="Sizes on charcoal" caption="Owner’s idea for dark mode: the inside stays butter and the dot charcoal, the ring turns light (cream), so the mark keeps its outline on a dark toolbar instead of reading as a butter disc.">
+          <div className="sm-col"><Strip on="charcoal" filled lightRing /></div>
+        </Frame>
+        <Frame label="Dark browser: charcoal ring (A2) and light ring (A3)" caption="Top: A2 as it is. Bottom: A3. The browser picks the file by its theme (Chrome: the theme the icon is drawn for; Firefox: theme_icons), so A2 stays the light-toolbar file and A3 becomes the dark one.">
+          <div className="sm-col"><InBrowser filled dark /><InBrowser filled dark lightRing /></div>
+        </Frame>
+      </Frames>
+
       <Section title="Recommendation" />
       <Decisions
         items={[
@@ -93,6 +104,7 @@ export function SmallMarkPage() {
       <History
         proposal
         entries={[
+          { date: '2026-11-25', text: <>Owner: try a light ring with the butter inside on a dark browser. Added A3 (cream ring, butter inside, charcoal dot) beside A2 in a dark toolbar.</> },
           { date: '2026-11-25', text: <>Owner chose A, the ring with one dot, and asked for a version with the inside butter (A2). Removed the ring with the p, the field with a p and one dot, the p alone and the butter tile.</> },
           { date: '2026-11-25', text: <>New page: five small marks built from the logo’s parts (ring and dot, ring and p, field with p and one dot, the p, a butter tile), each at 16 to 96 px and in a browser.</> },
         ]}
