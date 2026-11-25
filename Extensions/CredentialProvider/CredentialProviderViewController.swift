@@ -84,7 +84,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         unlocked(title: "Choose a Login") { [self] in
             present(FillList(site: FillSite(serviceIdentifiers: serviceIdentifiers.map(\.identifier)),
                              items: PickerSearch.offerable(items),
-                             vaults: vaultSwitch,
+                             vaults: vaultSwitch, vaultName: session.reference?.name,
                              choose: { [weak self] in self?.complete(with: $0) },
                              cancel: { [weak self] in self?.cancel(.userCanceled) }))
         }
@@ -358,7 +358,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
                              items: PickerSearch.offerable(items),
                              passkeys: PasskeyChoice(rpID: rpID, items: request.passkeys,
                                                      choose: { [weak self] in self?.assert($0, relyingParty: rpID, clientDataHash: clientDataHash) }),
-                             vaults: vaultSwitch,
+                             vaults: vaultSwitch, vaultName: session.reference?.name,
                              choose: { [weak self] in self?.complete(with: $0) },
                              cancel: { [weak self] in self?.cancel(.userCanceled) }))
         }
@@ -379,7 +379,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     private func presentLoginList(site: String) {
         present(FillList(site: FillSite(serviceIdentifiers: [site]),
                          items: PickerSearch.offerable(items),
-                         vaults: vaultSwitch,
+                         vaults: vaultSwitch, vaultName: session.reference?.name,
                          choose: { [weak self] in self?.complete(with: $0) },
                          cancel: { [weak self] in self?.cancel(.userCanceled) }))
     }

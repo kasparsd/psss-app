@@ -170,9 +170,8 @@ struct PrototypeVaultService: BrowserVaultService {
     func vaults() -> [BrowserVault] {
         let current = current
         let all = specs
-        // The current vault first, then the others, as the app's menu lists them.
-        let ordered = all.filter { $0.id == current.id } + all.filter { $0.id != current.id }
-        return ordered.map { spec in
+        // In the fixed order of the list, the current vault not moved first: the popup's pick list keeps each vault where it is.
+        return all.map { spec in
             let (state, reason) = state(of: spec, in: current)
             return BrowserVault(id: spec.id, name: spec.name, location: spec.location, active: spec.id == current.id, state: state, reason: reason)
         }

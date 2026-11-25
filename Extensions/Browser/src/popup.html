@@ -16,17 +16,19 @@
 </svg>
     <div class="heading">
       <h1>Psss</h1>
-      <p id="site" class="secondary" aria-live="polite"></p>
     </div>
     <div id="vaultbar" class="vaultbar" hidden>
-      <button id="vaultbtn" class="vaultbtn" type="button" aria-haspopup="menu" aria-expanded="false" title="Switch vault"></button>
-      <div id="vaultmenu" class="menu" role="menu" aria-label="Vault" hidden></div>
+      <svg class="icon vglyph" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="2.8"/><path d="M5 6v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8V6M5 12v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8v-6"/></svg>
+      <select id="vaultselect" aria-label="Vault"></select>
     </div>
     <button id="unlock" class="btn pri" type="button" hidden>Unlock</button>
   </header>
   <main>
     <div id="notice" class="notice" data-kind="info" hidden>
-      <p id="status" role="status"></p>
+      <div class="txt">
+        <strong id="noticetitle" hidden></strong>
+        <p id="status" role="status"></p>
+      </div>
       <button id="noticeunlock" class="btn pri" type="button" hidden>Unlock</button>
     </div>
     <section id="create" class="card pad" hidden>
@@ -44,18 +46,24 @@
         </div>
         <div id="pills" class="pills" role="group" aria-label="Found in" hidden></div>
       </div>
-      <ul id="results" class="card" aria-live="polite"></ul>
+      <div id="results" aria-live="polite"></div>
     </section>
     <section id="sitegroup" hidden>
-      <h2 id="forsite" class="s"></h2>
+      <h2 id="forsite" class="s">For This Site</h2>
       <ul id="logins" class="card"></ul>
-      <p id="sitenote" class="note" hidden></p>
+      <div id="sitenote" class="notice" data-kind="info" hidden>
+        <div class="txt">
+          <strong>No logins for this site</strong>
+          <p id="sitenotebody"></p>
+        </div>
+      </div>
     </section>
     <p class="footer"><button id="settings" class="btn" type="button">Settings</button></p>
   </main>
   <script src="protocol.js"></script>
   <script src="origin.js"></script>
   <script src="display.js"></script>
+  <script src="groups.js"></script>
   <script src="host.js"></script>
   <script src="page-fill.js"></script>
   <script src="popup.js"></script>

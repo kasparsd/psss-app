@@ -653,5 +653,52 @@ do {
     expect("otpauth new login: not in any list", all.contains { $0.id == fresh.id }, false)
 }
 
+// The AutoFill sheet's groups: "For This Site" and "Other Matches", and what an Other Matches row says about where it is saved.
+do {
+    func item(_ title: String, _ website: String, kind: ItemKind = .login) -> VaultItem {
+        VaultItem(kind: kind, title: title, account: "sam.r", website: website, secret: "pw")
+    }
+    func titles(_ items: [VaultItem]) -> String { items.map(\.title).joined(separator: ",") }
+    let own = item("Gitforge", "gitforge.example")
+    let sub = item("Gitforge sub", "https://www.gitforge.example/x")
+    let lookalike = item("Git Hosting Co", "githosting.example")
+    let nothing = item("Gitforge old", "")
+    let split = ResultGroups.split([lookalike, own, nothing, sub], host: "gitforge.example")
+    same("groups: websites that match the page are For This Site, in order", titles(split.thisSite), "Gitforge,Gitforge sub")
+    same("groups: another site and no website are Other Matches, in order", titles(split.other), "Git Hosting Co,Gitforge old")
+    same("groups: no result for this site leaves that group empty", titles(ResultGroups.split([lookalike, nothing], host: "gitforge.example").thisSite), "")
+    same("groups: only this site leaves Other Matches empty", titles(ResultGroups.split([own, sub], host: "gitforge.example").other), "")
+    same("groups: nothing at all", titles(ResultGroups.split([], host: "gitforge.example").other + ResultGroups.split([], host: "gitforge.example").thisSite), "")
+    let unknown = ResultGroups.split([own, lookalike], host: nil)
+    same("groups: an unknown page has nothing for this site", titles(unknown.thisSite) + "|" + titles(unknown.other), "|Gitforge,Git Hosting Co")
+    same("groups: a parent domain of the saved site is not this site", titles(ResultGroups.split([own], host: "example").thisSite), "")
+    same("groups: a lookalike host is not this site", titles(ResultGroups.split([own], host: "gitforge.example.evil.test").thisSite), "")
+    let visa = VaultItem(kind: .creditCard, title: "Visa", account: "Kid Example", secret: "4242424242424242")
+    same("groups: a card is never For This Site", titles(ResultGroups.split([visa], host: "gitforge.example").other), "Visa")
+
+    same("saved for: another site", ResultGroups.savedForLine(lookalike), "Saved for githosting.example")
+    same("saved for: no website", ResultGroups.savedForLine(nothing), "No website")
+    same("saved for: only spaces and invisible characters is no website", ResultGroups.savedForLine(item("x", "  \u{202E}\u{200B}\n ")), "No website")
+    same("saved for: a website with no host", ResultGroups.savedForLine(item("x", "https://")), "Saved for a site Psss could not read")
+    same("saved for: a url shows its host only", ResultGroups.savedForLine(item("x", "https://WWW.Githosting.example:8443/login?a=1")), "Saved for githosting.example")
+    same("saved for: an international name shows safely", ResultGroups.savedForLine(item("x", "xn--bcher-kva.example")), "Saved for bücher.example")
+    let hostile = ResultGroups.savedForLine(item("x", "evil.example\u{202E}gpj.exe\nSaved for gitforge.example"))
+    expect("saved for: a hostile website is one line without bidi controls", !hostile.contains("\n") && !hostile.unicodeScalars.contains { $0.value == 0x202E }, true)
+    let huge = ResultGroups.savedForLine(item("x", (0..<60).map { _ in "ab" }.joined(separator: ".") + ".example"))
+    expect("saved for: a long host is cut", huge.count <= "Saved for ".count + ResultGroups.siteLimit, true)
+    expect("saved for: a cut host ends with an ellipsis", huge.hasSuffix("…"), true)
+    let enormous = ResultGroups.savedForLine(item("x", String(repeating: "a", count: 5000) + ".example"))
+    expect("saved for: an enormous label is short", enormous.count <= "Saved for a site Psss could not read".count + ResultGroups.siteLimit, true)
+    same("saved site: nil for no website", ResultGroups.savedSite(nothing), nil)
+    same("saved site: the host", ResultGroups.savedSite(lookalike), "githosting.example")
+
+    let several = ResultGroups.noLoginsBody(vault: "Passwords", otherVaults: true, searchWhere: "below")
+    same("no logins: with several vaults the body names the vault and both ways on", several, "Passwords has none for this site. Search all items below, or choose another vault above.")
+    let one = ResultGroups.noLoginsBody(vault: "Passwords", otherVaults: false, searchWhere: "above")
+    same("no logins: with one vault there is no other vault to suggest", one, "Passwords has none for this site. Search all items above.")
+    let hostileVault = ResultGroups.noLoginsBody(vault: "Work\u{202E}gpj.exe\nline two", otherVaults: false, searchWhere: "above")
+    expect("no logins: a hostile vault name is one line without bidi controls", !hostileVault.contains("\n") && !hostileVault.unicodeScalars.contains { $0.value == 0x202E }, true)
+}
+
 if failures > 0 { print("\n\(failures) FAILED"); exit(1) }
 print("\nall site matching checks passed")

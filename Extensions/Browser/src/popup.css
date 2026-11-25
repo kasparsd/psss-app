@@ -21,7 +21,6 @@ p { margin: 0; }
 .top { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .logo { width: 34px; height: 16px; flex: none; color: var(--lab); }
 .heading { flex: 1; min-width: 0; }
-.heading .secondary { overflow-wrap: anywhere; }
 #created:empty { display: none; }
 #created { margin-top: 6px; }
 
@@ -46,9 +45,6 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .trait { width: 16px; height: 16px; color: var(--lab2); flex: none; }
 .hit { font-weight: 600; color: var(--lab); }
 .none { padding: 10px; color: var(--lab2); border: 0; }
-.warning { flex-basis: 100%; }
-.row.confirm { flex-wrap: wrap; }
-.actions { display: flex; gap: 6px; margin-left: auto; }
 
 label { display: block; font-weight: 600; margin-bottom: 4px; }
 .field, .searchbox { background: var(--card); border-radius: 8px; border: 1px solid var(--sep); }
@@ -60,13 +56,17 @@ label { display: block; font-weight: 600; margin-bottom: 4px; }
 .icon { width: 15px; height: 15px; fill: none; stroke: var(--lab2); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 #search { display: flex; flex-direction: column; gap: 10px; }
 .searchhead { display: flex; flex-direction: column; gap: 6px; }  /* the pills touch the search field */
-#sitegroup { display: flex; flex-direction: column; gap: 6px; }
-#sitegroup h2 { font-weight: 400; margin: 0; padding: 0 2px; overflow-wrap: anywhere; }
-.note { color: var(--lab2); padding: 0 2px; overflow-wrap: anywhere; }
+#sitegroup, .group { display: flex; flex-direction: column; gap: 6px; }
+#sitegroup h2, .group h2 { font-weight: 400; margin: 0; padding: 0 2px; overflow-wrap: anywhere; }
+#results { display: flex; flex-direction: column; gap: 10px; }
+.card:empty { display: none; }
+.row .grow > div.wrap { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+.notice .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.notice .txt strong { font-weight: 600; }
 
 .notice { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--accent-bg); }
 .notice[data-kind="warning"] { background: rgba(255, 149, 0, .18); }
-.notice p { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.notice p { overflow-wrap: anywhere; }
 .top > .btn { flex: none; }
 
 .pills { display: flex; gap: 6px; }
@@ -75,20 +75,7 @@ label { display: block; font-weight: 600; margin-bottom: 4px; }
 .pills .pill[aria-pressed="true"] { background: var(--accent); color: AccentColorText; }
 .pills .pill[aria-pressed="true"] .n { color: inherit; }
 
-.vaultbar { position: relative; flex: none; }
-.vaultbtn { display: inline-flex; align-items: center; gap: 4px; max-width: 150px; padding: 5px 10px; border-radius: 8px; background: var(--field); }
-.vaultbtn .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.vaultbar .icon { stroke: currentColor; }
-.vaultbtn .icon { width: 12px; height: 12px; flex: none; opacity: .6; }
-.menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 10; min-width: 240px; background: var(--card); border-radius: 12px;
-        box-shadow: var(--shadow); padding: 5px; text-align: left; }
-.menu .ph { padding: 5px 10px 3px; color: var(--lab2); }
-.menu button { display: flex; width: 100%; gap: 6px; align-items: center; padding: 6px 10px; border-radius: 7px; background: none; text-align: left; }
-.menu button:hover, .menu button:focus-visible { background: var(--accent-bg); outline: none; }
-.menu .chk { width: 14px; height: 14px; flex: none; color: var(--accent); }
-.menu .text { flex: 1; min-width: 0; }
-.menu .text > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.menu .lock { margin-left: 14px; width: 16px; height: 16px; color: var(--lab2); flex: none; }
-.menu .icon, .menu .chk { stroke-width: 2.2; }
-.chk .icon { stroke: var(--accent); }
+.vaultbar { flex: none; display: flex; align-items: center; gap: 6px; }
+.vaultbar .vglyph { width: 16px; height: 16px; stroke: var(--lab2); }
+.vaultbar select { font: inherit; color: var(--lab); max-width: 150px; min-width: 0; }
 .footer { text-align: right; }

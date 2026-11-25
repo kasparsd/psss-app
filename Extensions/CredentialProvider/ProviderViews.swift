@@ -252,9 +252,8 @@ private struct ValueRow: View {
     }
 }
 
-/// The values of one item, to fill the whole login or to use one value. For a login from another site, or on a page that is not
-/// encrypted, `lines` names the two sites (and the network warning) above the buttons: this screen is the confirmation, so the
-/// person sees the mismatch before choosing. `fill` is nil for a card, which has no login to fill. The Vault row is on this
+/// The values of one item, to fill the whole login or to use one value. On a page that is not encrypted, `lines` holds the network
+/// warning above the buttons: this screen is the confirmation, so the person sees it before choosing. `fill` is nil for a card, which has no login to fill. The Vault row is on this
 /// screen too; choosing another vault there returns to that vault's list.
 private struct ItemValues: View {
     let item: VaultItem
@@ -439,12 +438,13 @@ extension View {
 /// passkey request pending (sites such as Google ask for a passkey first): the passkeys for the request come first under
 /// "Passkeys for <site>" with Sign In, then the same logins under "Logins", with the same search and the same confirmations.
 ///
-/// One screen. Logins saved for the site come first, each with a Fill button, and when exactly one matches it is the default
-/// action. A search field (bottom on iPhone, under the Vault row on iPad and Mac) searches the whole vault by name, account and
-/// saved site; other items appear only once the person types, and filling one from another site asks for a confirmation that
-/// names both sites. Tapping a name opens the item's values (fill one field). On a plain `http` page no login is offered
-/// automatically: the page's own logins are behind a button and ask for confirmation too. When the site is unknown, every login is
-/// "other". With two or more vaults, a site with nothing in this vault says so under its heading and points to the Vault row.
+/// One screen. Logins saved for the site come first under "For This Site", each with a Fill button, and when exactly one matches it
+/// is the default action. A search field (bottom on iPhone, under the Vault row on iPad and Mac) searches the whole vault by name,
+/// account and saved site; other items appear only once the person types, in a second group, "Other Matches", each saying
+/// "Saved for <site>" or "No website" (`ResultGroups`). Fill is the same button in both groups and asks nothing more: the heading and
+/// that line are the check against a lookalike site. Tapping a name opens the item's values (fill one field). On a plain `http`
+/// page no login is offered automatically: the page's own logins are behind a button and ask for confirmation. When the site is
+/// unknown, every login is "other". A site with nothing in this vault says so in a notice under its heading.
 struct FillList: View {
     let site: FillSite
     /// Every item the picker can offer (`PickerSearch.offerable`).
@@ -458,6 +458,8 @@ struct FillList: View {
     let cancel: () -> Void
     /// The Vault row, when there are two or more vaults.
     var vaults: ProviderVaultSwitch?
+    /// The current vault's name, for the notice when it has no login for the page (the Vault row has it with two or more vaults).
+    var vaultName: String?
 
     @State private var showSiteLogins = false
     @State private var search = ""
@@ -468,17 +470,15 @@ struct FillList: View {
     @State private var copied: PickerValue?
 
     init(site: FillSite, items: [VaultItem], passkeys: PasskeyChoice? = nil,
-         vaults: ProviderVaultSwitch? = nil,
+         vaults: ProviderVaultSwitch? = nil, vaultName: String? = nil,
          choose: @escaping (VaultItem) -> Void, insert: ((VaultItem, String) -> Void)? = nil, cancel: @escaping () -> Void) {
         self.site = site; self.items = items; self.passkeys = passkeys; self.choose = choose; self.insert = insert
-        self.cancel = cancel; self.vaults = vaults
+        self.cancel = cancel; self.vaults = vaults; self.vaultName = vaultName
     }
 
-    /// A choice waiting for the confirmation.
+    /// A choice waiting for the confirmation: a login on a page that is not encrypted.
     private struct Pending: Identifiable {
         let item: VaultItem
-        let otherSite: Bool
-        let plainHTTP: Bool
         var id: UUID { item.id }
     }
 
@@ -492,8 +492,8 @@ struct FillList: View {
     private var heading: LocalizedStringKey { passkeyItems.isEmpty ? "Choose a Login" : "Sign In" }
 
     /// The heading above the site's logins. Under a passkey section it says "Logins", so it cannot be read as the passkeys' heading.
-    private func siteLabel(_ host: String) -> String {
-        passkeyItems.isEmpty ? String(localized: "For \(HostDisplay.shown(host))") : String(localized: "Logins")
+    private func siteLabel() -> String {
+        passkeyItems.isEmpty ? String(localized: "For This Site") : String(localized: "Logins")
     }
 
     private var siteLogins: [VaultItem] {
@@ -508,7 +508,8 @@ struct FillList: View {
     var body: some View {
         // A system alert cannot make Cancel visibly the preferred choice on iPhone and iPad (the default-action shortcut changes
         // nothing in the iOS 26 alert), nor both the default (Return) and the cancel button (Escape) on the Mac. So all three
-        // platforms show one sheet of ours: Cancel prominent, Fill Anyway secondary.
+        // platforms show one sheet of ours: Cancel prominent, Fill Anyway secondary. It is asked only on a page that is not
+        // encrypted; a login saved for another site is filled with the one Fill button, with no question.
         Group {
             if let copied {
                 ValueCopied(label: copied.label, done: cancel)
@@ -517,7 +518,7 @@ struct FillList: View {
             }
         }
         .sheet(item: $pending) { pending in
-            ConfirmSheet(title: alertTitle(for: pending), lines: lines(for: pending), confirmTitle: "Fill Anyway",
+            ConfirmSheet(title: "Fill on a page that is not encrypted?", lines: [httpWarning], confirmTitle: "Fill Anyway",
                          confirm: { self.pending = nil; choose(pending.item) }, cancel: { self.pending = nil })
         }
     }
@@ -563,18 +564,14 @@ struct FillList: View {
         }
     }
 
-    /// The line under a heading when this vault has nothing for the page: with two or more vaults it names the site and the vault and
-    /// points to the Vault row, because the person may not know the login is in the other one.
-    private func emptyLine(host: String, passkeysToo: Bool) -> String {
-        let shown = HostDisplay.shown(host)
-        if let vaults {
-            return passkeysToo
-                ? String(localized: "No passkeys or logins for \(shown) in \(vaults.name). Choose another vault above.")
-                : String(localized: "No logins for \(shown) in \(vaults.name). Choose another vault above.")
-        }
-        return passkeysToo
-            ? String(localized: "No passkeys or logins are saved for \(shown). Search to use another item.")
-            : String(localized: "No logins are saved for \(shown). Search to use another item.")
+    /// The notice under "For This Site" when this vault has nothing for the page: the vault named, then the ways on (the search field,
+    /// and with two or more vaults the Vault row). No button: each way is a control already on screen.
+    private var noLoginsNotice: some View {
+        LockNotice(kind: .info, title: "No logins for this site",
+                   text: ResultGroups.noLoginsBody(vault: vaults?.name ?? vaultName ?? "", otherVaults: vaults != nil,
+                                                   searchWhere: ProviderLayout.inlineSearch ? String(localized: "above") : String(localized: "below")))
+            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+            .listRowBackground(Color.clear)
     }
 
     /// With nothing typed: the passkeys, then the site's logins, never another site's.
@@ -587,14 +584,14 @@ struct FillList: View {
             }
         }
         switch site {
-        case .secure(let host):
+        case .secure:
             if siteLogins.isEmpty {
                 // With passkeys listed above, an empty login section would only repeat what the list already shows.
                 if passkeyItems.isEmpty {
                     Section {
-                        Text(verbatim: emptyLine(host: host, passkeysToo: passkeys != nil)).foregroundStyle(.secondary)
+                        noLoginsNotice
                     } header: {
-                        SectionHead(text: String(localized: "For \(HostDisplay.shown(host))"))
+                        SectionHead(text: siteLabel())
                     }
                 }
             } else {
@@ -602,7 +599,7 @@ struct FillList: View {
                     // Return fills the one login only when no passkey sits beside it.
                     ForEach(siteLogins) { row($0, isDefault: siteLogins.count == 1 && passkeyItems.isEmpty) }
                 } header: {
-                    SectionHead(text: siteLabel(host))
+                    SectionHead(text: siteLabel())
                 } footer: {
                     ListFooter(shown: siteLogins.count, total: siteLogins.count, fallback: "Tap a name to use one value instead.")
                 }
@@ -620,7 +617,7 @@ struct FillList: View {
                 Section {
                     ForEach(siteLogins) { row($0) }
                 } header: {
-                    SectionHead(text: siteLabel(host))
+                    SectionHead(text: siteLabel())
                 } footer: {
                     ListFooter(shown: siteLogins.count, total: siteLogins.count, fallback: "Tap a name to use one value instead.")
                 }
@@ -630,30 +627,41 @@ struct FillList: View {
         }
     }
 
-    /// With text typed: every item in the vault that matches, A to Z, each naming its saved site.
+    /// With text typed: every item in the vault that matches, A to Z, in two groups. "For This Site" (the website matches the page),
+    /// then "Other Matches" (saved for another site or with no website), each of those saying where it is saved. An empty group
+    /// has no heading.
     @ViewBuilder private var resultsSection: some View {
         let found = PickerSearch.matches(items, query: query, in: chosenFields)
-        Section {
-            if found.isEmpty {
-                Text("No items match “\(query)”.").foregroundStyle(.secondary)
-            } else {
-                ForEach(found.prefix(PickerSearch.limit)) { row($0, searchLine: resultLine(for: $0)) }
+        let shown = Array(found.prefix(PickerSearch.limit))
+        let groups = ResultGroups.split(shown, host: site.host)
+        let footer = ListFooter(shown: shown.count, total: found.count, fallback: "Tap a name to use one value instead.")
+        if found.isEmpty {
+            Section { Text("No items match “\(query)”.").foregroundStyle(.secondary) }
+        }
+        if !groups.thisSite.isEmpty {
+            Section {
+                ForEach(groups.thisSite) { row($0, searchLine: resultLine(for: $0)) }
+            } header: {
+                SectionHead(text: String(localized: "For This Site"))
+            } footer: {
+                if groups.other.isEmpty { footer }
             }
-        } header: {
-            SectionHead(text: String(localized: "Search results"))
-        } footer: {
-            if !found.isEmpty {
-                ListFooter(shown: min(found.count, PickerSearch.limit), total: found.count, fallback: "Tap a name to use one value instead.")
+        }
+        if !groups.other.isEmpty {
+            Section {
+                ForEach(groups.other) { row($0, searchLine: resultLine(for: $0)) }
+            } header: {
+                SectionHead(text: String(localized: "Other Matches"))
+            } footer: {
+                footer
             }
         }
     }
 
-    /// The screen of one item's values. A login from another site, or on a page that is not encrypted, names both sites here,
-    /// which is the confirmation, so "Fill Username and Password" asks nothing more.
+    /// The screen of one item's values. On a page that is not encrypted a login names the warning here, which is the confirmation,
+    /// so "Fill Username and Password" asks nothing more.
     private func detailView(_ item: VaultItem) -> some View {
-        let own = isOwnSite(item)
-        let confirmLines = item.kind == .login && (!own || plainHTTP)
-            ? lines(for: Pending(item: item, otherSite: !own, plainHTTP: plainHTTP), namesItem: false) : []
+        let confirmLines = item.kind == .login && plainHTTP ? [httpWarning] : []
         return ItemValues(item: item, lines: confirmLines,
                           fill: item.kind == .login ? { detail = nil; choose(item) } : nil,
                           verb: insert == nil ? "Copy" : "Use",
@@ -672,20 +680,25 @@ struct FillList: View {
         }
     }
 
-    /// A result's second line: the field that matched with the matching part in bold, and “Saved for” in front of a site that is not
-    /// the page's own, so a website hit on another site's login is never taken for this site.
-    private func resultLine(for item: VaultItem) -> (text: Text, savedFor: Bool) {
-        let line = searchSubtitle(item, query: query, chosen: chosenFields)
+    /// A result's second line. A login for this page: the field that matched, with the matching part in bold. A login in Other Matches
+    /// always says where it is saved, "Saved for <site>" or "No website", wrapping rather than cut: with the group heading it is the
+    /// check against a lookalike site, since Fill asks nothing more. A website hit on another site's login sets the match in bold
+    /// inside that line; a username hit comes first, a name hit is already the row's title. Cards have no site: the match as before.
+    private func resultLine(for item: VaultItem) -> (text: Text, lines: Int) {
+        let hit = searchSubtitle(item, query: query, chosen: chosenFields)
+        guard item.kind == .login, !isOwnSite(item) else { return (hit, 1) }
         let field = ItemSearch.shownField(of: item, query: query, chosen: chosenFields)
-        if field == .website, !isOwnSite(item) { return (Text("Saved for \(line)"), true) }
-        return (line, false)
+        let saved = Text(verbatim: ResultGroups.savedForLine(item))
+        if field == .website, ResultGroups.savedSite(item) != nil { return (Text("Saved for \(hit)"), 2) }
+        if field == .username { return (Text("\(hit)\n\(saved)"), 3) }
+        return (saved, 2)
     }
 
-    private func row(_ item: VaultItem, searchLine: (text: Text, savedFor: Bool)? = nil, isDefault: Bool = false) -> some View {
+    private func row(_ item: VaultItem, searchLine: (text: Text, lines: Int)? = nil, isDefault: Bool = false) -> some View {
         let isLogin = item.kind == .login
-        let verb: LocalizedStringKey = !isLogin ? "Choose" : (isOwnSite(item) && !plainHTTP ? "Fill" : "Fill…")
+        let verb: LocalizedStringKey = isLogin ? "Fill" : "Choose"
         return LoginRow(item: item, verb: verb, isDefault: isDefault && isLogin, subtitle: searchLine?.text,
-                        subtitleLines: searchLine?.savedFor == true ? 2 : 1,
+                        subtitleLines: searchLine?.lines ?? 1,
                         titleHighlight: searchLine == nil ? "" : query,
                         openValues: { detail = item }) {
             if isLogin { select(item) } else { detail = item }
@@ -694,43 +707,17 @@ struct FillList: View {
 
     // MARK: Confirmation
 
+    /// Fills at once, except on a page that is not encrypted, where the person confirms first. Another site's login is not asked about.
     private func select(_ item: VaultItem) {
-        let ownSite = site.host.map { SharedVault.matches(item, host: $0) } ?? false
-        if ownSite && !plainHTTP {
-            choose(item)
+        if plainHTTP {
+            pending = Pending(item: item)
         } else {
-            pending = Pending(item: item, otherSite: !ownSite, plainHTTP: plainHTTP)
+            choose(item)
         }
     }
 
-    private func alertTitle(for pending: Pending?) -> LocalizedStringKey {
-        pending?.otherSite == false ? "Fill on a page that is not encrypted?" : "Fill a login from another site?"
-    }
-
-    /// The lines of the confirmation, one paragraph each, in the same order on every platform: the saved site,
-    /// the site being signed in to, the login's name and account, then the sentences. Each line about the login is a fixed label
-    /// and a value. Values from the vault (the name and the account) are in quotes, so text in them that looks like one of our
-    /// labels reads as the vault's; the site names are ours and have none.
-    private func lines(for pending: Pending, namesItem: Bool = true) -> [ConfirmLine] {
-        let httpWarning = ConfirmLine(String(localized: "This page is not encrypted (http), so anything filled here can be read on the network."))
-        guard pending.otherSite else { return [httpWarning] }
-        let website = pending.item.website.trimmingCharacters(in: .whitespacesAndNewlines)
-        let saved = HostDisplay.shown(SharedVault.host(pending.item.website))
-        let savedValue = website.isEmpty ? String(localized: "no website") : (saved.isEmpty ? String(localized: "a site Psss could not read") : saved)
-        let pageValue = site.host.map { HostDisplay.shown($0) } ?? String(localized: "an unknown site")
-        var lines = [
-            ConfirmLine(String(localized: "Saved for:"), savedValue),
-            ConfirmLine(String(localized: "You are signing in to:"), pageValue)
-        ]
-        // The item screen already shows the name and the account, so only the sheet repeats them.
-        if namesItem {
-            lines.append(ConfirmLine(String(localized: "Login:"), DisplayText.quoted(DisplayText.title(of: pending.item))))
-            let account = DisplayText.safe(pending.item.account, empty: "")
-            if !account.isEmpty { lines.append(ConfirmLine(String(localized: "Account:"), DisplayText.quoted(account))) }
-        }
-        lines.append(ConfirmLine(String(localized: "Only continue if you trust this page.")))
-        if pending.plainHTTP { lines.append(httpWarning) }
-        return lines
+    private var httpWarning: ConfirmLine {
+        ConfirmLine(String(localized: "This page is not encrypted (http), so anything filled here can be read on the network."))
     }
 }
 

@@ -105,7 +105,7 @@ async function withPopup(pageUrl, body) {
 const targetOpen = async (tab) => (await cdp.send('Target.getTargets')).targetInfos.some((t) => t.targetId === tab.targetId);
 const settled = (popup) => until(async () =>
   (await popup.eval(`document.querySelectorAll('#logins li').length`)) > 0 || (await popup.eval(`document.getElementById('status').textContent`))
-  || (await popup.eval(`document.getElementById('sitenote').textContent`)), 'popup to settle');
+  || (await popup.eval(`!document.getElementById('sitenote').hidden`)), 'popup to settle');
 // The prototype host keeps its vaults in vaults.json next to the prototype file. A test writes its own list (or none: the defaults).
 const setVaults = (object) => object ? writeFileSync(join(store, 'vaults.json'), JSON.stringify(object)) : rmSync(join(store, 'vaults.json'), { force: true });
 const text = (popup, id) => popup.eval(`document.getElementById(${JSON.stringify(id)}).textContent`);
@@ -127,7 +127,11 @@ test('the registered host answers a ping from the extension', async () => {
 
 test('lists the saved login for the page and fills it on click', { skip: false }, (t) => !hostAccess ? t.skip('host permission withheld in this browser') : withPopup(`${SITE}/login.html`, async ({ page, popup }) => {
   await settled(popup);
-  assert.equal(await popup.eval(`document.getElementById('site').textContent`), 'localhost:8080');
+  assert.equal(await popup.eval(`document.getElementById('site')`), null, 'the popup does not repeat the page’s site');
+  assert.equal(await text(popup, 'forsite'), 'For This Site');
+  assert.equal(await popup.eval(`document.body.innerText.includes('localhost:8080')`), false, 'no host anywhere in the popup');
+  assert.equal(await popup.eval(`!document.getElementById('settings').parentElement.hidden`), true, 'the footer ends the popup');
+  assert.equal(await popup.eval(`document.getElementById('settings').textContent`), 'Settings');
   assert.equal(await popup.eval(`document.activeElement.id`), 'q', 'the search field has the focus when the popup opens');
   assert.match(await popup.eval(`document.querySelector('#logins li').innerText`), /alex@example\.net/);
   assert.equal(await popup.eval(`document.documentElement.outerHTML.includes('Demo-only')`), false, 'no secret in the list');
@@ -149,8 +153,11 @@ test('fills a form that reacts to input events (framework-style listeners)', { s
 
 test('127.0.0.1 is a different site: no logins are offered', { skip: false }, (t) => !hostAccess ? t.skip('host permission withheld in this browser') : withPopup('http://127.0.0.1:8080/login.html', async ({ popup }) => {
   await settled(popup);
-  assert.equal(await text(popup, 'sitenote'), 'No logins for 127.0.0.1:8080 in Passwords. Choose another vault above.');
-  assert.equal(await text(popup, 'forsite'), 'For 127.0.0.1:8080');
+  assert.equal(await text(popup, 'sitenotebody'), 'Passwords has none for this site. Search all logins above, or choose another vault.');
+  assert.equal(await popup.eval(`document.querySelector('#sitenote strong').textContent`), 'No logins for this site');
+  assert.equal(await text(popup, 'forsite'), 'For This Site');
+  assert.equal(await visible(popup, 'sitenote'), true);
+  assert.equal(await popup.eval(`document.querySelector('#sitenote button')`), null, 'the notice has no button');
   assert.equal(await popup.eval(`document.querySelectorAll('#logins li').length`), 0);
 }));
 
@@ -158,27 +165,24 @@ test('with one vault the empty line is short and no vault button is drawn', { sk
   setVaults({ vaults: [{ id: 'passwords', name: 'Only' }] });
   try {
     await popup.eval(`location.reload()`);
-    await until(() => popup.eval(`document.getElementById('sitenote').textContent !== ''`), 'the empty line');
-    assert.equal(await text(popup, 'sitenote'), 'No saved logins for this site.');
+    await until(() => visible(popup, 'sitenote'), 'the empty notice');
+    assert.equal(await text(popup, 'sitenotebody'), 'Only has none for this site. Search all logins above.');
     assert.equal(await visible(popup, 'vaultbar'), false);
     assert.equal(await visible(popup, 'unlock'), false);
   } finally { setVaults(null); }
 }));
 
-test('search finds a login saved for another site and asks before filling it', { skip: false }, (t) => !hostAccess ? t.skip('host permission withheld in this browser') : withPopup('http://127.0.0.1:8080/login.html', async ({ page, popup }) => {
+test('search groups the results and fills a login saved for another site with one click', { skip: false }, (t) => !hostAccess ? t.skip('host permission withheld in this browser') : withPopup('http://127.0.0.1:8080/login.html', async ({ page, popup }) => {
   await settled(popup);
   assert.equal(await popup.eval(`document.activeElement.id`), 'q');
   const search = async (q) => popup.eval(`(() => { const i = document.getElementById('q'); i.value = ${JSON.stringify(q)}; i.dispatchEvent(new Event('input')); })()`);
   await search('localhost');
   await until(() => popup.eval(`document.querySelectorAll('#results li button').length > 0`), 'search results');
+  assert.equal(await popup.eval(`[...document.querySelectorAll('#results h2')].map((h) => h.textContent).join('|')`), 'Other Matches', 'an empty group is left out');
   assert.match(await popup.eval(`document.querySelector('#results li').innerText`), /Saved for localhost/);
-  await popup.eval(`document.querySelector('#results li button').click()`);       // Fill…
-  assert.match(await popup.eval(`document.querySelector('#results li .warning').innerText`), /not 127\.0\.0\.1/);
-  assert.equal(await page.eval(`document.getElementById('p').value`), '', 'nothing is filled before the second click');
-  await popup.eval(`document.querySelector('#results li .cancel').click()`);       // Cancel restores the row
-  assert.equal(await page.eval(`document.getElementById('p').value`), '');
-  await popup.eval(`document.querySelector('#results li button').click()`);
-  await popup.eval(`document.querySelector('#results li .confirm-fill').click()`); // Fill anyway
+  assert.equal(await popup.eval(`document.querySelector('#results li button').textContent`), 'Fill', 'one Fill everywhere');
+  assert.equal(await page.eval(`document.getElementById('p').value`), '', 'nothing is filled before the click');
+  await popup.eval(`document.querySelector('#results li button').click()`);       // no second question
   await until(async () => (await page.eval(`document.getElementById('p').value`)) !== '', 'manual fill');
   assert.equal(await page.eval(`document.getElementById('u').value`), 'alex@example.net');
 }));
@@ -278,26 +282,21 @@ test('search shows the pills with counts and the matched part in bold', { skip: 
   assert.equal(await popup.eval(`document.querySelectorAll('#results li button').length`), 1);
 }));
 
-const menuRows = (popup) => popup.eval(`[...document.querySelectorAll('#vaultmenu [role=menuitemradio]')].map((b) => b.querySelector('.text').innerText.replace(/\\n/g, ' | ') + '/' + b.getAttribute('aria-checked') + '/' + b.querySelector('[role=img]').getAttribute('aria-label')).join('\\n')`);
+const pickList = (popup) => popup.eval(`[...document.querySelectorAll('#vaultselect option')].map((o) => o.textContent + (o.selected ? '*' : '')).join('|')`);
 const chooseVault = async (popup, name) => {
-  await popup.eval(`document.getElementById('vaultbtn').click()`);
-  await popup.eval(`[...document.querySelectorAll('#vaultmenu button')].find((b) => b.querySelector('.text div').textContent === ${JSON.stringify(name)}).click()`);
-  await until(() => popup.eval(`document.getElementById('vaultbtn').innerText.startsWith(${JSON.stringify(name)})`), `${name} to be the current vault`);
+  await popup.eval(`(() => { const s = document.getElementById('vaultselect'); s.value = [...s.options].find((o) => o.textContent === ${JSON.stringify(name)}).value; s.dispatchEvent(new Event('change')); })()`);
+  await until(() => popup.eval(`document.getElementById('vaultselect').selectedOptions[0].textContent === ${JSON.stringify(name)} && !document.getElementById('vaultselect').disabled`), `${name} to be the current vault`);
 };
 
-test('with several vaults the header names the current one and the menu shows every state', { skip: false }, (t) => !hostAccess ? t.skip('host permission withheld in this browser') : withPopup(`${SITE}/login.html`, async ({ popup }) => {
+test('with several vaults the header has the vault glyph and a plain pick list in the app’s order', { skip: false }, (t) => !hostAccess ? t.skip('host permission withheld in this browser') : withPopup(`${SITE}/login.html`, async ({ popup }) => {
   await settled(popup);
   assert.equal(await visible(popup, 'vaultbar'), true);
-  assert.equal(await popup.eval(`document.getElementById('vaultbtn').innerText`), 'Passwords');
-  assert.equal(await popup.eval(`document.querySelectorAll('#vaultbtn svg').length`), 1, 'a caret and no database icon');
-  assert.equal(await popup.eval(`document.getElementById('vaultbtn').getAttribute('aria-label')`), 'Vault: Passwords. Switch vault');
+  assert.equal(await popup.eval(`document.getElementById('vaultselect').tagName`), 'SELECT');
+  assert.equal(await popup.eval(`document.getElementById('vaultselect').getAttribute('aria-label')`), 'Vault');
+  assert.equal(await popup.eval(`document.querySelectorAll('#vaultselect svg').length + document.querySelectorAll('#vaultbar > svg[aria-hidden=true]').length`), 1, 'the glyph is outside the pick list, at its left');
+  assert.equal(await popup.eval(`document.getElementById('vaultbar').firstElementChild.tagName`), 'svg');
+  assert.equal(await pickList(popup), 'Passwords*|Work|Archive|Family|Travel|Taxes|Old', 'the order the app reports, the current vault not moved first');
   assert.equal(await visible(popup, 'unlock'), false, 'no Unlock while the current vault is open');
-  await popup.eval(`document.getElementById('vaultbtn').click()`);
-  assert.equal(await menuRows(popup), [
-    'Passwords | iCloud Drive/true/Open', 'Work | Work.kdbx/false/Locked', 'Archive | On this device/false/Locked',
-    'Family | Needs vault password/false/Locked, needs vault password', 'Travel | Not downloaded yet/false/Not available, not downloaded yet',
-    'Taxes | Can’t be read/false/Not available, can’t be read', 'Old | Not found/false/Not available, not found'].join('\n'));
-  assert.equal(await popup.eval(`document.querySelector('#vaultmenu').innerText.includes('Lock ') || document.querySelector('#vaultmenu').innerText.includes('Add Vault')`), false, 'no Lock and no Add Vault in the popup');
 }));
 
 test('choosing a locked vault shows Unlock beside the vault button; Touch ID opens it and lists its logins', { skip: false }, (t) => !hostAccess ? t.skip('host permission withheld in this browser') : withPopup('http://localhost:8080/login.html', async ({ popup }) => {
@@ -305,6 +304,7 @@ test('choosing a locked vault shows Unlock beside the vault button; Touch ID ope
   try {
     await chooseVault(popup, 'Work');
     assert.equal(await text(popup, 'status'), 'Work is locked. Choose Unlock to use Touch ID.');
+    assert.equal(await pickList(popup), 'Passwords|Work*|Archive|Family|Travel|Taxes|Old', 'the current vault stays where it is in the list');
     assert.equal(await visible(popup, 'unlock'), true);
     assert.equal(await popup.eval(`document.getElementById('unlock').textContent`), 'Unlock');
     assert.equal(await visible(popup, 'noticeunlock'), false, 'with several vaults Unlock sits beside the vault button, not in the notice');
@@ -312,7 +312,7 @@ test('choosing a locked vault shows Unlock beside the vault button; Touch ID ope
     assert.equal(await visible(popup, 'sitegroup'), false);
     await popup.eval(`document.getElementById('unlock').click()`);
     await until(() => visible(popup, 'sitegroup'), 'Work to list');
-    assert.equal(await text(popup, 'sitenote'), 'No logins for localhost:8080 in Work. Choose another vault above.');
+    assert.equal(await text(popup, 'sitenotebody'), 'Work has none for this site. Search all logins above, or choose another vault.');
     assert.equal(await visible(popup, 'unlock'), false);
     assert.equal(await popup.eval(`document.getElementById('notice').hidden`), true);
     assert.equal(await popup.eval(`new Promise((ok) => chrome.action.getBadgeText({}, ok))`), '', 'the popup that is still open clears the check');
@@ -329,7 +329,7 @@ test('the unlock goes through the background, which leaves a check on the toolba
     assert.equal(await badge(), '✓');
     await popup.eval(`location.reload()`);   // the next click: lists Work with no second prompt, and clears the check
     await until(() => visible(popup, 'sitegroup'), 'Work to list at once');
-    assert.equal(await text(popup, 'sitenote'), 'No logins for localhost:8080 in Work. Choose another vault above.');
+    assert.equal(await text(popup, 'sitenotebody'), 'Work has none for this site. Search all logins above, or choose another vault.');
     assert.equal(await badge(), '');
     assert.equal(await popup.eval(`chrome.runtime.sendMessage({ psss: 'unlock-vault', vault: 'x'.repeat(65) })`).then((r) => r.error), 'not-found');
     assert.equal(await badge(), '');
@@ -370,9 +370,9 @@ test('a vault that is not available has no Unlock, and the vault button stays', 
   await settled(popup);
   try {
     for (const [name, words] of [
-      ['Old', 'Old was not found. Psss lists nothing from it here. Open Psss to locate it, or choose another vault above.'],
-      ['Travel', 'Travel isn’t downloaded yet. Psss lists nothing from it here. Open Psss to download it, or choose another vault above.'],
-      ['Taxes', 'Taxes can’t be read. Psss lists nothing from it here. Open Psss for details, or choose another vault above.']]) {
+      ['Old', 'Old was not found. Psss lists nothing from it here. Open Psss to locate it, or choose another vault.'],
+      ['Travel', 'Travel isn’t downloaded yet. Psss lists nothing from it here. Open Psss to download it, or choose another vault.'],
+      ['Taxes', 'Taxes can’t be read. Psss lists nothing from it here. Open Psss for details, or choose another vault.']]) {
       await chooseVault(popup, name);
       assert.equal(await text(popup, 'status'), words);
       assert.equal(await popup.eval(`document.getElementById('notice').dataset.kind`), 'warning');
@@ -414,16 +414,13 @@ test('hostile vault names are shown as one short line, as text', { skip: false }
   setVaults({ vaults: names.map((name, i) => ({ id: `h${i}`, name, location: name })) });
   try {
     await popup.eval(`location.reload()`);
-    await until(() => popup.eval(`document.getElementById('vaultbtn').innerText !== ''`), 'the vault button');
-    const button = await popup.eval(`document.getElementById('vaultbtn').innerText`);
-    assert.equal(button, 'Workgpj.exe');
-    await popup.eval(`document.getElementById('vaultbtn').click()`);
-    const rows = await popup.eval(`[...document.querySelectorAll('#vaultmenu .text')].map((t) => t.firstChild.textContent)`);
+    await until(() => popup.eval(`document.getElementById('vaultselect').options.length > 0`), 'the pick list');
+    const rows = await popup.eval(`[...document.querySelectorAll('#vaultselect option')].map((o) => o.textContent)`);
     assert.equal(rows[0], 'Workgpj.exe');
     assert.equal(rows[1], '<img src=x onerror="window.__pwned=1">', 'shown literally');
     assert.equal(rows[2], 'Line one Line two');
     assert.ok(rows[3].length <= 40 && rows[3].endsWith('…'));
-    assert.equal(await popup.eval(`document.querySelectorAll('#vaultmenu img').length + (window.__pwned ?? 0)`), 0, 'no markup from a name');
+    assert.equal(await popup.eval(`document.querySelectorAll('#vaultbar img').length + (window.__pwned ?? 0)`), 0, 'no markup from a name');
     assert.equal(await popup.eval(`/[\\u0000-\\u0008\\u000b-\\u001f\\u202a-\\u202e\\u2066-\\u2069]/.test(document.body.innerText)`), false);
     await chooseVault(popup, 'Line one Line two');
     const notice = await popup.eval(`document.getElementById('status').textContent`);
@@ -445,17 +442,15 @@ async function withSoloWork(popup, body) {
 const typeQuery = (popup, q) => popup.eval(`(() => { const i = document.getElementById('q'); i.value = ${JSON.stringify(q)}; i.focus(); })()`);
 const pressEnter = (popup) => popup.eval(`document.getElementById('q').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))`);
 
-test('Return in the search field with several matches picks nothing, and with one login for another site still asks first', { skip: false }, (t) => !hostAccess ? t.skip('host permission withheld in this browser') : withPopup(`${SITE}/login.html`, async ({ page, popup }) => {
+test('Return in the search field with several matches picks nothing, and with one login for another site it fills that one', { skip: false }, (t) => !hostAccess ? t.skip('host permission withheld in this browser') : withPopup(`${SITE}/login.html`, async ({ page, popup }) => {
   await settled(popup);
   await typeQuery(popup, 'a');           // several logins have an "a"
   await pressEnter(popup);
   await until(() => popup.eval(`document.querySelectorAll('#results li.row').length > 1`), 'several results');
   assert.equal(await page.eval(`document.getElementById('p').value`), '', 'two or more matches: Return picks nothing');
-  await typeQuery(popup, 'alex@studio'); // exactly one, saved for another site (Fill…)
+  await typeQuery(popup, 'alex@studio'); // exactly one, saved for another site: the same Fill
   await pressEnter(popup);
-  await until(() => popup.eval(`document.querySelector('#results li .warning') !== null`), 'the question');
-  assert.match(await popup.eval(`document.querySelector('#results li .warning').innerText`), /not localhost:8080/);
-  assert.equal(await page.eval(`document.getElementById('p').value`), '', 'Return never skips the question');
+  await until(async () => (await page.eval(`document.getElementById('p').value`)) !== '', 'the one result to be filled');
 }));
 
 test('Return fills the only search result for this site', { skip: false }, (t) => !hostAccess ? t.skip('host permission withheld in this browser') : withPopup(`${SITE}/login.html`, async ({ page, popup }) => {
@@ -486,7 +481,7 @@ test('creating a login names the vault, and the button says Update when the site
   // The sample vault has alex@example.net for localhost: typing it turns Create into Update, which changes only the password.
   await popup.eval(`(() => { const a = document.getElementById('account'); a.value = 'alex@example.net'; a.dispatchEvent(new Event('input')); })()`);
   assert.equal(await text(popup, 'createtitle'), 'Update a login');
-  assert.equal(await text(popup, 'accountlabel'), 'Passwords already has alex@example.net for localhost:8080.');
+  assert.equal(await text(popup, 'accountlabel'), 'Passwords already has alex@example.net for this site.');
   assert.match(await text(popup, 'generate'), /^Update .+ \(alex@example\.net\)$/);
   assert.equal(await popup.eval(`document.getElementById('account').getAttribute('aria-label')`), 'Username or email', 'the field keeps its name');
   await popup.eval(`document.getElementById('account').value = 'someone.new@example.net'; document.getElementById('account').dispatchEvent(new Event('input'))`);
@@ -498,7 +493,7 @@ test('creating a login names the vault, and the button says Update when the site
     await until(() => visible(popup, 'create'), 'create section');
     assert.equal(await text(popup, 'generate'), 'Generate, Fill and Save');
     await popup.eval(`(() => { const a = document.getElementById('account'); a.value = 'alex@example.net'; a.dispatchEvent(new Event('input')); })()`);
-    assert.equal(await text(popup, 'accountlabel'), 'alex@example.net is already saved for localhost:8080.');
+    assert.equal(await text(popup, 'accountlabel'), 'alex@example.net is already saved for this site.');
   } finally { setVaults(null); }
 }));
 
@@ -522,3 +517,18 @@ test('a different extension ID cannot use the native host', async () => {
   assert.equal(reply.ok, false);
   await popup.close();
 });
+
+// Last on purpose: it saves two more logins into the sample vault, which would change the "one login for this site" tests.
+test('a search lists This Site first and Other Matches after, each other-site row naming where it is saved', { skip: false }, (t) => !hostAccess ? t.skip('host permission withheld in this browser') : withPopup(`${SITE}/login.html`, async ({ popup }) => {
+  await settled(popup);
+  assert.equal(await popup.eval(`Host.save('http://localhost:8080', 'passwords', 'zzgroup-own@example.net', 'Group-secret-1').then((r) => r.result)`), 'created');
+  assert.equal(await popup.eval(`Host.save('http://127.0.0.1:8080', 'passwords', 'zzgroup-other@example.net', 'Group-secret-2').then((r) => r.result)`), 'created');
+  await popup.eval(`(() => { const i = document.getElementById('q'); i.value = 'zzgroup'; i.dispatchEvent(new Event('input')); })()`);
+  await until(() => popup.eval(`document.querySelectorAll('#results h2').length === 2`), 'both groups');
+  assert.equal(await popup.eval(`[...document.querySelectorAll('#results h2')].map((h) => h.textContent).join('|')`), 'For This Site|Other Matches');
+  const [own, others] = await popup.eval(`[...document.querySelectorAll('#results .group')].map((g) => g.querySelector('ul').innerText)`);
+  assert.match(own, /zzgroup-own@example\.net/);
+  assert.doesNotMatch(own, /Saved for/);
+  assert.match(others, /zzgroup-other@example\.net[\s\S]*Saved for 127\.0\.0\.1/);
+  assert.equal(await popup.eval(`[...document.querySelectorAll('#results button')].every((b) => b.textContent === 'Fill')`), true);
+}));

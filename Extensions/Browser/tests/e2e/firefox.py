@@ -214,7 +214,7 @@ class FirefoxTests(unittest.TestCase):
         return self.m.script(source)
 
     def settled(self, popup):
-        return wait_for(lambda: self.js(popup, "return document.querySelectorAll('#logins li').length > 0 || document.getElementById('status').textContent || document.getElementById('sitenote').textContent"), "popup to settle")
+        return wait_for(lambda: self.js(popup, "return document.querySelectorAll('#logins li').length > 0 || document.getElementById('status').textContent || !document.getElementById('sitenote').hidden"), "popup to settle")
 
     def with_popup(self, url, body):
         page, popup = self.popup_for(url)
@@ -241,7 +241,8 @@ class FirefoxTests(unittest.TestCase):
     def test_2_lists_and_fills_on_click(self):
         def body(page, popup):
             self.settled(popup)
-            self.assertEqual(self.js(popup, "return document.getElementById('site').textContent"), "localhost:8080")
+            self.assertIsNone(self.js(popup, "return document.getElementById('site')"), "the popup does not repeat the page's site")
+            self.assertEqual(self.text(popup, "forsite"), "For This Site")
             self.assertEqual(self.js(popup, "return document.activeElement.id"), "q", "the search field has the focus when the popup opens")
             self.assertIn("alex@example.net", self.js(popup, "return document.querySelector('#logins li').innerText"))
             self.assertNotIn("Demo-only", self.js(popup, "return document.documentElement.outerHTML"))
@@ -281,23 +282,18 @@ class FirefoxTests(unittest.TestCase):
         return self.m.script("const done = arguments[arguments.length - 1]; browser.action.getBadgeText({}).then(done)", async_=True)
 
     def choose_vault(self, popup, name):
-        self.js(popup, "document.getElementById('vaultbtn').click()")
-        self.js(popup, f"[...document.querySelectorAll('#vaultmenu button')].find((b) => b.querySelector('.text div').textContent === {json.dumps(name)}).click()")
-        wait_for(lambda: self.js(popup, f"return document.getElementById('vaultbtn').innerText.startsWith({json.dumps(name)})"), f"{name} current")
+        self.js(popup, f"const s = document.getElementById('vaultselect'); s.value = [...s.options].find((o) => o.textContent === {json.dumps(name)}).value; s.dispatchEvent(new Event('change'));")
+        wait_for(lambda: self.js(popup, f"return document.getElementById('vaultselect').selectedOptions[0].textContent === {json.dumps(name)} && !document.getElementById('vaultselect').disabled"), f"{name} current")
 
     def test_2c_vault_button_menu_states_and_unlock(self):
         def body(page, popup):
             self.settled(popup)
             self.assertTrue(self.shown(popup, "vaultbar"))
-            self.assertEqual(self.js(popup, "return document.getElementById('vaultbtn').innerText"), "Passwords")
-            self.assertEqual(self.js(popup, "return document.querySelectorAll('#vaultbtn svg').length"), 1)
+            self.assertEqual(self.js(popup, "return document.getElementById('vaultselect').getAttribute('aria-label')"), "Vault")
+            self.assertEqual(self.js(popup, "return document.getElementById('vaultbar').firstElementChild.tagName"), "svg")
             self.assertFalse(self.shown(popup, "unlock"))
-            self.js(popup, "document.getElementById('vaultbtn').click()")
-            rows = self.js(popup, "return [...document.querySelectorAll('#vaultmenu [role=menuitemradio]')].map((b) => b.querySelector('.text').innerText.replace(/\\n/g, ' | ') + '/' + b.getAttribute('aria-checked') + '/' + b.querySelector('[role=img]').getAttribute('aria-label')).join('\\n')")
-            self.assertEqual(rows, "\n".join([
-                "Passwords | iCloud Drive/true/Open", "Work | Work.kdbx/false/Locked", "Archive | On this device/false/Locked",
-                "Family | Needs vault password/false/Locked, needs vault password", "Travel | Not downloaded yet/false/Not available, not downloaded yet",
-                "Taxes | Can\u2019t be read/false/Not available, can\u2019t be read", "Old | Not found/false/Not available, not found"]))
+            options = self.js(popup, "return [...document.querySelectorAll('#vaultselect option')].map((o) => o.textContent + (o.selected ? '*' : '')).join('|')")
+            self.assertEqual(options, "Passwords*|Work|Archive|Family|Travel|Taxes|Old")
             try:
                 self.choose_vault(popup, "Work")
                 self.assertEqual(self.text(popup, "status"), "Work is locked. Choose Unlock to use Touch ID.")
@@ -305,7 +301,7 @@ class FirefoxTests(unittest.TestCase):
                 self.assertFalse(self.shown(popup, "search"))
                 self.js(popup, "document.getElementById('unlock').click()")
                 wait_for(lambda: self.shown(popup, "sitegroup"), "Work lists")
-                self.assertEqual(self.text(popup, "sitenote"), "No logins for localhost:8080 in Work. Choose another vault above.")
+                self.assertEqual(self.text(popup, "sitenotebody"), "Work has none for this site. Search all logins above, or choose another vault.")
                 # Touch ID cancelled
                 self.choose_vault(popup, "Archive")
                 self.js(popup, "document.getElementById('unlock').click()")
@@ -320,7 +316,7 @@ class FirefoxTests(unittest.TestCase):
                 self.assertFalse(self.shown(popup, "unlock"))
                 # not available: no Unlock
                 self.choose_vault(popup, "Old")
-                self.assertEqual(self.text(popup, "status"), "Old was not found. Psss lists nothing from it here. Open Psss to locate it, or choose another vault above.")
+                self.assertEqual(self.text(popup, "status"), "Old was not found. Psss lists nothing from it here. Open Psss to locate it, or choose another vault.")
                 self.assertFalse(self.shown(popup, "unlock"))
                 self.assertTrue(self.shown(popup, "vaultbar"))
             finally:
@@ -359,13 +355,12 @@ class FirefoxTests(unittest.TestCase):
                 self.set_vaults({"vaults": [{"id": f"h{i}", "name": n, "location": n} for i, n in enumerate(names)]})
                 self.use(popup)
                 self.m.call("WebDriver:Refresh")
-                wait_for(lambda: self.js(popup, "return document.getElementById('vaultbtn').innerText") != "", "button")
-                self.assertEqual(self.js(popup, "return document.getElementById('vaultbtn').innerText"), "Workgpj.exe")
-                self.js(popup, "document.getElementById('vaultbtn').click()")
-                rows = list(self.js(popup, "return [...document.querySelectorAll('#vaultmenu .text')].map((t) => t.firstChild.textContent)"))
+                wait_for(lambda: self.js(popup, "return document.getElementById('vaultselect').options.length") > 0, "pick list")
+                rows = list(self.js(popup, "return [...document.querySelectorAll('#vaultselect option')].map((o) => o.textContent)"))
+                self.assertEqual(rows[0], "Workgpj.exe")
                 self.assertEqual(rows[1], '<img src=x onerror="window.__pwned=1">')
                 self.assertTrue(len(rows[2]) <= 40 and rows[2].endswith("\u2026"))
-                self.assertEqual(self.js(popup, "return document.querySelectorAll('#vaultmenu img').length + (window.__pwned || 0)"), 0)
+                self.assertEqual(self.js(popup, "return document.querySelectorAll('#vaultbar img').length + (window.__pwned || 0)"), 0)
             finally:
                 self.set_vaults()
         self.with_popup(f"{SITE}/login.html", body)
@@ -376,7 +371,7 @@ class FirefoxTests(unittest.TestCase):
             self.assertEqual(self.text(popup, "generate"), "Generate, Fill and Save")
             self.js(popup, "const a = document.getElementById('account'); a.value = 'alex@example.net'; a.dispatchEvent(new Event('input'));")
             self.assertEqual(self.text(popup, "createtitle"), "Update a login")
-            self.assertEqual(self.text(popup, "accountlabel"), "Passwords already has alex@example.net for localhost:8080.")
+            self.assertEqual(self.text(popup, "accountlabel"), "Passwords already has alex@example.net for this site.")
             refused = self.m.script("const done = arguments[arguments.length - 1]; Host.save('http://localhost:8080', 'work', 'refused@example.net', 'Never-saved-1').then((r) => done(r.error), () => done('x'))", async_=True)
             self.assertEqual(refused, "forbidden")
         self.with_popup(f"{SITE}/signup.html", body)
@@ -410,27 +405,23 @@ class FirefoxTests(unittest.TestCase):
     def test_4_other_loopback_name_is_a_different_site(self):
         def body(page, popup):
             self.settled(popup)
-            self.assertEqual(self.text(popup, "sitenote"), "No logins for 127.0.0.1:8080 in Passwords. Choose another vault above.")
-            self.assertEqual(self.text(popup, "forsite"), "For 127.0.0.1:8080")
+            self.assertEqual(self.text(popup, "sitenotebody"), "Passwords has none for this site. Search all logins above, or choose another vault.")
+            self.assertEqual(self.text(popup, "forsite"), "For This Site")
         self.with_popup("http://127.0.0.1:8080/login.html", body)
 
     def set_query(self, popup, q):
         self.js(popup, f"const i = document.getElementById('q'); i.value = {json.dumps(q)}; i.dispatchEvent(new Event('input'));")
 
-    def test_4b_search_finds_a_login_for_another_site_and_asks_first(self):
+    def test_4b_search_fills_a_login_for_another_site_with_one_click(self):
         def body(page, popup):
             self.settled(popup)
             self.assertEqual(self.js(popup, "return document.activeElement.id"), "q")
             self.set_query(popup, "localhost")
             wait_for(lambda: self.js(popup, "return document.querySelectorAll('#results li button').length > 0"), "results")
             self.assertIn("Saved for localhost", self.js(popup, "return document.querySelector('#results li').innerText"))
-            self.js(popup, "document.querySelector('#results li button').click()")
-            self.assertIn("not 127.0.0.1", self.js(popup, "return document.querySelector('#results li .warning').innerText"))
-            self.assertEqual(self.js(page, "return document.getElementById('p').value"), "")
-            self.js(popup, "document.querySelector('#results li .cancel').click()")
+            self.assertEqual(self.js(popup, "return document.querySelector('#results li button').textContent"), "Fill")
             self.assertEqual(self.js(page, "return document.getElementById('p').value"), "")
             self.js(popup, "document.querySelector('#results li button').click()")
-            self.js(popup, "document.querySelector('#results li .confirm-fill').click()")
             wait_for(lambda: self.js(page, "return document.getElementById('p').value") != "", "manual fill")
             self.assertEqual(self.js(page, "return document.getElementById('u').value"), "alex@example.net")
         self.with_popup("http://127.0.0.1:8080/login.html", body)

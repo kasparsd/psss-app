@@ -4,7 +4,6 @@
 // Every string that comes from a vault or a page goes through Display.line and into textContent, never innerHTML.
 (async function () {
   const $ = (id) => document.getElementById(id);
-  const siteEl = $('site');
   const noticeEl = $('notice');
   const statusEl = $('status');
   const noticeUnlock = $('noticeunlock');
@@ -12,6 +11,8 @@
   const siteGroup = $('sitegroup');
   const forSiteEl = $('forsite');
   const siteNote = $('sitenote');
+  const siteNoteBody = $('sitenotebody');
+  const noticeTitle = $('noticetitle');
   const listEl = $('logins');
   const searchEl = $('search');
   const queryEl = $('q');
@@ -19,13 +20,13 @@
   const resultsEl = $('results');
   const createEl = $('create');
   const vaultBar = $('vaultbar');
-  const vaultBtn = $('vaultbtn');
-  const vaultMenu = $('vaultmenu');
+  const vaultSelect = $('vaultselect');
   const line = Display.line;
 
   // One notice at a time. `kind` is info (accent) or warning (orange).
   const say = (text, kind = 'info') => {
     statusEl.textContent = text;
+    noticeTitle.hidden = true;
     noticeEl.dataset.kind = kind;
     noticeEl.hidden = !text;
     if (!text) noticeUnlock.hidden = true;
@@ -47,17 +48,17 @@
     return svg;
   }
   const ICONS = {
-    caret: () => icon('icon', ['M8 9l4-4 4 4M8 15l4 4 4-4']),
-    check: () => icon('icon', ['M5 12.5l4.5 4.5L19 7']),
-    locked: () => icon('icon', ['M8.2 10.5V8a3.8 3.8 0 0 1 7.6 0v2.5'], [['rect', { x: 5, y: 10.5, width: 14, height: 9.5, rx: 2.2 }]]),
-    unlocked: () => icon('icon', ['M8.2 10.5V8a3.8 3.8 0 0 1 7.3-1.4'], [['rect', { x: 5, y: 10.5, width: 14, height: 9.5, rx: 2.2 }]]),
-    warning: () => icon('icon', ['M12 3.8L21.2 20H2.8z', 'M12 10v4.2', 'M12 17v.01']),
     passkey: () => icon('trait icon', ['M14.5 14.5L21 8l-2-2-1.5 1.5M18 7l-2 2'], [['circle', { cx: 9, cy: 15, r: 4 }]]),
   };
 
   // The only setting is the browser's save prompt, which needs the optional `privacy` permission (not in Safari).
+  // Every state with the normal header ends with the Settings button, except Psss not running (`notRunning`). Safari's manifest has
+  // no `privacy` permission, so its popup has no Settings button.
   const settingsEl = $('settings');
-  if (!api.runtime.getManifest().optional_permissions?.includes('privacy')) settingsEl.parentElement.hidden = true;
+  const hasSettings = api.runtime.getManifest().optional_permissions?.includes('privacy') === true;
+  const footer = (visible) => { settingsEl.parentElement.hidden = !(visible && hasSettings); };
+  footer(true);
+  const notRunning = (text) => { say(text); footer(false); };
   settingsEl.addEventListener('click', async () => {
     await api.tabs.create({ url: api.runtime.getURL('settings.html') });
     window.close();
@@ -69,8 +70,6 @@
     say('Psss fills only on secure (https) pages.');
     return;
   }
-  const pageHost = new URL(origin).host;
-  siteEl.textContent = line(pageHost, 80);
 
   // The search takes the focus the moment the popup opens, so typing starts at once (before the host has answered).
   searchEl.hidden = false;
@@ -107,23 +106,6 @@
 
   // ---------- vaults: the button, the menu and what each state says ----------
 
-  // Words under a vault's name in the menu: where it is kept, or the state when it is not simply locked or open.
-  const STATE_WORDS = {
-    'needs-password': 'Needs vault password',
-    'not-downloaded': 'Not downloaded yet',
-    'not-found': 'Not found',
-    unreadable: 'Can’t be read',
-  };
-  const UNAVAILABLE = new Set(['not-downloaded', 'not-found', 'unreadable']);
-  const SPOKEN = {
-    open: 'Open',
-    locked: 'Locked',
-    'needs-password': 'Locked, needs vault password',
-    'not-downloaded': 'Not available, not downloaded yet',
-    'not-found': 'Not available, not found',
-    unreadable: 'Not available, can’t be read',
-  };
-
   async function refreshVaults(list) {
     if (!list) {
       const reply = await Host.vaults();
@@ -133,74 +115,29 @@
     drawVaultBar();
   }
 
-  // The button names the current vault with a caret, only with two or more vaults. Rows: name, location or state words,
-  // a check on the current one, a padlock or warning at the end. No Lock and no Add Vault here: those are the app's.
+  // With two or more vaults: the vault glyph, then a plain native pick list of the vault names in the order the app reports them
+  // (the current vault is not moved first). No Lock and no Add Vault here: those are the app's. States are said by the notice.
   function drawVaultBar() {
     vaultBar.hidden = vaults.length < 2;
-    closeMenu();
-    vaultMenu.replaceChildren();
+    vaultSelect.replaceChildren();
     if (vaultBar.hidden) return;
-    const name = vaultName(currentVault(), 24);
-    const label = document.createElement('span');
-    label.className = 'name';
-    label.textContent = name;
-    vaultBtn.replaceChildren(label, ICONS.caret());
-    vaultBtn.setAttribute('aria-label', `Vault: ${name}. Switch vault`);
-    const head = document.createElement('div');
-    head.className = 'ph s';
-    head.textContent = 'Vault';
-    vaultMenu.append(head, ...vaults.map((v) => {
-      const item = document.createElement('button');
-      item.type = 'button';
-      item.setAttribute('role', 'menuitemradio');
-      item.setAttribute('aria-checked', String(v.active));
-      const check = document.createElement('span');
-      check.className = 'chk';
-      if (v.active) check.append(ICONS.check());
-      const text = document.createElement('span');
-      text.className = 'text';
-      const title = document.createElement('div');
-      title.textContent = vaultName(v, 40);
-      const where = document.createElement('div');
-      where.className = 's';
-      where.textContent = STATE_WORDS[v.state] ?? line(v.location, 40);
-      text.append(title, where);
-      const glyph = document.createElement('span');
-      glyph.className = 'lock';
-      glyph.setAttribute('role', 'img');
-      glyph.setAttribute('aria-label', SPOKEN[v.state] ?? 'Locked');
-      glyph.append(v.state === 'open' ? ICONS.unlocked() : UNAVAILABLE.has(v.state) ? ICONS.warning() : ICONS.locked());
-      item.append(check, text, glyph);
-      item.addEventListener('click', () => chooseVault(v));
-      return item;
-    }));
+    for (const v of vaults) {
+      const option = document.createElement('option');
+      option.value = v.id;
+      option.textContent = vaultName(v, 40);
+      option.selected = v.active === true;
+      vaultSelect.append(option);
+    }
   }
-
-  function closeMenu() {
-    vaultMenu.hidden = true;
-    vaultBtn.setAttribute('aria-expanded', 'false');
-  }
-  vaultBtn.addEventListener('click', () => {
-    const show = vaultMenu.hidden;
-    vaultMenu.hidden = !show;
-    vaultBtn.setAttribute('aria-expanded', String(show));
-    if (show) (vaultMenu.querySelector('[aria-checked="true"]') ?? vaultMenu.querySelector('button')).focus();
-  });
-  document.addEventListener('click', (e) => { if (!vaultBar.contains(e.target)) closeMenu(); });
-  vaultBar.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { closeMenu(); vaultBtn.focus(); return; }
-    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-    const items = [...vaultMenu.querySelectorAll('button')];
-    const at = items.indexOf(document.activeElement);
-    if (vaultMenu.hidden || !items.length) return;
-    e.preventDefault();
-    items[(at + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length].focus();
+  vaultSelect.addEventListener('change', () => {
+    const v = vaults.find((x) => x.id === vaultSelect.value);
+    if (v) chooseVault(v);
   });
 
   // What the notice says for a vault that cannot list logins, and whether Unlock is offered. `hint` is how the last Unlock ended.
   function notice(v, hint) {
     const n = vaultName(v);
-    const another = vaults.length >= 2 ? ', or choose another vault above' : '';
+    const another = vaults.length >= 2 ? ', or choose another vault' : '';
     switch (hint) {
       case 'cancelled': return { text: 'Touch ID was cancelled. Choose Unlock to try again.', kind: 'warning', unlock: true };
       case 'failed': return { text: 'Touch ID did not work. Choose Unlock to try again.', kind: 'warning', unlock: true };
@@ -253,12 +190,12 @@
   // Choosing a vault makes it the app's current vault (one per device) and locks the open one. It does not unlock: when the new
   // vault is locked, the header shows Unlock.
   async function chooseVault(v) {
-    closeMenu();
     if (v.active) return;
-    vaultBtn.disabled = true;
+    vaultSelect.disabled = true;
     const reply = await Host.switchVault(v.id);
-    vaultBtn.disabled = false;
-    if (reply.vaults) { vaults = reply.vaults; drawVaultBar(); }
+    vaultSelect.disabled = false;
+    if (reply.vaults) { vaults = reply.vaults; }
+    drawVaultBar();  // the pick list shows the vault that is current now, also when the switch failed
     if (!reply.ok) {
       say(reply.error === PROTOCOL.errors.unsupported
         ? `Psss cannot switch vaults from the browser yet. Open Psss and choose ${vaultName(v)}.`
@@ -300,7 +237,8 @@
     const hint = reply.ok ? 'opened' : reply.error;
     if (reply.vaults) { showVaultState(hint); return; }
     unlockBtn.disabled = noticeUnlock.disabled = false;
-    say(reply.error === 'not-installed' ? 'Psss is not connected. Open the Psss app once, then try again.' : `Psss could not unlock ${vaultName(v)}.`, 'warning');
+    if (reply.error === 'not-installed') notRunning('Psss is not connected. Open the Psss app once, then try again.');
+    else say(`Psss could not unlock ${vaultName(v)}.`, 'warning');
   }
   unlockBtn.addEventListener('click', unlock);
   noticeUnlock.addEventListener('click', unlock);
@@ -327,10 +265,11 @@
         await refreshVaults();
         if (!showVaultState()) return;
       }
-      say({
+      const words = {
         'not-installed': 'Psss is not connected. Open the Psss app once, then try again.',
         [PROTOCOL.errors.locked]: 'Psss is locked. Open the app to unlock.',
-      }[reply.error] ?? 'Psss could not be reached.');
+      }[reply.error] ?? 'Psss could not be reached.';
+      if (reply.error === PROTOCOL.errors.locked) say(words); else notRunning(words);
       searchEl.hidden = reply.error === PROTOCOL.errors.locked || reply.error === 'not-installed';
       return;
     }
@@ -347,13 +286,10 @@
     // The one login for the page is the default action, as in the app's picker.
     const rows = [...logins, ...sampleCards];
     render(listEl, rows, { main: rows.length === 1 });
-    forSiteEl.textContent = `For ${line(pageHost)}`;
     if (!rows.length) {
-      // Nothing for this site here. With several vaults say which one was looked at, and that the person can choose another:
-      // Psss does not search the other vaults for them.
-      siteNote.textContent = vaults.length >= 2
-        ? `No logins for ${line(pageHost)} in ${vaultName(currentVault())}. Choose another vault above.`
-        : 'No saved logins for this site.';
+      // Nothing for this site here: a notice that names the vault and the ways on. Psss does not search the other vaults for the
+      // person, and the notice has no button: the search field and the vault pick list are already on screen.
+      siteNoteBody.textContent = `${vaultName(currentVault())} has none for this site. Search all logins above${vaults.length >= 2 ? ', or choose another vault' : ''}.`;
       siteNote.hidden = false;
     }
     siteGroup.hidden = searching();
@@ -397,7 +333,7 @@
   });
 
   // Return presses the one Fill there is: the only result of a search, or the only login for this site when the field is empty.
-  // A login saved for another site is Fill…, which still asks first. Two or more rows: Return does nothing, the person picks.
+  // Two or more rows: Return does nothing, the person picks.
   queryEl.addEventListener('keydown', async (e) => {
     if (e.key !== 'Enter' || e.isComposing) return;
     e.preventDefault();
@@ -427,13 +363,21 @@
     siteGroup.hidden = true;
     pillsEl.hidden = false;
     drawPills(found.counts);
-    render(resultsEl, found.results, {});
-    if (!found.results.length) {
-      const none = document.createElement('li');
-      none.className = 'none';
-      none.textContent = 'Nothing found.';
-      resultsEl.append(none);
+    // Two groups, as the app's list groups its rows. A group with no rows is left out.
+    const { site, other } = Groups.split(found.results);
+    const groups = [];
+    if (site.length) groups.push(group('For This Site', site));
+    if (other.length) groups.push(group('Other Matches', other));
+    if (!groups.length) {
+      const none = document.createElement('ul');
+      none.className = 'card';
+      const li = document.createElement('li');
+      li.className = 'none';
+      li.textContent = 'Nothing found.';
+      none.append(li);
+      groups.push(none);
     }
+    resultsEl.replaceChildren(...groups);
   }
 
   // ---------- sign-up forms ----------
@@ -469,7 +413,7 @@
     const label = $('accountlabel');
     if (existing) {
       title.textContent = 'Update a login';
-      label.textContent = multi ? `${where} already has ${line(account, 60)} for ${line(pageHost)}.` : `${line(account, 60)} is already saved for ${line(pageHost)}.`;
+      label.textContent = multi ? `${where} already has ${line(account, 60)} for this site.` : `${line(account, 60)} is already saved for this site.`;
       generateEl.textContent = `Update ${line(existing.title, 40)} (${line(account, 60)})`;
     } else {
       title.textContent = 'Create a login';
@@ -516,23 +460,56 @@
     target.replaceChildren(...rows.map((c) => row(c, main)));
   }
 
-  // The second line: what the search matched with the matching part in bold, otherwise the account (or the website when the
-  // name is the account, so the line says something the name does not) or the card ending.
-  function subline(c) {
+  // A heading above a card of rows, outside the card.
+  function group(title, rows) {
+    const wrap = document.createElement('section');
+    wrap.className = 'group';
+    const head = document.createElement('h2');
+    head.className = 's';
+    head.textContent = title;
+    const card = document.createElement('ul');
+    card.className = 'card';
+    render(card, rows, {});
+    wrap.append(head, card);
+    return wrap;
+  }
+
+  // The part of a field that matched the search, with the matching part in bold. `prefix` goes before it ("Saved for ").
+  function hitLine(c, prefix = '') {
     const el = document.createElement('div');
     el.className = 's';
-    const prefix = !c.matches && c.found === 'website' ? 'Saved for ' : '';
     el.append(document.createTextNode(prefix));
-    if (c.hit !== undefined) {
-      const [start, length] = c.hitRange ?? [0, 0];
-      el.append(document.createTextNode(line(c.hit.slice(0, start), 100)));
-      if (length) { const b = document.createElement('span'); b.className = 'hit'; b.textContent = line(c.hit.slice(start, start + length), 100); el.append(b); }
-      el.append(document.createTextNode(line(c.hit.slice(start + length), 100)));
-    } else {
-      const same = !c.card && c.website && line(c.title) === line(c.account);
-      el.append(document.createTextNode(line(same ? c.website : c.account)));
-    }
+    const [start, length] = c.hitRange ?? [0, 0];
+    el.append(document.createTextNode(line(c.hit.slice(0, start), 100)));
+    if (length) { const b = document.createElement('span'); b.className = 'hit'; b.textContent = line(c.hit.slice(start, start + length), 100); el.append(b); }
+    el.append(document.createTextNode(line(c.hit.slice(start + length), 100)));
     return el;
+  }
+
+  function plainLine(text, wraps = false) {
+    const el = document.createElement('div');
+    el.className = wraps ? 's wrap' : 's';
+    el.textContent = text;
+    return el;
+  }
+
+  // The lines under a name. A login for this page: its account (the page's own site is not repeated; none when the name is the
+  // account), with the matched part in bold when the search found it in the username. A login in Other Matches: "Saved for <site>"
+  // or "No website", never cut to one line, so a lookalike site can be read in full. A card: its ending.
+  function sublines(c) {
+    if (c.card) return [plainLine(line(c.account))];
+    const lines = [];
+    const inUsername = c.found === 'username' && c.hit !== undefined;
+    if (c.matches) {
+      const account = line(c.account);
+      if (inUsername) lines.push(hitLine(c));
+      else if (account && account !== line(c.title)) lines.push(plainLine(account));
+      return lines;
+    }
+    if (inUsername) lines.push(hitLine(c));
+    if (c.found === 'website' && c.hit !== undefined && Groups.savedSite(c)) lines.push(hitLine(c, 'Saved for '));
+    else lines.push(plainLine(Groups.savedFor(c), true));
+    return lines;
   }
 
   const hue = (text) => 1 + [...text].reduce((h, ch) => (h * 31 + ch.codePointAt(0)) >>> 0, 7) % 6;
@@ -552,19 +529,16 @@
     const strong = document.createElement('strong');
     strong.textContent = title;
     name.append(strong);
-    text.append(name, subline(c));
-    if (!c.matches && c.website && c.found !== 'website') {
-      const site = document.createElement('div');
-      site.className = 's';
-      site.textContent = `Saved for ${line(c.website)}`;
-      text.append(site);
-    }
+    text.append(name, ...sublines(c));
     const button = document.createElement('button');
     button.type = 'button';
     button.className = `btn${main && c.matches ? ' pri' : ''}`;
-    button.textContent = c.card ? 'Fill card' : c.matches ? 'Fill' : 'Fill…';
-    button.setAttribute('aria-label', `${c.matches ? 'Fill' : 'Fill, saved for another site:'} ${c.card ? title : line(c.account)} on ${line(pageHost)}`);
-    button.addEventListener('click', () => (c.matches ? fill(c.ref, button, false, c.card) : confirmFill(li, c)));
+    button.textContent = c.card ? 'Fill card' : 'Fill';
+    // Said for a person who cannot see the groups: the account, and for another site where it is saved.
+    const account = c.card ? '' : line(c.account);
+    const where = c.card || c.matches ? '' : `, ${Groups.savedFor(c).replace(/^./, (ch) => ch.toLowerCase())}`;
+    button.setAttribute('aria-label', `${c.card ? 'Fill card' : 'Fill'} ${title}${account && account !== title ? `, ${account}` : ''}${where}`);
+    button.addEventListener('click', () => fill(c.ref, button, !c.matches, c.card));
     li.append(tile, text);
     if (c.passkey) {
       const trait = ICONS.passkey();
@@ -577,30 +551,6 @@
     return li;
   }
 
-  // A login saved for another site is released only after a second, explicit click that names both sites.
-  function confirmFill(li, c) {
-    const original = [...li.childNodes];
-    const warning = document.createElement('p');
-    warning.className = 'warning';
-    warning.textContent = `${line(c.title)} is saved for ${line(c.website) || 'another site'}, not ${line(pageHost)}. Fill it here anyway?`;
-    const fillBtn = document.createElement('button');
-    fillBtn.type = 'button';
-    fillBtn.className = 'btn pri confirm-fill';
-    fillBtn.textContent = 'Fill anyway';
-    const cancel = document.createElement('button');
-    cancel.type = 'button';
-    cancel.className = 'btn cancel';
-    cancel.textContent = 'Cancel';
-    const actions = document.createElement('div');
-    actions.className = 'actions';
-    actions.append(cancel, fillBtn);
-    li.classList.add('confirm');
-    li.replaceChildren(warning, actions);
-    cancel.addEventListener('click', () => { li.classList.remove('confirm'); li.replaceChildren(...original); });
-    fillBtn.addEventListener('click', () => fill(c.ref, fillBtn, true));
-    cancel.focus();
-  }
-
   async function fill(ref, button, manual, card = false) {
     button.disabled = true;
     // Revalidate: the tab may have navigated while the popup was open.
@@ -609,6 +559,7 @@
       say('The page changed. Open Psss again.');
       return;
     }
+    // `manual`: the login is in Other Matches, saved for another site or none. The person chose it in the list.
     const cred = card ? await Host.card(ref, origin) : await Host.credential(ref, origin, manual);
     if (!cred.ok) { say(card ? 'Psss could not release that card.' : 'Psss could not release that login.'); button.disabled = false; return; }
     const fields = cred.fields ?? { username: cred.account, 'current-password': cred.secret };
