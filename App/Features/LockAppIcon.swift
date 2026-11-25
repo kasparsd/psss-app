@@ -76,18 +76,18 @@ struct LogoField: View {
     }
 }
 
-/// The app icon tile drawn flat, so the field can switch between the dots and the name.
+/// The app icon tile drawn flat, so the field can switch between the dots and the name. Butter in light and dark mode
+/// (owner, 2026-11-25), as the Home Screen icon.
 struct LockAppIcon: View {
     var shown: Bool
     var size: CGFloat = 76
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let tile = RoundedRectangle(cornerRadius: size * 0.2237, style: .continuous)
-        tile.fill(colorScheme == .dark ? charcoal : butter)
+        tile.fill(butter)
             .overlay { LogoField(shown: shown).frame(width: size * LogoFieldGeometry.iconFill) }
-            .foregroundStyle(colorScheme == .dark ? butter : charcoal)
-            .overlay { tile.strokeBorder(.primary.opacity(0.12), lineWidth: 0.5) }
+            .foregroundStyle(charcoal)
+            .overlay { tile.strokeBorder(.black.opacity(0.12), lineWidth: 0.5) }
             .frame(width: size, height: size)
             .accessibilityHidden(true)
     }

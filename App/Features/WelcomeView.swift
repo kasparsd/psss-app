@@ -34,10 +34,7 @@ struct WelcomeView: View {
         ScrollView {
             VStack(spacing: 28) {
                 VStack(spacing: 10) {
-                    Image(systemName: "key.fill")
-                        .font(.system(size: 44))
-                        .foregroundStyle(Color.accentColor)
-                        .accessibilityHidden(true)
+                    WelcomeIcon()
                     Text("Welcome to Psss")
                         .font(.largeTitle.weight(.semibold))
                     Text("Passwords, passkeys and verification codes that stay on your devices.")
@@ -127,4 +124,29 @@ func readPasswordsCSV(_ result: Result<URL, any Error>, notice: Binding<String?>
 
 extension URL: @retroactive Identifiable {
     public var id: String { absoluteString }
+}
+
+/// The app icon on the welcome screen. It opens on the name, “psss”, and a moment later hides it as a password field would
+/// (p and three dots), where it rests. A tap types the name again, holds it about a second and hides it: a small hint that
+/// the icon is a field. The tap does nothing else. VoiceOver reads an image named Psss. Reduce Motion is honoured by
+/// `LogoField`, which then changes the letters at once.
+private struct WelcomeIcon: View {
+    @State private var shown = true
+    @State private var taps = 0
+
+    var body: some View {
+        LockAppIcon(shown: shown, size: 88)
+            .contentShape(RoundedRectangle(cornerRadius: 88 * 0.2237, style: .continuous))
+            .onTapGesture { taps += 1 }
+            .accessibilityElement()
+            .accessibilityLabel(Text(verbatim: "Psss"))
+            .accessibilityAddTraits(.isImage)
+            .task(id: taps) {
+                if taps > 0 { shown = true }
+                try? await Task.sleep(for: .milliseconds(taps == 0 ? 900 : 1300))
+                guard !Task.isCancelled else { return }
+                shown = false
+            }
+            .padding(.bottom, 4)
+    }
 }
