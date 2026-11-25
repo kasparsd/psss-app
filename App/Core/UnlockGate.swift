@@ -47,6 +47,10 @@ enum LockTiming: Int, CaseIterable, Identifiable {
 
     var id: Int { rawValue }
 
+    /// How long without any keyboard or mouse input locks an app that stays open (Mac). "Immediately" is about leaving the app, so
+    /// it never locks someone who is reading or typing: it waits a minute, as Apple Passwords does.
+    var idleLimit: TimeInterval { TimeInterval(max(rawValue, LockTiming.oneMinute.rawValue)) }
+
     var title: LocalizedStringKey {
         switch self {
         case .immediately: "Immediately"
@@ -70,8 +74,23 @@ final class UnlockGate {
 
     private(set) var state: State = .locked
     private var leftAt: Date?
+    /// The last keyboard or mouse input the app saw (Mac), or when it was unlocked, whichever is later.
+    private var lastInput = Date.now
 
     var isUnlocked: Bool { state == .unlocked }
+
+    /// Call for every key press and mouse event in the app.
+    func noteInput(now: Date = .now) { lastInput = now }
+
+    /// Locks (all vaults, through the gate) when nothing was typed or clicked for the timing's idle limit, whether the app is in
+    /// front or not. Returns whether it locked. Called from a timer; does nothing when already locked.
+    @discardableResult
+    func lockIfIdle(after timing: LockTiming, now: Date = .now) -> Bool {
+        guard isUnlocked, now.timeIntervalSince(lastInput) >= timing.idleLimit else { return false }
+        lockNotice = nil
+        state = .locked
+        return true
+    }
 
     func unlock() async {
         guard state != .unlocking, state != .unlocked else { return }
@@ -79,6 +98,7 @@ final class UnlockGate {
         do {
             try await Unlock.authenticate(reason: String(localized: "Unlock your passwords."))
             lockNotice = nil
+            lastInput = .now
             state = .unlocked
         } catch let failure as Unlock.Failure {
             state = .failed(failure == .cancelled ? "" : failure.message)
@@ -90,6 +110,7 @@ final class UnlockGate {
     /// For a vault the person just created or imported: they are already here, so no prompt.
     func markUnlocked() {
         lockNotice = nil
+        lastInput = .now
         state = .unlocked
     }
 

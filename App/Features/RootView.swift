@@ -122,6 +122,19 @@ struct RootView: View {
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.screensDidSleepNotification)) { _ in gate.lock() }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)) { _ in gate.lock() }
         .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("com.apple.screenIsLocked"))) { _ in gate.lock() }
+        // Like Apple Passwords, no typing or clicking for the lock timing locks every vault, in front or not. The local monitor sees
+        // each key and mouse event of this app (all its windows); a timer checks the clock.
+        .task {
+            let monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel, .mouseMoved]) { event in
+                gate.noteInput()
+                return event
+            }
+            defer { if let monitor { NSEvent.removeMonitor(monitor) } }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                if gate.lockIfIdle(after: timing) { session.flushAll() }
+            }
+        }
         // Coming back from System Settings: the window's scene phase does not always say so on a Mac.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in Task { await autoFill.refreshSettling(); await safariExtension.refresh() } }
         #endif

@@ -3507,6 +3507,23 @@ await unlockGateNoticeChecks()
     first.didLeave(now: t0)
     first.didEnterBackground(after: .oneMinute, now: t0 + 50)
     expect("leave: the clock keeps its first time", first.decideOnReturn(after: .oneMinute, now: t0 + 61) && !first.isUnlocked)
+
+    // Mac idle lock: no input for the timing locks; any input restarts the clock.
+    for timing in [LockTiming.oneMinute, .fiveMinutes, .fifteenMinutes] {
+        let limit = TimeInterval(timing.rawValue)
+        let g = UnlockGate(); g.markUnlocked(); g.noteInput(now: t0)
+        expect("idle \(timing.rawValue)s: one second short stays open", !g.lockIfIdle(after: timing, now: t0 + limit - 1) && g.isUnlocked)
+        g.noteInput(now: t0 + limit - 1)
+        expect("idle \(timing.rawValue)s: input restarts the clock", !g.lockIfIdle(after: timing, now: t0 + limit * 1.5) && g.isUnlocked)
+        expect("idle \(timing.rawValue)s: idle for the full time locks", g.lockIfIdle(after: timing, now: t0 + limit - 1 + limit) && !g.isUnlocked)
+        expect("idle \(timing.rawValue)s: a locked gate reports no new lock", !g.lockIfIdle(after: timing, now: t0 + limit * 10))
+    }
+    let imm = UnlockGate(); imm.markUnlocked(); imm.noteInput(now: t0)
+    expect("idle: Immediately waits a minute, not zero", !imm.lockIfIdle(after: .immediately, now: t0 + 30) && imm.isUnlocked)
+    expect("idle: Immediately locks after a minute", imm.lockIfIdle(after: .immediately, now: t0 + 60) && !imm.isUnlocked)
+    let note = UnlockGate(); note.markUnlocked(); note.lockNotice = "x"; note.noteInput(now: t0)
+    note.lockIfIdle(after: .oneMinute, now: t0 + 61)
+    check("idle: carries no notice", note.lockNotice ?? "nil", "nil")
 }
 await unlockGateLeavingChecks()
 
