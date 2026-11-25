@@ -48,7 +48,7 @@ private struct CredentialFields: View {
                         Button(keyFile == nil ? "Choose Key File…" : "Change Key File…") { choosingKeyFile = true }
                         if let keyFileName {
                             Text(keyFileName).foregroundStyle(.secondary).lineLimit(1)
-                            Button("Remove", role: .destructive) { keyFile = nil; self.keyFileName = nil }
+                            Button("Remove") { keyFile = nil; self.keyFileName = nil }
                         }
                     }
                     if let keyFileProblem { ProblemText(text: keyFileProblem) }
