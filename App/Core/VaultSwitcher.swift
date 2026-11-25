@@ -196,7 +196,8 @@ struct VaultSwitcher: View {
             case .icon:
                 Label("Vault: \(name)", systemImage: Self.symbol).labelStyle(.iconOnly)
             case .capsule:
-                Label(Self.capsuleName(name), systemImage: Self.symbol).labelStyle(.titleAndIcon).lineLimit(1)
+                // A stack, not a Label: a toolbar item draws a Label as its glyph alone, whatever label style is set.
+                HStack(spacing: 6) { Image(systemName: Self.symbol); Text(verbatim: Self.capsuleName(name)).lineLimit(1) }
             // Plain stacks, not a Label, so the menu button shows the name and not a row's title.
             case .name:
                 HStack(spacing: 6) { Image(systemName: Self.symbol); Text(verbatim: name) }

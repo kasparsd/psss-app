@@ -37,11 +37,21 @@ struct VaultSections<Places: View>: View {
     var body: some View {
         ForEach(session.knownVaults, id: \.id) { vault in
             let isOpen = session.isOpen(vault.id)
+            #if os(iOS)
+            // iPad: a section header is the system's disclosure button (or, in a plain section, not a place a context menu can open
+            // from), so a long-press there shows no menu. The vault's header is the section's first row instead: a row takes the
+            // long-press menu natively, and its chevron collapses the places under it.
+            Section {
+                header(vault, isOpen: isOpen, toggle: { if isOpen { toggleCollapsed(vault.id) } else { choose(vault.id) } })
+                if isOpen, !collapsed.contains(vault.id) { places(vault) }
+            }
+            #else
             Section(isExpanded: expanded(vault, isOpen: isOpen)) {
                 if isOpen { places(vault) }
             } header: {
                 header(vault, isOpen: isOpen)
             }
+            #endif
         }
     }
 
@@ -52,27 +62,51 @@ struct VaultSections<Places: View>: View {
         return Binding(get: { false }, set: { if $0 { choose(vault.id) } })
     }
 
+    private func toggleCollapsed(_ id: UUID) {
+        if collapsed.contains(id) { collapsed.remove(id) } else { collapsed.insert(id) }
+    }
+
     /// The header is a plain label: the icon, then the name, in the system's own sizes for a sidebar header, with no padding or
     /// frame of ours. A locked vault shows a closed padlock (the warning triangle when the file is not available); an open vault
     /// shows the app's vault symbol. The vault on screen is in the primary colour, the others secondary. The system draws its own
     /// disclosure control on hover, so an open vault's section collapses; choosing a locked vault's header (or its disclosure)
     /// shows its unlock form. The vault's actions are the header's right-click (iPad: long-press) menu.
-    private func header(_ vault: VaultReference, isOpen: Bool) -> some View {
+    private func header(_ vault: VaultReference, isOpen: Bool, toggle: (() -> Void)? = nil) -> some View {
         let name = VaultName.short(vault.name)
         let state = session.state(of: vault)
         let showing = vault.id == session.reference?.id
         let tint: Color = state.isAvailable ? (isOpen || showing ? .primary : .secondary) : .orange
-        return Label {
+        let label = Label {
             Text(verbatim: name).lineLimit(1).truncationMode(.middle)
         } icon: {
             Image(systemName: isOpen ? VaultSwitcher.symbol : state.symbol)
                 .foregroundStyle(tint)
         }
         .foregroundStyle(isOpen || showing ? Color.primary : Color.secondary)
+        #if os(iOS)
+        let row = HStack {
+            label
+            Spacer(minLength: 8)
+            Image(systemName: isOpen && !collapsed.contains(vault.id) ? "chevron.down" : "chevron.right")
+                .font(.body.weight(.semibold)).foregroundStyle(.secondary).accessibilityHidden(true)
+        }
+        #else
+        let row = label
+        #endif
+        return row
         .contentShape(Rectangle())
-        .onTapGesture { if !isOpen { choose(vault.id) } }
+        .onTapGesture {
+            #if os(iOS)
+            toggle?()
+            #else
+            if !isOpen { choose(vault.id) }
+            #endif
+        }
         .accessibilityLabel(Text(verbatim: name))
         .accessibilityValue(Text(verbatim: state.spoken))
+        #if os(iOS)
+        .accessibilityAddTraits(.isButton)
+        #endif
         .contextMenu { actions(vault, isOpen: isOpen, name: name, showing: showing) }
     }
 
