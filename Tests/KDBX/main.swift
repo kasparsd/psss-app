@@ -3395,6 +3395,104 @@ do {  // Provider follow-ups: several identifiers, loopback as written, readable
     expect("keychain: not provisioned for a group with no team", !BiometricKey.isProvisioned(keychainGroups: ["app.psss"], group: "app.psss"))
 }
 
+// Hostile and damaged vault files: a file may not ask for more memory than KDBXLimits allows, may not inflate past the limit, and
+// every truncation or flipped byte is refused with an error rather than a crash or a wrong result.
+do {
+    // A valid vault whose Argon2 header asks for `memory` bytes: made small, then the memory parameter is patched and the header
+    // hash recomputed, so the only thing wrong with the file is the request.
+    func vault(askingFor memory: UInt64) throws -> Data {
+        var d = VariantDictionary()
+        d.set("$UUID", bytes: Data(hexString: "9e298b1956db4773b23dfc3ec6f0a1e6")!)
+        d.set("S", bytes: KDBXCrypto.randomBytes(32))
+        d.set("P", uint32: 1)
+        d.set("M", uint64: 1024 * 1024)
+        d.set("I", uint64: 1)
+        d.set("V", uint32: 0x13)
+        var bytes = try KDBX.save(try KDBX.create(name: "Hostile", credentials: .init(password: "pw"), kdf: KDBXKDF(dictionary: d)))
+        let pattern: [UInt8] = [0x05, 1, 0, 0, 0, 0x4D, 8, 0, 0, 0]
+        let raw = [UInt8](bytes)
+        guard let at = (0..<(raw.count - pattern.count)).first(where: { Array(raw[$0..<($0 + pattern.count)]) == pattern }) else { fatalError("no M entry") }
+        for i in 0..<8 { bytes[at + pattern.count + i] = UInt8(truncatingIfNeeded: memory >> UInt64(8 * i)) }
+        var offset = 12
+        while true {
+            let id = bytes[offset]
+            let size = Int(bytes[offset + 1]) | Int(bytes[offset + 2]) << 8 | Int(bytes[offset + 3]) << 16 | Int(bytes[offset + 4]) << 24
+            offset += 5 + size
+            if id == 0 { break }
+        }
+        bytes.replaceSubrange(offset..<(offset + 32), with: KDBXCrypto.sha256(Data(bytes[0..<offset])))
+        return bytes
+    }
+    let limit = KDBXLimits.keyDerivationMemory
+    check("limit: the KDF memory ceiling is 256 MiB", "\(limit)", "\(256 * 1048576)")
+    check("limit: the patched file reports what it asks for", "\(KDBX.keyDerivationMemory(of: try vault(askingFor: 5 << 30)) ?? 0)", "\(5 << 30)")
+    for (name, memory) in [("one byte over 256 MiB", limit + 1), ("1 GiB", 1 << 30), ("4 GiB", 4 << 30), ("2^64 - 1", UInt64.max)] {
+        let file = try vault(askingFor: memory)
+        let start = Date()
+        expectError("limit: a file asking for \(name) is refused", .tooMuchMemory) { _ = try KDBX.open(file, credentials: .init(password: "pw")) }
+        expectError("limit: \(name) is refused for a wrong password too, before any work", .tooMuchMemory) { _ = try KDBX.open(file, credentials: .init(password: "nope")) }
+        expect("limit: \(name) is refused at once (no allocation)", Date().timeIntervalSince(start) < 1)
+    }
+    // Patching the memory changes the derived key, so a request within the limit gets as far as the key check and fails there.
+    expectError("limit: a request within the limit is derived, not refused for memory", .wrongCredentials) { _ = try KDBX.open(try vault(askingFor: 2 << 20), credentials: .init(password: "pw")) }
+    expect("limit: the unpatched vault opens", (try? KDBX.open(try vault(askingFor: 1 << 20), credentials: .init(password: "pw"))) != nil)
+    var big = VariantDictionary()
+    big.set("$UUID", bytes: Data(hexString: "9e298b1956db4773b23dfc3ec6f0a1e6")!)
+    big.set("S", bytes: KDBXCrypto.randomBytes(32)); big.set("P", uint32: 1); big.set("M", uint64: 1 << 30); big.set("I", uint64: 1); big.set("V", uint32: 0x13)
+    expectError("limit: creating a vault with a 1 GiB KDF is refused", .tooMuchMemory) { _ = try KDBX.create(name: "Big", credentials: .init(password: "pw"), kdf: KDBXKDF(dictionary: big)) }
+    check("message: too much memory", KDBXError.tooMuchMemory.message,
+          "This vault asks for more memory than Psss allows (256 MiB is the most). Open it in the app that made it, lower the memory in its encryption settings, save it, then try again.")
+    check("message: too large", KDBXError.tooLarge.message, "This vault is larger than Psss allows to open safely. Nothing was modified.")
+    check("message: new-key context keeps too much memory", KDBXError.tooMuchMemory.messageForNewKey, KDBXError.tooMuchMemory.message)
+
+    // The inflated size: refused once the output passes the limit, not after it has been built.
+    let zeros = try KDBXCrypto.gzip(Data(count: 8 << 20))
+    expect("inflate: 8 MiB of zeros opens under a 16 MiB limit", (try? KDBXCrypto.gunzip(zeros, limit: 16 << 20))?.count == 8 << 20)
+    expect("inflate: the same data over a 1 MiB limit is too large", { do { _ = try KDBXCrypto.gunzip(zeros, limit: 1 << 20); return false } catch KDBXCrypto.Failure.tooLarge { return true } catch { return false } }())
+    expect("inflate: exactly the limit is allowed", (try? KDBXCrypto.gunzip(zeros, limit: 8 << 20))?.count == 8 << 20)
+    expect("inflate: one byte under the size is too large", { do { _ = try KDBXCrypto.gunzip(zeros, limit: (8 << 20) - 1); return false } catch KDBXCrypto.Failure.tooLarge { return true } catch { return false } }())
+    expect("inflate: the default limit is 256 MiB", KDBXLimits.inflatedPayload == 256 << 20)
+    expect("inflate: truncated deflate data is an error", { do { _ = try KDBXCrypto.gunzip(zeros.prefix(zeros.count / 2) + Data(count: 8)); return false } catch { return true } }())
+    expect("inflate: a bad checksum is an error", { var bad = zeros; bad[bad.count - 8] ^= 0xFF; do { _ = try KDBXCrypto.gunzip(bad); return false } catch { return true } }())
+    expect("inflate: garbage is an error", { do { _ = try KDBXCrypto.gunzip(Data(repeating: 0x41, count: 100)); return false } catch { return true } }())
+
+    // Malformed and truncated files.
+    let small = try KDBX.save(try KDBX.create(name: "Small", credentials: .init(password: "pw"), kdf: .aesForTesting(rounds: 50)))
+    expect("malformed: the small vault opens", (try? KDBX.open(small, credentials: .init(password: "pw"))) != nil)
+    var opened = 0
+    for length in 0..<small.count where (try? KDBX.open(small.prefix(length), credentials: .init(password: "pw"))) != nil { opened += 1 }
+    check("malformed: no truncation of the file opens", "\(opened)", "0")
+    var flipped = 0
+    for index in stride(from: 0, to: small.count, by: 3) {
+        var copy = small
+        copy[index] ^= 0x80
+        if (try? KDBX.open(copy, credentials: .init(password: "pw"))) != nil { flipped += 1 }
+    }
+    check("malformed: no flipped byte opens", "\(flipped)", "0")
+    expectError("malformed: an empty file is not a vault", .notAVault) { _ = try KDBX.open(Data(), credentials: .init(password: "pw")) }
+    expectError("malformed: text is not a vault", .notAVault) { _ = try KDBX.open(Data("hello world, this is no vault".utf8), credentials: .init(password: "pw")) }
+    expectError("malformed: only the signature is not a vault", .notAVault) { _ = try KDBX.open(small.prefix(8), credentials: .init(password: "pw")) }
+    var future = small
+    future[10] = 9
+    expectError("malformed: KDBX 9 is unsupported", .unsupported("KDBX 9.\(Int(future[8]) | Int(future[9]) << 8)")) { _ = try KDBX.open(future, credentials: .init(password: "pw")) }
+    var huge = Data(small.prefix(12))
+    huge.append(contentsOf: [11, 0xFF, 0xFF, 0xFF, 0xFF])
+    huge.append(Data(count: 64))
+    expectError("malformed: a header entry of 4 GiB is damage", .corrupted("header")) { _ = try KDBX.open(huge, credentials: .init(password: "pw")) }
+    expect("malformed: its memory request is unreadable (nil)", KDBX.keyDerivationMemory(of: huge) == nil)
+    var noEnd = Data(small.prefix(12))
+    for _ in 0..<20 { noEnd.append(contentsOf: [99, 4, 0, 0, 0, 1, 2, 3, 4]) }
+    expect("malformed: a header that never ends is refused", (try? KDBX.open(noEnd, credentials: .init(password: "pw"))) == nil)
+    var rng = SystemRandomNumberGenerator()
+    var garbageOpened = 0
+    for _ in 0..<50 {
+        var junk = Data(small.prefix(12))
+        junk.append(Data((0..<Int.random(in: 0..<600, using: &rng)).map { _ in UInt8.random(in: 0...255, using: &rng) }))
+        if (try? KDBX.open(junk, credentials: .init(password: "pw"))) != nil { garbageOpened += 1 }
+    }
+    check("malformed: a valid signature followed by random bytes never opens", "\(garbageOpened)", "0")
+}
+
 // Messages shown for codec errors: no internal detail, and advice that fits the cause and the context.
 do {
     let unsupportedText = "This vault uses settings Psss cannot open. Open it in the app that made it, save it again as KDBX 4 with AES-256 or ChaCha20 and Argon2, then try again."

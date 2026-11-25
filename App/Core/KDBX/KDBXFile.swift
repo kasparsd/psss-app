@@ -8,6 +8,22 @@ enum KDBXError: Error, Equatable {
     case corrupted(String)
     case invalidKeyFile
     case invalidParameters
+    /// The file's key derivation asks for more memory than `KDBXLimits.keyDerivationMemory`.
+    case tooMuchMemory
+    /// The file inflates to more than `KDBXLimits.inflatedPayload`.
+    case tooLarge
+}
+
+/// What a vault file may ask of this device, so a hostile or damaged file is refused before it can exhaust memory. The numbers are
+/// what the AutoFill extension can still afford (`ExtensionUnlockBudget`, docs/autofill.md): the extension never runs a derivation
+/// above its own, lower budget and opens with the saved key otherwise, so these are the hard ceiling for the app and the Mac.
+enum KDBXLimits {
+    static let mebibyte: UInt64 = 1024 * 1024
+    /// The most memory an Argon2 key derivation may ask for (the file's memory parameter). Psss's own default is 64 MiB;
+    /// KeePassXC and KeePass 2 ask for 64 MiB by default and 1 GiB is the largest anyone sets on purpose.
+    static let keyDerivationMemory: UInt64 = 256 * mebibyte
+    /// The most the decrypted, inflated database may grow to. Real vaults are a few MiB; a 20,000-entry vault with icons about 30.
+    static let inflatedPayload = 256 * Int(mebibyte)
 }
 
 /// The KDBX container: KDBX 4.x with Argon2d, Argon2id or AES-KDF, AES-256 or ChaCha20, and a password,
@@ -191,6 +207,7 @@ struct KDBXKDF: Sendable {
                   rounds <= 1 << 40 else { throw KDBXError.invalidParameters }
             return try KDBXCrypto.aesKDF(key: composite, seed: seed, rounds: rounds)
         case .argon2d, .argon2id:
+            guard memoryBytes <= KDBXLimits.keyDerivationMemory else { throw KDBXError.tooMuchMemory }
             guard let salt = dictionary.bytes("S"), let lanes = dictionary.uint32("P"), let memory = dictionary.uint64("M"),
                   let iterations = dictionary.uint64("I"), iterations <= UInt64(UInt32.max), memory / 1024 <= UInt64(UInt32.max)
             else { throw KDBXError.invalidParameters }
@@ -619,7 +636,7 @@ enum KDBX {
     private static func blockKey(_ hmacKey: Data, index: UInt64) -> Data { KDBXCrypto.sha512(KDBXCrypto.le64(index) + hmacKey) }
 
     private static func decrypt(_ body: () throws -> Data) throws -> Data {
-        do { return try body() } catch { throw KDBXError.corrupted("payload") }
+        do { return try body() } catch KDBXCrypto.Failure.tooLarge { throw KDBXError.tooLarge } catch { throw KDBXError.corrupted("payload") }
     }
 
     private static func innerStream(_ key: Data) -> ProtectedStream {

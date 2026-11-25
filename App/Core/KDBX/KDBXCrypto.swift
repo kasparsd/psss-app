@@ -5,7 +5,7 @@ import Foundation
 
 /// Thin wrappers over the system's AES, HMAC, SHA and zlib, plus the little that KDBX adds (gzip framing).
 enum KDBXCrypto {
-    enum Failure: Error { case cipher, compression }
+    enum Failure: Error { case cipher, compression, tooLarge }
 
     static func sha256(_ data: Data) -> Data { Data(SHA256.hash(data: data)) }
     static func sha512(_ data: Data) -> Data { Data(SHA512.hash(data: data)) }
@@ -81,7 +81,7 @@ enum KDBXCrypto {
     }
 
     /// Inflates a gzip member. `limit` guards against a small file that expands without bound.
-    static func gunzip(_ data: Data, limit: Int = 1 << 30) throws -> Data {
+    static func gunzip(_ data: Data, limit: Int = KDBXLimits.inflatedPayload) throws -> Data {
         let bytes = [UInt8](data)
         guard bytes.count > 18, bytes[0] == 0x1f, bytes[1] == 0x8b, bytes[2] == 8 else { throw Failure.compression }
         let flags = bytes[3]
@@ -94,12 +94,43 @@ enum KDBXCrypto {
         if flags & 2 != 0 { offset += 2 }
         guard offset < bytes.count - 8 else { throw Failure.compression }
         let body = Data(bytes[offset..<(bytes.count - 8)])
-        guard let inflated = try? (body as NSData).decompressed(using: .zlib) as Data, inflated.count <= limit else {
-            throw Failure.compression
-        }
+        let inflated = try inflate(body, limit: limit)
         let expected = bytes[(bytes.count - 8)..<(bytes.count - 4)].enumerated().reduce(UInt32(0)) { $0 | UInt32($1.element) << UInt32(8 * $1.offset) }
         guard expected == crc32(inflated) else { throw Failure.compression }
         return inflated
+    }
+
+    /// Raw deflate, inflated in 64 KiB steps and stopped as soon as the output passes `limit`: a small file that expands without
+    /// bound is refused after `limit` bytes, never after it has filled memory.
+    private static func inflate(_ body: Data, limit: Int) throws -> Data {
+        let chunk = 1 << 16
+        let dst = UnsafeMutablePointer<UInt8>.allocate(capacity: chunk)
+        defer { dst.deallocate() }
+        let stream = UnsafeMutablePointer<compression_stream>.allocate(capacity: 1)
+        defer { stream.deallocate() }
+        stream.initialize(to: compression_stream(dst_ptr: dst, dst_size: 0, src_ptr: UnsafePointer(dst), src_size: 0, state: nil))
+        guard compression_stream_init(stream, COMPRESSION_STREAM_DECODE, COMPRESSION_ZLIB) == COMPRESSION_STATUS_OK else {
+            throw Failure.compression
+        }
+        defer { compression_stream_destroy(stream) }
+        var out = Data()
+        return try body.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> Data in
+            if let base = raw.bindMemory(to: UInt8.self).baseAddress { stream.pointee.src_ptr = base }
+            stream.pointee.src_size = raw.count
+            while true {
+                stream.pointee.dst_ptr = dst
+                stream.pointee.dst_size = chunk
+                let status = compression_stream_process(stream, Int32(COMPRESSION_STREAM_FINALIZE.rawValue))
+                let produced = chunk - stream.pointee.dst_size
+                if produced > 0 { out.append(dst, count: produced) }
+                if out.count > limit { throw Failure.tooLarge }
+                switch status {
+                case COMPRESSION_STATUS_END: return out
+                case COMPRESSION_STATUS_OK: if produced == 0 && stream.pointee.src_size == 0 { throw Failure.compression }
+                default: throw Failure.compression
+                }
+            }
+        }
     }
 
     private static let crcTable: [UInt32] = (0..<256).map { index -> UInt32 in
