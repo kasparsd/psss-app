@@ -28,7 +28,14 @@ The same drawing in three weights, all from the script. The letters are always a
 | --- | --- | --- | --- | --- |
 | Master | 5 | 6 | 7 | The logo: page headers, print, about 48 px high and above. |
 | Icon | 6.5 | 7.4 | 7.2 | The app icon. Glass bevels eat into a thin line. Its field is 124 units wide, 6 more than the logo's. |
-| Small | 7 | 8 | 7.4 | Favicons and anything below 48 px: `Design/AppIcon/Psss-mark-small.svg` and `Psss-mark-small-butter.svg`, a 128 unit square with the field (124 wide, as in the icon) in the middle. |
+
+## Small mark
+
+For places the field is too wide for: the browser toolbar button and the landing page's favicon (owner, 2026-11-25; the mock is `#/small-mark`). A ring with one dot in the middle, drawn in a 56 unit box by `scripts/small-mark.mjs`.
+
+- **A2, the default everywhere:** butter inside the ring, charcoal ring and dot, one file for light and dark. Small cut (24 px and below): stroke 7, ring radius 24.5, dot radius 10, because a 5 unit line is under a pixel at 16 px. Large cut (above 24 px): stroke 5 (the logo's line), radius 25.5, dot radius 8. Files: `Design/Landing/assets/Psss-mark-small.svg` (small cut) and the PNGs from `scripts/build-extension-icons.mjs`.
+- **A, the monochrome fallback:** the same geometry with no fill and one colour, for template images and one-colour use: `Design/Landing/assets/Psss-mark-small-mono.svg` (black, small cut; the component draws it in `currentColor`).
+- The extension's store tile (48 and 128 px) stays the app icon.
 
 ## App icon
 

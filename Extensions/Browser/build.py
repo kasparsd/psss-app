@@ -21,11 +21,9 @@ import json
 import os
 import re
 import shutil
-import struct
 import subprocess
 import sys
 import zipfile
-import zlib
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -382,47 +380,6 @@ def dev_key() -> None:
     print("Package with `build.py package -t chromium --dev` and load build/browser/chromium unpacked.")
 
 
-# MARK: Placeholder icons ------------------------------------------------------------------
-
-
-def png(size: int) -> bytes:
-    """A neutral rounded square with a keyhole, drawn with 4x supersampling. Replace with real art."""
-    def inside(x: float, y: float) -> tuple[bool, bool]:
-        r = 0.22
-        cx, cy = min(max(x, r), 1 - r), min(max(y, r), 1 - r)
-        box = (x - cx) ** 2 + (y - cy) ** 2 <= r * r
-        ring = (x - 0.5) ** 2 + (y - 0.40) ** 2 <= 0.12 ** 2
-        stem = 0.46 <= x <= 0.54 and 0.40 <= y <= 0.72
-        return box, ring or stem
-
-    rows = bytearray()
-    for py in range(size):
-        rows.append(0)
-        for px in range(size):
-            cover = hole = 0
-            for sy in range(4):
-                for sx in range(4):
-                    box, key = inside((px + (sx + .5) / 4) / size, (py + (sy + .5) / 4) / size)
-                    cover += box
-                    hole += box and key
-            a = cover / 16
-            t = hole / cover if cover else 0
-            g = round(0x2c * (1 - t) + 0xff * t)
-            rows += bytes([g, g, round(0x2e * (1 - t) + 0xff * t), round(255 * a)])
-
-    def chunk(kind: bytes, data: bytes) -> bytes:
-        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
-
-    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0))
-            + chunk(b"IDAT", zlib.compress(bytes(rows), 9)) + chunk(b"IEND", b""))
-
-
-def icons() -> None:
-    for size in (16, 32, 48, 128):
-        (SRC / f"icon-{size}.png").write_bytes(png(size))
-    print("icons: src/icon-{16,32,48,128}.png")
-
-
 # MARK: CLI --------------------------------------------------------------------------------
 
 
@@ -443,7 +400,6 @@ def main() -> None:
     i.add_argument("--dir", action="append", metavar="KIND=DIRECTORY", help="register in another Chromium or Firefox derivative's user directory")
     i.add_argument("--uninstall", action="store_true")
     sub.add_parser("doctor")
-    sub.add_parser("icons")
     args = parser.parse_args()
 
     if args.command in ("check", "package"):
@@ -463,8 +419,6 @@ def main() -> None:
         install_host(args.chrome_id, args.uninstall, args.dir)
     elif args.command == "doctor":
         sys.exit(doctor())
-    elif args.command == "icons":
-        icons()
 
 
 if __name__ == "__main__":

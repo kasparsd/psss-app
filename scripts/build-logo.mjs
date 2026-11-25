@@ -12,13 +12,14 @@
 //   App/AppIcon.icon/Assets/{Frame,Dots}[-Dark|-Tint].svg  the app icon's two glass layers
 //   App/Features/LogoFieldGeometry.swift                the icon cut as SwiftUI paths, for the lock screen
 //   Design/AppIcon/AppIcon-{light,dark}.svg             the icon drawn flat, for reference and export
-//   Design/AppIcon/Psss-mark-small[-butter].svg         the small-size cut (favicon), also copied to the landing page
+//   Design/Landing/assets/Psss-mark-small[-mono].svg   the small mark: a ring with one dot (A2, and A in one colour)
 //
 // Units are the mark's own (docs/brand.md): centre line y 60, the field 118
 // wide and 56 high, starting at x 4 and y 32.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { smallMarkSvg } from './small-mark.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const read = (p) => readFileSync(root + p, 'utf8');
@@ -334,19 +335,10 @@ enum LogoFieldGeometry {
 `);
 }
 
-// ── The small-size cut ───────────────────────────────────────────────────
-// A square drawing with the field in the middle, for favicons. The field is
-// 124 wide from x 4, so the square is 128 on a side.
+// ── The small mark ──────────────────────────────────────────────────────
+// A ring with one dot, for favicons and the browser toolbar (scripts/small-mark.mjs).
+// The PNG sizes come from scripts/build-extension-icons.mjs.
 {
-  const small = geometry(CUTS.small);
-  for (const [suffix, c] of [['', CHARCOAL], ['-butter', BUTTER]]) {
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="2 -4 128 128" role="img" aria-label="Psss mark, small-size cut">
-<title>Psss mark, small-size cut (below 48 px)</title>
-${frameSvg(small, c)}
-${dotsSvg(small, c)}
-</svg>
-`;
-    write(`Design/AppIcon/Psss-mark-small${suffix}.svg`, svg);
-    write(`Design/Landing/assets/Psss-mark-small${suffix}.svg`, svg);
-  }
+  write('Design/Landing/assets/Psss-mark-small.svg', smallMarkSvg({ cut: 'small', title: 'Psss mark, small cut' }));
+  write('Design/Landing/assets/Psss-mark-small-mono.svg', smallMarkSvg({ cut: 'small', mono: true, title: 'Psss mark, one colour, small cut' }).replaceAll('currentColor', '#000000'));
 }

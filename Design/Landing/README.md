@@ -4,7 +4,7 @@ One static page: `index.html` and `style.css`, with the logo's stylesheet and th
 No JavaScript, no cookies, no analytics, no outside fonts or scripts.
 The logo is drawn inline in `index.html`, between the `psss-logo` markers, so that it can switch on hover with CSS alone. It rests on the p and three dots and shows “psss” on hover; add the class `rest-shown` to the `svg` for the other way round.
 Do not edit the drawing or `assets/psss-logo.css` by hand: run `node scripts/build-logo.mjs`, which rewrites both from `Design/Logo/`.
-The favicon files are copies from `Design/AppIcon/`; copy them again if the mark changes.
+The favicon is the small mark (a ring with one dot, butter inside, one file for light and dark): `assets/Psss-mark-small.svg`, with `assets/favicon-32.png` as the fallback. `Psss-mark-small-mono.svg` is the one-colour version. `node scripts/build-logo.mjs` writes the SVGs and `node scripts/build-extension-icons.mjs` the PNG; do not edit them by hand.
 
 ## Preview
 
