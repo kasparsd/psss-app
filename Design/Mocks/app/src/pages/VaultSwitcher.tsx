@@ -3,6 +3,8 @@ import { IPhone, MacWindow } from '../components/devices';
 import { ChevronIcon, GearIcon } from '../icons';
 import { VaultCapsule } from '../components/VaultCapsule';
 import type { VaultRowData } from '../components/VaultMenu';
+import { FilterMenu } from '../components/FilterMenu';
+import { SortMenu } from '../components/SortMenu';
 import { Workspace } from '../components/Workspace';
 import { Lock } from './UnlockScreen';
 import { VaultMenu } from '../components/VaultMenu';
@@ -14,18 +16,24 @@ const Chev = () => <span className="chev"><ChevronIcon /></span>;
 
 /* ---------- 3. The vault switcher in the main window ---------- */
 
-function SwitcherPhone({ open, long, glyph }: { open?: boolean; long?: boolean; glyph?: boolean }) {
-  const name = long || glyph ? 'Family Passwords' : 'Passwords';
-  const vaults: VaultRowData[] | undefined = long || glyph ? [{ name, location: 'iCloud Drive', state: 'open' }, { name: 'Work', location: 'Work.kdbx', state: 'locked' }] : undefined;
+function SwitcherPhone({ open }: { open?: boolean }) {
+  const name = 'Passwords';
+  const vaults: VaultRowData[] = [{ name, location: 'iCloud Drive', state: 'open' }, { name: 'Work', location: 'Work.kdbx', state: 'locked' }];
   return (
     <IPhone tab="all">
       <div className="nav">
-        <div className="tbgrp">
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button className="ibtn" aria-label="Settings" data-tip="Settings"><GearIcon /></button>
-          <VaultCapsule name={name} open={open} glyphOnly={glyph} menu={<VaultMenu current={name} vaults={vaults} />} />
+          <VaultCapsule name={name} open={open} glyphOnly menu={<VaultMenu current={name} vaults={vaults} />} />
         </div>
         <div className="mid" />
-        <div><span className="btn glass">+ Add</span></div>
+        <span className="navend">
+          <span className="viewopts">
+            <SortMenu value="used" onChange={() => {}} />
+            <FilterMenu value={{ type: 'all', feats: [] }} onChange={() => {}} />
+          </span>
+          <span className="btn glass">+ Add</span>
+        </span>
       </div>
       <div className="lt"><div className="t">All <span className="s" style={{ fontWeight: 400 }}>· 214 items</span></div></div>
       <div className="pbody tabpad">
@@ -116,16 +124,14 @@ export function VaultSwitcher() {
       </Frames>
 
       <Section title="3. iPhone, and iPad with the sidebar hidden: a labeled vault button">
-        <p>iPhone has no sidebar, so the vault control stays a toolbar menu, now labeled: a standard glass capsule at the top left, next to the gear, with the vault glyph, the selected vault’s name and a small chevron. A long name is cut at the tail after about 11 characters (“Family Pass…”); the spoken label is “Vault: [full name]”. It is shown always, even with one vault. The gear and the vault button sit in one glass group, as iOS 26 groups toolbar buttons, and when the name can’t fit (narrow width, large text, a crowded toolbar) the button keeps the glyph and drops the name (frame M2). iPad shows the same capsule at the left of the list toolbar while the sidebar is hidden. Its menu keeps Safari’s profile menu structure, with one change: every vault is a row, in the one fixed order of Settings › Vaults (Passwords, then Work), the current one with a checkmark and the others with where they are kept (or the state’s words) under the name and a padlock at the end; the open vault never moves to the top, and there is no “Switch to” prefix because the check already says which is current. Then a divider; a section header with the current vault’s name, “Passwords”, in secondary text, holding Vault Settings… and Lock Passwords; a divider; then New Vault…, Open Vault File… and Import from Apple Passwords…. With one vault the list has one row. It is the same on iPhone and on iPad while the sidebar is hidden.</p>
+        <p>iPhone has no sidebar, so the vault control stays a toolbar menu: its own glass button at the top left, next to the gear (two separate buttons, then the Sort and Filter group, then + Add). On iPhone Sort and Filter are almost always in the toolbar and take the room, so the button is the vault glyph alone; the name and a small chevron (the labeled capsule) appear only where the name fits, as on iPad with the sidebar hidden (frame N, where a long name is cut at the tail after about 11 characters), the way iOS toolbars drop labels when space runs out. The spoken label is always “Vault: [full name]”. It is shown always, even with one vault. iPad shows the same button at the left of the list toolbar while the sidebar is hidden. Its menu keeps Safari’s profile menu structure, with one change: every vault is a row, in the one fixed order of Settings › Vaults (Passwords, then Work), the current one with a checkmark and the others with where they are kept (or the state’s words) under the name and a padlock at the end; the open vault never moves to the top, and there is no “Switch to” prefix because the check already says which is current. Then a divider; a section header with the current vault’s name, “Passwords”, in secondary text, holding Vault Settings… and Lock Passwords; a divider; then New Vault…, Open Vault File… and Import from Apple Passwords…. With one vault the list has one row. It is the same on iPhone and on iPad while the sidebar is hidden.</p>
       </Section>
       <Frames>
-        <Frame label="K · iPhone, closed" phone caption="The gear, then the capsule “Passwords ⌄” with the vault glyph. + Add on the right."><SwitcherPhone /></Frame>
-        <Frame label="L · iPhone, menu open" phone caption="The menu hangs from the capsule’s left edge, as Safari’s profile menu does: Passwords (checked, open padlock) then Work (Work.kdbx under it, closed padlock), always in that order; a divider, the section “Passwords” with Vault Settings… and Lock Passwords, a divider, then the three add items."><SwitcherPhone open /></Frame>
-        <Frame label="M · iPhone, a long vault name" phone caption="“Family Passwords” is shown as “Family Pass…”; the full name is the menu’s section header and the spoken label."><SwitcherPhone long /></Frame>
-        <Frame label="M2 · iPhone, name doesn’t fit: glyph only" phone caption="The top-left glass group is the gear and the vault glyph, [gear | vault glyph]; Sort and Filter would be a second group and + Add stays at the right. The button keeps the glyph and drops the name when the name can’t fit (as iOS toolbars do with labels), at a narrow width, with large text or in a crowded toolbar. The spoken label stays “Vault: Family Passwords” and the menu is the same."><SwitcherPhone glyph /></Frame>
+        <Frame label="K · iPhone, closed" phone caption="Gear and vault glyph as two separate glass buttons, then the Sort and Filter group, then + Add. The vault button is the glyph alone because Sort and Filter take the room; its spoken label is “Vault: Passwords”."><SwitcherPhone /></Frame>
+        <Frame label="L · iPhone, menu open" phone caption="The menu hangs from the vault button’s left edge, as Safari’s profile menu does: Passwords (checked, open padlock) then Work (Work.kdbx under it, closed padlock), always in that order; a divider, the section “Passwords” with Vault Settings… and Lock Passwords, a divider, then the three add items."><SwitcherPhone open /></Frame>
       </Frames>
       <Frames>
-        <Frame label="N · iPad, sidebar hidden" caption="With the sidebar hidden the list toolbar starts with the sidebar button, then the gear, then the vault capsule; Sort, Filter and + Add stay at the right. The gear is here because the sidebar foot, which holds it while the sidebar shows (frame J), is hidden with the sidebar, so there is never more than one gear. The menu is the iPhone’s, with two vaults: Passwords (checked) then Work (locked), the section “Passwords” with Vault Settings… and Lock Passwords, then the three add items."><Workspace device="ipad" init={{ showSide: false, sideMenu: 'capsule', vaults: 'two' }} /></Frame>
+        <Frame label="N · iPad, sidebar hidden" caption="With the sidebar hidden the list toolbar starts with the sidebar button, then the gear, then the labeled vault button (glyph, “Passwords”, chevron): the name fits here beside the gear, Sort and Filter, and + Add, as the screenshot check shows; a longer name is cut at the tail (“Family Pass…”) and the button would drop to the glyph alone if even that did not fit. Sort, Filter and + Add stay at the right. The gear is here because the sidebar foot, which holds it while the sidebar shows (frame J), is hidden with the sidebar, so there is never more than one gear. The menu is the iPhone’s, with two vaults: Passwords (checked) then Work (locked), the section “Passwords” with Vault Settings… and Lock Passwords, then the three add items."><Workspace device="ipad" init={{ showSide: false, sideMenu: 'capsule', vaults: 'two' }} /></Frame>
       </Frames>
 
       <Section title="4. The same menu on the unlock screens">
@@ -178,7 +184,7 @@ export function VaultSwitcher() {
             why: <>The owner: a list that reorders when a vault is chosen makes the person look for the vault again. A fixed order is learned once.</>,
           },
           {
-            decision: <><strong>The vault button shows the name when it fits, the glyph alone otherwise</strong> (narrow width, large text, a crowded toolbar), in one glass group with the gear; the label and menu are the same.</>,
+            decision: <><strong>Glyph alone on iPhone, because Sort and Filter take the room; the name only where it fits</strong> (iPad with the sidebar hidden). The gear and the vault button are two separate glass buttons, then the Sort and Filter group, then + Add. The spoken label and the menu are the same everywhere.</>,
             why: <>The owner’s decision (2026-11-25): iOS toolbars drop labels when space runs out; the spoken label “Vault: [full name]” never changes.</>,
           },
           {
@@ -215,7 +221,7 @@ export function VaultSwitcher() {
       <History
         proposal
         entries={[
-          { date: '2026-11-25', text: <>The vault button falls back to the vault glyph alone when its name can’t fit (frame M2, new), and the gear and the vault button are drawn as one shared glass group on iPhone and on iPad with the sidebar hidden, as iOS 26 groups them. Replaces separate glass buttons for the gear and the capsule.</> },
+          { date: '2026-11-25', text: <>On iPhone the vault button is the glyph alone (Sort and Filter take the room), drawn with the gear as two separate glass buttons, then Sort and Filter, then + Add (frames K and L); the name and chevron stay only on iPad with the sidebar hidden (frame N), where they fit. Replaces the labeled capsule on iPhone, the long-name frame M (truncation no longer applies on iPhone) and a same-day draft that merged the gear and the vault button in one glass group (owner: keep them separate, as built).</> },
           { date: '2026-11-25', text: <>Four owner changes. (1) Settings gear in the sidebar foot on Mac and iPad, next to Add Vault, icon-only with label and tooltip “Settings”; on iPad it leaves the sidebar toolbar (hidden-sidebar iPad keeps it in the list toolbar). Replaces the iPad gear in the sidebar toolbar. (2) Add Vault and the gear are pinned to the bottom of the iPad sidebar like on the Mac, a bottom bar and not the last list row (frame J). (3) The unlock form has Unlock first, then Use Touch ID (Face ID): one row on Mac and iPad, stacked on iPhone; Unlock is the default button and dimmed until a password is typed; the Mac shows the system Touch ID prompt by itself (new frame E2) and says that macOS can only show it that way. Replaces Unlock full width with Touch ID beside Forgot Password, and a first draft with Use Touch ID before Unlock. (4) Vaults keep one order everywhere (Settings › Vaults): the app menu lists every vault, the current one checked, then a section with Vault Settings… and Lock; lock-screen menus use the same list. Replaces the “Switch to [name]” rows and the current vault moving into the section header. Frames D to N, O and P redrawn.</> },
           { date: '2026-11-25', text: <>The vault menu on iPhone, and on iPad while the sidebar is hidden, takes the structure of Safari’s profile menu in macOS 26 (owner’s pointer): “Switch to Work” rows for the other vaults (location or state words under, padlock at the end), a divider, a section header with the current vault’s name (secondary text) holding Vault Settings… and Lock Passwords, a divider, then New Vault…, Open Vault File…, Import from Apple Passwords…; with one vault the menu starts at the section header. The iOS lock screens’ menu shows only the Switch rows and the add items (the locked vault has no section: nothing is open); the Mac lock screen’s pop-up, the Mac and iPad sidebar sections and their right-click menu are unchanged. Frames L, N and O redrawn. Replaces the list of every vault with a check, then Vault Settings… and Lock, then the add items.</> },
           { date: '2026-11-25', text: <>Review fixes. The File menu (frame Q) hangs from a menu bar drawn above the window, so the traffic lights no longer sit under it; the window behind it is the real main window. The iPhone menu (frame L) hangs from the capsule’s left edge and is cut to the screen’s width, so its padlock column and its last item show. Frame N (iPad, sidebar hidden) draws the gear before the vault capsule and a menu with two vaults, as D and J. Frame C’s caption says when the File row is hidden. Mac frames D to J, N and Q use macOS push buttons and switches (the window is a Mac surface), the Passwords vault shows 214 items in every frame, and the Mac window’s text is two sizes, the title (17 px) and the body (13 px). “Add a Vault” is now “Add Vault” everywhere. Replaces the collapsed menu, the menu that ran off the screen, and the capsule menu with one vault.</> },
