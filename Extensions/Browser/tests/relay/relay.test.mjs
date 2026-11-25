@@ -72,14 +72,19 @@ function exchange(socket, chunks, { readFor = 4000, closeAfterSend = false } = {
     const started = Date.now();
     const got = [];
     let closed = false;
+    let connected = false;
     const c = connect(socket);
     c.on('data', (d) => got.push(d));
     c.on('error', (e) => { got.push(Buffer.alloc(0)); finish(e.code ?? 'error'); });
     c.on('close', () => finish('closed'));
     let ended = false;
-    function finish(how) { if (ended) return; ended = true; clearTimeout(timer); closed = ['closed', 'EPIPE', 'ECONNRESET'].includes(how); c.destroy(); done({ ...parse(Buffer.concat(got)), how, closed, ms: Date.now() - started }); }
+    // `closed`: the server ended a connection that had been made. A write that meets a server which has already closed fails with
+    // EPIPE, ECONNRESET, ENOTCONN or EPROTOTYPE depending on a race in the kernel (a refused peer is closed at once, before the
+    // client has written), and all of them mean the same thing. A failure to connect, or a connection left open, is not a close.
+    function finish(how) { if (ended) return; ended = true; clearTimeout(timer); closed = how === 'closed' || (connected && how !== 'open' && how !== 'ECONNREFUSED' && how !== 'ENOENT'); c.destroy(); done({ ...parse(Buffer.concat(got)), how, closed, ms: Date.now() - started }); }
     const timer = setTimeout(() => finish('open'), readFor);
     c.on('connect', async () => {
+      connected = true;
       for (const chunk of chunks) {
         if (ended) return;
         if (chunk.wait) await sleep(chunk.wait); else c.write(chunk);
@@ -217,17 +222,17 @@ test('requests with wrong types and over-long fields get a plain protocol error,
   await r.kill();
 });
 
-const SERVED = ['ping', 'vaults', 'candidates', 'search', 'credential', 'generate']; // what the real app serves (BrowserRelayLauncher.servedTypes)
+const SERVED = ['ping', 'vaults', 'candidates', 'search', 'credential', 'generate', 'save']; // what the real app serves (BrowserRelayLauncher.servedTypes)
 test('only the allowed request types reach the protocol (the app serves what BrowserRelayLauncher.servedTypes lists)', async () => {
   const source = readFileSync(join(ROOT, 'App/Features/BrowserRelayLauncher.swift'), 'utf8');
   const listed = [...source.match(/servedTypes: Set<String> = \[([^\]]*)\]/)[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual(listed.sort(), [...SERVED].sort(), 'this test and the launcher name the same types');
   const r = await relay({ args: ['--allowed-types', SERVED.join(',')] });
   for (const type of SERVED) {
-    const reply = await ask(r.socket, { v: 5, id: type, type, vault: 'passwords', origin: 'http://localhost', ref: 'x' });
+    const reply = await ask(r.socket, { v: 5, id: type, type, vault: 'passwords', origin: 'http://localhost', ref: 'x', account: 'a@b.c', secret: 's' });
     assert.notEqual(reply.error, 'unsupported', type);
   }
-  for (const type of ['save', 'unlock-vault', 'switch-vault', 'card', 'card-candidates', 'nope']) {
+  for (const type of ['unlock-vault', 'switch-vault', 'card', 'card-candidates', 'nope']) {
     const reply = await ask(r.socket, { v: 5, id: type, type, vault: 'passwords', origin: 'http://localhost', ref: 'x' });
     assert.deepEqual([reply.ok, reply.error, reply.id], [false, 'unsupported', type], type);
   }
@@ -719,4 +724,216 @@ test('no secret in any log, output, folder or reply except the ones that are mea
   await r.kill();
   const unified = spawnSync('/usr/bin/log', ['show', '--last', '2m', '--predicate', 'subsystem == "app.psss"', '--style', 'compact'], { encoding: 'utf8', timeout: 20000 });
   if (unified.status === 0) for (const secret of [...known, typed]) assert.ok(!unified.stdout.includes(secret), 'no secret in the unified log');
+});
+
+// ---- R4: save --------------------------------------------------------------------------------------------------------------------
+
+const savedLogins = (store, vault) => {
+  const file = join(store, vault === 'passwords' ? 'saved-logins.json' : `saved-logins-${vault}.json`);
+  return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : [];
+};
+const save = (r, fields) => ask(r.socket, req('save', { vault: 'work', origin: SITE, account: 'new@example.net', secret: 'Typed-secret-1', ...fields }));
+const SAVE_SECRETS = ['Typed-secret-1', 'Typed-secret-2', 'Changed-secret-9'];
+
+test('save: a new login goes into the open vault the request names, whichever vault is shown, and needs no offer', async () => {
+  const store = twoOpen(); // Archive (locked) is the one the app shows
+  const r = await relay({ store });
+  const made = await save(r, { account: 'fresh@example.net', secret: 'Typed-secret-1' });
+  assert.deepEqual([made.ok, made.result, made.vault], [true, 'created', 'work']);
+  assert.ok(!SAVE_SECRETS.some((s) => JSON.stringify(made).includes(s)), 'the reply carries no secret');
+  const [saved] = savedLogins(store, 'work');
+  assert.deepEqual([saved.account, saved.website, saved.title, saved.secret], ['fresh@example.net', 'gitforge.example', 'gitforge.example', 'Typed-secret-1']);
+  assert.deepEqual(savedLogins(store, 'passwords'), [], 'another open vault is not written');
+  const listed = await candidatesOf(r, 'work', SITE);
+  assert.ok(listed.some((c) => c.account === 'fresh@example.net'), 'the new login is offered for its site');
+  // Whitespace around the username is trimmed, as the popup does.
+  assert.equal((await save(r, { account: '  spaced@example.net  ' })).result, 'created');
+  assert.equal(savedLogins(store, 'work').at(-1).account, 'spaced@example.net');
+  await alive(r);
+  await r.kill();
+});
+
+test('save: an update needs the login to have been offered for this page, and changes only the password', async () => {
+  const store = twoOpen();
+  const r = await relay({ store });
+  const update = { account: 'sam@harbor.example', secret: 'Changed-secret-9' };
+  const missing = await save(r, update);
+  assert.deepEqual([missing.ok, missing.error, missing.result], [false, 'not-found', undefined], 'nothing offered it: not found');
+  assert.deepEqual(savedLogins(store, 'work'), [], 'and nothing was written');
+  // Offered for another page, or in another vault, is not an offer for this one.
+  await candidatesOf(r, 'work', 'https://other.example');
+  await candidatesOf(r, 'passwords', SITE);
+  assert.equal((await save(r, update)).error, 'not-found');
+  const [offered] = await candidatesOf(r, 'work', SITE);
+  assert.deepEqual([offered.title, offered.account], ['Gitforge (work)', 'sam@harbor.example']);
+  const done = await save(r, update);
+  assert.deepEqual([done.ok, done.result, done.vault], [true, 'updated', 'work']);
+  const [after] = savedLogins(store, 'work');
+  assert.deepEqual([after.title, after.account, after.website, after.secret], ['Gitforge (work)', 'sam@harbor.example', 'gitforge.example', 'Changed-secret-9']);
+  assert.equal(savedLogins(store, 'work').length, 1, 'still one login');
+  assert.deepEqual(savedLogins(store, 'passwords'), []);
+  // A cleared or expired ledger ends the offer.
+  r.proc.kill('SIGUSR1'); await sleep(300);
+  assert.equal((await save(r, { ...update, secret: 'Typed-secret-2' })).error, 'not-found', 'a cleared ledger');
+  await candidatesOf(r, 'work', SITE);
+  r.proc.kill('SIGUSR2'); await sleep(300);
+  assert.equal((await save(r, { ...update, secret: 'Typed-secret-2' })).error, 'not-found', 'an expired offer');
+  assert.equal(savedLogins(store, 'work')[0].secret, 'Changed-secret-9', 'refused updates changed nothing');
+  await r.kill();
+});
+
+test('save: a vault that is locked, not available or unknown is not written, and nothing else is written instead', async () => {
+  const store = twoOpen();
+  const r = await relay({ store });
+  const cases = [['archive', 'locked'], ['travel', 'not-available'], ['nope', 'not-found'], ['', 'not-found'], [null, 'not-found'], [7, 'not-found'], ['x'.repeat(65), 'not-found']];
+  for (const [vault, error] of cases) {
+    const reply = await save(r, { vault });
+    assert.deepEqual([reply.ok, reply.error], [false, error], JSON.stringify(vault));
+  }
+  const noVault = await ask(r.socket, req('save', { origin: SITE, account: 'a@b.c', secret: 'Typed-secret-1' }));
+  assert.equal(noVault.error, 'not-found');
+  writeFileSync(join(store, 'vaults.json'), JSON.stringify({ active: 'archive', open: ['passwords'] })); // Work locks
+  assert.equal((await save(r, { vault: 'work' })).error, 'locked', 'locked between the list and the save');
+  assert.deepEqual(readdirSync(store).filter((f) => f.startsWith('saved-logins')), [], 'no file was written anywhere');
+  await r.kill();
+});
+
+test('save: limits and hostile values get a plain error and write nothing', async () => {
+  const store = twoOpen();
+  const r = await relay({ store });
+  const bad = ['', '   ', 'a\nb', 'a\r\nb', 'a‮b', 'a⁦b', 'a​b', 'a‍b', 'a\u0000b', 'a b', 'a\u0085b', 'ab', 'x'.repeat(321), 'x'.repeat(10000), 7, null, true, ['a@b.c'], { a: 1 }];
+  for (const account of bad) {
+    const reply = await save(r, { account });
+    assert.deepEqual([reply.ok, reply.error], [false, 'unsupported'], `account ${JSON.stringify(account)?.slice(0, 40)}`);
+  }
+  for (const secret of ['', 7, null, ['x'], { a: 1 }, 'y'.repeat(1025), 'y'.repeat(10000), 'y'.repeat(60000)]) {
+    const reply = await save(r, { secret });
+    assert.deepEqual([reply.ok, reply.error], [false, 'unsupported'], `secret ${JSON.stringify(secret)?.slice(0, 30)}`);
+  }
+  for (const origin of ['http://gitforge.example', 'http://192.168.0.7', 'http://localhost.evil.example', 'ftp://gitforge.example', 'javascript:alert(1)', 'https://user:pw@gitforge.example', 'https://', '', 7, null, `https://${'a'.repeat(300)}.example`]) {
+    const reply = await save(r, { origin });
+    assert.deepEqual([reply.ok, reply.error], [false, 'forbidden'], `origin ${JSON.stringify(origin)?.slice(0, 40)}`);
+  }
+  assert.deepEqual(readdirSync(store).filter((f) => f.startsWith('saved-logins')), [], 'nothing was written by any of them');
+  // The edges are accepted.
+  const longest = await save(r, { account: 'x'.repeat(320), secret: 'y'.repeat(1024) });
+  assert.deepEqual([longest.ok, longest.result], [true, 'created']);
+  assert.equal((await save(r, { account: 'tab\tinside@example.net', secret: 's' })).error, 'unsupported', 'a tab is a control character too');
+  for (const origin of ['http://localhost:8080', 'http://127.0.0.1:3000']) assert.equal((await save(r, { origin, account: `l-${origin.length}@example.net` })).ok, true, origin);
+  assert.deepEqual(savedLogins(store, 'work').map((i) => i.account.length), [320, 'l-21@example.net'.length, 'l-21@example.net'.length], 'only the accepted logins are in the file');
+  await alive(r);
+  assert.ok(!SAVE_SECRETS.some((s) => r.output().includes(s)) && !r.output().includes('y'.repeat(50)), 'no secret in the relay output');
+  await r.kill();
+});
+
+test('save: two saves at once are both written, and the same new login twice is one login', async () => {
+  const store = twoOpen();
+  const r = await relay({ store });
+  for (let round = 0; round < 3; round++) {
+    const replies = await Promise.all(Array.from({ length: 6 }, (_, i) => save(r, { vault: i % 2 ? 'work' : 'passwords', account: `p${round}-${i}@example.net`, secret: `S-${round}-${i}` })));
+    assert.ok(replies.every((x) => x.ok && x.result === 'created'), JSON.stringify(replies.map((x) => x.error)));
+  }
+  const accounts = (vault) => savedLogins(store, vault).map((i) => i.account).sort();
+  assert.equal(accounts('work').length, 9); assert.equal(accounts('passwords').length, 9);
+  const same = await Promise.all(Array.from({ length: 6 }, (_, i) => save(r, { account: 'twin@example.net', secret: `Twin-${i}` })));
+  assert.deepEqual(same.filter((x) => x.ok).map((x) => x.result), ['created'], 'one is created');
+  assert.ok(same.filter((x) => !x.ok).every((x) => x.error === 'not-found'), 'the others find it and, never offered it, change nothing');
+  assert.equal(savedLogins(store, 'work').filter((i) => i.account === 'twin@example.net').length, 1);
+  await alive(r);
+  await r.kill();
+});
+
+// The same code over REAL encrypted vaults (Tests/Relay/VaultRelay): `kill -9` in the middle of saves, then the files are opened again.
+const VAULT_RELAY = process.env.PSSS_VAULT_RELAY;
+const vaultEnv = (data) => ({ ...process.env, PSSS_TEST_ROOT: data, PSSS_VAULT_PASSWORD: 'pw-fixture-7Hq2-relay-save' });
+function vaultServer(data, directory) {
+  const proc = spawn(VAULT_RELAY, ['serve', '--directory', directory], { env: vaultEnv(data), stdio: ['ignore', 'pipe', 'pipe'] });
+  running.add(proc);
+  let out = '', err = '';
+  proc.stdout.on('data', (d) => { out += d; });
+  proc.stderr.on('data', (d) => { err += d; });
+  const closed = new Promise((done) => proc.once('close', () => { running.delete(proc); done(); }));
+  const ready = new Promise((ok, no) => {
+    const poll = setInterval(() => { if (out.startsWith('ready ')) { clearInterval(poll); ok(); } }, 20);
+    proc.once('close', () => { clearInterval(poll); no(new Error(`the vault relay stopped: ${err}`)); });
+  });
+  return { proc, ready, closed, socket: join(directory, 'browser.sock'), output: () => out + err, async kill() { proc.kill('SIGKILL'); await closed; } };
+}
+const vaultTool = (data, ...args) => spawnSync(VAULT_RELAY, args, { env: vaultEnv(data), encoding: 'utf8', timeout: 120000 });
+const vaultItems = (data, id) => {
+  const out = vaultTool(data, 'check', '--vault', id);
+  assert.equal(out.status, 0, `the vault file opens again: ${out.stderr}`);
+  return JSON.parse(out.stdout);
+};
+
+test('save over real vaults: kill -9 of the app in the middle of saves leaves each vault file whole, every acknowledged save in it', { timeout: 300000 }, async () => {
+  assert.ok(VAULT_RELAY && existsSync(VAULT_RELAY), 'build it first: scripts/test-relay.sh does');
+  const data = fresh('data'), directory = join(fresh('vr'), 'Relay');
+  const prepared = vaultTool(data, 'prepare');
+  assert.equal(prepared.status, 0, prepared.stderr);
+  const [, idA, idB] = prepared.stdout.trim().split(' ');
+  const acknowledged = new Set();
+  let attempted = 0;
+  for (let round = 0; round < 4; round++) {
+    const server = vaultServer(data, directory);
+    await server.ready;
+    const probe = await ask(server.socket, req('vaults'));
+    assert.deepEqual(probe.vaults.map((v) => v.state), ['open', 'open'], 'both vaults are open in the app');
+    // Saves go one after the other into vault A while the server is killed at a different moment each round.
+    const killAt = [150, 40, 300, 90][round] + Math.floor(Math.random() * 60);
+    const killer = sleep(killAt).then(() => server.kill());
+    for (let i = 0; i < 400 && server.proc.exitCode === null && server.proc.signalCode === null; i++) {
+      const account = `k${round}-${i}@example.net`;
+      attempted++;
+      const reply = await ask(server.socket, req('save', { vault: idA, origin: SITE, account, secret: `Typed-secret-${round}-${i}` })).catch(() => undefined);
+      if (reply?.ok === true && reply.result === 'created') acknowledged.add(account);
+    }
+    await killer;
+    assert.ok(server.proc.signalCode === 'SIGKILL', 'the app was killed, not stopped');
+    const a = vaultItems(data, idA);
+    const found = new Set(a.items.map((x) => x.account));
+    for (const account of acknowledged) assert.ok(found.has(account), `${account} was acknowledged and is in the file`);
+    assert.ok(found.size <= 1 + attempted, 'nothing that was never sent');
+    assert.equal(found.size, a.items.length, 'no login twice');
+    assert.equal(a.items.find((x) => x.account === 'a@example.net')?.secret, 'Seed-A-secret-1', 'the first login is untouched');
+    assert.ok(a.items.filter((x) => x.account !== 'a@example.net').every((x) => x.website === 'gitforge.example' && x.title === 'gitforge.example'));
+    const b = vaultItems(data, idB);
+    assert.deepEqual(b.items.map((x) => [x.account, x.secret]), [['b@example.net', 'Seed-B-secret-1']], 'the other vault was never written');
+    assert.ok(a.items.length > 1 || round > 0, 'the first round saved at least one login before it was killed');
+  }
+  assert.ok(acknowledged.size > 0, 'some saves were acknowledged');
+  // The vault files are encrypted: no secret, account or password in any file under the test root, or in the relay's output.
+  const files = [];
+  const walk = (dir) => { for (const f of readdirSync(dir, { withFileTypes: true })) f.isDirectory() ? walk(join(dir, f.name)) : files.push(join(dir, f.name)); };
+  walk(data);
+  for (const file of files) {
+    const bytes = readFileSync(file);
+    for (const secret of ['Typed-secret-0-0', 'Seed-A-secret-1', 'pw-fixture-7Hq2-relay-save', 'k0-0@example.net']) assert.ok(!bytes.includes(secret), `no ${secret.slice(0, 8)}… in ${file.replace(data, '')}`);
+  }
+});
+
+test('save over real vaults: two saves at once make one login, an update needs an offer, a lock is honoured', { timeout: 120000 }, async () => {
+  assert.ok(VAULT_RELAY && existsSync(VAULT_RELAY), 'build it first: scripts/test-relay.sh does');
+  const data = fresh('data'), directory = join(fresh('vr'), 'Relay');
+  const [, idA, idB] = vaultTool(data, 'prepare').stdout.trim().split(' ');
+  const server = vaultServer(data, directory);
+  await server.ready;
+  const send = (fields) => ask(server.socket, req('save', { origin: SITE, ...fields }));
+  const same = await Promise.all(Array.from({ length: 6 }, (_, i) => send({ vault: idB, account: 'twin@example.net', secret: `Twin-secret-${i}` })));
+  assert.deepEqual(same.filter((x) => x.ok).map((x) => x.result), ['created']);
+  assert.ok(same.filter((x) => !x.ok).every((x) => x.error === 'not-found'));
+  assert.equal(vaultItems(data, idB).items.filter((x) => x.account === 'twin@example.net').length, 1);
+  // The seed login of A: an update without an offer is not found; after the page's list, it changes the password only and keeps the old one in its history.
+  const update = { vault: idA, account: 'a@example.net', secret: 'Changed-secret-9' };
+  assert.equal((await send(update)).error, 'not-found');
+  assert.equal(vaultItems(data, idA).items[0].secret, 'Seed-A-secret-1');
+  const listed = await ask(server.socket, req('candidates', { vault: idA, origin: SITE }));
+  assert.equal(listed.candidates.length, 1);
+  assert.deepEqual([(await send(update)).result], ['updated']);
+  const a = vaultItems(data, idA);
+  assert.deepEqual(a.items.map((x) => [x.title, x.account, x.website, x.secret]), [['Gitforge (A)', 'a@example.net', 'gitforge.example', 'Changed-secret-9']]);
+  assert.deepEqual(a.history, [1], 'the old password is in the history, as the app keeps it');
+  assert.equal(vaultItems(data, idB).items.length, 2, 'B is as it was');
+  assert.ok(!SAVE_SECRETS.concat(['Twin-secret-0']).some((s) => server.output().includes(s)), 'no secret in the output');
+  await server.kill();
 });

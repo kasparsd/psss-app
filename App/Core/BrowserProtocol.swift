@@ -72,6 +72,22 @@ enum BrowserProtocol {
         return number.boolValue
     }
 
+    /// What `save` takes: the longest username or email and the longest password (in Unicode scalars).
+    static let maxAccount = 320
+    static let maxSecret = 1024
+
+    /// A username or email is one plain line: no control, format (bidirectional marks, zero-width and joiner characters), line or
+    /// paragraph separator, private-use or unassigned character. A name that a person could not see for what it is is refused,
+    /// not repaired, so what is saved is what the page asked for.
+    static func isPlainAccount(_ text: String) -> Bool {
+        text.unicodeScalars.allSatisfy { scalar in
+            switch scalar.properties.generalCategory {
+            case .control, .format, .lineSeparator, .paragraphSeparator, .privateUse, .surrogate, .unassigned: return false
+            default: return true
+            }
+        }
+    }
+
     static func handle(_ request: [String: Any]) -> [String: Any] {
         let id = request["id"] as? String ?? ""
         func fail(_ error: String) -> [String: Any] { ["v": version, "id": id, "ok": false, "error": error] }
@@ -200,10 +216,11 @@ enum BrowserProtocol {
             // Creates a login in the vault the request names, or updates the password of the saved login there for the same site and
             // account. Any open vault can be written; one that is not open is not (`locked` or `not-available`, `not-found` for an
             // unknown one), so a popup that is out of date never writes into another vault than the one its button names.
-            guard let origin = request["origin"] as? String, let host = fillableHost(origin) else { return fail("forbidden") }
+            // No prompt: the person pressed "Generate, Fill and Save" or "Update ...". Limits are checked before the vault is touched.
+            guard let origin = request["origin"] as? String, let host = fillableHost(origin), host.utf8.count <= 253 else { return fail("forbidden") }
             guard let account = (request["account"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !account.isEmpty, account.count <= 320,
-                  let secret = request["secret"] as? String, !secret.isEmpty, secret.count <= 1024 else { return fail("unsupported") }
+                  !account.isEmpty, account.unicodeScalars.count <= maxAccount, isPlainAccount(account),
+                  let secret = request["secret"] as? String, !secret.isEmpty, secret.unicodeScalars.count <= maxSecret else { return fail("unsupported") }
             guard let held = service else { return fail("unsupported") }
             let website = SharedVault.host(host)
             let vault: String
@@ -214,13 +231,19 @@ enum BrowserProtocol {
                 vault = id
                 existing = stored.first { $0.kind == .login && SharedVault.host($0.website) == website && $0.account == account }
             }
+            /// `locked` when the vault closed since the check above (nothing was written), else the write itself failed.
+            func notWritten() -> [String: Any] { fail(held.items(vault: vault) == nil ? "locked" : "failed") }
             if var existing {
-                // Only the password changes: never the username, title or website.
+                // An update needs the login to have been offered for this page a moment ago (`candidates`: the popup shows "Update ..."
+                // from that list), like a fill. A bare account and site never overwrites a password the app has not just shown.
+                guard ledger.allows(ref: refOf(existing), vault: vault, host: website, manual: false) else { return fail("not-found") }
+                // Only the password changes: never the username, title or website. The store keeps the old password in the history.
                 existing.secret = secret
-                guard held.save(existing, vault: vault) else { return fail("locked") }
+                guard held.save(existing, vault: vault) else { return notWritten() }
                 return ok(["result": "updated", "vault": vault])
             }
-            guard held.save(VaultItem(kind: .login, account: account, website: website, secret: secret), vault: vault) else { return fail("locked") }
+            // A new login needs no offer. Its name is the site's host, the same as an item without a name is shown.
+            guard held.save(VaultItem(kind: .login, title: website, account: account, website: website, secret: secret), vault: vault) else { return notWritten() }
             return ok(["result": "created", "vault": vault])
 
         case "credential":

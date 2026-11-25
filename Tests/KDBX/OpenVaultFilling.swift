@@ -22,6 +22,9 @@ import Foundation
     let secretA = "Secret-A-\(UUID().uuidString)"
     let secretB = "Secret-B-\(UUID().uuidString)"
     let secretNew = "Secret-New-\(UUID().uuidString)"
+    let secretOld = "Secret-Old-\(UUID().uuidString)"
+    let secretLong = String(repeating: "L", count: 1024)
+    let secretUpdated = "Secret-Updated-\(UUID().uuidString)"
     var transcript = ""
     func ask(_ type: String, _ fields: [String: Any] = [:]) -> [String: Any] {
         let reply = BrowserProtocol.handle(["v": BrowserProtocol.version, "id": "t", "type": type].merging(fields) { $1 })
@@ -135,6 +138,56 @@ import Foundation
                && error(ask("save", ["origin": site, "account": "x@example.net", "secret": "x", "vault": "nope"])) == "not-found"
                && !session.store(for: b.id)!.items().contains { $0.account == "x@example.net" })
 
+        // Save, slice R4: limits, hostile values, the offer an update needs, and the password as the only change.
+        func countA() -> Int { session.store(for: a.id)?.items().count ?? -1 }
+        func saveA(_ fields: [String: Any]) -> [String: Any] {
+            ask("save", ["origin": site, "account": "r4@example.net", "secret": "x-r4", "vault": a.id.uuidString].merging(fields) { $1 })
+        }
+        BrowserProtocol.ledger.clear()
+        verify("a new login needs no offer", saveA(["account": "upd@example.net", "secret": secretOld])["result"] as? String == "created")
+        let seeded = session.store(for: a.id)!.items().first { $0.account == "upd@example.net" }!
+        verify("it is named by the site's host", seeded.displayTitle == "gitforge.example")
+        verify("it holds the site, the username and the password, as a login",
+               SharedVault.host(seeded.website) == "gitforge.example" && seeded.account == "upd@example.net" && seeded.secret == secretOld && seeded.kind == ItemKind.login)
+        let beforeUpdate = countA()
+        let notOffered = saveA(["account": "upd@example.net", "secret": secretUpdated])
+        verify("an update of a login nothing offered for this page is not found, and writes nothing",
+               error(notOffered) == "not-found" && countA() == beforeUpdate && session.store(for: a.id)!.items().first { $0.id == seeded.id }?.secret == secretOld)
+        _ = ask("candidates", ["origin": "https://other.example", "vault": a.id.uuidString])
+        _ = ask("candidates", ["origin": site, "vault": b.id.uuidString])
+        verify("an offer for another page or another vault is not an offer for this one", error(saveA(["account": "upd@example.net", "secret": secretUpdated])) == "not-found")
+        _ = ask("candidates", ["origin": site, "vault": a.id.uuidString])
+        verify("after this page's list, the update goes through", saveA(["account": "upd@example.net", "secret": secretUpdated])["result"] as? String == "updated")
+        let updated = session.store(for: a.id)!.items().first { $0.id == seeded.id }!
+        let sameFields: Bool = updated.title == seeded.title && updated.account == seeded.account && updated.website == seeded.website
+            && updated.notes == seeded.notes && updated.otpSecret == seeded.otpSecret
+        verify("an update changes the password only: same item, title, username, website, notes",
+               countA() == beforeUpdate && updated.secret == secretUpdated && sameFields)
+        verify("the old password is kept in the history, as the app keeps it", session.store(for: a.id)!.previousPasswords(of: seeded.id).map { $0.password } == [secretOld])
+        let others = session.store(for: a.id)!.items().filter { $0.id != seeded.id }.map(\.secret).sorted()
+        verify("no other login changed", !others.contains(secretUpdated) && !others.contains(secretOld))
+
+        let beforeHostile = countA()
+        let hostileAccounts: [Any] = ["", "   ", "a\nb", "a\r\nb", "a\u{202E}b", "a\u{2066}b", "a\u{200B}b", "a\u{200D}b", "a\u{0}b", "a\u{2028}b", "a\u{85}b", "a\u{E000}b",
+                                      "a\tb", String(repeating: "x", count: 321), String(repeating: "x", count: 10_000), 7, NSNull(), true, ["a"], ["a": 1]]
+        verify("hostile or over-long accounts are refused and write nothing",
+               hostileAccounts.allSatisfy { error(saveA(["account": $0])) == "unsupported" } && countA() == beforeHostile)
+        verify("secrets that are empty, mistyped or over 1024 are refused and write nothing",
+               ["", 7, NSNull(), ["x"], String(repeating: "L", count: 1025), String(repeating: "L", count: 10_000)].allSatisfy { error(saveA(["secret": $0])) == "unsupported" } && countA() == beforeHostile)
+        verify("a page that cannot be filled is not saved for",
+               ["http://gitforge.example", "http://192.168.0.7", "ftp://gitforge.example", "https://user:pw@gitforge.example", "https://", "", "https://\(String(repeating: "a", count: 300)).example"]
+                .allSatisfy { error(saveA(["origin": $0])) == "forbidden" } && error(saveA(["origin": 3])) == "forbidden" && countA() == beforeHostile)
+        verify("the longest username and password are saved",
+               saveA(["account": String(repeating: "x", count: 320), "secret": secretLong])["result"] as? String == "created" && countA() == beforeHostile + 1)
+        verify("localhost may be saved for over http", saveA(["origin": "http://localhost:8080", "account": "local@example.net"])["result"] as? String == "created")
+        verify("two saves of one new login at once are one login: the second finds it, was never offered it, and changes nothing", {
+            let first = saveA(["account": "twin@example.net", "secret": "Twin-1"])
+            let second = saveA(["account": "twin@example.net", "secret": "Twin-2"])
+            return first["result"] as? String == "created" && error(second) == "not-found"
+                && session.store(for: a.id)!.items().filter { $0.account == "twin@example.net" }.map(\.secret) == ["Twin-1"]
+        }())
+        verify("the saves register A's AutoFill suggestions", VaultIdentities.held.contains { $0.hasPrefix(a.id.uuidString + "/") })
+
         // The race: A locks between the search and the fill. A plain error, not another vault's data.
         let search = ask("search", ["origin": site, "query": "gitforge", "vault": a.id.uuidString])
         let ref = ((search["results"] as? [[String: Any]])?.first?["ref"] as? String) ?? ""
@@ -167,16 +220,44 @@ import Foundation
 
         // Nothing secret in any reply or state file.
         verify("no secret in any reply but a fill that asked for it: no password, no login secret, in any list, search, save or error",
-               ![password, secretA, secretB, secretNew].contains(where: transcript.contains))
+               ![password, secretA, secretB, secretNew, secretOld, secretUpdated, secretLong].contains(where: transcript.contains))
         var leaked = false
         let root = VaultFiles.storageRoot
         for path in (try? FileManager.default.subpathsOfDirectory(atPath: root.path)) ?? [] where !path.hasSuffix(".kdbx") {
             let file = root.appendingPathComponent(path)
             guard let data = try? Data(contentsOf: file) else { continue }
             let text = String(decoding: data, as: UTF8.self)
-            if [password, secretA, secretB, secretNew].contains(where: text.contains) { leaked = true; print("leak in \(file.path)") }
+            if [password, secretA, secretB, secretNew, secretOld, secretUpdated, secretLong].contains(where: text.contains) { leaked = true; print("leak in \(file.path)") }
         }
         verify("no secret in any state file", !leaked)
+
+        // The vault locks after the request was checked and before it is written: a plain locked error, nothing written, and it
+        // opens again as it was. The service locks the vault just before the write, which is the latest moment the race can fall.
+        final class LocksBeforeSave: BrowserVaultService, @unchecked Sendable {
+            let inner: SessionVaultService
+            let session: VaultSession
+            init(inner: SessionVaultService, session: VaultSession) { self.inner = inner; self.session = session }
+            func vaults() -> [BrowserVault] { inner.vaults() }
+            func switchVault(id: String) -> BrowserVaultOutcome { inner.switchVault(id: id) }
+            func unlockVault(id: String) -> BrowserUnlockOutcome { inner.unlockVault(id: id) }
+            var servesCredentials: Bool { true }
+            func items(vault id: String) -> [VaultItem]? { inner.items(vault: id) }
+            func reference(for item: VaultItem) -> String { inner.reference(for: item) }
+            func save(_ item: VaultItem, vault id: String) -> Bool {
+                MainActor.assumeIsolated { if let target = UUID(uuidString: id) { session.lock(target) } }
+                return inner.save(item, vault: id)
+            }
+        }
+        let held = BrowserProtocol.vaultService
+        let countB = session.store(for: b.id)?.items().count ?? -1
+        BrowserProtocol.vaultService = LocksBeforeSave(inner: SessionVaultService(session: session), session: session)
+        let late = ask("save", ["origin": site, "account": "late-lock@example.net", "secret": secretNew, "vault": b.id.uuidString])
+        BrowserProtocol.vaultService = held
+        verify("locked between the check and the write: locked, nothing written", error(late) == "locked" && !session.isOpen(b.id))
+        session.show(b.id)
+        try await session.unlock(credentials: .init(password: password), savingQuickUnlockKey: false)
+        verify("the vault opens again with exactly what it had", session.store(for: b.id)?.items().count == countB
+               && !(session.store(for: b.id)?.items().contains { $0.account == "late-lock@example.net" } ?? true))
     } catch {
         failed += 1
         print("FAIL open vault filling threw \(error)")

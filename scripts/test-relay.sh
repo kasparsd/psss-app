@@ -4,7 +4,8 @@
 # (ad hoc, no team) and the stand-in relay (the app's real relay server over the prototype's vaults), then runs
 #   - the generated extension-id list check,
 #   - Extensions/Browser/tests/relay/relay.test.mjs (framing fuzz, deadlines, limits, lock and socket files, refused peers,
-#     kill -9 both ways, hostile names, the secret scan),
+#     kill -9 both ways, hostile names, the secret scan, `save` over the socket and, over real encrypted vaults through
+#     Tests/Relay/VaultRelay, `kill -9` in the middle of saves with the vault file opened again afterwards),
 #   - Extensions/Browser/tests/host_test.py (the host's protocol tests, through the stand-in),
 #   - build.py check (the release host must not contain PSSS_RELAY_SOCKET).
 # Needs Node 24. Compiles go through scripts/heavy.sh; everything it writes is under build/browser or a folder in /tmp.
@@ -29,6 +30,13 @@ fi
 python3 Extensions/Browser/build.py host --testing
 python3 Extensions/Browser/build.py standin
 rm -rf build/relay-test && mkdir -p build/relay-test
+# The app's relay and protocol over real encrypted vaults (Tests/Relay/VaultRelay), for the kill -9 during a save. It is built from
+# the same source list as the hostless KDBX tests (read from scripts/test-kdbx.sh, without that script's own test files).
+VAULT_SOURCES=$(sed -n '/^SOURCES="/,/"$/p' scripts/test-kdbx.sh | sed 's/^SOURCES="//; s/"$//; s/\\$//' | tr -s ' \n' '\n\n' | grep -v '^Tests/KDBX/' | grep -v '^$' | tr '\n' ' ')
+# shellcheck disable=SC2086
+scripts/heavy.sh swiftc -O -swift-version 6 -D HOSTLESS_TESTS -D HOSTLESS_UNLOCKGATE $VAULT_SOURCES App/Core/UnlockGate.swift \
+  App/Core/Relay/PeerIdentity.swift App/Features/BrowserRelayServer.swift Tests/Relay/VaultRelay/main.swift -o build/relay-test/psss-relay-vault
+export PSSS_VAULT_RELAY="$PWD/build/relay-test/psss-relay-vault"
 python3 Extensions/Browser/build.py host --output build/relay-test/release-host
 PSSS_RELEASE_HOST="$PWD/build/relay-test/release-host/psss-native-host" "$NODE" --disable-warning=ExperimentalWarning --test Extensions/Browser/tests/relay/relay.test.mjs
 python3 -W error::ResourceWarning -m unittest discover -s Extensions/Browser/tests -p "host_test.py"

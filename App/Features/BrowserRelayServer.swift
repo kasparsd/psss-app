@@ -199,11 +199,13 @@ final class BrowserRelayServer: @unchecked Sendable {
         let result = ReplyBox()
         let handler = configuration.handler
         let request = envelope.request
-        Task { @MainActor in result.finish(handler(request)) }
+        // A request that waited for the main actor past its deadline never runs: its reply was `timeout`, so a `save` must not write
+        // afterwards. One that already started cannot be stopped.
+        Task { @MainActor in result.finish(result.abandoned ? RelayFrame.error("timeout") : handler(request)) }
         let deadline = RelayIO.deadline(after: RelayLimits.replyDeadline(for: envelope.type))
         while !result.wait(milliseconds: 50) {
             if RelayIO.peerGone(fd) { return false }
-            if RelayIO.now() >= deadline { return reply("timeout", id: envelope.id) }
+            if RelayIO.now() >= deadline { result.abandon(); return reply("timeout", id: envelope.id) }
         }
         guard var data = result.data else { return reply("failed", id: envelope.id) }
         if envelope.type == "ping" { data = Self.markedAsApp(data) }
@@ -223,7 +225,10 @@ final class BrowserRelayServer: @unchecked Sendable {
         private let semaphore = DispatchSemaphore(value: 0)
         private let lock = NSLock()
         private var stored: Data?
+        private var gaveUp = false
         var data: Data? { lock.lock(); defer { lock.unlock() }; return stored }
+        var abandoned: Bool { lock.lock(); defer { lock.unlock() }; return gaveUp }
+        func abandon() { lock.lock(); gaveUp = true; lock.unlock() }
         func finish(_ data: Data) { lock.lock(); stored = data; lock.unlock(); semaphore.signal() }
         /// True when the reply is ready.
         func wait(milliseconds: Int) -> Bool { semaphore.wait(timeout: .now() + .milliseconds(milliseconds)) == .success }

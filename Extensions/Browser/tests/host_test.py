@@ -338,6 +338,9 @@ class HostTests(unittest.TestCase):
         _, (r,) = self.run_host([self.req("save", origin=origin, vault="passwords", account="new.person@example.net", secret="First-secret-1")])
         self.assertEqual((r["ok"], r["result"], r["vault"]), (True, "created", "passwords"))
         _, (r,) = self.run_host([self.req("save", origin=origin, vault="passwords", account="new.person@example.net", secret="Second-secret-2")])
+        self.assertEqual((r["ok"], r["error"]), (False, "not-found"), "an update needs the login to have been offered for this page")
+        self.run_host([self.req("candidates", origin=origin, vault="passwords")])  # the popup lists the site's logins first
+        _, (r,) = self.run_host([self.req("save", origin=origin, vault="passwords", account="new.person@example.net", secret="Second-secret-2")])
         self.assertEqual((r["ok"], r["result"]), (True, "updated"))
         saved = json.loads((self.store / "saved-logins.json").read_text())
         mine = [i for i in saved if i["account"] == "new.person@example.net"]
