@@ -195,7 +195,7 @@ extension VaultSession {
 
     /// What the File menu's lock item does: locks the one open vault, or every vault when two or more are open.
     func lockForMenu() {
-        if openVaults.count >= 2 { lockAll() } else if let only = openVaults.first { lock(only.id) }
+        if openVaults.count >= 2 { lockAllByChoice() } else if let only = openVaults.first { lock(only.id) }
     }
 
     /// The person-facing state of `vault`: open when this session holds it open, whichever vault is shown.

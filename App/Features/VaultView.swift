@@ -208,6 +208,43 @@ struct VaultView: View {
         })
     }
 
+    /// The place and open item, as the person has them now, for `ReturnPlaces`. Never a title, a value or the search text.
+    private var currentSpot: ReturnPlaces.Spot {
+        var open: VaultItem.ID?
+        if usesStack {
+            if inSearchTab { open = searchPath.last } else {
+                switch place {
+                case .all: open = compactPath.last
+                case .codes: open = codesPath.last
+                case .cards: open = cardsPath.last
+                case .wifi: open = nil
+                }
+            }
+        } else {
+            open = selection
+        }
+        return ReturnPlaces.Spot(destination: destination, item: open)
+    }
+
+    /// After this vault was locked and unlocked again in this run: the place and item the person had. An item that is gone leaves
+    /// the place showing, without a message.
+    private func returnToSpot() {
+        guard let own = ownID, let spot = session.returnPlaces.take(vault: own) else { return }
+        choose(spot.destination)
+        guard let id = spot.item, items.contains(where: { $0.id == id }), !isRecentlyDeleted else { return }
+        if usesStack {
+            switch place {
+            case .all: compactPath = [id]
+            case .codes: codesPath = [id]
+            case .cards: cardsPath = [id]
+            case .wifi: break
+            }
+        } else {
+            selection = id
+            compactColumn = .detail
+        }
+    }
+
     private func applyLanding() {
         if let landing { choose(landing.destination) }
     }
@@ -373,8 +410,10 @@ struct VaultView: View {
             .onChange(of: selections) { hideSignal += 1 }
             .task { if store.isSample { VaultIdentities.removeAll() } else { registerIdentities() } }
             // Another open vault's place was chosen, or a vault was just unlocked: land on that place.
-            .onAppear { applyLanding() }
+            .onAppear { applyLanding(); returnToSpot() }
             .onChange(of: landing) { applyLanding() }
+            // Where the person is, kept in memory for after a lock (see `ReturnPlaces`).
+            .onChange(of: currentSpot) { _, spot in if let own = ownID { session.returnPlaces.note(spot, vault: own) } }
             // AutoFill has just been found on, by the system's prompt or on coming back from Settings. Logins saved while it was
             // off were never sent to the system, so they are sent now, without waiting for the next unlock.
             .onChange(of: autoFill.reading) { old, new in if new == .on, old != .on { registerIdentities(knownEnabled: true) } }
@@ -417,7 +456,7 @@ struct VaultView: View {
     private func vaultMenuButton(_ style: VaultSwitcher.Style) -> some View {
         if store is KeePassVaultStore {
             VaultSwitcher(session: session, style: style, context: .app, choose: switchVault,
-                          add: { addChoice = $0 }, lock: { session.lock() }, lockAll: { session.lockAll() },
+                          add: { addChoice = $0 }, lock: { session.lock() }, lockAll: { session.lockAllByChoice() },
                           settings: { if let id = session.reference?.id { showVaultSettings(id) } })
                 .disabled(isEditingInPlace)
         }

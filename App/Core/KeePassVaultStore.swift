@@ -751,6 +751,9 @@ final class VaultSession {
     /// The vault that was shown and open most recently, so the window keeps its sidebar while a locked vault's form is shown.
     private var lastShownOpen: UUID?
 
+    /// Where the person was in each vault, kept in memory across a lock (see `ReturnPlaces`).
+    let returnPlaces = ReturnPlaces()
+
     /// Vaults whose file was found but could not be read (damaged, not a vault, a format Psss does not open), as learned by the
     /// last attempt to open them in this process. Shown as "Can't be read"; cleared when the vault opens.
     private(set) var unreadable: Set<UUID> = []
@@ -1119,9 +1122,16 @@ final class VaultSession {
         for store in stores.values { try? store.flush() }
     }
 
+    /// Lock All Vaults, chosen by the person: they put everything away, so no place is kept to return to.
+    func lockAllByChoice() {
+        returnPlaces.forgetAll()
+        lockAll()
+    }
+
     private func drop(_ id: UUID) {
         try? stores[id]?.flush()
         stores[id] = nil
+        returnPlaces.didLock(id)
     }
 
     // MARK: Removing
@@ -1134,6 +1144,7 @@ final class VaultSession {
         guard let gone = knownVaults.first(where: { $0.id == id }) else { return }
         let wasShown = id == reference?.id
         stores[id] = nil
+        returnPlaces.forget(id)
         if lastShownOpen == id { lastShownOpen = nil }
         if gone.managed, deletingFile { try? FileManager.default.removeItem(at: VaultFiles.managedURL(fileName: gone.fileName)) }
         VaultFiles.removeBackups(for: gone.id)

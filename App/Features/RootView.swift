@@ -17,6 +17,10 @@ struct RootView: View {
     let autoFill: AutoFillStatus
     /// Mac only: whether the bundled Safari extension is switched on. Reads nothing on iPhone and iPad, which have no extension.
     let safariExtension: SafariExtensionStatus
+    #if os(iOS)
+    /// Covers this scene while the app is away, so the app switcher's picture shows no item.
+    @State private var cover = SceneCover()
+    #endif
     @AppStorage("vaultSource") private var vaultSource = ""
     /// Where the window lands when another open vault's place is chosen, or a vault has just been unlocked.
     @State private var landing: VaultLanding?
@@ -102,7 +106,7 @@ struct RootView: View {
         .onChange(of: session.isAnyOpen) { _, any in if !any, gate.isUnlocked, vaultSource == Self.keePassSource { gate.lock() } }
         // A vault that has just been unlocked while others are open lands on its All place, as Mail lands on an account's inbox.
         .onChange(of: session.openVaults.map(\.id)) { old, new in
-            if !old.isEmpty, let added = new.first(where: { !old.contains($0) }), added == session.reference?.id { landing = VaultLanding(destination: .all) }
+            if !old.isEmpty, let added = new.first(where: { !old.contains($0) }), added == session.reference?.id, !session.returnPlaces.holds(vault: added) { landing = VaultLanding(destination: .all) }
         }
         #if os(macOS)
         // File, Vault Settings… and Lock <name> or Lock All Vaults: also while the window is locked (Settings opens at the vault's page).
@@ -121,14 +125,35 @@ struct RootView: View {
         // Coming back from System Settings: the window's scene phase does not always say so on a Mac.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in Task { await autoFill.refreshSettling(); await safariExtension.refresh() } }
         #endif
-        .onChange(of: scenePhase) { _, phase in
+        #if os(iOS)
+        .background { SceneReader(cover: cover) }
+        #endif
+        // Leaving and coming back (docs/experience.md). On iPhone and iPad the cover goes up when the scene reaches the background
+        // (not for a pull-down, which only makes it inactive), the lock is decided at the first step back (the inactive that
+        // follows the background) so an unlock screen is what the cover lifts onto, and the cover comes off once the scene is
+        // active. The Mac has no cover and starts the clock when the window stops being active.
+        .onChange(of: scenePhase) { old, phase in
             switch phase {
             case .active:
+                gate.decideOnReturn(after: timing)
+                #if os(iOS)
+                cover.hide()
+                #endif
                 Task { await autoFill.refreshSettling() }
                 if !vaultSource.isEmpty { Task { await gate.didBecomeActive(after: timing, prompt: usesDeviceAuth) } }
-            case .inactive, .background:
+            case .inactive:
                 session.flushAll()
-                gate.didResignActive()
+                #if os(iOS)
+                if old == .background { gate.decideOnReturn(after: timing) }
+                #else
+                gate.didLeave()
+                #endif
+            case .background:
+                #if os(iOS)
+                cover.show()
+                #endif
+                session.flushAll()
+                gate.didEnterBackground(after: timing)
             @unknown default: break
             }
         }

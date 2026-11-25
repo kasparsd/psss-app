@@ -102,19 +102,38 @@ final class UnlockGate {
         state = .locked
     }
 
-    /// Call when the scene stops being active. Starts the lock-timing clock.
-    func didResignActive() {
-        if isUnlocked, leftAt == nil { leftAt = .now }
+    /// Call when the scene is leaving: on iPhone and iPad when it reaches the background (a pull-down such as Control Center only
+    /// makes it inactive and does not count), on the Mac when it stops being active. Starts the lock-timing clock.
+    func didLeave(now: Date = .now) {
+        if isUnlocked, leftAt == nil { leftAt = now }
     }
 
-    /// Call when the scene becomes active. Locks if it was away longer than the chosen timing, then prompts
-    /// (unless `prompt` is false: a KeePass vault asks for its vault password instead).
-    func didBecomeActive(after timing: LockTiming, prompt: Bool = true) async {
-        if let leftAt, isUnlocked, Date.now.timeIntervalSince(leftAt) >= TimeInterval(timing.rawValue) {
+    /// The scene reached the background. Starts the clock, and with "Immediately" locks at once, so what is locked is already
+    /// locked when the person comes back.
+    func didEnterBackground(after timing: LockTiming, now: Date = .now) {
+        didLeave(now: now)
+        if timing == .immediately, isUnlocked {
             lockNotice = nil
             state = .locked
         }
-        leftAt = nil
+    }
+
+    /// The lock decision when the scene comes back: locks if it was away at least the chosen timing, and ends the clock. Called at
+    /// the first step out of the background, before the first frame is drawn, so the unlock screen is the first thing uncovered.
+    /// Returns whether it locked. Nothing happens when no clock is running (a pull-down that never left).
+    @discardableResult
+    func decideOnReturn(after timing: LockTiming, now: Date = .now) -> Bool {
+        defer { leftAt = nil }
+        guard let leftAt, isUnlocked, now.timeIntervalSince(leftAt) >= TimeInterval(timing.rawValue) else { return false }
+        lockNotice = nil
+        state = .locked
+        return true
+    }
+
+    /// Call when the scene becomes active. Decides the lock if that has not been done yet, then prompts (unless `prompt` is false:
+    /// a KeePass vault asks for its vault password instead).
+    func didBecomeActive(after timing: LockTiming, prompt: Bool = true, now: Date = .now) async {
+        decideOnReturn(after: timing, now: now)
         if prompt { await unlock() }
     }
 }

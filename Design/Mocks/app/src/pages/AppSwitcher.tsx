@@ -60,7 +60,7 @@ export function AppSwitcher() {
   return (
     <Page
       title="Leaving and coming back"
-      status={<><strong>Proposal (2026-11-25), not built.</strong> The cover is the butter mark alone on charcoal, no tile (owner’s choice). Found on a real iPhone 17: coming back to Psss briefly shows the list, then the unlock screen, and after unlocking the place and item are lost. The app switcher also shows item names to anyone looking. The proposal covers the window the moment Psss stops being the active app, decides the lock before the first frame on return, and reopens the place and item you had. The owner chooses between E1 and E2 (section 5); the page recommends E1.</>}
+      status={<><strong>Built 2026-11-25.</strong> The cover is the butter mark alone on charcoal, no tile (owner’s choice), and goes up only when the app really leaves (option E2, owner’s choice). Found on a real iPhone 17: coming back to Psss briefly showed the list, then the unlock screen, and after unlocking the place and item were lost. The app switcher also showed item names to anyone looking. Built: the window is covered the moment Psss reaches the background, the lock is decided before the first frame on return, and the place and item you had are reopened after an unlock. Frames E1 and E2 show the two options as they were weighed.</>}
     >
       <Clarity
         intro={<p>This is what a person sees when they leave Psss and come back: a plain charcoal cover with the Psss mark instead of their items, then either the list where they were or the unlock screen.</p>}
@@ -107,13 +107,13 @@ export function AppSwitcher() {
         <Frame label="D2 · If the item was deleted meanwhile" phone caption="You land on its place, here All, with no message. Nothing is shown that is no longer there."><ListPhone /></Frame>
       </Frames>
 
-      <Section title="E. Control Center, notifications and calls: the owner chooses">
+      <Section title="E. Control Center, notifications and calls: E2 chosen">
         <p>iOS takes the app switcher’s picture when the app becomes inactive, which is slightly before it is in the background: when you swipe up to the switcher, and also when you pull down Control Center or the notifications, or a call banner appears. Two ways to handle those pull-downs:</p>
         <div className="as-vs">
-          <div><strong>E1 · Cover on every pull-down (recommended).</strong> The cover appears whenever Psss stops being the active app, including Control Center, the notification pull-down and a call banner. The picture the system takes is always the cover. The cost: a brief charcoal flash each time, and no seeing the list behind a pull-down.</div>
-          <div><strong>E2 · Cover only on leaving.</strong> The cover appears only when you really leave: app switcher, Home, another app. Pull-downs show the list behind them. The cost: if the system takes its picture at the start of a swipe up, one frame of the list can slip into it, which is exactly the leak this page is closing.</div>
+          <div><strong>E1 · Cover on every pull-down (not chosen).</strong> The cover appears whenever Psss stops being the active app, including Control Center, the notification pull-down and a call banner. The picture the system takes is always the cover. The cost: a brief charcoal flash each time, and no seeing the list behind a pull-down.</div>
+          <div><strong>E2 · Cover only on leaving (chosen by the owner).</strong> The cover appears only when you really leave: app switcher, Home, another app. Pull-downs show the list behind them. The cost: if the system takes its picture at the start of a swipe up, one frame of the list can slip into it, which is exactly the leak this page is closing.</div>
         </div>
-        <p>For a password app, E1 is safer, and a charcoal flash is a small price. E2 looks calmer but cannot promise that the picture never shows items.</p>
+        <p>The owner chose E2 (2026-11-25): no flash on a pull-down. The cover goes up when the app reaches the background and is checked on a device by looking at the app switcher.</p>
       </Section>
       <Frames>
         <Frame label="E1 · Control Center, with the cover" phone caption="The cover is behind Control Center. Nothing from the vault shows through."><ListPhone cover over={<ControlCenter />} /></Frame>
@@ -141,14 +141,14 @@ export function AppSwitcher() {
           { decision: <><strong>The cover: the butter mark on charcoal, no tile.</strong> Charcoal (#1F1F23) fills the window and the logo mark alone, in butter (#FFD84D), sits at the centre; the same in light and dark mode.</>, rejected: <>a butter tile (the app icon) on butter; a blurred passthrough cover.</>, why: <>Owner: the switcher already shows the app icon above the card; charcoal with the butter mark reads as Psss without repeating it, and nothing of the vault shows through.</> },
           { decision: <><strong>The lock is decided before the first frame.</strong> On return Psss checks the lock time before drawing the list; after the lock time the first thing shown is the unlock screen.</>, rejected: <>checking once the app is fully active, which shows the list for a moment first.</>, why: <>Found on a real iPhone 17: the list flashed, then the unlock screen. A flash of the list is a leak.</> },
           { decision: <><strong>Restore the place and item, not the search.</strong> A memory-only note holds the vault, the place and the item; never field values or the search text; gone at quit. If the item was deleted, you land on its place.</>, rejected: <>restoring the search text; saving the note to disk.</>, why: <>Where you were is useful; what you typed or saw is not worth keeping anywhere that outlives the app.</> },
-          { decision: <><strong>Open, owner to choose: E1 or E2.</strong> The page recommends E1 (cover also during Control Center, notifications and calls).</>, why: <>The system’s picture is taken when the app becomes inactive, before it is in the background. E1 never lets the list into it; the cost is a brief charcoal flash.</> },
+          { decision: <><strong>E2: the cover only when leaving (owner, 2026-11-25).</strong> The cover goes up when Psss reaches the background (app switcher, Home, another app), not when it only becomes inactive. Control Center, the notification pull-down and call banners show the list behind them, with no flash.</>, rejected: <>E1, the cover on every pull-down (the earlier recommendation).</>, why: <>Owner’s choice: no charcoal flash on a pull-down. The cover is a window of its own shown in the same step that learns the app left, so the picture iOS takes of the leaving app holds the cover.</> },
           { decision: <>iPad covers each window; the Mac has no cover.</>, why: <>The Mac has no app-switcher pictures and already locks on sleep and screen lock.</> },
         ]}
       />
 
       <History
-        proposal
         entries={[
+          { date: '2026-11-25', text: <>Built 2026-11-25; E2 chosen by the owner: the cover only when leaving. The cover is a window of its own above the scene (it also covers an open sheet); the lock is decided at the inactive step after the background; the place and item note is kept after every lock except Lock All Vaults and Remove Vault.</> },
           { date: '2026-11-25', text: <>Owner chose the solid cover, as the butter mark on charcoal with no tile; the blurred cover and the butter tile are removed. Unlock frame matched to the built screen.</> },
           { date: '2026-11-25', text: <>New page, with two covers drawn (solid butter, and a blurred one). Proposal after the owner found, on a real iPhone 17, that returning to Psss shows the list and then the unlock screen, and that the place and item are lost after unlocking.</> },
         ]}

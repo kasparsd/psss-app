@@ -3446,7 +3446,7 @@ do {
     let timed = UnlockGate()
     timed.markUnlocked()
     timed.lockNotice = "stale"
-    timed.didResignActive()
+    timed.didLeave()
     await timed.didBecomeActive(after: .immediately, prompt: false)
     expect("notice: timing lock locks", !timed.isUnlocked)
     check("notice: timing lock clears a stale notice", timed.lockNotice ?? "nil", "nil")
@@ -3454,11 +3454,100 @@ do {
     // Back before the timing runs out: nothing locks and nothing changes.
     let brief = UnlockGate()
     brief.markUnlocked()
-    brief.didResignActive()
+    brief.didLeave()
     await brief.didBecomeActive(after: .fifteenMinutes, prompt: false)
     expect("notice: a short absence keeps the gate unlocked", brief.isUnlocked)
 }
 await unlockGateNoticeChecks()
+
+// Leaving and coming back: the lock is decided from the time away, at the first step back, and a pull-down never locks.
+@MainActor func unlockGateLeavingChecks() async {
+    let t0 = Date(timeIntervalSince1970: 1_000_000)
+    func gate(left: Bool = true) -> UnlockGate {
+        let g = UnlockGate()
+        g.markUnlocked()
+        if left { g.didLeave(now: t0) }
+        return g
+    }
+    for (timing, name) in [(LockTiming.oneMinute, "1 minute"), (.fiveMinutes, "5 minutes"), (.fifteenMinutes, "15 minutes")] {
+        let limit = TimeInterval(timing.rawValue)
+        let early = gate()
+        expect("leave \(name): one second short does not lock", !early.decideOnReturn(after: timing, now: t0 + limit - 1) && early.isUnlocked)
+        let exact = gate()
+        expect("leave \(name): exactly the time locks", exact.decideOnReturn(after: timing, now: t0 + limit) && !exact.isUnlocked)
+        let late = gate()
+        expect("leave \(name): long after locks", late.decideOnReturn(after: timing, now: t0 + limit * 10) && !late.isUnlocked)
+    }
+    // Immediately: locked as soon as the app is in the background, before anyone comes back.
+    let now = gate(left: false)
+    now.didEnterBackground(after: .immediately, now: t0)
+    expect("leave: Immediately locks on reaching the background", !now.isUnlocked)
+    // A timed lock does not lock on reaching the background.
+    let timed = gate(left: false)
+    timed.didEnterBackground(after: .oneMinute, now: t0)
+    expect("leave: a timed lock waits for the return", timed.isUnlocked)
+    expect("leave: a timed lock decides at the return", timed.decideOnReturn(after: .oneMinute, now: t0 + 61) && !timed.isUnlocked)
+    // Inactive without leaving (Control Center, a notification pull-down): no clock runs, so nothing locks, whatever the timing.
+    for timing in LockTiming.allCases {
+        let pull = gate(left: false)
+        expect("leave: a pull-down never locks (\(timing.rawValue)s)", !pull.decideOnReturn(after: timing, now: t0 + 100_000) && pull.isUnlocked)
+    }
+    // The decision is made once: a second one (the scene becoming active) changes nothing, and a later pull-down does not lock.
+    let once = gate()
+    once.decideOnReturn(after: .oneMinute, now: t0 + 10)
+    expect("leave: stays open after an early return", once.isUnlocked)
+    expect("leave: the clock ended with the decision", !once.decideOnReturn(after: .oneMinute, now: t0 + 100_000) && once.isUnlocked)
+    // A locked gate stays locked and a stale notice is cleared by a timing lock.
+    let stale = gate()
+    stale.lockNotice = "stale"
+    stale.decideOnReturn(after: .oneMinute, now: t0 + 61)
+    check("leave: a timing lock carries no notice", stale.lockNotice ?? "nil", "nil")
+    // The first leave starts the clock; a later one (background after inactive) does not restart it.
+    let first = gate(left: false)
+    first.didLeave(now: t0)
+    first.didEnterBackground(after: .oneMinute, now: t0 + 50)
+    expect("leave: the clock keeps its first time", first.decideOnReturn(after: .oneMinute, now: t0 + 61) && !first.isUnlocked)
+}
+await unlockGateLeavingChecks()
+
+// The place and item to return to: memory only, ids only, once, and only for a vault that was locked in this run.
+@MainActor func returnPlacesChecks() {
+    let a = UUID(), b = UUID(), item = UUID()
+    let before = (try? FileManager.default.contentsOfDirectory(atPath: NSTemporaryDirectory()))?.count ?? 0
+    let places = ReturnPlaces()
+    places.note(.init(destination: .cards, item: item), vault: a)
+    expect("return: an open vault gives nothing back", places.take(vault: a) == nil)
+    places.note(.init(destination: .cards, item: item), vault: a)
+    places.didLock(a)
+    expect("return: a locked vault is held", places.holds(vault: a))
+    expect("return: another vault gets nothing", places.take(vault: b) == nil)
+    expect("return: the note is kept for its own vault", places.holds(vault: a))
+    let spot = places.take(vault: a)
+    check("return: place kept", spot.map { "\($0.destination)" } ?? "nil", "cards")
+    check("return: item kept", spot?.item?.uuidString ?? "nil", item.uuidString)
+    expect("return: used once", places.take(vault: a) == nil && !places.holds(vault: a))
+    // A late report from a window that is going away does not replace the note of a locked vault.
+    places.note(.init(destination: .codes, item: item), vault: a)
+    places.didLock(a)
+    places.note(.init(destination: .all, item: nil), vault: a)
+    check("return: a locked vault ignores late reports", places.take(vault: a).map { "\($0.destination)" } ?? "nil", "codes")
+    // Lock All Vaults and Remove Vault forget.
+    places.note(.init(destination: .notes, item: item), vault: a)
+    places.note(.init(destination: .wifi, item: nil), vault: b)
+    places.didLock(a); places.didLock(b)
+    places.forget(a)
+    expect("return: forgetting a vault drops its note", places.take(vault: a) == nil)
+    places.forgetAll()
+    expect("return: forgetting all drops every note", places.take(vault: b) == nil)
+    // Nothing without a note, and nothing about the item's content: the note's only fields are a place and an id.
+    places.didLock(a)
+    expect("return: no note, no return", places.take(vault: a) == nil)
+    let fields = Mirror(reflecting: ReturnPlaces.Spot(destination: .all, item: item)).children.map { $0.label ?? "" }
+    check("return: the note holds only a place and an item id", fields.sorted().joined(separator: ","), "destination,item")
+    let after = (try? FileManager.default.contentsOfDirectory(atPath: NSTemporaryDirectory()))?.count ?? 0
+    expect("return: nothing written to disk", before == after)
+}
+returnPlacesChecks()
 #endif
 
 // MARK: AutoFill reminder: what the card shows, what its button does, what this device remembers (hostless: stand-ins only)

@@ -1,8 +1,8 @@
 import SwiftUI
 
 // The app icon's two brand colours. They are the icon's artwork (the tile and its mark), not a UI tint.
-private let butter = Color(red: 1.0, green: 0xD8 / 255, blue: 0x4D / 255)
-private let charcoal = Color(red: 0x1F / 255, green: 0x1F / 255, blue: 0x23 / 255)
+let butter = Color(red: 1.0, green: 0xD8 / 255, blue: 0x4D / 255)
+let charcoal = Color(red: 0x1F / 255, green: 0x1F / 255, blue: 0x23 / 255)
 
 /// The logo's field drawn in the current foreground style: an outline holding a p and either three dots (hidden) or three s
 /// (shown). Every path is in `LogoFieldGeometry.box` units, so one transform scales them all to the view's width.
