@@ -78,6 +78,7 @@ struct VaultSections<Places: View>: View {
         let tint: Color = state.isAvailable ? (showing ? .primary : .secondary) : .orange
         let label = Label {
             Text(verbatim: name).lineLimit(1).truncationMode(.middle)
+                .foregroundStyle(showing ? Color.primary : Color.secondary)
         } icon: {
             Image(systemName: isOpen ? VaultSwitcher.symbol : state.symbol)
                 .foregroundStyle(tint)
