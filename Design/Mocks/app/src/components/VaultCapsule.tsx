@@ -9,10 +9,10 @@ export const shortVaultName = (n: string) => (n.length > 12 ? `${n.slice(0, 11).
  * with the vault glyph, the vault's name (tail-truncated) and a small chevron. It is labeled, not icon-only, and shown even with one vault. Its spoken label is “Vault: <full name>”.
  * `menu` is the shared `VaultMenu`, drawn under the capsule when open, from the capsule's left edge; on iPhone its width is capped so it stays inside the screen (see `.vcap-menu` in styles.css).
  */
-export function VaultCapsule({ name = 'Passwords', open, menu }: { name?: string; open?: boolean; menu?: ReactNode }) {
+export function VaultCapsule({ name = 'Passwords', open, menu, glyphOnly }: { name?: string; open?: boolean; menu?: ReactNode; glyphOnly?: boolean }) {
   return (
     <span style={{ position: 'relative', display: 'inline-flex' }}>
-      <button className="btn glass vcap" aria-label={`Vault: ${name}`} aria-haspopup="menu" aria-expanded={!!open} data-tip={open ? undefined : `Vault: ${name}`}>
+      <button className={`btn glass vcap${glyphOnly ? ' glyph' : ''}`} aria-label={`Vault: ${name}`} aria-haspopup="menu" aria-expanded={!!open} data-tip={open ? undefined : `Vault: ${name}`}>
         <span className="vcg" aria-hidden="true"><VaultsIcon /></span>
         <span className="vcn">{shortVaultName(name)}</span>
         <span className="vcc" aria-hidden="true"><ChevronDownIcon /></span>

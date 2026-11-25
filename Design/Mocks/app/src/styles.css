@@ -525,3 +525,12 @@ table.cmp td,table.cmp th{border-top:1px solid var(--rule);padding:6px 12px 6px 
 .vglyph svg{width:16px;height:16px;display:block}
 .vgc{display:inline-grid;width:9px;height:9px;color:var(--lab2)}
 .vgc svg{width:9px;height:9px}
+
+/* iOS 26 toolbar group: gear and vault button share one glass background, with no per-button glass inside */
+.tbgrp{display:inline-flex;align-items:center;height:34px;border-radius:17px;background:var(--glass);box-shadow:0 1px 4px rgba(0,0,0,.12);position:relative}
+.tbgrp .ibtn,.tbgrp .btn.glass{background:none;box-shadow:none}
+.tbgrp .ibtn.flat,.tbgrp .ibtn{color:var(--lab)}
+.tbgrp .btn.vcap{padding:0 12px 0 8px}
+.tbgrp .btn.vcap.glyph{padding:0 11px 0 6px;gap:0}
+.tbgrp .btn.vcap.glyph .vcn,.tbgrp .btn.vcap.glyph .vcc{display:none}
+.tbgrp .btn.vcap.glyph{width:34px;padding:0;justify-content:center}

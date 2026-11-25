@@ -287,8 +287,12 @@ export function Workspace({ device, init = {}, empty = false, extra, custom }: {
         <div className="col list" data-bounds>
           <div className="tbar">
             {!showSide && <button className="ibtn" aria-label="Show sidebar" data-tip="Show sidebar" onClick={() => setShowSide(true)}><SidebarIcon /></button>}
-            {!mac && !showSide && <button className="ibtn" aria-label="Settings" data-tip="Settings"><GearIcon /></button>}
-            {!mac && !showSide && <span onClick={() => setCapMenu(!capMenu)}><VaultCapsule open={capMenu} menu={<VaultMenu single={!twoVaults} onPick={() => setCapMenu(false)} />} /></span>}
+            {!mac && !showSide && (
+              <span className="tbgrp">
+                <button className="ibtn" aria-label="Settings" data-tip="Settings"><GearIcon /></button>
+                <span onClick={() => setCapMenu(!capMenu)}><VaultCapsule open={capMenu} menu={<VaultMenu single={!twoVaults} onPick={() => setCapMenu(false)} />} /></span>
+              </span>
+            )}
             <span className="sp" />
             {/* Sort and Filter share one capsule: both change how the list is shown. + Add stands apart. */}
             <span className="viewopts">
