@@ -184,15 +184,15 @@ struct PopUpRow<Content: View, Trailing: View>: View {
 
     @ViewBuilder private var row: some View {
         #if os(macOS)
-        // The label and the control meet on the centre line, as in a Mac form: the pair sits under the centred title.
+        // The label and the control are one unit, centred under the centred title (owner, 2026-11-25). Pinning the colon to the
+        // centre line made a short label and a long vault name look shifted to the right.
         HStack(spacing: 8) {
-            (Text(label) + Text(verbatim: ":")).frame(maxWidth: .infinity, alignment: .trailing)
-            HStack(spacing: 8) {
-                content.buttonStyle(.bordered).foregroundStyle(.primary)
-                trailing
-            }
-            .fixedSize().frame(maxWidth: .infinity, alignment: .leading)
+            Text(label) + Text(verbatim: ":")
+            content.buttonStyle(.bordered).foregroundStyle(.primary)
+            trailing
         }
+        .fixedSize()
+        .frame(maxWidth: .infinity)
         #else
         HStack {
             Text(label)

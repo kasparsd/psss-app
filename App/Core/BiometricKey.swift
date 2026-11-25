@@ -96,6 +96,17 @@ extension BiometryKind {
         return String(localized: "\(kind.label) or \(fallback)")
     }
 
+    /// "Touch ID" or "Face ID" alone, for a sentence that is about the saved key (not the switch): the device's kind, else the one
+    /// it had, else the platform's usual one.
+    static var keyName: String {
+        if let kind = current ?? remembered { return kind.label }
+        #if os(macOS)
+        return String(localized: "Touch ID")
+        #else
+        return String(localized: "Face ID")
+        #endif
+    }
+
     /// The name for a sentence: what the device has now, else what it had when the key was saved, else "Biometric unlock".
     static var nameForMessages: String {
         (current ?? remembered)?.label ?? String(localized: "Biometric unlock")

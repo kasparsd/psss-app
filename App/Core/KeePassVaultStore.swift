@@ -203,6 +203,13 @@ struct VaultReference: Codable, Equatable, Sendable {
         return FileManager.default.fileExists(atPath: resolved.url.path)
     }
 
+    /// The vault file, when it can be found: Psss's own folder for a vault it created, otherwise the opened file's bookmark.
+    var fileURL: URL? {
+        if managed { return VaultFiles.managedURL(fileName: fileName) }
+        guard let bookmark, let url = try? VaultFiles.resolve(bookmark).url else { return nil }
+        return url
+    }
+
     /// Where the vault lives, for the lock screen's selector: "On this device" for a vault Psss created, otherwise the folder.
     var menuLocation: String {
         if managed { return String(localized: "On this device") }

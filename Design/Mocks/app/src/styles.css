@@ -415,9 +415,9 @@ table.cmp td,table.cmp th{border-top:1px solid var(--rule);padding:6px 12px 6px 
 .lk-pickrow .pur.mac,.lk-form .pur.mac{width:100%}
 .lk-pickrow{display:block !important;width:280px;margin-left:auto;margin-right:auto}
 .lk.onphone .lk-pickrow{width:100%}
-/* Mac: label and control meet on the centre line, so the pair sits under the centred title */
-.pur.mac{grid-template-columns:1fr 1fr;column-gap:8px}
-.pur.mac > span:last-child{justify-self:start}
+/* Mac: the label and the pop-up are one unit, centred under the centred title (owner, 2026-11-25). Pinning the colon to the
+   centre line made a short label and a long pop-up look shifted right. */
+.pur.mac{display:flex;justify-content:center;gap:8px;grid-template-columns:none}
 .lk-x{background:none;border:0;color:var(--lab2);font-size:18px;line-height:1;cursor:pointer;padding:0 4px}
 .xb-badge{position:absolute;right:-5px;bottom:-5px;width:13px;height:13px;border-radius:50%;background:#30d158;color:#fff;font-size:9px;font-style:normal;display:grid;place-items:center;border:1.5px solid var(--card)}
 .pur .pur-val{white-space:nowrap}

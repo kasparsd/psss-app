@@ -126,7 +126,8 @@ struct NewVaultSheet: View {
                 }
                 Section {
                     LabeledContent("Name") {
-                        TextField("Name", text: $name).multilineTextAlignment(.trailing)
+                        // The row draws "Name"; hidden here, or the Mac also draws the field's own title in the middle (found 2026-11-25).
+                        TextField("Name", text: $name).labelsHidden().multilineTextAlignment(.trailing)
                             .autocorrectionDisabled()
                             #if os(iOS)
                             .textInputAutocapitalization(.words)
@@ -145,7 +146,7 @@ struct NewVaultSheet: View {
                 } header: {
                     Text("Vault Password")
                 } footer: {
-                    Text("You enter it each time the vault unlocks. Psss cannot reset it, so keep a copy somewhere safe. You also need it if you reinstall Psss: Face ID and Touch ID are set up again afterwards.")
+                    Text("You enter it each time the vault unlocks. Psss cannot reset it, so keep a copy somewhere safe. You also need it if you reinstall Psss: \(BiometryKind.keyName) is set up again afterwards.")
                 }
                 if !password.isEmpty, !confirmation.isEmpty, password != confirmation {
                     ProblemText(text: String(localized: "The passwords do not match."))

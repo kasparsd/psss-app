@@ -244,6 +244,7 @@ Goal: five people outside the project fill, save and find a login without guidan
 
 The 1.0 model is built (see the item under M1 and [vaults](vaults.md#10-model-2026-11-24)). What is not done or not proven:
 
+- [ ] **Show in Files on iPhone and iPad.** The Mac vault page has Show in Finder (2026-11-25). iOS has no supported way to open Files at a file; the page shows the place and file name only. Revisit if Apple adds one (the `shareddocuments://` scheme is undocumented).
 - [ ] **Rename a vault.** Not available in Settings. The Vaults list is names only; there is no rename, colour or About yet.
 - [ ] **Mac app not clicked through.** The Mac scheme builds; the vault window, the Vault row, the dropdown, Settings (General and Vaults panes) and the lock screen have not been used by a person.
 - [ ] **AutoFill password unlock memory.** Measured only in the simulator and, for the derivation alone, on a Mac (a 64 MiB Argon2id derivation raises the footprint by about 66 MiB). Needs the oldest supported iPhone (spike S2): read the resident, peak and footprint lines in Console after one unlock. Until then the fallback “Open Psss to unlock <name>.” may show for a vault that would fit.

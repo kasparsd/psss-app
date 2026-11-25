@@ -35,7 +35,7 @@ type Kind = 'icloud' | 'device' | 'sample';
 
 /* ---------- the vault page: everything that belongs to one vault ---------- */
 
-const where: Record<Kind, string> = { icloud: 'iCloud Drive', device: 'On this device', sample: 'Not saved' };
+const where: Record<Kind, string> = { icloud: 'iCloud Drive › Psss', device: 'On this device', sample: 'Not saved' };
 
 function VaultBody({ kind, device = 'iPhone' }: { kind: Kind; device?: string }) {
   if (kind === 'sample') {
@@ -55,24 +55,26 @@ function VaultBody({ kind, device = 'iPhone' }: { kind: Kind; device?: string })
       <Card>
         <Line l="Name" v="Passwords" />
         <Line l="Location" v={where[kind]} />
+        {!managed && <Line l="File" v="Passwords.kdbx" />}
         <Line l="Items" v="214" />
         <Line l="Modified" v="Today, 9:12" />
+        {device === 'Mac'
+          ? <>
+              <div className="mapfield" style={{ gap: 8, justifyContent: 'flex-start' }}><span className="btn">Show in Finder</span><span className="btn">Save a Copy…</span></div>
+              <Line l="Vault Password" v={<span className="btn">Change…</span>} />
+            </>
+          : <><Line l="Save a Copy…" link /><Line l="Change Vault Password…" link /></>}
+        <Line l="Technical details" chev />
       </Card>
-      <Foot>A KeePass file, encrypted with your vault password. Other KeePass apps can open it.</Foot>
+      <Foot>A KeePass file, encrypted with your vault password. Psss cannot reset the vault password. A copy is the way back if the file is lost.</Foot>
       <Head>Unlock</Head>
       <Card><Toggle l={`Unlock with ${id}`} on /></Card>
       <Foot>{`AutoFill and the browser extension use this vault only while this is on. With it off, Psss asks for the vault password.`}</Foot>
-      <Head>Keep it safe</Head>
-      <Card>
-        <Line l="Save a Copy…" link />
-        <Line l="Change Vault Password…" link />
-      </Card>
-      <Foot>Psss cannot reset the vault password. A copy is the way back if the file is lost.</Foot>
       <Head>Remove</Head>
       <Card>{managed ? <Line l="Delete Vault…" red /> : <Line l="Forget Vault…" link />}</Card>
       <Foot>
         {managed
-          ? `Deletes Passwords and its backup copies from this ${device}, and turns off ${id} for it. Without another copy of the file, your logins are gone. This cannot be undone.`
+          ? `Deletes Passwords and its backup copies from this ${device}, and removes its saved ${id} key. Without another copy of the file, your logins are gone. This cannot be undone.`
           : `Psss stops using Passwords on this ${device}. The file is not deleted: it stays in the Psss folder in iCloud Drive and you can open it again.`}
       </Foot>
     </>
@@ -213,7 +215,7 @@ export function Settings() {
   return (
     <Page
       title="Settings: this vault and this app"
-      status={<><strong>Options B and C chosen by the owner, 2026-11-24.</strong> B is built on iPhone and iPad, C on the Mac; device check of the Mac window open. <strong>Proposal, not built (2026-11-24):</strong> the Face ID footer wording (see the History). Starts from the owner's remark that “Forget vault” sits outside the vault group in Setup and makes no sense there.</>}
+      status={<><strong>Options B and C chosen by the owner, 2026-11-24.</strong> B is built on iPhone and iPad, C on the Mac; the Mac window was clicked through on 2026-11-25 and the vault page regrouped (see the History). <strong>Proposal, not built (2026-11-24):</strong> the Face ID footer wording (see the History). Starts from the owner's remark that “Forget vault” sits outside the vault group in Setup and makes no sense there.</>}
     >
       <Clarity
         intro={<p>A person opens this screen to change something. They must know first whether it changes <em>one vault</em> or <em>the whole app</em>, and that the destructive step belongs to a vault and says what it does to the file.</p>}
@@ -275,7 +277,7 @@ export function Settings() {
         <Frame label="B1 · Settings, one vault (iPhone)" phone caption="With one vault the Vaults group has one row and “Add Vault…”, as the multiple-vaults doc says. The app rows follow, each group named for what it covers.">
           <Phone title="Settings" done><VaultsList /><AppBody /></Phone>
         </Frame>
-        <Frame label="B2 · The vault’s page, a vault in iCloud Drive" phone caption="Everything about Passwords: the file, the key kept for Face ID, the copy and password actions, then Remove last in its own group. “Forget Vault…” is in the accent colour because nothing is deleted.">
+        <Frame label="B2 · The vault’s page, a vault in iCloud Drive" phone caption="One group for the vault: its name, where the file is (place and file name), then Save a Copy… and Change Vault Password…, the two things done to the file. Unlock with Face ID next. Remove last in its own group. “Forget Vault…” is in the accent colour because nothing is deleted.">
           <Phone title="Passwords" back="Settings"><VaultBody kind="icloud" /></Phone>
         </Frame>
         <Frame label="B3 · A vault kept on this device only" phone caption="Same page. The last row says “Delete Vault…” in red, because here the file is removed with the vault. The footer says so before the tap.">
@@ -315,7 +317,7 @@ export function Settings() {
         <Frame label="C1 · Mac, General" caption="The app’s rows. Nothing about any one vault.">
           <MacSettings pane="general" />
         </Frame>
-        <Frame label="C2 · Mac, Vaults" caption="Pick a vault on the left; its page on the right, ending in Forget Vault… or Delete Vault…. The labeled “Add Vault…” button under the list is not built yet.">
+        <Frame label="C2 · Mac, Vaults" caption="Pick a vault on the left; its page on the right. The file actions share one row: Show in Finder (opens the folder with the file selected) and Save a Copy…; the Location tooltip is the full path. “Vault Password” is a labeled row with Change… at the right. The page ends in Forget Vault… or Delete Vault…. Add Vault… under the list. The window is titled Vaults, not by the vault’s name.">
           <MacSettings pane="vaults" />
         </Frame>
       </Frames>
@@ -373,6 +375,7 @@ export function Settings() {
 
       <History
         entries={[
+          { date: '2026-11-25', text: <>The vault page has one group for the vault (owner: the actions belong with the vault’s details): Name, Location (the place: “On this device”, “iCloud Drive › Psss” or the folder; its tooltip on the Mac is the full path), File (the name of a file the person opened; none for a vault Psss created, whose file has an internal name), Items, Modified, <strong>Save a Copy…</strong>, <strong>Change Vault Password…</strong> and Technical details. On the Mac (owner, same day): the file actions share one row, <strong>Show in Finder</strong> and <strong>Save a Copy…</strong>, and the password is a labeled row, “Vault Password” with <strong>Change…</strong> at the right, as macOS draws a password in Users & Groups. Replaces the separate “Keep it safe” group under Unlock; its footer sentence joins the vault group’s footer. Remove stays last in its own group: the owner asked whether it belongs at the top too, and the lead kept it apart, as Apple keeps destructive actions away from everyday ones. iPhone and iPad have no Show in Files: Files cannot reliably open at a file (roadmap). The Mac Settings window is titled by its pane (“Vaults”), no longer by the selected vault. The delete footer says “removes its saved Touch ID key” instead of “turns off Touch ID or password for it”. B2, B3, B7 and C2 redrawn.</> },
           { date: '2026-11-24', text: <>Added B8: a vault that is not available (Archive) shows the warning glyph in the list. The decision about “Add Vault…” no longer says it is not drawn: the row, the button and the sheet are drawn and (on iPhone and iPad) built. Replaces the older decision that left Add Vault… for the multiple-vaults work.</> },
           { date: '2026-11-24', text: <>Lead decisions applied: the Vaults list (iPhone, iPad and the Mac pane) is names only again; the warning glyph shows only for a vault that is not available, with no second line and no padlocks. Replaces the entry below, which gave every row a padlock and a state line. Uses the shared <code>VaultMenu.tsx</code> data; shared Vault row and menu.</> },
           { date: '2026-11-24', text: <>(Superseded by the entry above.) The Vaults list rows end in the shared state glyph (Passwords an open padlock, Work a closed one; a warning triangle for a vault that is not available), the same as every vault menu, and carry a second line only when the state has words (“Needs vault password”, “Not found”). Still no file name or place: those stay on the vault’s page. Drawn from the shared row data in <code>VaultMenu.tsx</code>; see <a href="#/vault-states">Vault states</a>. Proposal, not built.</> },

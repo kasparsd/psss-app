@@ -112,23 +112,41 @@ struct VaultSettingsPage: View {
 
     var body: some View {
         Form {
+            // One group for the vault: what it is, where its file is, and the two things done to the file (owner, 2026-11-25:
+            // the actions belong with the vault's details). Leaving it stays last, in its own group (HIG: destructive apart).
             Section {
                 LabeledContent("Name", value: VaultName.short(reference.name))
-                LabeledContent("Location", value: managed ? String(localized: "On this device") : reference.fileName)
+                VaultLocationRows(reference: reference)
                 if let store {
                     LabeledContent("Items", value: (itemCount ?? store.items().count).formatted())
                     if let modified = store.lastModified {
                         LabeledContent("Modified", value: modified.formatted(date: .abbreviated, time: .shortened))
                     }
+                }
+                #if os(macOS)
+                // The file actions share a row; the password is a labeled row with Change… at the right, as macOS draws a
+                // password in Users & Groups (owner, 2026-11-25).
+                HStack(spacing: 8) {
+                    VaultLocationRows.showInFinder(reference)
+                    saveCopyButton
+                }
+                LabeledContent("Vault Password") {
+                    Button("Change…") { onChangePassword?() }
+                        .disabled(onChangePassword == nil)
+                        .accessibilityLabel(Text("Change Vault Password"))
+                }
+                #else
+                saveCopyButton
+                changePasswordButton
+                #endif
+                if let store {
                     DisclosureGroup("Technical details") {
                         LabeledContent("Format", value: store.formatLabel)
                         LabeledContent("Encryption", value: store.kdfSummary)
                     }
                 }
             } footer: {
-                Text(store == nil
-                     ? reference.encryptionDescription + " " + String(localized: "Unlock Psss to see what is inside.")
-                     : reference.encryptionDescription)
+                Text(vaultFooter)
             }
             Section {
                 Toggle("Unlock with \(BiometryKind.unlockName)", isOn: Binding(
@@ -147,20 +165,6 @@ struct VaultSettingsPage: View {
                      : store == nil ? copy.savedKeyOffFooter + " " + String(localized: "Unlock Psss first.") : copy.savedKeyOffFooter)
             }
             Section {
-                Button("Save a Copy…") {
-                    if let store { copyDocument = (try? VaultFiles.read(store.url)).map(VaultCopy.init) }
-                }
-                .disabled(store == nil)
-                Button("Change Vault Password…") { onChangePassword?() }
-                    .disabled(onChangePassword == nil)
-            } header: {
-                Text("Keep it safe")
-            } footer: {
-                Text(store == nil
-                     ? String(localized: "Psss cannot reset the vault password. A copy is the way back if the file is lost.") + " " + String(localized: "Unlock Psss to save a copy or change the password.")
-                     : String(localized: "Psss cannot reset the vault password. A copy is the way back if the file is lost."))
-            }
-            Section {
                 if managed {
                     Button("Delete Vault…", role: .destructive) { confirmsLeaving = true }
                 } else {
@@ -173,7 +177,9 @@ struct VaultSettingsPage: View {
             }
         }
         .formStyle(.grouped)
+        #if os(iOS)
         .navigationTitle(VaultName.short(reference.name))
+        #endif
         // The exporter belongs to the page that asks for it.
         .fileExporter(isPresented: Binding(get: { copyDocument != nil }, set: { if !$0 { copyDocument = nil } }),
                       document: copyDocument, contentType: .keePassVault,
@@ -207,9 +213,29 @@ struct VaultSettingsPage: View {
             : String(localized: "Psss then shows your next vault.")
     }
 
+    private var saveCopyButton: some View {
+        Button("Save a Copy…") {
+            if let store { copyDocument = (try? VaultFiles.read(store.url)).map(VaultCopy.init) }
+        }
+        .disabled(store == nil)
+    }
+
+    private var changePasswordButton: some View {
+        Button("Change Vault Password…") { onChangePassword?() }
+            .disabled(onChangePassword == nil)
+    }
+
+    /// What the file is, that Psss cannot reset its password, and (while locked) that the rest needs it unlocked.
+    private var vaultFooter: String {
+        let parts = [reference.encryptionDescription,
+                     String(localized: "Psss cannot reset the vault password. A copy is the way back if the file is lost.")]
+        let locked = store == nil ? [String(localized: "Unlock Psss to see what is inside, save a copy or change the password.")] : []
+        return (parts + locked).joined(separator: " ")
+    }
+
     private var removeFooter: String {
         if managed {
-            let key = savedKeyOn ? String(localized: ", and turns off \(BiometryKind.unlockName) for it") : ""
+            let key = savedKeyOn ? String(localized: ", and removes its saved \(BiometryKind.keyName) key") : ""
             return String(localized: "Deletes \(reference.name) and its backup copies from this device\(key). Without another copy of the file, your logins are gone. This cannot be undone.")
         }
         return String(localized: "Psss stops using \(reference.name) on this device. The file is not deleted and you can open it again.")
@@ -231,13 +257,15 @@ struct OtherVaultSettingsPage: View {
         Form {
             Section {
                 LabeledContent("Name", value: VaultName.short(reference.name))
-                LabeledContent("Location", value: reference.managed ? String(localized: "On this device") : reference.fileName)
+                VaultLocationRows(reference: reference)
             } footer: {
                 Text("To change this vault, choose it with the vault switcher or on the lock screen. It then opens here.")
             }
         }
         .formStyle(.grouped)
+        #if os(iOS)
         .navigationTitle(VaultName.short(reference.name))
+        #endif
     }
 }
 
@@ -263,7 +291,9 @@ struct SampleSettingsPage: View {
             }
         }
         .formStyle(.grouped)
+        #if os(iOS)
         .navigationTitle("Sample vault")
+        #endif
         .alert("Close the sample vault?", isPresented: $confirmsClosing) {
             Button("Close Sample Vault") {
                 leaveOpenVault(session: session, gate: gate, vaultSource: &vaultSource)
@@ -276,3 +306,45 @@ struct SampleSettingsPage: View {
     }
 }
 
+
+/// Where a vault's file is: the place in words ("On this device", "iCloud Drive › Psss", a folder) and, for a file the person
+/// opened, its name. A vault Psss created keeps its file under an internal name, so no File row. On the Mac the Location
+/// tooltip is the full path, and the vault page puts **Show in Finder** (`showInFinder`) beside Save a Copy… (owner, 2026-11-25). iPhone and iPad have no Show in Files: Files has no reliable way to open at a file (docs/roadmap.md).
+struct VaultLocationRows: View {
+    let reference: VaultReference
+
+    var body: some View {
+        let url = reference.fileURL
+        LabeledContent("Location") {
+            Text(verbatim: reference.menuLocation)
+                #if os(macOS)
+                .help(Text(verbatim: url?.path ?? reference.fileName))
+                #endif
+        }
+        if !reference.managed {
+            LabeledContent("File") {
+                Text(verbatim: DisplayText.safe(reference.fileName, empty: String(localized: "Unknown")))
+                    .lineLimit(1).truncationMode(.middle)
+                    #if os(macOS)
+                    .textSelection(.enabled)
+                    #endif
+            }
+        }
+    }
+
+    #if os(macOS)
+    /// **Show in Finder** for a vault: opens the folder with its file selected.
+    static func showInFinder(_ reference: VaultReference) -> some View {
+        let url = reference.fileURL
+        return Button("Show in Finder") { if let url { reveal(url, scoped: !reference.managed) } }
+            .disabled(url == nil || !reference.isReachable)
+    }
+
+    /// Opens Finder at the file. A file opened in place is reached through its security-scoped bookmark.
+    static func reveal(_ url: URL, scoped: Bool) {
+        let accessing = scoped && url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+    #endif
+}
