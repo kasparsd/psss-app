@@ -1,10 +1,13 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { deletedItems, items as sampleItems, type Item } from '../data';
-import { GearIcon, SearchIcon, SidebarIcon, VaultsIcon } from '../icons';
-import { VaultMenu } from './VaultMenu';
+import { ChevronDownIcon, ChevronIcon, GearIcon, LockClosedIcon, SearchIcon, SidebarIcon } from '../icons';
+import { VaultMenu, addItems } from './VaultMenu';
+import { VaultCapsule } from './VaultCapsule';
 import { ItemCard } from './ItemCard';
 import { CodeRow, EmptyState, ListHead, ListRow } from './Rows';
 import { UndoBanner } from './UndoBanner';
+import { BioPrompt } from './BioPrompt';
+import { PasswordField, UnlockRow } from './UnlockRow';
 import { allHeading, allSections, featLine, listOne, sortItems, withRecent, type Feat, type SortKey, type TypeKey } from '../listing';
 import { FilterMenu } from './FilterMenu';
 import { SortMenu } from './SortMenu';
@@ -46,9 +49,22 @@ export interface WorkspaceInit {
   sortOpen?: boolean;
   feats?: Feat[];
   filterOpen?: boolean;
-  /** Two or more vaults: the vault dropdown (icon) in the sidebar toolbar; "open" draws its menu. One vault: no dropdown. The section header names the vault either way. */
-  vaultMenu?: boolean | 'open';
+  /**
+   * Vaults as sidebar sections, the way Mail shows accounts (owner, 2026-11-25). `one` (default): one section, expanded. `two`: Passwords open, Work collapsed with a lock.
+   * `locked`: the window is locked: every section is collapsed with a lock and the content area shows the unlock form for Passwords (the last used).
+   */
+  vaults?: 'one' | 'two';
+  locked?: boolean;
+  /** The person chose this locked vault: the content area (list and detail columns) shows its unlock form. */
+  unlock?: string;
+  /** A menu drawn open: the context menu of the open vault's section header, or the Add Vault menu at the foot of the sidebar. */
+  sideMenu?: 'context' | 'add' | 'capsule';
+  /** Mac: the system's Touch ID prompt is drawn over the unlock form (it appears by itself when the form becomes active). */
+  bioPrompt?: boolean;
 }
+
+/** The Passwords vault holds 214 items in every frame of every page (Settings says so too); the sample list below has fewer rows, so the totals are drawn, not counted. */
+export const vaultTotal = 214;
 
 const az = (a: Item, b: Item) => a.name.localeCompare(b.name);
 
@@ -70,6 +86,62 @@ function listFor(entries: Entry[], side: SideKey): Entry[] {
 /** A page that draws its own item column: the body, whether it is being edited, and a sheet over the window. */
 export interface WorkspaceCustom { body: ReactNode; editing?: boolean; overlay?: ReactNode }
 
+/** A vault's section header in the sidebar, as Mail draws an account: the name in secondary text, a lock after it when locked, a disclosure chevron at the end. */
+function VaultHeader({ name, open, locked, sel, onClick, onContext }: { name: string; open?: boolean; locked?: boolean; sel?: boolean; onClick?: () => void; onContext?: () => void }) {
+  return (
+    <div className={`vsh${sel ? ' sel' : ''}`} role="button" aria-expanded={!!open} aria-label={locked ? `${name}, locked` : name} data-tip={locked ? `${name} is locked. Choose it to unlock.` : `${name}. Right-click for vault actions.`} onClick={onClick} onContextMenu={(e) => { e.preventDefault(); onContext?.(); }}>
+      <span className="vhn">{name}</span>
+      {locked && <span className="vhl" aria-hidden="true"><LockClosedIcon /></span>}
+      <span className="vhc" aria-hidden="true">{open ? <ChevronDownIcon /> : <ChevronIcon />}</span>
+    </div>
+  );
+}
+
+/**
+ * The sidebar's foot, pinned to the bottom of the sidebar on Mac and iPad (a bottom bar; on iPad the safe-area inset of the sidebar list), not a row of the list (owner, 2026-11-25):
+ * the labeled Add Vault control with its menu (the three ways to add a vault), and at its trailing end an icon-only gear that opens app Settings (Mac: the Settings window, as ⌘, does; iPad: the Settings sheet).
+ * The gear is in the sidebar, not in a window toolbar, so Apple's note against settings buttons in a toolbar does not apply. It has the accessibility label and the tooltip “Settings”.
+ */
+function SidebarFoot({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <div className="sfoot">
+      <div className="sfadd-wrap">
+        <button className="sfadd" aria-haspopup="menu" aria-expanded={open} onClick={onToggle}><span className="sfp" aria-hidden="true">+</span>Add Vault</button>
+        {open && (
+          <div className="pop vadd" role="menu">
+            {addItems.map((l) => <button key={l} role="menuitem" onClick={onToggle}>{l}</button>)}
+          </div>
+        )}
+      </div>
+      <button className="sfgear" aria-label="Settings" data-tip="Settings"><GearIcon /></button>
+    </div>
+  );
+}
+
+/**
+ * A locked vault chosen in the sidebar (or the locked window): its unlock form fills the list and detail columns. Unlocking it locks the vault that is open.
+ * One row under the field: Unlock, the default button, disabled until a password is typed, then Use Touch ID (Face ID on iPad). On the Mac the system's Touch ID prompt appears by itself when this form becomes active.
+ */
+function UnlockPane({ name, other, locked, bio }: { name: string; other: string | null; locked: boolean; bio: 'Touch ID' | 'Face ID' }) {
+  const [pw, setPw] = useState('');
+  return (
+    <div className="col unlockpane" data-bounds>
+      <div className="lk">
+        <div className="lk-title">Unlock {name}</div>
+        <div className="lk-line">Use {bio} or enter the vault password for {name}.</div>
+        <div className="lk-form">
+          <PasswordField value={pw} onChange={setPw} />
+          <UnlockRow bio={bio} typed={pw.length > 0} />
+          <div className="lk-help">
+            <button className="btn sq">Forgot Password</button>
+          </div>
+        </div>
+        <div className="lk-line">{other ? `${other} locks when ${name} opens.` : locked ? 'Psss is locked. All your vaults are locked.' : ''}</div>
+      </div>
+    </div>
+  );
+}
+
 export function Workspace({ device, init = {}, empty = false, extra, custom }: {
   device: 'mac' | 'ipad';
   init?: WorkspaceInit;
@@ -89,7 +161,12 @@ export function Workspace({ device, init = {}, empty = false, extra, custom }: {
   const [selId, setSelId] = useState<number | null>(init.sel ?? null);
   const [editing, setEditing] = useState(init.editing ?? false);
   const [showSide, setShowSide] = useState(init.showSide ?? true);
-  const [vMenu, setVMenu] = useState(init.vaultMenu === 'open');
+  const [unlocking, setUnlocking] = useState<string | null>(init.locked ? 'Passwords' : init.unlock ?? null);
+  const [ctx, setCtx] = useState(init.sideMenu === 'context');
+  const [capMenu, setCapMenu] = useState(init.sideMenu === 'capsule');
+  const [addMenu, setAddMenu] = useState(init.sideMenu === 'add');
+  const twoVaults = init.vaults === 'two' || !!init.locked || !!init.unlock;
+  const openVaultLocked = !!init.locked;
   const [q, setQ] = useState(init.q ?? '');
   const [draftState, setDraft] = useState<string | null | undefined>(undefined);
   const [pristine, setPristine] = useState(true);
@@ -115,7 +192,7 @@ export function Workspace({ device, init = {}, empty = false, extra, custom }: {
   }, [pool, live, side, q, sort, feats]);
   const shownFirst = recent[0] ?? rows[0] ?? null;
   const sel = rows.find((r) => r.id === selId) ?? shownFirst;
-  const count = (k: SideKey) => listFor(pool, k).length;
+  const count = (k: SideKey) => (k === 'all' && !empty ? vaultTotal : listFor(pool, k).length);
   const draft = draftState === undefined ? (sel?.code ?? null) : draftState;
 
   const go = (s: SideKey) => { setSide(s); setQ(''); setEditing(false); setPristine(false); };
@@ -144,6 +221,7 @@ export function Workspace({ device, init = {}, empty = false, extra, custom }: {
     if (side !== 'deleted') setSelId(id);
   };
 
+  const total = !empty && !q && side === 'all' && feats.length === 0 ? vaultTotal : rows.length;
   const noun = q ? 'item' : side === 'codes' ? 'code' : side === 'cards' ? 'card' : 'item';
   const listTitle = q ? 'Search results' : titles[side];
   const mac = device === 'mac';
@@ -166,36 +244,51 @@ export function Workspace({ device, init = {}, empty = false, extra, custom }: {
   const mainRows = cardsList ? rows.filter((r) => !r.expired) : rows;
 
   return (
-    <div className={`ws dt${showSide ? '' : ' noside'}${isEditing ? ' editing' : ''}${mac ? '' : ' ipadws'}`}>
+    <div className={`ws dt${showSide ? '' : ' noside'}${isEditing ? ' editing' : ''}${mac ? ' macui' : ' ipadws'}`}>
       <div className="ws-grid">
         <div className="col side" data-bounds>
           <div className="tbar">
             <span className="sp" />
-            {!mac && <button className="ibtn" aria-label="Settings" data-tip="Settings"><GearIcon /></button>}
-            {init.vaultMenu && (
-              <span className="sortwrap">
-                <button className="ibtn" aria-label="Vaults" aria-haspopup="menu" aria-expanded={vMenu} data-tip={vMenu ? undefined : 'Vaults'} onClick={() => setVMenu(!vMenu)}><VaultsIcon /></button>
-                {vMenu && <VaultMenu onPick={() => setVMenu(false)} />}
-              </span>
-            )}
             <button className="ibtn" aria-label="Hide sidebar" data-tip="Hide sidebar" onClick={() => setShowSide(false)}><SidebarIcon /></button>
           </div>
           <div className="scroll">
-            <div className="sh">Passwords</div>
-            {sideRows.map(([k, l]) => (
-              <div key={k} className={`sr${side === k && !q ? ' sel' : ''}`} onClick={() => go(k)}>
-                <i />{l}<span className="n">{count(k)}</span>
-              </div>
-            ))}
-            <div className={`sr${side === 'deleted' && !q ? ' sel' : ''}`} onClick={() => go('deleted')}>
-              <i />Recently Deleted<span className="n">{count('deleted')}</span>
+            <div className="vsec">
+              <VaultHeader name="Passwords" open={!openVaultLocked} locked={openVaultLocked} sel={unlocking === 'Passwords'} onClick={() => (openVaultLocked ? setUnlocking('Passwords') : undefined)} onContext={() => setCtx(!ctx)} />
+              {ctx && !openVaultLocked && (
+                <div className="pop vctx" role="menu">
+                  <button role="menuitem">Vault Settings…</button>
+                  <button role="menuitem">Lock Passwords</button>
+                  <div className="ph sepd" style={{ padding: 0 }} />
+                  <button role="menuitem">Show in Finder</button>
+                  <button role="menuitem">Remove Vault…</button>
+                </div>
+              )}
             </div>
+            {!openVaultLocked && (
+              <>
+                {sideRows.map(([k, l]) => (
+                  <div key={k} className={`sr${side === k && !q && !unlocking ? ' sel' : ''}`} onClick={() => { setUnlocking(null); go(k); }}>
+                    <i />{l}<span className="n">{count(k)}</span>
+                  </div>
+                ))}
+                <div className={`sr${side === 'deleted' && !q && !unlocking ? ' sel' : ''}`} onClick={() => { setUnlocking(null); go('deleted'); }}>
+                  <i />Recently Deleted<span className="n">{count('deleted')}</span>
+                </div>
+              </>
+            )}
+            {twoVaults && <VaultHeader name="Work" locked sel={unlocking === 'Work'} onClick={() => setUnlocking('Work')} />}
           </div>
+          <SidebarFoot open={addMenu} onToggle={() => setAddMenu(!addMenu)} />
         </div>
 
+        {unlocking ? (
+          <UnlockPane name={unlocking} other={unlocking === 'Passwords' ? null : 'Passwords'} locked={openVaultLocked} bio={mac ? 'Touch ID' : 'Face ID'} />
+        ) : (<>
         <div className="col list" data-bounds>
           <div className="tbar">
             {!showSide && <button className="ibtn" aria-label="Show sidebar" data-tip="Show sidebar" onClick={() => setShowSide(true)}><SidebarIcon /></button>}
+            {!mac && !showSide && <button className="ibtn" aria-label="Settings" data-tip="Settings"><GearIcon /></button>}
+            {!mac && !showSide && <span onClick={() => setCapMenu(!capMenu)}><VaultCapsule open={capMenu} menu={<VaultMenu single={!twoVaults} onPick={() => setCapMenu(false)} />} /></span>}
             <span className="sp" />
             {/* Sort and Filter share one capsule: both change how the list is shown. + Add stands apart. */}
             <span className="viewopts">
@@ -213,7 +306,7 @@ export function Workspace({ device, init = {}, empty = false, extra, custom }: {
             </span>
             <button className="btn glass">+ Add</button>
           </div>
-          <div className="lh">{listTitle}<span> · {rows.length} {noun}{rows.length === 1 ? '' : 's'}</span>{line && <div className="s">{line}</div>}</div>
+          <div className="lh">{listTitle}<span> · {total} {noun}{total === 1 ? '' : 's'}</span>{line && <div className="s">{line}</div>}</div>
           {rows.length === 0 ? (
             q ? <EmptyState title="No matches" text="Try another word." />
               : inDeleted ? <EmptyState title="Nothing deleted" text="Items you delete stay here for 30 days." />
@@ -279,8 +372,10 @@ export function Workspace({ device, init = {}, empty = false, extra, custom }: {
             )}
           </div>
         </div>
+        </>)}
       </div>
       {custom?.overlay}
+      {mac && init.bioPrompt && unlocking && <BioPrompt bio="Touch ID" reason={`Psss wants to unlock ${unlocking}`} mac sheet />}
       {undo && (
         <UndoBanner
           text={`“${undo.name}” moved to Recently Deleted`}

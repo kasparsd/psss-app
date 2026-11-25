@@ -69,7 +69,7 @@ function Sheet({ device, where, unavailable }: { device: 'iphone' | 'ipad' | 'ma
     );
   }
   const sheet = device === 'ipad' ? (
-    <div className="sheetwrap">
+    <div className="cs-wide" style={{ height: 620 }}><div className="sheetwrap">
       <div className="sheet">
         <div className="sheetbar">
           <button className="btn plain">Cancel</button>
@@ -78,9 +78,9 @@ function Sheet({ device, where, unavailable }: { device: 'iphone' | 'ipad' | 'ma
         </div>
         <div className="sheetscroll">{body}</div>
       </div>
-    </div>
+    </div></div>
   ) : (
-    <div className="sheetwrap">
+    <div className="cs-wide" style={{ height: 620 }}><div className="sheetwrap">
       <div className="sheet">
         <div className="maphead"><div className="t">Create a vault</div></div>
         <div className="sheetscroll">{body}</div>
@@ -89,7 +89,7 @@ function Sheet({ device, where, unavailable }: { device: 'iphone' | 'ipad' | 'ma
           <button className="btn pri main">Create</button>
         </div>
       </div>
-    </div>
+    </div></div>
   );
   if (device === 'ipad') return <IPad>{sheet}</IPad>;
   return <MacWindow>{sheet}</MacWindow>;
@@ -128,9 +128,9 @@ export function CreateVault() {
 
       <Section title="3. Not drawn, and what it needs">
         <ul>
-          <li><strong>A folder picker is not in the sheet.</strong> “Open Another Vault…” on the lock screen and in Setup already opens a KeePass file wherever it is. A person who wants their vault in a folder of their own creates it here and moves it in Files or Finder, or opens the file from the folder.</li>
+          <li><strong>A folder picker is not in the sheet.</strong> “Open Vault File…” (in the vault menu, the File menu and Settings › Vaults) already opens a KeePass file wherever it is. A person who wants their vault in a folder of their own creates it here and moves it in Files or Finder, or opens the file from the folder.</li>
           <li><strong>AutoFill.</strong> The extension must be able to read the vault in the Psss folder. That needs the iCloud Documents entitlement on the extension, and an unverified check on a device: that a vault that is not yet downloaded gives the “not ready” screen, not a wrong answer.</li>
-          <li><strong>A vault found on a new device.</strong> After a reinstall, the lock screen's selector lists the vaults in the Psss folder, so nothing needs to be located by hand.</li>
+          <li><strong>A vault found on a new device.</strong> After a reinstall, the lock screen’s Vault row menu lists the vaults in the Psss folder, so nothing needs to be located by hand.</li>
         </ul>
       </Section>
 
@@ -157,6 +157,8 @@ export function CreateVault() {
 
       <History
         entries={[
+          { date: '2026-11-25', text: <>Frames B, C and F (iPad, Mac and the Mac with iCloud Drive off) were collapsed to a strip, because their sheet is positioned over a window with no height of its own; each now sits in a fixed 620 px window, as on the Verification code setup page, so the whole sheet shows. Section 3 uses the current words: “Open Vault File…” and the Vault row’s menu. Replaces the collapsed frames and the old names “Open Another Vault…” and “the lock screen’s selector”.</> },
+          { date: '2026-11-25', text: <>Mac frames redrawn with macOS push buttons (grey rounded rectangle, 13 px, primary-coloured text; accent fill and white text for the default button) instead of the iOS tinted capsule, and the sidebar of Mac and iPad frames now starts with the vault’s section header (“Passwords”, a disclosure chevron), as Mail shows an account, with Add Vault at its foot. Replaces the iOS capsule look on the Mac and the plain sidebar. Nothing else on this page changed; see <a href="#/vault-switcher">Vaults</a>.</> },
           { date: '2026-11-24', text: <>Page added, approved and built. Replaces the first-run sheet that had a name and a vault password and said “kept in one encrypted file on this device. Nothing is uploaded”, which put every new vault in storage that goes with the app. The owner asked whether a person should choose the iCloud location so the vault survives deleting the app.</> },
         ]}
       />

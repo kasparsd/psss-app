@@ -118,7 +118,7 @@ export function ItemPage() {
         <div className="stagebox" style={{ maxWidth: 1000 }}>
           {renderDevice(device, null, { side: 'all' }, { menuBar: true, empty })}
         </div>
-        <p className="prose muted">Mac: click “Psss” in the menu bar to see Settings. iPad: the Setup gear sits beside the sidebar button. Northbank has no code, so its page shows “Set Up Code…”.</p>
+        <p className="prose muted">Mac: click “Psss” in the menu bar to see Settings. iPad: the Setup gear sits at the foot of the sidebar. Northbank has no code, so its page shows “Set Up Code…”.</p>
 
         <Section title="6. Decisions" />
         <Decisions
@@ -163,7 +163,7 @@ export function ItemPage() {
               why: <>One place to look for a field's action, and rows that line up on both edges.</>,
             },
             {
-              decision: <><strong>8. The toolbar follows the columns,</strong> as in Passwords. Over the sidebar: the sidebar button (iPad also the Setup gear; Mac has Psss › Settings… ⌘,). Over the list: Sort, Filter and + Add with its label; the list's title and count are the first line of the list. Over the item: a labelled <strong>Edit</strong>, then search (“Search all items”). While editing, Cancel and Save take Edit's place. In Recently Deleted the item column offers a labelled Restore. No “⋯” menus.</>,
+              decision: <><strong>8. The toolbar follows the columns,</strong> as in Passwords. Over the sidebar: the sidebar button (the Settings gear is in the sidebar foot on Mac and iPad; the Mac also has Psss › Settings… ⌘,). Over the list: Sort, Filter and + Add with its label; the list's title and count are the first line of the list. Over the item: a labelled <strong>Edit</strong>, then search (“Search all items”). While editing, Cancel and Save take Edit's place. In Recently Deleted the item column offers a labelled Restore. No “⋯” menus.</>,
               rejected: <>one toolbar across the window; Edit floating at the bottom right (an iPhone pattern); a “⋯” menu holding the delete action (a symbol nobody reads); an All / Codes / Cards control over the list (see <a href="#/places">Places</a>).</>,
               why: <>Each control sits above what it changes, and Edit is where people who use Passwords already look. iPhone keeps Edit at the top right of its item page.</>,
             },
@@ -191,6 +191,9 @@ export function ItemPage() {
 
         <History
           entries={[
+          { date: '2026-11-25', text: <>Shared Mac and iPad window: the sidebar now ends in a foot pinned to the bottom, with Add Vault and an icon-only Settings gear (opens the Settings window on the Mac, the Settings sheet on iPad); on iPad the gear left the sidebar toolbar and Add Vault is no longer the last row of the list. Replaces the iPad sidebar toolbar gear and the Add Vault list row in every frame of this page. See <a href="#/vault-switcher">Vaults</a>.</> },
+          { date: '2026-11-25', text: <>Review fixes to the shared Mac and iPad window: the Mac window is a Mac surface throughout, so its buttons are macOS push buttons (Unlock, Use Touch ID, Forgot Password, Copy Setup Link, Show QR Code), its switches are Mac switches, and its text is two sizes, the title (17 px) and the body (13 px), instead of 17, 22 and 13; the toolbar capsules keep the macOS 26 look. The Passwords vault shows 214 items in the sidebar count and the list heading, as Settings does, and the traffic lights are no longer hidden behind the sidebar. Replaces the iOS button styles in the Mac window and the count of 19.</> },
+          { date: '2026-11-25', text: <>Mac frames redrawn with macOS push buttons (grey rounded rectangle, 13 px, primary-coloured text; accent fill and white text for the default button) instead of the iOS tinted capsule, and the sidebar of Mac and iPad frames now starts with the vault’s section header (“Passwords”, a disclosure chevron), as Mail shows an account, with Add Vault at its foot. Replaces the iOS capsule look on the Mac and the plain sidebar. Nothing else on this page changed; see <a href="#/vault-switcher">Vaults</a>.</> },
             { date: '2026-11-24', text: <>Added section 4, “Fields not filled in yet”: recognized fields with no value, drawn as “Not set” rows with an “Add” (A), against one “Not filled in” row (B). Variant A was approved by the owner the same day and built; B was dropped. The card gained Valid from, PIN and Card issuer in the editor and Card type on the page. Rows that were not filled in used to have no row at all.</>, },
             { date: '2026-11-24', text: <>The line “Copies are cleared after 60 seconds”, with its info button, left the item page at the owner's request. The explanation stays in Help, under Copying. It was the first group's footer; the page now goes straight from the first card to the next group.</>, },
             { date: '2026-11-24', text: <>“Move to Recently Deleted” left its card and now stands on the page below the last card, centred, with its line under it. It acts on the whole item, not on a field of a group, so a group background made it look like a row. Before, it sat right-aligned in a card of its own.</> },

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { PopUpRow } from './PopUpRow';
 import { Notice } from './Notice';
-import { WarningIcon } from '../icons';
+import { ChevronDownIcon, VaultsIcon, WarningIcon } from '../icons';
 
 /**
  * The Vault row, drawn once (plan: docs/plans/vault-switcher-and-extension-style.md, sections 2 and 3). It is the vault picker on the lock screen, on every AutoFill screen
@@ -12,24 +12,29 @@ import { WarningIcon } from '../icons';
  * - `unavailable`: the same as unlocked, with the orange warning glyph at the row's trailing end (as in the menu) and no Unlock button. A notice below (`VaultNotice`) says which state and what Psss will do. The row stays so another vault is one tap away.
  *
  * `variant`: `phone` is the rounded grey pop-up row (iPhone, and iPad's sheet in compact width); `mac` is the label with a colon and a bordered pop-up button (Mac and iPad sheet); `compact` is
- * the popup header's form: the name with ⌃⌄ as a bordered button, no label, and Unlock beside it. `menu` is drawn under the name when open (pass a `VaultMenu`).
+ * the popup header's form: the vault glyph (outside, at the left, as a label), then the name with a chevron as a plain select-style button, and Unlock beside it. `menu` is drawn under the name when open (pass a `VaultMenu`).
  */
 export type VaultRowState = 'unlocked' | 'locked' | 'unavailable';
 
 const unlockBtn = <button className="btn pri">Unlock</button>;
+/** The Mac's Unlock: the default push button (accent fill, white text). */
+const unlockMac = <button className="mbtn default">Unlock</button>;
 const warnGlyph = (
   <span role="img" aria-label="Not available" data-tip="Not available" style={{ color: '#ff9f0a', display: 'inline-grid', width: 22, flex: 'none' }}><span className="lockg"><WarningIcon /></span></span>
 );
 
 export function VaultRow({ name = 'Passwords', state, variant, menu }: { name?: string; state: VaultRowState; variant: 'phone' | 'mac' | 'compact'; menu?: ReactNode }) {
   const aria = `Vault: ${name}. Switch vault`;
-  const unlock = state === 'locked' ? unlockBtn : state === 'unavailable' ? warnGlyph : undefined;
+  const unlock = state === 'locked' ? (variant === 'mac' ? unlockMac : unlockBtn) : state === 'unavailable' ? warnGlyph : undefined;
   if (variant === 'compact') {
     return (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ position: 'relative', display: 'inline-block' }}>
-          <button className="btn sq" aria-label={aria} aria-haspopup="menu" aria-expanded={!!menu} data-tip={menu ? undefined : 'Switch vault'}>{name} <span style={{ opacity: 0.6 }}>⌃⌄</span></button>
-          {menu}
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <span className="vglyph" aria-hidden="true"><VaultsIcon /></span>
+          <span style={{ position: 'relative', display: 'inline-block' }}>
+            <button className="btn sq" aria-label="Vault" aria-haspopup="menu" aria-expanded={!!menu} data-tip={menu ? undefined : `Vault: ${name}. Switch vault`}>{name} <span className="vgc" aria-hidden="true"><ChevronDownIcon /></span></button>
+            {menu}
+          </span>
         </span>
         {unlock}
       </span>

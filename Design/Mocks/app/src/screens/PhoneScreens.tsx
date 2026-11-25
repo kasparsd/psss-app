@@ -8,7 +8,7 @@ import { SortMenu } from '../components/SortMenu';
 import { IPhone } from '../components/devices';
 import { allHeading, allSections, featLine, listOne, typeNames, withRecent, type Feat, type SortKey, type TypeKey } from '../listing';
 
-/** Top bar: Setup at the leading end on the All tab, labelled actions at the trailing end. */
+/** Top bar: Settings (the gear) at the leading end on the All tab, labelled actions at the trailing end. */
 export function Nav({ left, mid, right }: { left?: ReactNode; mid?: ReactNode; right?: ReactNode }) {
   return (
     <div className="nav">
@@ -25,7 +25,7 @@ const sortLine: Record<SortKey, string> = { used: '', most: 'most used first', c
 const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 
 /**
- * The All tab: Setup at the top left; Sort, Filter and + Add at the top
+ * The All tab: Settings (the gear) at the top left; Sort, Filter and + Add at the top
  * right. The title says what is listed, the line under it what else is in
  * force. In the default order a Recently used group leads. Clickable.
  */
@@ -44,7 +44,7 @@ export function PhoneAll({ type = 'all', feats = [], sort = 'used', menuOpen, so
   return (
     <IPhone tab="all">
       <Nav
-        left={<button className="ibtn flat" aria-label="Setup" data-tip="Setup"><GearIcon /></button>}
+        left={<button className="ibtn flat" aria-label="Settings" data-tip="Settings"><GearIcon /></button>}
         right={
           <span className="navend">
             <span className="viewopts">

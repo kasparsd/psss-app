@@ -36,7 +36,7 @@ export const vaultSubtitle = (v: VaultRowData) => stateInfo[v.state].subtitle ??
 /** A vault in the state where the person cannot use it at all (the Not available group). */
 export const isUnavailable = (s: VaultState) => stateInfo[s].glyph === 'warning';
 
-/** The sample vaults used on every page: Passwords (iCloud Drive) and Work (Work.kdbx). Archive (Not found) appears only where that state is drawn. */
+/** The sample vaults used on every page, in the one fixed order (Settings › Vaults, the order they were added): Passwords (iCloud Drive), Work (Work.kdbx), then Archive (Not found) appears only where that state is drawn. */
 export const passwordsVault: VaultRowData = { name: 'Passwords', location: 'iCloud Drive', state: 'locked' };
 export const workVault: VaultRowData = { name: 'Work', location: 'Work.kdbx', state: 'locked' };
 export const archiveVault: VaultRowData = { name: 'Archive', location: 'Archive.kdbx', state: 'not-found' };
@@ -67,14 +67,18 @@ export function menuRows({ current = passwordsVault.name, locked = false, extra 
   return [...sampleVaults, ...extra].map((v) => (v.state === 'locked' && !locked && v.name === current ? { ...v, state: 'open' as const } : v));
 }
 
+/** The three ways to add a vault, as direct menu items (no chooser sheet). Each opens its own flow. */
+export const addItems = ['New Vault…', 'Open Vault File…', 'Import from Apple Passwords…'];
+
 /**
- * The vault menu, drawn once: a header naming the current vault and Lock [name] (the app's dropdown; not on a lock screen), then one row per vault: a check on the current vault, its name, under it
- * where it is kept or the state's words, a padlock or warning glyph at the trailing end; then Add Vault… (app and lock screen only: `addVault`).
+ * The vault menu, drawn once (owner, 2026-11-25). Vaults always appear in the same order, the order of Settings › Vaults (the order they were added); the open vault never jumps to the top.
+ * In the app (iPhone and iPad capsule): one row per vault in that order (a check on the current vault, its name, under it where it is kept or the state's words, a padlock or warning glyph at the trailing end), a divider,
+ * a section header with the current vault's name holding Vault Settings… and Lock [name], a divider, then the three add items (New Vault…, Open Vault File…, Import from Apple Passwords…). It is there even with one vault.
  *
- * `locked` is the lock screen's menu: the header says “Vault”, there is no Lock item, `current` is the vault that will open. `vaults` replaces the default rows (the state page draws every state);
- * `extra` adds rows after the sample vaults (the lock screen's “Archive”). `inline` draws the menu in the page flow instead of hanging from a control.
+ * `locked` is the lock screen's menu (every platform): the header says “Vault”, there is no section, Vault Settings… or Lock item (nothing is open), `current` is the vault that will open, and the add items follow the rows.
+ * `vaults` replaces the default rows (the state page draws every state); `extra` adds rows after the sample vaults (the lock screen's “Archive”). `inline` draws the menu in the page flow instead of hanging from a control.
  */
-export function VaultMenu({ onPick, align = 'left', locked = false, current = passwordsVault.name, extra = [], vaults, onChoose, inline, addVault = true, picker, states, shift = 0 }: {
+export function VaultMenu({ onPick, align = 'left', locked = false, current = passwordsVault.name, extra = [], vaults, onChoose, inline, addVault = true, picker, states, shift = 0, single }: {
   onPick?: () => void;
   align?: 'left' | 'center' | 'right';
   locked?: boolean;
@@ -84,24 +88,22 @@ export function VaultMenu({ onPick, align = 'left', locked = false, current = pa
   onChoose?: (name: string) => void;
   inline?: boolean;
   addVault?: boolean;
-  /** The AutoFill and browser variant: header “Vault”, no Lock, no Add Vault…, state subtitles. `states` overrides a named vault's state. */
+  /** The AutoFill and browser variant: header “Vault”, no Lock, no add items, state subtitles. `states` overrides a named vault's state. */
   picker?: boolean;
   states?: Record<string, VaultState>;
   /** Pixels to move a right-aligned menu outward, so it clears the screen edge when its control sits inside padding. */
   shift?: number;
+  /** One vault only: the list holds just the current vault. */
+  single?: boolean;
 }) {
   const pos = inline ? { position: 'static' as const } : align === 'center' ? { left: '50%', transform: 'translateX(-50%)' } : align === 'right' ? { right: -shift, left: 'auto' as const } : { left: 0, right: 'auto' as const };
-  const rows = (vaults ?? menuRows({ current, locked, extra })).map((v) => (states?.[v.name] ? { ...v, state: states[v.name] } : v));
+  const rows = (vaults ?? menuRows({ current, locked, extra })).filter((v) => !single || v.name === current).map((v) => (states?.[v.name] ? { ...v, state: states[v.name] } : v));
   if (picker) { locked = true; addVault = false; }
+  const item = (l: string) => <button key={l} role="menuitem" onClick={onPick}><span className="chk" />{l}</button>;
+  const sep = <div className="ph sepd" style={{ padding: 0 }} />;
   return (
     <div className={`pop${locked && !picker ? ' lk-menu' : ''}`} role="menu" style={{ minWidth: 260, ...pos }}>
-      <div className="ph">{locked ? 'Vault' : current}</div>
-      {!locked && (
-        <>
-          <button role="menuitem" onClick={onPick}><span className="chk"><span className="lockg" style={{ display: 'inline-grid', width: 14, height: 14 }}><LockClosedIcon /></span></span>Lock {current}</button>
-          <div className="ph sepd" style={{ padding: 0 }} />
-        </>
-      )}
+      {locked && <div className="ph">Vault</div>}
       {rows.map((v) => (
         <button key={v.name} role="menuitemradio" aria-checked={v.name === current} onClick={() => (onChoose ? onChoose(v.name) : onPick?.())}>
           <span className="chk">{v.name === current && <CheckIcon />}</span>
@@ -109,10 +111,18 @@ export function VaultMenu({ onPick, align = 'left', locked = false, current = pa
           <VaultStateMark state={v.state} />
         </button>
       ))}
+      {!locked && (
+        <>
+          {sep}
+          <div className="ph" style={{ paddingTop: 6 }}>{current}</div>
+          {item('Vault Settings…')}
+          {item(`Lock ${current}`)}
+        </>
+      )}
       {addVault && (
         <>
-          <div className="ph sepd" />
-          <button onClick={onPick}><span className="chk" />Add Vault…</button>
+          {sep}
+          {addItems.map(item)}
         </>
       )}
     </div>

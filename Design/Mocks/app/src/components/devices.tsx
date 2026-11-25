@@ -83,11 +83,13 @@ export function IPad({ children, pill }: { children: ReactNode; pill?: string })
 }
 
 /** Mac window with traffic lights and an optional menu bar (Psss › Settings… ⌘,). */
-export function MacWindow({ children, menuBar, menuOpen: open0 = false, pill }: {
+export function MacWindow({ children, menuBar, menuOpen: open0 = false, pill, fileMenu }: {
   children: ReactNode;
   menuBar?: boolean;
   menuOpen?: boolean;
   pill?: string;
+  /** The File menu, drawn open from the menu bar (its rows are `.mi` / `.msep`). Needs `menuBar`. */
+  fileMenu?: ReactNode;
 }) {
   const [open, setOpen] = useState(open0);
   useEffect(() => {
@@ -102,7 +104,7 @@ export function MacWindow({ children, menuBar, menuOpen: open0 = false, pill }: 
         <div className="menubar">
           <span />
           <button className={`app${open ? ' open' : ''}`} onClick={(e) => { e.stopPropagation(); setOpen(!open); }}>Psss</button>
-          <span>File</span><span>Edit</span><span>View</span><span>Item</span><span>Window</span><span>Help</span>
+          <span className={`fm${fileMenu ? ' open' : ''}`}>File{fileMenu && <div className="amenu" role="menu" style={{ left: 0, top: '100%', minWidth: 280 }}>{fileMenu}</div>}</span><span>Edit</span><span>View</span><span>Item</span><span>Window</span><span>Help</span>
           {open && (
             <div className="amenu">
               <div className="mi">About Psss</div>

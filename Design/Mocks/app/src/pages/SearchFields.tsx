@@ -225,6 +225,7 @@ export function SearchFields() {
 
       <History
         entries={[
+          { date: '2026-11-25', text: <>Mac frames redrawn with macOS push buttons (grey rounded rectangle, 13 px, primary-coloured text; accent fill and white text for the default button) instead of the iOS tinted capsule, and the sidebar of Mac and iPad frames now starts with the vault’s section header (“Passwords”, a disclosure chevron), as Mail shows an account, with Add Vault at its foot. Replaces the iOS capsule look on the Mac and the plain sidebar. Nothing else on this page changed; see <a href="#/vault-switcher">Vaults</a>.</> },
           { date: '2026-11-24', text: <>The “Found in any field” line was removed. With no pill chosen it said nothing the pills do not; the line now appears only while a pill is chosen. The owner asked.</> },
           { date: '2026-11-24', text: <>The owner approved the pills and asked for the default Apple look: the app draws them as standard system toggle buttons (capsule, system accent when on, dimmed when disabled), with no custom fills. The frames keep the same layout; their colours are a sketch of that look.</> },
           { date: '2026-11-24', text: <>First drawing. The owner searched for their own domain: it is the username of many logins and the website of a few, and the few were lost. They asked for pills by field, enabled where the current results match, and a mock first. Pills for more fields than search reads (notes, tags) were not drawn, because search would have to start reading them.</> },

@@ -31,8 +31,9 @@ export const SearchIcon = () => (
 export const SidebarIcon = () => (
   <svg {...base}><rect x="3" y="4.5" width="18" height="15" rx="3" /><path d="M9 4.5v15" /></svg>
 );
+/** A gear, after the SF Symbol “gearshape”: a toothed outer ring (eight teeth) with a round hole in the middle. */
 export const GearIcon = () => (
-  <svg {...base}><circle cx="12" cy="12" r="3.2" /><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" /></svg>
+  <svg {...base} strokeWidth={1.6}><path d="M9.78 4.73 L10.47 2.32 L13.53 2.32 L14.22 4.73 L15.57 5.29 L17.76 4.07 L19.93 6.24 L18.71 8.43 L19.27 9.78 L21.68 10.47 L21.68 13.53 L19.27 14.22 L18.71 15.57 L19.93 17.76 L17.76 19.93 L15.57 18.71 L14.22 19.27 L13.53 21.68 L10.47 21.68 L9.78 19.27 L8.43 18.71 L6.24 19.93 L4.07 17.76 L5.29 15.57 L4.73 14.22 L2.32 13.53 L2.32 10.47 L4.73 9.78 L5.29 8.43 L4.07 6.24 L6.24 4.07 L8.43 5.29z" /><circle cx="12" cy="12" r="3.1" /></svg>
 );
 export const ChevronIcon = () => (
   <svg {...base} strokeWidth={2}><path d="M9 5l7 7-7 7" /></svg>
@@ -84,7 +85,7 @@ export const TrashGlyph = () => (
 export const MoreGlyph = () => (
   <svg {...base}><circle cx="5.5" cy="12" r="1.2" fill="currentColor" /><circle cx="12" cy="12" r="1.2" fill="currentColor" /><circle cx="18.5" cy="12" r="1.2" fill="currentColor" /></svg>
 );
-/** The vault switcher: a stack of disks, the usual database symbol. Icon-only like the gear, with a spoken label and tooltip. */
+/** The vault glyph: a stack of disks, the usual database symbol. It labels the iPhone and iPad vault capsule, the Mac Settings pane and the browser popup's vault picker; always with a spoken label or beside the vault's name. */
 export const VaultsIcon = () => (
   <svg {...base}><ellipse cx="12" cy="6" rx="7" ry="2.8" /><path d="M5 6v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8V6M5 12v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8v-6" /></svg>
 );
@@ -99,4 +100,8 @@ export const LockOpenIcon = () => (
 /** A warning triangle: this vault is not available (not downloaded yet, not found, can't be read). Orange, always paired with a spoken label and a subtitle. */
 export const WarningIcon = () => (
   <svg {...base}><path d="M12 4.2 21 19.5H3z" /><path d="M12 10v4.2" /><path d="M12 16.9v.1" /></svg>
+);
+/** A small downward chevron, as on a toolbar pop-up button. */
+export const ChevronDownIcon = () => (
+  <svg {...base} strokeWidth={2.2}><path d="M6 9.5l6 6 6-6" /></svg>
 );

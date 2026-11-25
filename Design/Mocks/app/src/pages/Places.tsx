@@ -54,7 +54,7 @@ export function Places() {
             initial="mac"
             caption={{
               iphone: 'The All tab, as in A.',
-              ipad: 'iPad at regular width works exactly like the Mac, with a Setup gear beside the sidebar button because the iPad has no app menu. At compact width (Slide Over, narrow Split View) it uses the iPhone tab bar.',
+              ipad: 'iPad at regular width works exactly like the Mac, with the Setup gear at the foot of the sidebar (and in the list toolbar while the sidebar is hidden) because the iPad has no app menu. At compact width (Slide Over, narrow Split View) it uses the iPhone tab bar.',
               mac: 'No tab bar and no All / Codes / Cards control in the toolbar: the sidebar is the one place that chooses. It stays visible (the person can hide it) and lists All, Codes and Cards, then the kinds, then Recently Deleted, each with a count. ⌘1, ⌘2 and ⌘3 choose All, Codes and Cards and are listed in the View menu. The first item opens by itself.',
             }}
             render={(d) => renderDevice(d, <PhoneAll />, { side: 'all', sel: 1 })}
@@ -87,7 +87,7 @@ export function Places() {
               <tr><td>Recent, Most used</td><td>No, sort orders</td><td>“Recently used” is the order All opens in, with its own group on top; “Most used” is a choice in the Sort menu.</td></tr>
               <tr><td>Family / shared groups</td><td>No, a way of narrowing</td><td>The approved sharing design keeps groups inside one vault, so a group narrows the same list; the Filter menu has room for it. Revisit only if separate vaults become something a person switches between.</td></tr>
               <tr><td>Recently Deleted</td><td>No</td><td>Rare, and a recovery place. The last entry of the Filter menu on iPhone and the last row of the sidebar on Mac and iPad.</td></tr>
-              <tr><td>Setup</td><td>No</td><td>Settings, not a place in the vault. The gear stays top left on iPhone and beside the sidebar button on iPad; on Mac it is Psss › Settings… (⌘,).</td></tr>
+              <tr><td>Setup</td><td>No</td><td>Settings, not a place in the vault. The gear stays top left on iPhone and sits in the sidebar foot on iPad; on Mac it is Psss › Settings… (⌘,).</td></tr>
               <tr><td>Add, Password generator</td><td>No</td><td>Actions. Apple's guidance rules out actions in a tab bar. Add stays labeled at the top; the generator lives in the editor.</td></tr>
             </tbody>
           </table>
@@ -158,6 +158,9 @@ export function Places() {
 
         <History
           entries={[
+          { date: '2026-11-25', text: <>Shared Mac and iPad window: the sidebar now ends in a foot pinned to the bottom, with Add Vault and an icon-only Settings gear (opens the Settings window on the Mac, the Settings sheet on iPad); on iPad the gear left the sidebar toolbar and Add Vault is no longer the last row of the list. Replaces the iPad sidebar toolbar gear and the Add Vault list row in every frame of this page. See <a href="#/vault-switcher">Vaults</a>.</> },
+          { date: '2026-11-25', text: <>Review fixes to the shared Mac and iPad window: the Mac window is a Mac surface throughout, so its buttons are macOS push buttons (Unlock, Use Touch ID, Forgot Password, Copy Setup Link, Show QR Code), its switches are Mac switches, and its text is two sizes, the title (17 px) and the body (13 px), instead of 17, 22 and 13; the toolbar capsules keep the macOS 26 look. The Passwords vault shows 214 items in the sidebar count and the list heading, as Settings does, and the traffic lights are no longer hidden behind the sidebar. Replaces the iOS button styles in the Mac window and the count of 19.</> },
+          { date: '2026-11-25', text: <>Mac frames redrawn with macOS push buttons (grey rounded rectangle, 13 px, primary-coloured text; accent fill and white text for the default button) instead of the iOS tinted capsule, and the sidebar of Mac and iPad frames now starts with the vault’s section header (“Passwords”, a disclosure chevron), as Mail shows an account, with Add Vault at its foot. Replaces the iOS capsule look on the Mac and the plain sidebar. Nothing else on this page changed; see <a href="#/vault-switcher">Vaults</a>.</> },
             { date: '2026-11-24', text: <>The Mac and iPad toolbar lost its All / Codes / Cards control. It repeated the sidebar, and the sidebar alone now chooses the place; ⌘1 to ⌘3 stay. Decided by the owner with the filter menu.</> },
             { date: '2026-11-24', text: <>The sidebar lost Recent, Most used and its Filters section: the first two are sort orders and the rest are in the Filter menu (see <a href="#/filter-and-sort">Filter and sort</a>). The “With code” filter was dropped because Codes is that list.</> },
             { date: '2026-11-24', text: <>The pill row left the iPhone All tab and the tab bar stayed. A drawing with no tab bar, search always visible and Codes and Cards inside one menu at the bottom was tried first; the owner kept the tab bar because Codes and Cards must stay one tap away.</> },

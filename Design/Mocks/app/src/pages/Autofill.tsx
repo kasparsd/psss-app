@@ -78,7 +78,7 @@ const counts: [string, number][] = [['Name', 2], ['Website', 3], ['Username', 0]
 /** Logins for this site: the heading above the card; rows name over account, the website when the name is the account. */
 const SiteList = ({ mac, one }: { mac?: boolean; one?: boolean }) => (
   <>
-    <Head>For gitforge.example</Head>
+    <Head>For This Site</Head>
     <div className="grp">
       <ListRow item={gitforge} mac={mac} traits="passkey" trailing={<FillBtn main={one} />} />
       {!one && <ListRow item={harbor} mac={mac} traits={false} sub="gitforge.example" trailing={<FillBtn />} />}
@@ -88,13 +88,15 @@ const SiteList = ({ mac, one }: { mac?: boolean; one?: boolean }) => (
 
 const SearchList = ({ mac }: { mac?: boolean }) => (
   <>
-    <Head>Search results</Head>
+    <Head>For This Site</Head>
     <div className="grp">
       <ListRow item={gitforge} mac={mac} traits="passkey" sub={<Hit hit="git" after="forge.example" />} trailing={<FillBtn />} />
       <ListRow item={gitforge2} mac={mac} traits={false} sub={<Hit hit="git" after="forge.example" />} trailing={<FillBtn />} />
-      <ListRow item={hosting} mac={mac} traits={false} wrap sub={<>Saved for <Hit hit="git" after="hosting.example" /></>} trailing={<FillBtn label="Fill…" />} />
     </div>
-    <Foot>“Fill…” asks first: this login is saved for another site.</Foot>
+    <Head>Other Matches</Head>
+    <div className="grp">
+      <ListRow item={hosting} mac={mac} traits={false} wrap sub={<>Saved for <Hit hit="git" after="hosting.example" /></>} trailing={<FillBtn />} />
+    </div>
   </>
 );
 
@@ -173,7 +175,7 @@ export function Autofill() {
         items={[
           ['Which thing?', 'The AutoFill sheet on iPhone, iPad and Mac, named for the job: “Choose a Login”, “Save Password”, “Choose a Code”. It always names the vault it reads from or saves into, in a Vault row.'],
           ['What must they give?', 'Usually only Face ID or Touch ID, which the system asks for, then one Fill. A locked vault gets an Unlock button beside the Vault row; when quick unlock is off it shows the app’s lock screen right here: the vault password, and a key file only when the vault uses one.'],
-          ['What can go wrong?', 'The vault is locked, needs its password, or is not available (not downloaded, not found, can’t be read). The notice says which, in the vault’s name, and the Vault row stays so another vault is one tap away. A login saved for another site asks first with both sites named.'],
+          ['What can go wrong?', 'The vault is locked, needs its password, or is not available (not downloaded, not found, can’t be read). The notice says which, in the vault’s name, and the Vault row stays so another vault is one tap away..'],
           ['How do they leave?', 'Fill, Save or Cancel, all returning to the page. Looking, searching and unlocking change nothing in the vault; Psss closes the vault when the sheet closes.'],
         ]}
       />
@@ -183,14 +185,14 @@ export function Autofill() {
       </Section>
       <Frames>
         <Frame label="A · iPhone, logins for this site" phone caption="The heading is above the card. Rows are the app’s: name over account, and the website when the name is the account (the second row). Fill is bordered; it is filled when exactly one login matches."><Screen device="iphone" title="Choose a Login" vault={<Vr />} search={<Field />}><SiteList /><Foot>Tap a name to fill one value instead, such as only the username.</Foot></Screen></Frame>
-        <Frame label="B · iPhone, searching “git”" phone caption="The Name, Website and Username pills sit directly under the Vault row with no gap above the list; accent when on, dimmed at 0. A login saved for another site says so and its button is “Fill…”."><Screen device="iphone" title="Choose a Login" vault={<Vr />} pills={<Pills counts={counts} />} search={<Field text="git" />}><SearchList /></Screen></Frame>
+        <Frame label="B · iPhone, searching “git”" phone caption="The Name, Website and Username pills sit directly under the Vault row with no gap above the list; accent when on, dimmed at 0. Results are in two groups, as the app’s list groups rows: “For This Site” and “Other Matches”. A login saved for another site is in Other Matches, its second line says “Saved for githosting.example” (or “No website”), and its button is the same Fill."><Screen device="iphone" title="Choose a Login" vault={<Vr />} pills={<Pills counts={counts} />} search={<Field text="git" />}><SearchList /></Screen></Frame>
       </Frames>
       <Frames>
         <Frame label="C · Mac, one login matches" caption="A sheet over the page’s window: Vault row, the search field, pills directly under it when typing, then the heading and the card. One match, so Fill is the filled button."><Screen device="mac" title="Choose a Login" vault={<Vr mac />} search={<Field />}><SiteList mac one /><Foot>Tap a name to fill one value instead, such as only the username.</Foot></Screen></Frame>
         <Frame label="D · iPad, searching" caption="Same sheet; the rows are the iPad list’s rounded rows. The pills touch the search field."><Screen device="ipad" title="Choose a Login" vault={<Vr />} search={<Field text="git" />} pills={<Pills counts={counts} />}><SearchList mac /></Screen></Frame>
       </Frames>
       <Frames>
-        <Frame label="E · iPhone, nothing for this site in this vault" phone caption="One line under the heading, naming the site and the vault, and saying what to do. Psss does not search the other vault for the person. The menu is closed here so the line can be read; frame F opens it."><Screen device="iphone" title="Choose a Login" vault={<Vr />} search={<Field />}><Head>For cloudnest.example</Head><div className="af-none" style={{ padding: '6px 0' }}>No logins for cloudnest.example in Passwords. Choose another vault above.</div></Screen></Frame>
+        <Frame label="E · iPhone, nothing for this site in this vault" phone caption="A notice, the same card as the vault notices: “No logins for this site”, the vault named, and the ways on: search all items below, or choose another vault in the Vault row. No button, because both are controls already on screen. Psss does not search the other vault for the person. The menu is closed here so the notice can be read; frame F opens it."><Screen device="iphone" title="Choose a Login" vault={<Vr />} search={<Field />}><Head>For cloudnest.example</Head><Notice kind="info" title="No logins for this site">Passwords has none for cloudnest.example. Search all items below, or choose another vault above.</Notice></Screen></Frame>
       </Frames>
 
       <Section title="2. Another vault: locked, needs password, not available">
@@ -260,7 +262,7 @@ export function Autofill() {
       <Section title="6. How it is built">
         <ul>
           <li>The AutoFill extension compiles only <code>App/Core</code> and its own folder, so the row, the icon, the Vault row, the menu and the search pills it shares with the app live in <code>App/Core</code>. The search rule (<code>ItemSearch</code>) is the app’s.</li>
-          <li>One set of words for the sheet, the browser popup and the app: Fill, Fill…, Fill Anyway, Unlock, Cancel, “Saved for …”, the pill names, the notice sentences.</li>
+          <li>One set of words for the sheet, the browser popup and the app: Fill, Unlock, Cancel, the group headings “For This Site” and “Other Matches”, “Saved for …”, the pill names, the notice sentences.</li>
           <li>The extension opens a vault only for the lifetime of the sheet; nothing stays open after it closes.</li>
         </ul>
       </Section>
@@ -284,7 +286,12 @@ export function Autofill() {
             why: <>The same rows as the app’s list. A heading inside the card read as a row.</>,
           },
           {
-            decision: <>Nothing for this site in the current vault says so in one line and points to the Vault row; Psss does not search every vault.</>,
+            decision: <>Fill is the same on every result; there is no Fill… and no confirmation. Results are grouped like the app’s list: “For This Site” (website matches), then “Other Matches” (matched by name or search, saved for another site or without a website), an empty group omitted. Other Matches rows keep a second line, “Saved for githosting.example” or “No website”. Fill is the same everywhere; the group heading and the row’s “Saved for …” line say it’s another site.</>,
+            rejected: <>“Fill…” with an ask-first confirmation (Fill Anyway).</>,
+            why: <>The owner: one button, no extra step. The second line is now the safety signal against a lookalike site.</>,
+          },
+          {
+            decision: <>Nothing for this site in the current vault is a notice (the card the vault notices use) titled “No logins for this site”, naming the vault and pointing to the search field and the Vault row; Psss does not search every vault.</>,
             why: <>The device test showed a person not knowing the login was in the other vault.</>,
           },
           {
@@ -333,6 +340,10 @@ export function Autofill() {
       <History
         proposal
         entries={[
+          { date: '2026-11-25', text: <>Fill… and its confirmation are replaced by grouped results with a uniform Fill, at the owner’s request: “For This Site” (website matches), then “Other Matches” (matched by name or search, saved for another site or with no website), each of those rows keeping “Saved for githosting.example” or “No website” as the lookalike-site signal. Frame B and the site list’s heading (“For This Site”, was “For gitforge.example”) redrawn; the “Fill… asks first” footer is gone. The browser popup has the same groups.</> },
+          { date: '2026-11-25', text: <>Frame E, nothing for this site: a notice titled “No logins for this site” (the vault notices’ card) with one sentence naming the vault, the search field and the Vault row. Replaces the single line of plain text. The browser popup has the same notice.</> },
+          { date: '2026-11-25', text: <>On the Mac sheet the Vault row’s Unlock is the default push button (accent fill, white text), as on the other Mac frames, instead of the iOS capsule. Replaces the iOS capsule on the Mac.</> },
+          { date: '2026-11-25', text: <>Mac frames redrawn with macOS push buttons (grey rounded rectangle, 13 px, primary-coloured text; accent fill and white text for the default button) instead of the iOS tinted capsule, and the sidebar of Mac and iPad frames now starts with the vault’s section header (“Passwords”, a disclosure chevron), as Mail shows an account, with Add Vault at its foot. Replaces the iOS capsule look on the Mac and the plain sidebar. Nothing else on this page changed; see <a href="#/vault-switcher">Vaults</a>.</> },
           { date: '2026-11-25', text: <>Simulator test fixes, no frame redrawn: after the first tap the Save, Update and Create Passkey button is dimmed and reads “Saving…” and ignores further taps (a second tap had saved the login twice); the button title is plain text in one style, “Update Gitforge (sam.r)”, or “Update Gitforge” when the login has no username; the search field never capitalises or corrects; choosing another vault clears the list and shows the Vault row with “Opening…” until Face ID answers; a login saved from a page has no name of its own, so the website its row shows counts under Name too and the matching part of the name is in bold.</> },
           { date: '2026-11-24', text: <>Lead decisions applied to the frames: the menu hangs inward and never leaves the device; the empty-in-this-vault line is shown with the menu closed (E); the Face ID story is drawn end to end (E to H); the in-sheet unlock now matches the approved lock screen (no More Options; wrong-password with Choose Key File…, “Checking your vault password…”, key file known: L to O); not found, not downloaded and can’t be read have a frame each with the warning glyph in the Vault row (P to R), using Archive, Travel and Taxes instead of Work; “Gitforge (work)” is sam@work.example; the Save and Update buttons sit apart from the card. Replaces the unlock sheet with More Options and the menu drawn over frame E. Frames were re-lettered A to AA. The open questions about the pills and about save on iPad and Mac are decided and moved to the decisions.</> },
           { date: '2026-11-24', text: <>Shared Vault row and menu; lead decisions applied. The page’s own Vault row and menu are gone: every frame uses <code>VaultRow</code>, <code>VaultNotice</code> and <code>VaultMenu</code> (picker variant: no Lock, no Add Vault…, state subtitles). Needs-password notices say why; Update changes the password only; mid-flow vault change rules added to the values and save frames.</> },
