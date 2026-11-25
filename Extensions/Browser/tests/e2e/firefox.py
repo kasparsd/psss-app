@@ -253,13 +253,29 @@ class FirefoxTests(unittest.TestCase):
             self.assertEqual(self.js(page, "return document.getElementById('p').value.length"), 18)
         self.with_popup(f"{SITE}/login.html", body)
 
+    def assert_no_empty_boxes(self, popup, where):
+        # Author CSS once beat [hidden], so empty notices and unlabeled pills drew: look at what is rendered.
+        bad = self.js(popup, """return [...document.querySelectorAll('.notice, .pills, .pill, .card, #results, #sitegroup, #search, #create')]
+            .filter((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(e).visibility !== 'hidden'; })
+            .filter((e) => e.textContent.trim() === '' && !e.querySelector('input'))
+            .map((e) => e.id || e.className)""")
+        self.assertEqual(bad, [], f"{where}: no visible empty box")
+        self.assertTrue(self.js(popup, "return [...document.querySelectorAll('.pill')].filter((e) => e.getBoundingClientRect().height > 0).every((e) => e.textContent.trim() !== '')"), f"{where}: shown pills have text")
+        self.assertFalse(self.js(popup, "return document.querySelector('header').innerText.includes('Psss')"), f"{where}: header shows the logo only")
+        self.assertEqual(self.js(popup, "return document.querySelector('header .logo').getAttribute('aria-label')"), "Psss")
+
     def test_2b_search_pills_and_vault_switcher(self):
         def body(page, popup):
             self.settled(popup)
+            self.assert_no_empty_boxes(popup, "a match")
+            self.assertFalse(self.js(popup, "return document.getElementById('sitenote').getBoundingClientRect().height > 0"), "no no-logins notice when a login matches")
+            self.assertEqual(self.js(popup, "return document.getElementById('pills').getBoundingClientRect().height"), 0, "no pills before a search")
             self.set_query(popup, "alex@studio")
             wait_for(lambda: self.js(popup, "return document.querySelectorAll('#results li button').length > 0"), "results")
             self.assertEqual(self.js(popup, "return [...document.querySelectorAll('#pills button')].map((b) => b.getAttribute('aria-label') + (b.disabled ? ' off' : '')).join('|')"),
                              "Name, 0 off|Website, 0 off|Username, 1")
+            self.assert_no_empty_boxes(popup, "search results")
+            self.assertEqual(self.js(popup, "return [...document.querySelectorAll('#pills button')].map((b) => b.textContent.trim()).join('|')"), "Name 0|Website 0|Username 1")
             self.assertEqual(self.js(popup, "return document.querySelector('#results .hit').textContent"), "alex@studio")
             self.set_query(popup, "")
         self.with_popup(f"{SITE}/login.html", body)
@@ -406,6 +422,8 @@ class FirefoxTests(unittest.TestCase):
         def body(page, popup):
             self.settled(popup)
             self.assertEqual(self.text(popup, "sitenotebody"), "Passwords has none for this site. Search all logins above, or choose another vault.")
+            self.assertTrue(self.js(popup, "return document.getElementById('sitenote').getBoundingClientRect().height > 0"), "the no-logins notice shows")
+            self.assert_no_empty_boxes(popup, "no match")
             self.assertEqual(self.text(popup, "forsite"), "For This Site")
         self.with_popup("http://127.0.0.1:8080/login.html", body)
 

@@ -310,6 +310,7 @@
       chosen.has(field) ? chosen.delete(field) : chosen.add(field);
       runSearch();
     });
+    b.textContent = label;
     pillsEl.append(b);
     return [field, { button: b, label }];
   }));

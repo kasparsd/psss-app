@@ -11,6 +11,8 @@
           --field: rgba(120, 120, 128, .28); --pill: rgba(120, 120, 128, .32); --shadow: 0 8px 30px rgba(0, 0, 0, .6); }
 }
 * { box-sizing: border-box; }
+/* Author rules such as .notice { display: flex } beat the browser's own [hidden] rule, so a hidden empty notice or pill row still drew. */
+[hidden] { display: none !important; }
 body { margin: 0; width: 360px; padding: 14px; background: var(--win); color: var(--lab);
        font: var(--body)/1.35 -apple-system, BlinkMacSystemFont, system-ui, sans-serif; }
 main { display: flex; flex-direction: column; gap: 10px; }
@@ -19,8 +21,7 @@ h2 { font-size: var(--body); font-weight: 600; margin: 0 0 4px; }
 .secondary, .s { color: var(--lab2); }
 p { margin: 0; }
 .top { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-.logo { width: 34px; height: 16px; flex: none; color: var(--lab); }
-.heading { flex: 1; min-width: 0; }
+.logo { width: 34px; height: 16px; flex: none; color: var(--lab); margin-right: auto; }
 #created:empty { display: none; }
 #created { margin-top: 6px; }
 

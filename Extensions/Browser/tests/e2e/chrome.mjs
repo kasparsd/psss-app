@@ -111,6 +111,20 @@ const setVaults = (object) => object ? writeFileSync(join(store, 'vaults.json'),
 const text = (popup, id) => popup.eval(`document.getElementById(${JSON.stringify(id)}).textContent`);
 const visible = (popup, id) => popup.eval(`!document.getElementById(${JSON.stringify(id)}).hidden`);
 
+// Regression: author CSS (display: flex) once beat the [hidden] attribute, so empty notices and unlabeled pills drew. These look at
+// what is rendered, not at the `hidden` property.
+const assertNoEmptyBoxes = async (popup, where) => {
+  const bad = await popup.eval(`[...document.querySelectorAll('.notice, .pills, .pill, .card, #results, #sitegroup, #search, #create')]
+    .filter((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(e).visibility !== 'hidden'; })
+    .filter((e) => e.textContent.trim() === '' && !e.querySelector('input'))
+    .map((e) => e.id || e.className)`);
+  assert.deepEqual(bad, [], `${where}: no visible empty box`);
+  assert.equal(await popup.eval(`[...document.querySelectorAll('.pill')].filter((e) => e.getBoundingClientRect().height > 0).every((e) => e.textContent.trim() !== '')`), true, `${where}: shown pills have text`);
+  assert.equal(await popup.eval(`document.querySelector('header').innerText.includes('Psss')`), false, `${where}: the header shows the logo only`);
+  assert.equal(await popup.eval(`document.querySelector('header .logo').getAttribute('aria-label')`), 'Psss', `${where}: the logo keeps its name`);
+};
+const noSiteNoticeShown = (popup) => popup.eval(`document.getElementById('sitenote').getBoundingClientRect().height > 0`);
+
 test('the extension loads and its popup renders', async () => {
   const { page, popup } = await popupFor(`${SITE}/login.html`);
   assert.equal(await popup.eval(`document.title`), 'Psss');
@@ -129,6 +143,9 @@ test('lists the saved login for the page and fills it on click', { skip: false }
   await settled(popup);
   assert.equal(await popup.eval(`document.getElementById('site')`), null, 'the popup does not repeat the page’s site');
   assert.equal(await text(popup, 'forsite'), 'For This Site');
+  await assertNoEmptyBoxes(popup, 'a match');
+  assert.equal(await noSiteNoticeShown(popup), false, 'no no-logins notice when a login matches');
+  assert.equal(await popup.eval(`document.getElementById('pills').getBoundingClientRect().height`), 0, 'no pills before a search');
   assert.equal(await popup.eval(`document.body.innerText.includes('localhost:8080')`), false, 'no host anywhere in the popup');
   assert.equal(await popup.eval(`!document.getElementById('settings').parentElement.hidden`), true, 'the footer ends the popup');
   assert.equal(await popup.eval(`document.getElementById('settings').textContent`), 'Settings');
@@ -157,6 +174,9 @@ test('127.0.0.1 is a different site: no logins are offered', { skip: false }, (t
   assert.equal(await popup.eval(`document.querySelector('#sitenote strong').textContent`), 'No logins for this site');
   assert.equal(await text(popup, 'forsite'), 'For This Site');
   assert.equal(await visible(popup, 'sitenote'), true);
+  assert.equal(await noSiteNoticeShown(popup), true);
+  assert.match(await popup.eval(`document.getElementById('sitenote').innerText`), /No logins for this site\n+Passwords has none for this site/);
+  await assertNoEmptyBoxes(popup, 'no match');
   assert.equal(await popup.eval(`document.querySelector('#sitenote button')`), null, 'the notice has no button');
   assert.equal(await popup.eval(`document.querySelectorAll('#logins li').length`), 0);
 }));
@@ -167,6 +187,7 @@ test('with one vault the empty line is short and no vault button is drawn', { sk
     await popup.eval(`location.reload()`);
     await until(() => visible(popup, 'sitenote'), 'the empty notice');
     assert.equal(await text(popup, 'sitenotebody'), 'Only has none for this site. Search all logins above.');
+    await assertNoEmptyBoxes(popup, 'one vault, no match');
     assert.equal(await visible(popup, 'vaultbar'), false);
     assert.equal(await visible(popup, 'unlock'), false);
   } finally { setVaults(null); }
@@ -275,6 +296,8 @@ test('search shows the pills with counts and the matched part in bold', { skip: 
   await popup.eval(`(() => { const i = document.getElementById('q'); i.value = 'alex@studio'; i.dispatchEvent(new Event('input')); })()`);
   await until(() => popup.eval(`document.querySelectorAll('#results li button').length > 0`), 'search results');
   assert.equal(await popup.eval(`[...document.querySelectorAll('#pills button')].map((b) => b.getAttribute('aria-label') + (b.disabled ? ' off' : '')).join('|')`), 'Name, 0 off|Website, 0 off|Username, 1');
+  await assertNoEmptyBoxes(popup, 'search results');
+  assert.equal(await popup.eval(`[...document.querySelectorAll('#pills button')].map((b) => b.textContent.trim()).join('|')`), 'Name 0|Website 0|Username 1');
   assert.equal(await popup.eval(`document.querySelector('#results .hit').textContent`), 'alex@studio');
   assert.equal(await popup.eval(`document.getElementById('sitegroup').hidden`), true, 'results replace the site list while searching');
   await popup.eval(`document.querySelector('#pills [data-field=username]').click()`);  // choosing a field narrows the search to it
@@ -309,6 +332,7 @@ test('choosing a locked vault shows Unlock beside the vault button; Touch ID ope
     assert.equal(await popup.eval(`document.getElementById('unlock').textContent`), 'Unlock');
     assert.equal(await visible(popup, 'noticeunlock'), false, 'with several vaults Unlock sits beside the vault button, not in the notice');
     assert.equal(await visible(popup, 'search'), false, 'nothing to search while locked');
+    await assertNoEmptyBoxes(popup, 'locked, several vaults');
     assert.equal(await visible(popup, 'sitegroup'), false);
     await popup.eval(`document.getElementById('unlock').click()`);
     await until(() => visible(popup, 'sitegroup'), 'Work to list');
@@ -361,6 +385,7 @@ test('a vault that needs its password: Unlock asks Psss, and without an app the 
     assert.equal(await text(popup, 'status'), 'Touch ID is off for Family. Unlock with the vault password.');
     await popup.eval(`document.getElementById('unlock').click()`);
     await until(async () => (await text(popup, 'status')) === 'Open Psss to unlock Family.', 'the needs-app notice');
+    await assertNoEmptyBoxes(popup, 'needs password');
     assert.equal(await visible(popup, 'unlock'), false, 'nothing more Unlock can do from here');
     assert.equal(await popup.eval(`new Promise((ok) => chrome.action.getBadgeText({}, ok))`), '');
   } finally { setVaults(null); }
@@ -393,6 +418,7 @@ test('with one vault the notice carries Unlock', { skip: false }, (t) => !hostAc
     await popup.eval(`location.reload()`);
     await until(async () => (await text(popup, 'status')) !== '', 'the notice');
     assert.equal(await text(popup, 'status'), 'Only is locked. Choose Unlock to use Touch ID.');
+    await assertNoEmptyBoxes(popup, 'locked, one vault');
     assert.equal(await visible(popup, 'vaultbar'), false);
     assert.equal(await visible(popup, 'unlock'), false);
     assert.equal(await visible(popup, 'noticeunlock'), true);
