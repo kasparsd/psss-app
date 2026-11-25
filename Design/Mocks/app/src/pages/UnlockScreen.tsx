@@ -66,7 +66,7 @@ function VaultPicker({ current, open: open0, onPick, mac }: { current: string; o
 }
 
 /** The lock screen body, shared by every device. Click "Use Password…" to see the password state. */
-export function Lock({ bio, state: s0, vault: vault0 = passwordsVault.name, phone, menu, keyfile }: { bio: Bio; state: State; vault?: string; phone?: boolean; menu?: boolean; keyfile?: 'uses' | 'chosen' }) {
+export function Lock({ bio, state: s0, vault: vault0 = passwordsVault.name, phone, menu, keyfile, title }: { bio: Bio; state: State; vault?: string; phone?: boolean; menu?: boolean; keyfile?: 'uses' | 'chosen'; title?: string }) {
   // The key file row shows only when it is needed: the vault is known to use one, or one was chosen from the warning.
   const [keyState, setKeyState] = useState<'uses' | 'chosen' | undefined>(keyfile);
   const [vault, setVault] = useState(vault0);
@@ -93,7 +93,7 @@ export function Lock({ bio, state: s0, vault: vault0 = passwordsVault.name, phon
   return (
     <div className={`lk${phone ? " onphone" : ""}`}>
       <LockIcon bio={macTouch ? 'none' : bio} dim={state === 'inactive' || state === 'working'} open={state === 'working'} onRecognised={() => setState('working')} />
-      <div className="lk-title">Psss Is Locked</div>
+      <div className="lk-title">{title ?? 'Psss Is Locked'}</div>
       <div className="lk-line">{line}</div>
       {state !== 'working' && <VaultPicker current={vault} open={menu} onPick={setVault} mac={!phone && bio === 'touch'} />}
       {!showPassword && state !== 'working' && (
@@ -144,7 +144,7 @@ export function UnlockScreen() {
           ['Which thing?', 'The vault named in the line (“Passwords”). Psss stays locked until it is opened.'],
           ['What must they give?', 'A finger on Touch ID or a glance for Face ID. The vault password works at any time through “Use Password…”.'],
           ['What can go wrong?', 'Touch ID or Face ID does not recognise them; it is turned off or no longer matches the vault (changed elsewhere); the vault file is missing; they forgot the password.'],
-          ['How do they leave?', 'Quit, or choose or add another vault from the selector under the line. Nothing changes until the vault opens.'],
+          ['How do they leave?', 'Quit, or choose or add another vault from the selector under the line. Other open vaults stay open; nothing changes until this vault opens. A vault just added with Open Vault File… shows this screen too, and cancelling leaves it in the list, locked.'],
         ]}
       />
 
@@ -183,7 +183,7 @@ export function UnlockScreen() {
       </Frames>
 
       <Section title="3. Choosing another vault">
-        <p>The vault selector sits under the line that names the vault, on every lock screen and every device, even with one vault (its menu is where New Vault…, Open Vault File… and Import from Apple Passwords… live). It is a standard pop-up button: it shows the vault that will open, and its menu lists every available or remembered vault with a checkmark on the current one and where it lives in secondary text. After a separator come the three add items, New Vault…, Open Vault File… and Import from Apple Passwords…. Vaults are always listed in the same order, the order of Settings › Vaults (Passwords, Work, then Archive), on every platform, and the current one never moves to the top. Choosing a vault switches this screen to it at once; nothing is forgotten or opened until its own Touch ID, Face ID or password. Click the selector in any frame to try it.</p>
+        <p>The vault selector sits under the line that names the vault, on every lock screen and every device, even with one vault (its menu is where New Vault…, Open Vault File… and Import from Apple Passwords… live). It is a standard pop-up button: it shows the vault that will open, and its menu lists every available or remembered vault with a checkmark on the current one and where it lives in secondary text. After a separator come the three add items, New Vault…, Open Vault File… and Import from Apple Passwords…. Vaults are always listed in the same order, the order of Settings › Vaults (Passwords, Work, then Archive), on every platform, and the current one never moves to the top. Choosing a vault switches this screen to it at once; nothing is forgotten or opened until its own Touch ID, Face ID or password, and the vaults that are already open stay open (several vaults can be open at once; the auto-lock locks all of them). A vault added with Open Vault File… is shown here at once, with the password field only (frames AD and AE). Click the selector in any frame to try it.</p>
       </Section>
       <Frames>
         <Frame label="I. Mac, menu open" caption="Items say the vault name with, under it in secondary text, where it lives (iCloud Drive, or the file’s name). A vault that cannot be reached says why in the same place, with the orange warning glyph at the row’s end (here “Not found”). It stays in the list so it can still be chosen, read about and removed.">
@@ -205,6 +205,12 @@ export function UnlockScreen() {
           <IPad><div className="lk-win ipad"><Lock bio="face" state="ready" vault="Archive" /></div></IPad>
         </Frame>
 
+        <Frame label="AD. Mac, a vault file was just opened" caption="After Open Vault File… the vault is added and this screen is shown, “Unlock Family”, with the password field only: Touch ID is offered after the first unlock. Cancelling leaves Family in the list, locked.">
+          <MacWindow><div className="lk-win"><Lock bio="none" state="ready" vault="Family" title="Unlock Family" /></div></MacWindow>
+        </Frame>
+        <Frame phone label="AE. iPhone, a vault file was just opened" caption="The same on iPhone: no Use Face ID button until the vault has been unlocked once.">
+          <IPhone><Lock bio="none" state="ready" vault="Family" phone title="Unlock Family" /></IPhone>
+        </Frame>
         <Frame label="O. Mac, checking the password" caption="Progress sits under the field with no space held for it beforehand, so the form is not pushed down when idle: the field stays where it was, locked and dimmed, the notice appears under it, and Unlock, which dims, moves down by the notice's height; and the selector and help buttons stay. The same slot is used on iPhone and iPad.">
           <MacWindow><div className="lk-win"><Lock bio="touch" state="checking" /></div></MacWindow>
         </Frame>
@@ -309,6 +315,7 @@ export function UnlockScreen() {
 
       <History
         entries={[
+          { date: '2026-11-25', text: <>Open Vault File… no longer asks for the password in the add flow: the vault is added and this screen is shown for it, “Unlock [name]”, with the password field and no Touch ID (Face ID) button until the first unlock (new frames AD and AE). Several vaults can be open at once, so choosing a vault here never locks another one. Replaces a password step inside the add flow (none was drawn) and the one-vault-at-a-time wording.</> },
           { date: '2026-11-25', text: <>Unlock form: Unlock first, then Use Touch ID (Face ID), one row on Mac and iPad and stacked on iPhone, Unlock the default button and dimmed until a password is typed; on the Mac the form is shown at once and the system Touch ID prompt appears by itself when the window becomes active, with Use Touch ID, after Unlock, to bring it back (frames A to E). The iPhone and iPad captions follow. Vault menus list every vault in the fixed Settings › Vaults order, current one checked. Replaces a first draft with Use Touch ID before Unlock, the Mac’s silently listening Touch ID glyph (Apple’s embedded view), “Use Password…” on the Mac, Unlock full width above the help buttons, and the “Switch to …” rows on iOS.</> },
           { date: '2026-11-25', text: <>Review fixes. The three add items replace the old “Add Vault…” wording in the section text and the decision, and a vault that is no longer wanted is “removed” (Remove Vault…), not “forgotten”; “dropdown” is gone from the status line. On iPhone and iPad the Vault pop-up’s menu has the structure of Safari’s profile menu (“Switch to …” rows for the other vaults, a divider, the three add items; no section for the locked vault); the Mac keeps its list with a check (frames J and M redrawn). The iPhone menus no longer run past the bottom of the screen. Frame letters now read in page order (A to H, I to Q, R and S, T to W, X to Z, then AA to AC); the Unlock buttons of the Mac window are macOS push buttons. Replaces the out-of-order letters and the old wording.</> },
           { date: '2026-11-25', text: <>Added a pointer, nothing replaced: a proposal on <a href="#/vault-switcher">Vaults</a> (frame I) would replace the Mac’s full-window lock screen and its Vault pop-up with the normal window, its sidebar showing every vault collapsed and locked and the unlock form for the last used vault in the content area. The owner confirms it; the frames on this page stay until then.</> },

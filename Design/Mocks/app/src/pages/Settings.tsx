@@ -122,7 +122,7 @@ export const addWays = [
   { title: 'Import from Apple Passwords', mac: 'Import…' },
 ];
 /** The one footer under the three ways, on every platform: what each does, and the import warning. */
-export const addSummary = 'Create makes a new, empty vault. Open adds a KeePass file from iCloud Drive or another folder. Import makes a new vault from an Apple Passwords export; exports are not encrypted, so delete the file afterwards.';
+export const addSummary = 'Create makes a new, empty vault. Open adds a KeePass file from iCloud Drive or another folder and shows its unlock screen. Import makes a new vault from an Apple Passwords export; exports are not encrypted, so delete the file afterwards.';
 
 /** iPhone and iPad: the “Add Vault” group of Settings. Navigation rows: each pushes its screen inside Settings. */
 export const AddGroup = () => (
@@ -319,7 +319,7 @@ export function Settings() {
         <Frame label="B2 · Mac, Vaults" caption="Pick a vault on the left; its page on the right. The file actions share one row: Show in Finder (opens the folder with the file selected) and Save a Copy…; the Location tooltip is the full path. “Vault Password” is a labeled row with Change… at the right. Remove Vault… is in the same group. The last row of the list is “Add Vault” (frame B3). Technical details is a disclosure triangle (▸) that opens in place, not a chevron row. The window is titled Vaults, not by the vault’s name. Buttons are macOS push buttons (grey, rounded rectangle), not the iOS tinted capsule.">
           <MacSettings pane="vaults" />
         </Frame>
-        <Frame label="B3 · Mac, Add Vault" caption="“Add Vault” is the last row of the list, with a + glyph, styled like the vault rows. Choosing it shows one grouped section on the right: Create a New Vault [Create…], Open a Vault File [Open…], Import from Apple Passwords [Import…], and one footer that says in plain words what each does."><MacSettings pane="vaults" adding /></Frame>
+        <Frame label="B3 · Mac, Add Vault" caption="“Add Vault” is the last row of the list, with a + glyph, styled like the vault rows. Choosing it shows one grouped section on the right: Create a New Vault [Create…], Open a Vault File [Open…], Import from Apple Passwords [Import…], and one footer that says in plain words what each does. Open… picks the file and adds the vault, then shows its unlock screen: the file’s password is not asked here (Create… still asks for a new one, since it must set one; Import is unchanged)."><MacSettings pane="vaults" adding /></Frame>
       </Frames>
 
       <Section title="3. Remove Vault… alerts">
@@ -379,6 +379,7 @@ export function Settings() {
 
       <History
         entries={[
+          { date: '2026-11-25', text: <>Open a Vault File no longer asks for the password in the add flow: Open… picks the file, adds the vault and shows its unlock screen (drawn on <a href="#/vault-switcher">Vaults</a>, section 7). The Add Vault footer now says so. Create… still asks for a new password and Import is unchanged. Several vaults can be open at once; nothing on this page said otherwise.</> },
           { date: '2026-11-25', text: <>Owner confirmed option B: each vault has its own page, and the Mac Settings window has the same structure. Option A (one page; a relabel that fails with a second vault), the “Today” table of Setup rows and the comparison of options are removed from the page. Frames are lettered in page order: A1 to A6 (iPhone and iPad: Settings, vault pages, sample vault, not available, iPad; were B1, B2, B3, B7, B8, B9), B1 to B3 (Mac Settings window: General, Vaults, Add Vault; were C1 to C3), C1 to C3 (Remove Vault… alerts; were B4, B5, B6). Every control in the Mac Settings frames is a macOS control: the Lock pop-up is a pop-up button, Lock Now, Open AutoFill Settings…, Psss Help and Close Sample Vault are push buttons, in place of iOS link rows. Older entries below use the old letters. Replaces the options comparison.</> },
           { date: '2026-11-25', text: <>Review fixes. Frame B6 (Remove Vault… for a vault on this Mac) is drawn in the Mac Settings window with a Mac alert sheet: the app icon, a bold title, and a row of push buttons, Delete File (red text), Cancel and Remove Vault (the default button), instead of an iPhone alert in an iPhone frame; the vault page behind it has the Mac’s switch. In the Mac Settings window the chevron rows are gone: Help is one row with a Psss Help push button, and Technical details is a disclosure triangle (▸); iPhone and iPad keep their chevron rows. “Add a Vault” is now “Add Vault”. Frame letters now read in page order: B6 (the Mac alert, was B9), B7 (sample vault, was B6), B9 (iPad, was B7). Replaces the iPhone-shaped Mac alert and the iOS chevron rows on the Mac.</> },
           { date: '2026-11-25', text: <>Switches in Mac frames (Unlock with Touch ID) are macOS switches: smaller, blue (the accent colour) when on, instead of the green iOS switch. iPhone and iPad keep the green one. C1 and C2 redrawn.</> },

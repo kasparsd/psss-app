@@ -50,21 +50,28 @@ export interface WorkspaceInit {
   feats?: Feat[];
   filterOpen?: boolean;
   /**
-   * Vaults as sidebar sections, the way Mail shows accounts (owner, 2026-11-25). `one` (default): one section, expanded. `two`: Passwords open, Work collapsed with a lock.
-   * `locked`: the window is locked: every section is collapsed with a lock and the content area shows the unlock form for Passwords (the last used).
+   * Vaults as sidebar sections, the way Mail shows accounts (owner, 2026-11-25). Several vaults can be open at once (owner, 2026-11-25). `one` (default): one section, expanded. `two`: Passwords open and expanded, Work locked and collapsed with a lock.
+   * `both`: Passwords and Work are both open, each section expanded with its places. `locked`: the window is locked (auto-lock locks every vault): every section is collapsed with a lock and the content area shows the unlock form for Passwords (the last used).
    */
-  vaults?: 'one' | 'two';
+  vaults?: 'one' | 'two' | 'both';
   locked?: boolean;
+  /**
+   * A vault just added with Open Vault File… (owner, 2026-11-25): it is at the end of the list as a locked section, and pairs with `unlock` to show its first unlock form (password only; Touch ID is not offered until it has been unlocked once).
+   * The file's password is never asked inside the add flow.
+   */
+  added?: string;
   /** The person chose this locked vault: the content area (list and detail columns) shows its unlock form. */
   unlock?: string;
-  /** A menu drawn open: the context menu of the open vault's section header, or the Add Vault menu at the foot of the sidebar. */
-  sideMenu?: 'context' | 'add' | 'capsule';
+  /** A menu drawn open: the context menu of an open vault's section header (`context`, Passwords) or of a locked one (`context-locked`, Work), or the Add Vault menu at the foot of the sidebar. */
+  sideMenu?: 'context' | 'context-locked' | 'add' | 'capsule';
   /** Mac: the system's Touch ID prompt is drawn over the unlock form (it appears by itself when the form becomes active). */
   bioPrompt?: boolean;
 }
 
 /** The Passwords vault holds 214 items in every frame of every page (Settings says so too); the sample list below has fewer rows, so the totals are drawn, not counted. */
 export const vaultTotal = 214;
+/** Work holds 38 items; its places show the same sample rows, so its total is drawn too. */
+const workTotal = 38;
 
 const az = (a: Item, b: Item) => a.name.localeCompare(b.name);
 
@@ -119,24 +126,24 @@ function SidebarFoot({ open, onToggle }: { open: boolean; onToggle: () => void }
 }
 
 /**
- * A locked vault chosen in the sidebar (or the locked window): its unlock form fills the list and detail columns. Unlocking it locks the vault that is open.
+ * A locked vault chosen in the sidebar (or the locked window): its unlock form fills the list and detail columns. The other open vaults stay open, and the section of this one expands after it unlocks.
  * One row under the field: Unlock, the default button, disabled until a password is typed, then Use Touch ID (Face ID on iPad). On the Mac the system's Touch ID prompt appears by itself when this form becomes active.
  */
-function UnlockPane({ name, other, locked, bio }: { name: string; other: string | null; locked: boolean; bio: 'Touch ID' | 'Face ID' }) {
+function UnlockPane({ name, locked, bio, onUnlock }: { name: string; locked: boolean; bio?: 'Touch ID' | 'Face ID'; onUnlock?: () => void }) {
   const [pw, setPw] = useState('');
   return (
     <div className="col unlockpane" data-bounds>
       <div className="lk">
         <div className="lk-title">Unlock {name}</div>
-        <div className="lk-line">Use {bio} or enter the vault password for {name}.</div>
+        <div className="lk-line">{bio ? `Use ${bio} or enter the vault password for ${name}.` : `Enter the vault password for ${name}.`}</div>
         <div className="lk-form">
           <PasswordField value={pw} onChange={setPw} />
-          <UnlockRow bio={bio} typed={pw.length > 0} />
+          <UnlockRow bio={bio} typed={pw.length > 0} onUnlock={onUnlock} />
           <div className="lk-help">
             <button className="btn sq">Forgot Password</button>
           </div>
         </div>
-        <div className="lk-line">{other ? `${other} locks when ${name} opens.` : locked ? 'Psss is locked. All your vaults are locked.' : ''}</div>
+        <div className="lk-line">{locked ? 'Psss is locked. All your vaults are locked.' : ''}</div>
       </div>
     </div>
   );
@@ -162,11 +169,17 @@ export function Workspace({ device, init = {}, empty = false, extra, custom }: {
   const [editing, setEditing] = useState(init.editing ?? false);
   const [showSide, setShowSide] = useState(init.showSide ?? true);
   const [unlocking, setUnlocking] = useState<string | null>(init.locked ? 'Passwords' : init.unlock ?? null);
-  const [ctx, setCtx] = useState(init.sideMenu === 'context');
+  const [ctx, setCtx] = useState<string | null>(init.sideMenu === 'context' ? 'Passwords' : init.sideMenu === 'context-locked' ? 'Work' : null);
+  const [vault, setVault] = useState<string>('Passwords');
+  const [workUnlocked, setWorkUnlocked] = useState(init.vaults === 'both');
   const [capMenu, setCapMenu] = useState(init.sideMenu === 'capsule');
   const [addMenu, setAddMenu] = useState(init.sideMenu === 'add');
-  const twoVaults = init.vaults === 'two' || !!init.locked || !!init.unlock;
+  const twoVaults = init.vaults === 'two' || init.vaults === 'both' || !!init.locked || !!init.unlock || !!init.added;
   const openVaultLocked = !!init.locked;
+  const passOpen = !openVaultLocked;
+  const workOpen = workUnlocked && !init.locked;
+  /** Open vaults, in the fixed order. */
+  const openNames = [...(passOpen ? ['Passwords'] : []), ...(workOpen ? ['Work'] : [])];
   const [q, setQ] = useState(init.q ?? '');
   const [draftState, setDraft] = useState<string | null | undefined>(undefined);
   const [pristine, setPristine] = useState(true);
@@ -192,7 +205,7 @@ export function Workspace({ device, init = {}, empty = false, extra, custom }: {
   }, [pool, live, side, q, sort, feats]);
   const shownFirst = recent[0] ?? rows[0] ?? null;
   const sel = rows.find((r) => r.id === selId) ?? shownFirst;
-  const count = (k: SideKey) => (k === 'all' && !empty ? vaultTotal : listFor(pool, k).length);
+  const count = (k: SideKey, v: string = vault) => (k === 'all' && !empty ? (v === 'Work' ? workTotal : vaultTotal) : listFor(pool, k).length);
   const draft = draftState === undefined ? (sel?.code ?? null) : draftState;
 
   const go = (s: SideKey) => { setSide(s); setQ(''); setEditing(false); setPristine(false); };
@@ -221,13 +234,15 @@ export function Workspace({ device, init = {}, empty = false, extra, custom }: {
     if (side !== 'deleted') setSelId(id);
   };
 
-  const total = !empty && !q && side === 'all' && feats.length === 0 ? vaultTotal : rows.length;
+  const total = !empty && !q && side === 'all' && feats.length === 0 ? (vault === 'Work' ? workTotal : vaultTotal) : rows.length;
   const noun = q ? 'item' : side === 'codes' ? 'code' : side === 'cards' ? 'card' : 'item';
   const listTitle = q ? 'Search results' : titles[side];
   const mac = device === 'mac';
   const isEditing = custom ? !!custom.editing : editing;
   const inDeleted = side === 'deleted' && !q;
-  const line = !q && sortable(side) ? featLine(feats, oneType(side)) : '';
+  const filterLine = !q && sortable(side) ? featLine(feats, oneType(side)) : '';
+  /** With two or more vaults open the list says which vault the place belongs to. */
+  const line = openNames.length >= 2 ? [vault, filterLine].filter(Boolean).join(' · ') : filterLine;
   const codesList = side === 'codes' && !q;
   const cardsList = side === 'cards' && !q;
   const allHead = side === 'codes' ? 'All codes' : side === 'cards' ? 'All cards' : allHeading(oneType(side));
@@ -243,6 +258,36 @@ export function Workspace({ device, init = {}, empty = false, extra, custom }: {
   const expiredRows = cardsList ? rows.filter((r) => r.expired) : [];
   const mainRows = cardsList ? rows.filter((r) => !r.expired) : rows;
 
+  /** One vault's section of the sidebar: the header (with its own menu), and its places when the vault is open. */
+  const section = (name: string, isOpen: boolean) => (
+    <Fragment key={name}>
+      <div className="vsec">
+        <VaultHeader name={name} open={isOpen} locked={!isOpen} sel={unlocking === name} onClick={() => (isOpen ? undefined : setUnlocking(name))} onContext={() => setCtx(ctx === name ? null : name)} />
+        {ctx === name && (
+          <div className="pop vctx" role="menu">
+            <button role="menuitem">Vault Settings…</button>
+            <button role="menuitem">{isOpen ? `Lock ${name}` : `Unlock ${name}…`}</button>
+            {mac && <><div className="ph sepd" style={{ padding: 0 }} /><button role="menuitem">Show in Finder</button></>}
+            {!mac && <div className="ph sepd" style={{ padding: 0 }} />}
+            <button role="menuitem">Remove Vault…</button>
+          </div>
+        )}
+      </div>
+      {isOpen && (
+        <>
+          {sideRows.map(([k, l]) => (
+            <div key={k} className={`sr${vault === name && side === k && !q && !unlocking ? ' sel' : ''}`} onClick={() => { setUnlocking(null); setVault(name); go(k); }}>
+              <i />{l}<span className="n">{count(k, name)}</span>
+            </div>
+          ))}
+          <div className={`sr${vault === name && side === 'deleted' && !q && !unlocking ? ' sel' : ''}`} onClick={() => { setUnlocking(null); setVault(name); go('deleted'); }}>
+            <i />Recently Deleted<span className="n">{count('deleted', name)}</span>
+          </div>
+        </>
+      )}
+    </Fragment>
+  );
+
   return (
     <div className={`ws dt${showSide ? '' : ' noside'}${isEditing ? ' editing' : ''}${mac ? ' macui' : ' ipadws'}`}>
       <div className="ws-grid">
@@ -252,43 +297,21 @@ export function Workspace({ device, init = {}, empty = false, extra, custom }: {
             <button className="ibtn" aria-label="Hide sidebar" data-tip="Hide sidebar" onClick={() => setShowSide(false)}><SidebarIcon /></button>
           </div>
           <div className="scroll">
-            <div className="vsec">
-              <VaultHeader name="Passwords" open={!openVaultLocked} locked={openVaultLocked} sel={unlocking === 'Passwords'} onClick={() => (openVaultLocked ? setUnlocking('Passwords') : undefined)} onContext={() => setCtx(!ctx)} />
-              {ctx && !openVaultLocked && (
-                <div className="pop vctx" role="menu">
-                  <button role="menuitem">Vault Settings…</button>
-                  <button role="menuitem">Lock Passwords</button>
-                  <div className="ph sepd" style={{ padding: 0 }} />
-                  <button role="menuitem">Show in Finder</button>
-                  <button role="menuitem">Remove Vault…</button>
-                </div>
-              )}
-            </div>
-            {!openVaultLocked && (
-              <>
-                {sideRows.map(([k, l]) => (
-                  <div key={k} className={`sr${side === k && !q && !unlocking ? ' sel' : ''}`} onClick={() => { setUnlocking(null); go(k); }}>
-                    <i />{l}<span className="n">{count(k)}</span>
-                  </div>
-                ))}
-                <div className={`sr${side === 'deleted' && !q && !unlocking ? ' sel' : ''}`} onClick={() => { setUnlocking(null); go('deleted'); }}>
-                  <i />Recently Deleted<span className="n">{count('deleted')}</span>
-                </div>
-              </>
-            )}
-            {twoVaults && <VaultHeader name="Work" locked sel={unlocking === 'Work'} onClick={() => setUnlocking('Work')} />}
+            {section('Passwords', passOpen)}
+            {twoVaults && section('Work', workOpen)}
+            {init.added && section(init.added, false)}
           </div>
           <SidebarFoot open={addMenu} onToggle={() => setAddMenu(!addMenu)} />
         </div>
 
         {unlocking ? (
-          <UnlockPane name={unlocking} other={unlocking === 'Passwords' ? null : 'Passwords'} locked={openVaultLocked} bio={mac ? 'Touch ID' : 'Face ID'} />
+          <UnlockPane name={unlocking} locked={openVaultLocked} bio={unlocking === init.added ? undefined : mac ? 'Touch ID' : 'Face ID'} onUnlock={unlocking === 'Work' && !openVaultLocked ? () => { setWorkUnlocked(true); setVault('Work'); setSide('all'); setUnlocking(null); } : undefined} />
         ) : (<>
         <div className="col list" data-bounds>
           <div className="tbar">
             {!showSide && <button className="ibtn" aria-label="Show sidebar" data-tip="Show sidebar" onClick={() => setShowSide(true)}><SidebarIcon /></button>}
             {!mac && !showSide && <button className="ibtn" aria-label="Settings" data-tip="Settings"><GearIcon /></button>}
-            {!mac && !showSide && <span onClick={() => setCapMenu(!capMenu)}><VaultCapsule open={capMenu} menu={<VaultMenu single={!twoVaults} onPick={() => setCapMenu(false)} />} /></span>}
+            {!mac && !showSide && <span onClick={() => setCapMenu(!capMenu)}><VaultCapsule open={capMenu} menu={<VaultMenu single={!twoVaults} current={vault} open={openNames} onPick={() => setCapMenu(false)} />} /></span>}
             <span className="sp" />
             {/* Sort and Filter share one capsule: both change how the list is shown. + Add stands apart. */}
             <span className="viewopts">

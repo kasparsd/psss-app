@@ -160,13 +160,21 @@ export function BrowserExtension() {
       </Frames>
 
       <Section title="3. Vaults, locking and unlocking">
-        <p>One current vault per device: choosing another here makes it the app’s vault too, and the open one locks. When the current vault is locked an Unlock button sits beside the vault pick list and one notice says why. Touch ID takes focus, so the browser closes the popup: the design carries the result to the next click with a check on the toolbar button.</p>
+        <p>The vault select lists the vaults that are open in the app as ready to fill and the locked ones as needing unlock. Choosing another vault here changes which vault the popup fills from; no other vault locks, and several can be open at once. When the chosen vault is locked an Unlock button sits beside the vault pick list and one notice says why. Touch ID takes focus, so the browser closes the popup: the design carries the result to the next click with a check on the toolbar button.</p>
         <p>The main story, with Touch ID ready: choose Work (G), Unlock (H), the prompt (I), the check on the toolbar (J), the next click lists Work (K).</p>
       </Section>
       <Frames>
-        <Frame label="G · Choosing Work" caption="Same rows as the app’s menu: name, location, a check on the current vault, a padlock or warning at the end. Passwords, the current vault, shows the open padlock (spoken “Unlocked”); Work shows the closed one (“Locked”). No Lock item and no add items here.">
+        <Frame label="G · Choosing Work" caption="Same rows as the app’s menu: name, location, a check on the current vault, a padlock or warning at the end. Passwords, the current vault, shows the open padlock (spoken “Unlocked”); Work shows the closed one (“Locked”): it needs unlocking. No Lock item and no add items here.">
           <Browser>
             <XHead vaults menu />
+            <XSearch off />
+            <div style={{ height: 120 }} />
+            <XFoot />
+          </Browser>
+        </Frame>
+        <Frame label="G2 · Both vaults open" caption="When Work is open in the app too, its row has the open padlock like Passwords: both are ready to fill, and choosing Work needs no Unlock.">
+          <Browser>
+            <XHead vaults menu states={{ Work: 'open' }} />
             <XSearch off />
             <div style={{ height: 120 }} />
             <XFoot />
@@ -250,7 +258,7 @@ export function BrowserExtension() {
       <Decisions
         items={[
           {
-            decision: <>Keep the compact vault picker in the header with two or more vaults, drawn as a plain web select (the name and a chevron) with the app’s vault glyph outside it, to its left, as a label, and add a labeled Unlock button beside it when the current vault is locked. One current vault per device.</>,
+            decision: <>Keep the compact vault picker in the header with two or more vaults, drawn as a plain web select (the name and a chevron) with the app’s vault glyph outside it, to its left, as a label, and add a labeled Unlock button beside it when the chosen vault is locked. The select lists open vaults as ready to fill and locked ones as needing unlock; several vaults can be open at once.</>,
             why: <>The owner’s review of the earlier drawing (“all over the place”): keep the vault picker, Unlock beside it, one current vault. The browser relay lives in the app, so a separate choice here could not hold anyway.</>,
           },
           {
@@ -330,6 +338,7 @@ export function BrowserExtension() {
       <History
         proposal
         entries={[
+          { date: '2026-11-25', text: <>Several vaults can be open at once (owner): the vault select lists open vaults as ready to fill and locked ones as needing unlock, and choosing a vault no longer locks the other one. New frame G2 shows both vaults open. Replaces “one current vault per device”, where choosing another vault made it the app’s vault and locked the open one. The select itself is unchanged.</> },
           { date: '2026-11-25', text: <>Fill… and its ask-first confirmation (frame B2) are replaced by grouped results with a uniform Fill, at the owner’s request. Frame B now shows “For This Site” and “Other Matches”; the second line “Saved for githosting.example” (or “No website”) stays on every Other Matches row as the lookalike-site signal. Replaces the “Fill…” button on logins saved for another site, frame B2 and its Fill Anyway card, and the one flat list.</> },
           { date: '2026-11-25', text: <>Footer, Fill… and the empty state. (1) Every open popup ends with the same Settings button; before, only frame A had one. Only Psss not running (P) has none. Settings is said to open the extension’s own settings page in the browser (as docs/browser-extension.md has it); Safari’s popup has none. (2) Fill… was kept and explained, then replaced the same day (see the next entry). (3) “Nothing for this site” (frame C) is a notice titled “No logins for this site” with a sentence naming the vault and the ways on. Replaces the single line of plain text, “No logins for this site in Passwords. Choose another vault above.”</> },
           { date: '2026-11-25', text: <>Review fixes and owner changes. (1) The page’s own site is gone from the popup: not in the header, not in the heading, not in the rows (the address bar shows it). The heading “For gitforge.example” is “For This Site”, which says what the list is without a name that could be misread as a vault or a search; “Suggested” would not say why these logins are shown. Rows show the account; a login whose name is its account has no second line. A host stays only when it differs from the page’s site, as in “Saved for githosting.example”: a lookalike-domain check. The empty and update lines say “this site”. (2) The vault picker has the same vault glyph as the app’s vault button, outside the pick list at its left, in secondary colour, as a label; the pick list itself is a plain web select (name and a chevron, accessible label “Vault”) with no glyph inside. Also drawn with Mac controls: the Safari popover’s buttons are macOS push buttons, the default one with the accent fill. Replaces the header’s site line, the host in rows and heading, the ⌃⌄ pick list with no glyph, and the iOS capsules in the popover. The AutoFill sheet’s own rows are not changed by this.</> },

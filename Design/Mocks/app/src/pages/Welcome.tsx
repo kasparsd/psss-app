@@ -77,7 +77,7 @@ export function WelcomePage() {
         items={[
           ['What is this?', 'The first screen of a new install: no vault yet. It says what Psss is and offers the ways to start.'],
           ['What changes?', 'The blue key symbol becomes the Psss app icon, the same one the lock screen shows, so the first screen and every unlock look like one app.'],
-          ['What happens next?', 'Unchanged: each button starts its flow (create, open a file, import, sample).'],
+          ['What happens next?', 'Each button starts its flow (create, open a file, import, sample). Open a vault file picks the file, adds the vault and shows its unlock screen, “Unlock [name]”, with the password field; the password is not asked inside the add flow (frames on Vaults, section 7).'],
         ]}
       />
 
@@ -116,6 +116,7 @@ export function WelcomePage() {
       <History
         proposal
         entries={[
+          { date: '2026-11-25', text: <>Open a vault file no longer asks for the file’s password in the add flow: file picker, then the vault is added and its unlock screen is shown (drawn on <a href="#/vault-switcher">Vaults</a>, section 7). No frame here changes; New Vault still sets a password and Import is unchanged.</> },
           { date: '2026-11-25', text: <>Owner: the icon is butter in every colour scheme. Replaces charcoal in dark mode; the dark frame (C) is removed, since the icon no longer changes. The lock screen still draws charcoal in dark mode.</> },
           { date: '2026-11-25', text: <>Owner: rest on the dots, not the name. The icon opens on “psss”, hides it to p and three dots, and a tap shows the name again, as a hint to play with it. Replaces typing “psss” once and resting on the name.</> },
           { date: '2026-11-25', text: <>New page. Proposal: the welcome screen’s key symbol is replaced by the Psss app icon (as on the lock screen), which types “psss” once. Words and buttons unchanged. The Mac frame uses Mac push buttons.</> },

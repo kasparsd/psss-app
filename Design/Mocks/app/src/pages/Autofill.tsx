@@ -181,7 +181,7 @@ export function Autofill() {
       />
 
       <Section title="1. Choosing a login">
-        <p>One current vault per device: the app, this sheet and the browser popup all show it. With two or more vaults the Vault row sits at the top of every AutoFill screen (list, values, codes, save). The sheet opens on the logins for the page’s site and the search field has the focus.</p>
+        <p>The sheet fills from one vault at a time; several vaults can be open at once, and the vault select lists open vaults as ready to fill and locked ones as needing unlock. With two or more vaults the Vault row sits at the top of every AutoFill screen (list, values, codes, save). The sheet opens on the logins for the page’s site and the search field has the focus.</p>
       </Section>
       <Frames>
         <Frame label="A · iPhone, logins for this site" phone caption="The heading is above the card. Rows are the app’s: name over account, and the website when the name is the account (the second row). Fill is bordered; it is filled when exactly one login matches."><Screen device="iphone" title="Choose a Login" vault={<Vr />} search={<Field />}><SiteList /><Foot>Tap a name to fill one value instead, such as only the username.</Foot></Screen></Frame>
@@ -196,7 +196,7 @@ export function Autofill() {
       </Frames>
 
       <Section title="2. Another vault: locked, needs password, not available">
-        <p>Choosing a vault makes it the app’s vault too; the open one locks. A vault that is locked gets a labeled Unlock button at the end of the Vault row and one notice saying why. The vault menu lists every vault with its location, or its state when it is not simply locked; the current vault shows the open padlock when it is unlocked here (spoken “Unlocked”) and the closed one when it is not (“Locked”).</p>
+        <p>Choosing a vault changes which vault the sheet fills from; no other vault locks. A vault that is locked gets a labeled Unlock button at the end of the Vault row and one notice saying why. The vault menu lists every vault with its location, or its state when it is not simply locked; a vault that is open here shows the open padlock (spoken “Unlocked”) and is ready to fill, and one that is not shows the closed one (“Locked”) and needs unlocking.</p>
         <p>The main story, with Face ID ready: the empty line (frame E), choose Work (F), Face ID (G), Work’s list (H).</p>
       </Section>
       <Frames>
@@ -270,7 +270,7 @@ export function Autofill() {
       <Decisions
         items={[
           {
-            decision: <>Keep the Vault row as the vault picker, and add a labeled Unlock button beside it when the current vault is locked. One current vault per device: choosing a vault in the sheet makes it current in the app and the browser popup as well.</>,
+            decision: <>Keep the Vault row as the vault picker, and add a labeled Unlock button beside it when the current vault is locked. The select lists open vaults as ready to fill and locked ones as needing unlock; choosing a vault never locks another one (several vaults can be open at once).</>,
             why: <>The owner’s review of the earlier drawing (“all over the place”): keep the switchers, put Unlock beside the picker, think from the states up. One rule is simple to say and matches the code, where switching works only while locked and the browser relay lives in the app.</>,
           },
           {
@@ -340,6 +340,7 @@ export function Autofill() {
       <History
         proposal
         entries={[
+          { date: '2026-11-25', text: <>Several vaults can be open at once (owner): the Vault select lists open vaults as ready to fill and locked ones as needing unlock (the notice says which), and choosing a vault no longer locks the other one. No frame redrawn. Replaces “one current vault per device”, where choosing a vault made it the app’s vault and locked the open one.</> },
           { date: '2026-11-25', text: <>Fill… and its confirmation are replaced by grouped results with a uniform Fill, at the owner’s request: “For This Site” (website matches), then “Other Matches” (matched by name or search, saved for another site or with no website), each of those rows keeping “Saved for githosting.example” or “No website” as the lookalike-site signal. Frame B and the site list’s heading (“For This Site”, was “For gitforge.example”) redrawn; the “Fill… asks first” footer is gone. The browser popup has the same groups.</> },
           { date: '2026-11-25', text: <>Frame E, nothing for this site: a notice titled “No logins for this site” (the vault notices’ card) with one sentence naming the vault, the search field and the Vault row. Replaces the single line of plain text. The browser popup has the same notice.</> },
           { date: '2026-11-25', text: <>On the Mac sheet the Vault row’s Unlock is the default push button (accent fill, white text), as on the other Mac frames, instead of the iOS capsule. Replaces the iOS capsule on the Mac.</> },

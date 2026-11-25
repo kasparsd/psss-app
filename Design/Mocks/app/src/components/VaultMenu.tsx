@@ -62,9 +62,10 @@ export function VaultStateMark({ state, inline }: { state: VaultState; inline?: 
   );
 }
 
-/** The rows a menu draws by default: the sample vaults, the current one open unless this is a lock screen, then `extra`. */
-export function menuRows({ current = passwordsVault.name, locked = false, extra = [] }: { current?: string; locked?: boolean; extra?: VaultRowData[] }): VaultRowData[] {
-  return [...sampleVaults, ...extra].map((v) => (v.state === 'locked' && !locked && v.name === current ? { ...v, state: 'open' as const } : v));
+/** The rows a menu draws by default: the sample vaults, every vault in `open` (default: the current one) shown open unless this is a lock screen, then `extra`. Several vaults can be open at once (owner, 2026-11-25). */
+export function menuRows({ current = passwordsVault.name, locked = false, extra = [], open }: { current?: string; locked?: boolean; extra?: VaultRowData[]; open?: string[] }): VaultRowData[] {
+  const openNames = open ?? [current];
+  return [...sampleVaults, ...extra].map((v) => (v.state === 'locked' && !locked && openNames.includes(v.name) ? { ...v, state: 'open' as const } : v));
 }
 
 /** The three ways to add a vault, as direct menu items (no chooser sheet). Each opens its own flow. */
@@ -72,13 +73,14 @@ export const addItems = ['New Vault…', 'Open Vault File…', 'Import from Appl
 
 /**
  * The vault menu, drawn once (owner, 2026-11-25). Vaults always appear in the same order, the order of Settings › Vaults (the order they were added); the open vault never jumps to the top.
+ * A vault that is open has no padlock in the app's menu; a locked one has the closed padlock (owner, 2026-11-25: several vaults can be open at once, so the closed one is what stands out). The picker keeps its open padlock.
  * In the app (iPhone and iPad capsule): one row per vault in that order (a check on the current vault, its name, under it where it is kept or the state's words, a padlock or warning glyph at the trailing end), a divider,
- * a section header with the current vault's name holding Vault Settings… and Lock [name], a divider, then the three add items (New Vault…, Open Vault File…, Import from Apple Passwords…). It is there even with one vault.
+ * a section header with the current vault's name holding Vault Settings… and Lock [name] (and Lock All Vaults when two or more vaults are open), a divider, then the three add items (New Vault…, Open Vault File…, Import from Apple Passwords…). It is there even with one vault.
  *
  * `locked` is the lock screen's menu (every platform): the header says “Vault”, there is no section, Vault Settings… or Lock item (nothing is open), `current` is the vault that will open, and the add items follow the rows.
  * `vaults` replaces the default rows (the state page draws every state); `extra` adds rows after the sample vaults (the lock screen's “Archive”). `inline` draws the menu in the page flow instead of hanging from a control.
  */
-export function VaultMenu({ onPick, align = 'left', locked = false, current = passwordsVault.name, extra = [], vaults, onChoose, inline, addVault = true, picker, states, shift = 0, single }: {
+export function VaultMenu({ onPick, align = 'left', locked = false, current = passwordsVault.name, extra = [], vaults, onChoose, inline, addVault = true, picker, states, shift = 0, single, open }: {
   onPick?: () => void;
   align?: 'left' | 'center' | 'right';
   locked?: boolean;
@@ -95,10 +97,13 @@ export function VaultMenu({ onPick, align = 'left', locked = false, current = pa
   shift?: number;
   /** One vault only: the list holds just the current vault. */
   single?: boolean;
+  /** The names of the vaults that are open (default: only the current one). Open vaults have an open padlock, locked ones a closed one; with two or more open the menu also offers Lock All Vaults. */
+  open?: string[];
 }) {
   const pos = inline ? { position: 'static' as const } : align === 'center' ? { left: '50%', transform: 'translateX(-50%)' } : align === 'right' ? { right: -shift, left: 'auto' as const } : { left: 0, right: 'auto' as const };
-  const rows = (vaults ?? menuRows({ current, locked, extra })).filter((v) => !single || v.name === current).map((v) => (states?.[v.name] ? { ...v, state: states[v.name] } : v));
+  const rows = (vaults ?? menuRows({ current, locked, extra, open })).filter((v) => !single || v.name === current).map((v) => (states?.[v.name] ? { ...v, state: states[v.name] } : v));
   if (picker) { locked = true; addVault = false; }
+  const openCount = rows.filter((v) => v.state === 'open').length;
   const item = (l: string) => <button key={l} role="menuitem" onClick={onPick}><span className="chk" />{l}</button>;
   const sep = <div className="ph sepd" style={{ padding: 0 }} />;
   return (
@@ -108,7 +113,7 @@ export function VaultMenu({ onPick, align = 'left', locked = false, current = pa
         <button key={v.name} role="menuitemradio" aria-checked={v.name === current} onClick={() => (onChoose ? onChoose(v.name) : onPick?.())}>
           <span className="chk">{v.name === current && <CheckIcon />}</span>
           <span><div>{v.name}</div><div className="s">{vaultSubtitle(v)}</div></span>
-          <VaultStateMark state={v.state} />
+          {(v.state !== 'open' || picker) && <VaultStateMark state={v.state} />}
         </button>
       ))}
       {!locked && (
@@ -117,6 +122,7 @@ export function VaultMenu({ onPick, align = 'left', locked = false, current = pa
           <div className="ph" style={{ paddingTop: 6 }}>{current}</div>
           {item('Vault Settings…')}
           {item(`Lock ${current}`)}
+          {openCount >= 2 && item('Lock All Vaults')}
         </>
       )}
       {addVault && (
