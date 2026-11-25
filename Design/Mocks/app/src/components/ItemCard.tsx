@@ -123,7 +123,7 @@ export function ItemCard({ item, mode = 'view', shown, copied, code, onSetUpCode
       {rest.length > 0 && <div className="icard">{rest}</div>}
       {item.passkey && (
         <>
-          <div className="gh">Passkey <InfoButton topic={topics.passkey} open={bubble} /></div>
+          <div className="gh">Passkey<InfoButton topic={topics.passkey} open={bubble} /></div>
           <div className="icard">
             <FieldRow label="Saved 12 Mar 2026" value={`for ${item.name.toLowerCase()}.example`} noCopy />
           </div>
@@ -154,7 +154,7 @@ function Editor({ item, code, onDelete, unnamed, bubble, onPasteCodeImage }: { i
       </div>
       {isLogin && (
         <>
-          <div className="gh">Verification code <InfoButton topic={topics.setupKey} open={bubble} /></div>
+          <div className="gh">Verification code<InfoButton topic={topics.setupKey} open={bubble} /></div>
           <div className="icard">
             <EditRow
               label="Setup key (optional)"

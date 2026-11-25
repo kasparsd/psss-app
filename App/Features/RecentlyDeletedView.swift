@@ -129,13 +129,9 @@ struct DeletedRow: View {
 /// The one place the list says that other KeePass apps keep these items in their Recycle Bin.
 struct RecentlyDeletedFooter: View {
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Text(verbatim: RecentlyDeletedText.listFooter)
-                .foregroundStyle(.secondary)
-            InfoButton(topic: HelpTopics.recentlyDeleted)
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        InfoText(text: RecentlyDeletedText.listFooter, topic: HelpTopics.recentlyDeleted)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 4)
     }
 }

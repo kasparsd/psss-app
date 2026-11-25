@@ -76,3 +76,55 @@ struct HelpRow: View {
         .popover(isPresented: $shown) { HelpBubble(topic: topic) }
     }
 }
+
+/// Left-to-right flow of subviews that wraps at the proposed width. Used by `InfoText`: every word is a subview, and the last word
+/// is joined with the info button into one subview, so the button can never sit alone on a line.
+private struct WordFlow: Layout {
+    var spacing: CGFloat = 4
+
+    private func place(_ subviews: Subviews, width: CGFloat) -> (frames: [CGRect], size: CGSize) {
+        var frames: [CGRect] = []
+        var x: CGFloat = 0, y: CGFloat = 0, lineHeight: CGFloat = 0, widest: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > width { x = 0; y += lineHeight; lineHeight = 0 }
+            frames.append(CGRect(x: x, y: y, width: size.width, height: size.height))
+            x += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
+            widest = max(widest, x - spacing)
+        }
+        return (frames, CGSize(width: widest, height: y + lineHeight))
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        place(subviews, width: proposal.width ?? .infinity).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = place(subviews, width: bounds.width)
+        for (subview, frame) in zip(subviews, result.frames) {
+            subview.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY), proposal: .unspecified)
+        }
+    }
+}
+
+/// A sentence that ends with its info button. The last word and the button wrap together (the equivalent of a non-breaking space
+/// between them), so the button is never alone on a line. Spoken as the sentence followed by the button.
+struct InfoText: View {
+    let text: String
+    let topic: HelpTopic
+
+    var body: some View {
+        let words = text.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        WordFlow {
+            ForEach(Array(words.dropLast().enumerated()), id: \.offset) { _, word in Text(verbatim: word) }
+            HStack(spacing: 0) {
+                Text(verbatim: words.last ?? "")
+                InfoButton(topic: topic)
+            }
+        }
+        .accessibilityRepresentation {
+            VStack { Text(verbatim: text); InfoButton(topic: topic) }
+        }
+    }
+}

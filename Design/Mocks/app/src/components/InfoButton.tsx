@@ -63,7 +63,10 @@ export function InfoButton({ topic, open: open0 = false, tip }: { topic: HelpTop
     };
   }, [open]);
 
+  // A non-breaking space joins the button to the last word before it, so it never sits alone on a line (docs/experience.md).
   return (
+    <>
+      {'\u00A0'}
     <span className="infowrap" ref={wrap}>
       <button className="infob" onClick={() => setOpen(!open)} aria-label={tip ?? `About ${topic.title.toLowerCase()}`} data-tip={tip ?? `About ${topic.title.toLowerCase()}`} aria-expanded={open}>
         <InfoIcon />
@@ -76,5 +79,6 @@ export function InfoButton({ topic, open: open0 = false, tip }: { topic: HelpTop
         </div>
       )}
     </span>
+    </>
   );
 }
