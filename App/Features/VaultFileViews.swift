@@ -833,12 +833,10 @@ struct LostPasswordSheet: View {
 
     private var managed: Bool { session.reference?.managed == true }
 
-    /// Forgetting a vault Psss made removes its file, its rollback copies and the saved biometric key.
-    private var forgetManagedFooter: String {
-        if session.reference?.biometricUnlock == true, let biometry = session.biometry {
-            return String(localized: "Forgetting removes this vault and its backup copies from this device, and turns off \(biometry.label) for it. This cannot be undone.")
-        }
-        return String(localized: "Forgetting removes this vault and its backup copies from this device. This cannot be undone.")
+    private var next: String {
+        session.remembered.count <= 1
+            ? String(localized: "Psss then shows the welcome screen.")
+            : String(localized: "Psss then shows your next vault.")
     }
 
     var body: some View {
@@ -855,29 +853,22 @@ struct LostPasswordSheet: View {
                     Label("An older copy of the vault, on another device or in a backup, may have an older password", systemImage: "doc.on.doc")
                 }
                 Section {
-                    Button("Forget This Vault…", role: .destructive) { confirmsForget = true }
+                    // The same Remove Vault as the vault's Settings page: only a button that deletes says Delete (owner, 2026-11-25).
+                    Button("Remove This Vault…") { confirmsForget = true }
                 } header: {
                     Text("Or let go of it")
                 } footer: {
-                    Text(managed
-                         ? forgetManagedFooter
-                         : String(localized: "Forgetting removes \(vaultName) from Psss. Your file is not deleted."))
+                    if let reference = session.reference { Text(verbatim: RemoveVaultText.footer(reference)) }
                 }
             }
             .formStyle(.grouped)
             .navigationTitle("Forgot Password")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-            .alert("Forget \(vaultName)?", isPresented: $confirmsForget) {
-                Button(managed ? "Delete Vault from This Device" : "Forget Vault", role: .destructive) {
-                    session.forget()
-                    dismiss()
-                    onForgotten()
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text(managed ? "The vault and its passwords are deleted from this device and cannot be recovered."
-                             : "Psss stops using this file. The file stays where it is.")
-            }
+            .modifier(RemoveVaultAlert(isPresented: $confirmsForget, reference: session.reference, next: next) { deletingFile in
+                session.forget(deletingFile: deletingFile)
+                dismiss()
+                onForgotten()
+            })
         }
         .modifier(VaultSheetSize())
     }

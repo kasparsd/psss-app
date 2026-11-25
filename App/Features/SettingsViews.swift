@@ -81,9 +81,9 @@ struct AppSettingsSections: View {
 /// Forgets (or deletes) the open vault. Another remembered vault takes its place on the lock screen; with none left, the welcome
 /// screen shows.
 @MainActor
-func leaveOpenVault(session: VaultSession, gate: UnlockGate, vaultSource: inout String) {
+func leaveOpenVault(session: VaultSession, gate: UnlockGate, vaultSource: inout String, deletingFile: Bool = true) {
     VaultIdentities.remove()
-    session.forget()
+    session.forget(deletingFile: deletingFile)
     if session.reference == nil { vaultSource = "" } else { gate.lock() }
 }
 
@@ -112,8 +112,8 @@ struct VaultSettingsPage: View {
 
     var body: some View {
         Form {
-            // One group for the vault: what it is, where its file is, and the two things done to the file (owner, 2026-11-25:
-            // the actions belong with the vault's details). Leaving it stays last, in its own group (HIG: destructive apart).
+            // One group for the vault: what it is, where its file is, and what can be done to it, including Remove Vault… (owner,
+            // 2026-11-25: the actions belong with the vault's details; Remove deletes nothing by itself, the confirmation says).
             Section {
                 LabeledContent("Name", value: VaultName.short(reference.name))
                 VaultLocationRows(reference: reference)
@@ -135,9 +135,11 @@ struct VaultSettingsPage: View {
                         .disabled(onChangePassword == nil)
                         .accessibilityLabel(Text("Change Vault Password"))
                 }
+                removeButton
                 #else
                 saveCopyButton
                 changePasswordButton
+                removeButton
                 #endif
                 if let store {
                     DisclosureGroup("Technical details") {
@@ -164,17 +166,6 @@ struct VaultSettingsPage: View {
                 Text(savedKeyOn ? copy.savedKeyOnFooter
                      : store == nil ? copy.savedKeyOffFooter + " " + String(localized: "Unlock Psss first.") : copy.savedKeyOffFooter)
             }
-            Section {
-                if managed {
-                    Button("Delete Vault…", role: .destructive) { confirmsLeaving = true }
-                } else {
-                    Button("Forget Vault…") { confirmsLeaving = true }
-                }
-            } header: {
-                Text("Remove")
-            } footer: {
-                Text(removeFooter)
-            }
         }
         .formStyle(.grouped)
         #if os(iOS)
@@ -184,17 +175,9 @@ struct VaultSettingsPage: View {
         .fileExporter(isPresented: Binding(get: { copyDocument != nil }, set: { if !$0 { copyDocument = nil } }),
                       document: copyDocument, contentType: .keePassVault,
                       defaultFilename: reference.name) { _ in copyDocument = nil }
-        .alert(managed ? String(localized: "Delete \(reference.name)?") : String(localized: "Forget \(reference.name)?"),
-               isPresented: $confirmsLeaving) {
-            if managed {
-                Button("Delete Vault", role: .destructive) { leave() }
-            } else {
-                Button("Forget Vault") { leave() }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(removeMessage)
-        }
+        .modifier(RemoveVaultAlert(isPresented: $confirmsLeaving, reference: reference, next: whatShowsNext,
+                                   saveCopy: store == nil ? nil : { saveCopy() },
+                                   remove: { deletingFile in leave(deletingFile: deletingFile) }))
         .alert("Could not turn it on", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
             Button("OK") { problem = nil }
         } message: {
@@ -202,9 +185,13 @@ struct VaultSettingsPage: View {
         }
     }
 
-    private func leave() {
-        leaveOpenVault(session: session, gate: gate, vaultSource: &vaultSource)
+    private func leave(deletingFile: Bool) {
+        leaveOpenVault(session: session, gate: gate, vaultSource: &vaultSource, deletingFile: deletingFile)
         afterLeaving()
+    }
+
+    private func saveCopy() {
+        if let store { copyDocument = (try? VaultFiles.read(store.url)).map(VaultCopy.init) }
     }
 
     private var whatShowsNext: String {
@@ -214,10 +201,12 @@ struct VaultSettingsPage: View {
     }
 
     private var saveCopyButton: some View {
-        Button("Save a Copy…") {
-            if let store { copyDocument = (try? VaultFiles.read(store.url)).map(VaultCopy.init) }
-        }
-        .disabled(store == nil)
+        Button("Save a Copy…", action: saveCopy).disabled(store == nil)
+    }
+
+    /// Remove Vault… for every vault, in the vault's group; the confirmation says what happens to the file (owner, 2026-11-25).
+    private var removeButton: some View {
+        Button("Remove Vault…") { confirmsLeaving = true }
     }
 
     private var changePasswordButton: some View {
@@ -230,23 +219,9 @@ struct VaultSettingsPage: View {
         let parts = [reference.encryptionDescription,
                      String(localized: "Psss cannot reset the vault password. A copy is the way back if the file is lost.")]
         let locked = store == nil ? [String(localized: "Unlock Psss to see what is inside, save a copy or change the password.")] : []
-        return (parts + locked).joined(separator: " ")
+        return (parts + [RemoveVaultText.footer(reference)] + locked).joined(separator: " ")
     }
 
-    private var removeFooter: String {
-        if managed {
-            let key = savedKeyOn ? String(localized: ", and removes its saved \(BiometryKind.keyName) key") : ""
-            return String(localized: "Deletes \(reference.name) and its backup copies from this device\(key). Without another copy of the file, your logins are gone. This cannot be undone.")
-        }
-        return String(localized: "Psss stops using \(reference.name) on this device. The file is not deleted and you can open it again.")
-    }
-
-    private var removeMessage: String {
-        if managed {
-            return String(localized: "The vault and its backups are deleted from this device. Without another copy of the file, your logins are gone. This cannot be undone.") + " " + whatShowsNext
-        }
-        return String(localized: "Psss stops using this vault on this device. The file is not deleted and you can open it again.") + " " + whatShowsNext
-    }
 }
 
 /// A vault Psss remembers but is not the active one: its name and where it is, and how to change it.
@@ -347,4 +322,73 @@ struct VaultLocationRows: View {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
     #endif
+}
+
+/// The words of Remove Vault (owner, 2026-11-25, mock `#/settings` B2 to B5, B9): only a button that deletes says Delete, and
+/// every message says where the file stays. A vault kept only on iPhone or iPad sits in Psss's own storage, which Files cannot
+/// reach, so keeping it there would lose it anyway: removing it deletes it. On the Mac, Finder reaches it, so Remove keeps it.
+@MainActor
+enum RemoveVaultText {
+    static var deviceName: String {
+        switch AutoFillDevice.current {
+        case .iPhone: String(localized: "iPhone")
+        case .iPad: String(localized: "iPad")
+        case .mac: String(localized: "Mac")
+        }
+    }
+
+    /// The sentence in the vault group's footer.
+    static func footer(_ reference: VaultReference) -> String {
+        guard reference.managed else {
+            return String(localized: "Removing it keeps the file in \(reference.menuLocation): you can open it again.")
+        }
+        #if os(macOS)
+        return String(localized: "Removing it asks whether to keep the file on this Mac or delete it.")
+        #else
+        return String(localized: "It is kept only on this \(deviceName), so removing it deletes the file. Save a copy first if you may need it.")
+        #endif
+    }
+
+    static func message(_ reference: VaultReference?, next: String) -> String {
+        guard let reference, reference.managed else {
+            let place = reference?.menuLocation ?? String(localized: "its folder")
+            return String(localized: "Psss stops using this vault on this \(deviceName). The file stays in \(place) and you can open it again.") + " " + next
+        }
+        #if os(macOS)
+        return String(localized: "Psss stops using this vault on this Mac. Remove Vault keeps the file on this Mac, in Psss’s folder. Delete File deletes it and its backups, and cannot be undone.") + " " + next
+        #else
+        return String(localized: "It is kept only on this \(deviceName), so removing it deletes the vault and its backups. Without another copy of the file, your logins are gone. This cannot be undone.") + " " + next
+        #endif
+    }
+}
+
+/// The Remove Vault confirmation, the same on the vault's Settings page and under Forgot Password on the lock screen.
+struct RemoveVaultAlert: ViewModifier {
+    @Binding var isPresented: Bool
+    let reference: VaultReference?
+    /// What shows after: the welcome screen or the next vault.
+    let next: String
+    /// Offered beside Delete Vault for a vault kept only on iPhone or iPad, when a copy can be made now.
+    var saveCopy: (() -> Void)?
+    let remove: (_ deletingFile: Bool) -> Void
+
+    func body(content: Content) -> some View {
+        let managed = reference?.managed == true
+        content.alert(String(localized: "Remove \(reference?.name ?? "")?"), isPresented: $isPresented) {
+            if !managed {
+                Button("Remove Vault") { remove(false) }
+            } else {
+                #if os(macOS)
+                Button("Remove Vault") { remove(false) }
+                Button("Delete File", role: .destructive) { remove(true) }
+                #else
+                Button("Delete Vault", role: .destructive) { remove(true) }
+                if let saveCopy { Button("Save a Copy…", action: saveCopy) }
+                #endif
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(verbatim: RemoveVaultText.message(reference, next: next))
+        }
+    }
 }

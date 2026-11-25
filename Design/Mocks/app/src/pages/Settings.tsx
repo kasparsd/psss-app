@@ -62,21 +62,20 @@ function VaultBody({ kind, device = 'iPhone' }: { kind: Kind; device?: string })
           ? <>
               <div className="mapfield" style={{ gap: 8, justifyContent: 'flex-start' }}><span className="btn">Show in Finder</span><span className="btn">Save a Copy…</span></div>
               <Line l="Vault Password" v={<span className="btn">Change…</span>} />
+              <div className="mapfield" style={{ justifyContent: 'flex-start' }}><span className="btn">Remove Vault…</span></div>
             </>
-          : <><Line l="Save a Copy…" link /><Line l="Change Vault Password…" link /></>}
+          : <><Line l="Save a Copy…" link /><Line l="Change Vault Password…" link /><Line l="Remove Vault…" link /></>}
         <Line l="Technical details" chev />
       </Card>
-      <Foot>A KeePass file, encrypted with your vault password. Psss cannot reset the vault password. A copy is the way back if the file is lost.</Foot>
+      <Foot>
+        {`A KeePass file, encrypted with your vault password. Psss cannot reset the vault password. A copy is the way back if the file is lost. `}
+        {managed
+          ? (device === 'Mac' ? 'Removing it asks whether to keep the file on this Mac or delete it.' : `It is kept only on this ${device}, so removing it deletes the file. Save a copy first if you may need it.`)
+          : 'Removing it keeps the file in iCloud Drive › Psss: you can open it again.'}
+      </Foot>
       <Head>Unlock</Head>
       <Card><Toggle l={`Unlock with ${id}`} on /></Card>
       <Foot>{`AutoFill and the browser extension use this vault only while this is on. With it off, Psss asks for the vault password.`}</Foot>
-      <Head>Remove</Head>
-      <Card>{managed ? <Line l="Delete Vault…" red /> : <Line l="Forget Vault…" link />}</Card>
-      <Foot>
-        {managed
-          ? `Deletes Passwords and its backup copies from this ${device}, and removes its saved ${id} key. Without another copy of the file, your logins are gone. This cannot be undone.`
-          : `Psss stops using Passwords on this ${device}. The file is not deleted: it stays in the Psss folder in iCloud Drive and you can open it again.`}
-      </Foot>
     </>
   );
 }
@@ -124,7 +123,7 @@ export const VaultsList = ({ both, gone }: { both?: boolean; gone?: boolean }) =
 );
 
 /** The confirmation, drawn over a dimmed vault page. */
-function Alert({ title, message, button, red }: { title: string; message: string; button: string; red?: boolean }) {
+function Alert({ title, message, button, red, more = [] }: { title: string; message: string; button: string; red?: boolean; more?: { label: string; red?: boolean }[] }) {
   return (
     <>
       <div className="cs-dim" />
@@ -133,6 +132,7 @@ function Alert({ title, message, button, red }: { title: string; message: string
         <div className="s" style={{ padding: '6px 4px 12px' }}>{message}</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <button className="btn" style={{ justifyContent: 'center', padding: 11, color: red ? 'var(--red)' : 'var(--accent)' }}>{button}</button>
+          {more.map((b) => <button key={b.label} className="btn" style={{ justifyContent: 'center', padding: 11, color: b.red ? 'var(--red)' : 'var(--accent)' }}>{b.label}</button>)}
           <button className="btn" style={{ justifyContent: 'center', padding: 11 }}>Cancel</button>
         </div>
       </div>
@@ -222,7 +222,7 @@ export function Settings() {
         items={[
           ['Which thing?', 'Either one named vault (Passwords: its file, its password, its Face ID key, leaving it) or Psss on this device (when it locks, whether AutoFill is on, help). Every row is in exactly one of those two places and the screen says which.'],
           ['What must they give?', 'Nothing. Every row is a choice or an action; the only inputs are the Lock pop-up and the Face ID switch.'],
-          ['What can go wrong?', 'Leaving a vault. The button names the outcome (“Forget Vault…” when the file stays, “Delete Vault…” when it does not) and the confirmation says whether the file survives and what Psss shows next.'],
+          ['What can go wrong?', 'Leaving a vault. The button is Remove Vault… for every vault; the confirmation says whether the file stays (and where), and only a button that deletes says Delete. It also says what Psss shows next.'],
           ['How do they leave?', 'Done. Forget is the way out of a vault; Save a Copy is the way to keep one first.'],
         ]}
       />
@@ -277,24 +277,30 @@ export function Settings() {
         <Frame label="B1 · Settings, one vault (iPhone)" phone caption="With one vault the Vaults group has one row and “Add Vault…”, as the multiple-vaults doc says. The app rows follow, each group named for what it covers.">
           <Phone title="Settings" done><VaultsList /><AppBody /></Phone>
         </Frame>
-        <Frame label="B2 · The vault’s page, a vault in iCloud Drive" phone caption="One group for the vault: its name, where the file is (place and file name), then Save a Copy… and Change Vault Password…, the two things done to the file. Unlock with Face ID next. Remove last in its own group. “Forget Vault…” is in the accent colour because nothing is deleted.">
+        <Frame label="B2 · The vault’s page, a vault in iCloud Drive" phone caption="One group for the vault: its name, where the file is (place and file name), then Save a Copy… and Change Vault Password…, the two things done to the file. <strong>Remove Vault…</strong> is in the same group, in the accent colour: the file stays in iCloud Drive and the footer says so. Unlock with Face ID next.">
           <Phone title="Passwords" back="Settings"><VaultBody kind="icloud" /></Phone>
         </Frame>
-        <Frame label="B3 · A vault kept on this device only" phone caption="Same page. The last row says “Delete Vault…” in red, because here the file is removed with the vault. The footer says so before the tap.">
+        <Frame label="B3 · A vault kept on this device only" phone caption="Same page, the same Remove Vault… row. The footer says the vault is kept only on this iPhone, so removing it deletes the file, and suggests a copy first.">
           <Phone title="Passwords" back="Settings"><VaultBody kind="device" /></Phone>
         </Frame>
       </Frames>
       <Frames>
-        <Frame label="B4 · Tapping Forget Vault…" phone caption="The alert names the vault, says the file stays and says what shows next. Default-coloured button: nothing is lost.">
+        <Frame label="B4 · Remove Vault…, a vault in iCloud Drive" phone caption="The alert names the vault, says where the file stays and what shows next. Default-coloured button: nothing is lost.">
           <Phone title="Passwords" back="Settings"
-            alert={<Alert title="Forget Passwords?" message="Psss stops using this vault on this iPhone. The file is not deleted: it stays in iCloud Drive and you can open it again. Psss then shows the welcome screen." button="Forget Vault" />}>
+            alert={<Alert title="Remove Passwords?" message="Psss stops using this vault on this iPhone. The file stays in iCloud Drive › Psss and you can open it again. Psss then shows the welcome screen." button="Remove Vault" />}>
             <VaultBody kind="icloud" />
           </Phone>
         </Frame>
-        <Frame label="B5 · Tapping Delete Vault…" phone caption="Red, because this is deletion. It says what goes, that there is no undo and what shows next. Same alert for a vault found through Forgot Password on the lock screen.">
+        <Frame label="B5 · Remove Vault…, a vault kept on this iPhone only" phone caption="Files cannot reach Psss’s own storage, so a file kept there after removing would be lost to the person anyway: the alert says removing deletes it, offers Save a Copy… first, and Delete Vault is red. Only this button says Delete, because only it deletes.">
           <Phone title="Passwords" back="Settings"
-            alert={<Alert red title="Delete Passwords?" message="The vault and its backups are deleted from this iPhone. Without another copy of the file, your logins are gone. This cannot be undone. Psss then shows the welcome screen." button="Delete Vault" />}>
+            alert={<Alert red title="Remove Passwords?" message="It is kept only on this iPhone, so removing it deletes the vault and its backups. Without another copy of the file, your logins are gone. This cannot be undone. Psss then shows the welcome screen." button="Delete Vault" more={[{ label: 'Save a Copy…' }]} />}>
             <VaultBody kind="device" />
+          </Phone>
+        </Frame>
+        <Frame label="B9 · Mac, Remove Vault… for a vault on this Mac" phone caption="On the Mac the file can be found again in Finder, so Remove Vault keeps it and says where; Delete File, in red, is the second choice.">
+          <Phone title="Passwords" back="Settings"
+            alert={<Alert title="Remove Passwords?" message="Psss stops using this vault on this Mac. Remove Vault keeps the file on this Mac, in Psss’s folder. Delete File deletes it and its backups, and cannot be undone." button="Remove Vault" more={[{ label: 'Delete File', red: true }]} />}>
+            <VaultBody kind="device" device="Mac" />
           </Phone>
         </Frame>
         <Frame label="B6 · The sample vault" phone caption="The three inert text lines are gone. “Close Sample Vault” replaces Start Over and says the welcome screen is where to create, open or import.">
@@ -317,7 +323,7 @@ export function Settings() {
         <Frame label="C1 · Mac, General" caption="The app’s rows. Nothing about any one vault.">
           <MacSettings pane="general" />
         </Frame>
-        <Frame label="C2 · Mac, Vaults" caption="Pick a vault on the left; its page on the right. The file actions share one row: Show in Finder (opens the folder with the file selected) and Save a Copy…; the Location tooltip is the full path. “Vault Password” is a labeled row with Change… at the right. The page ends in Forget Vault… or Delete Vault…. Add Vault… under the list. The window is titled Vaults, not by the vault’s name.">
+        <Frame label="C2 · Mac, Vaults" caption="Pick a vault on the left; its page on the right. The file actions share one row: Show in Finder (opens the folder with the file selected) and Save a Copy…; the Location tooltip is the full path. “Vault Password” is a labeled row with Change… at the right. Remove Vault… is in the same group. Add Vault… under the list. The window is titled Vaults, not by the vault’s name.">
           <MacSettings pane="vaults" />
         </Frame>
       </Frames>
@@ -345,11 +351,11 @@ export function Settings() {
             why: <>B is the only shape where “this vault” and “the app” are different places, and it is already what the multiple-vaults design implies. C is the Mac’s native shape; it is a recommendation, not a requirement.</>,
           },
           {
-            decision: <>Leaving a vault lives on that vault’s page, last, in its own group, and is named for what happens: <strong>Forget Vault…</strong> when the file stays, <strong>Delete Vault…</strong> when it goes. The sheet called “Reset” and the words “Start Over” go.</>,
+            decision: <>Leaving a vault lives on that vault’s page, in the vault’s group (owner, 2026-11-25), as <strong>Remove Vault…</strong> for every vault. The confirmation says where the file stays; only a button that deletes says Delete (<strong>Delete Vault</strong> for a vault kept only on iPhone or iPad, <strong>Delete File</strong> as the Mac’s second choice). The sheet called “Reset” and the words “Start Over” go.</>,
             why: <>“Start Over” promised more than it did and sat away from the thing it acted on. The lost-password sheet and this page now use one pair of words and one alert.</>,
           },
           {
-            decision: <>Red only for <strong>Delete Vault…</strong>. “Forget Vault…” uses the default button colour.</>,
+            decision: <>Red only for the button that deletes, in the confirmation. Remove Vault… uses the default button colour.</>,
             why: <>Red is for deletion. Forgetting an iCloud or opened file deletes nothing, the same reasoning as Move to Recently Deleted. The current code uses a destructive role for both.</>,
           },
           {
@@ -375,6 +381,7 @@ export function Settings() {
 
       <History
         entries={[
+          { date: '2026-11-25', text: <>Remove Vault… for every vault, in the vault’s group (owner: “don’t call it delete vault unless we’re actually deleting the file”). Replaces Forget Vault… (file stays) and the red Delete Vault… (vault kept on this device) and the Remove group at the end. The footer and the alert say where the file stays; a vault kept only on iPhone or iPad cannot be reached in Files, so its alert says removing deletes it, offers Save a Copy…, and only that button, Delete Vault, is red. On the Mac the alert keeps the file by default and offers Delete File. B2 to B5 and C2 redrawn, B9 added. This also undoes the lead’s earlier choice to keep leaving in its own last group: the button no longer deletes anything by itself.</> },
           { date: '2026-11-25', text: <>The vault page has one group for the vault (owner: the actions belong with the vault’s details): Name, Location (the place: “On this device”, “iCloud Drive › Psss” or the folder; its tooltip on the Mac is the full path), File (the name of a file the person opened; none for a vault Psss created, whose file has an internal name), Items, Modified, <strong>Save a Copy…</strong>, <strong>Change Vault Password…</strong> and Technical details. On the Mac (owner, same day): the file actions share one row, <strong>Show in Finder</strong> and <strong>Save a Copy…</strong>, and the password is a labeled row, “Vault Password” with <strong>Change…</strong> at the right, as macOS draws a password in Users & Groups. Replaces the separate “Keep it safe” group under Unlock; its footer sentence joins the vault group’s footer. Remove stays last in its own group: the owner asked whether it belongs at the top too, and the lead kept it apart, as Apple keeps destructive actions away from everyday ones. iPhone and iPad have no Show in Files: Files cannot reliably open at a file (roadmap). The Mac Settings window is titled by its pane (“Vaults”), no longer by the selected vault. The delete footer says “removes its saved Touch ID key” instead of “turns off Touch ID or password for it”. B2, B3, B7 and C2 redrawn.</> },
           { date: '2026-11-24', text: <>Added B8: a vault that is not available (Archive) shows the warning glyph in the list. The decision about “Add Vault…” no longer says it is not drawn: the row, the button and the sheet are drawn and (on iPhone and iPad) built. Replaces the older decision that left Add Vault… for the multiple-vaults work.</> },
           { date: '2026-11-24', text: <>Lead decisions applied: the Vaults list (iPhone, iPad and the Mac pane) is names only again; the warning glyph shows only for a vault that is not available, with no second line and no padlocks. Replaces the entry below, which gave every row a padlock and a state line. Uses the shared <code>VaultMenu.tsx</code> data; shared Vault row and menu.</> },

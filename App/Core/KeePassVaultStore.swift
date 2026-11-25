@@ -962,10 +962,11 @@ final class VaultSession {
         store = nil
     }
 
-    /// Forgets the vault. A vault Psss created is deleted with its backups; a file the person opened is never touched.
-    func forget() {
+    /// Forgets the vault. A file the person opened is never touched. A vault Psss created is deleted when `deletingFile` (its
+    /// backups always go); the Mac's Remove Vault keeps it in Psss's folder, where Finder can still reach it.
+    func forget(deletingFile: Bool = true) {
         let forgotten = reference
-        if let reference, reference.managed {
+        if let reference, reference.managed, deletingFile {
             try? FileManager.default.removeItem(at: VaultFiles.managedURL(fileName: reference.fileName))
         }
         if let reference {
