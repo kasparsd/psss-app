@@ -313,7 +313,8 @@ struct VaultPasswordView: View {
 
     private var content: some View {
         VStack(spacing: 16) {
-            LockHeader(biometry: nil, vaultName: vaultName, opening: opening, showsTitle: !embedded)
+            LockHeader(biometry: nil, vaultName: vaultName, opening: opening, showsTitle: !embedded,
+                       title: session.reference == nil ? String(localized: "Psss Is Locked") : String(localized: "Unlock \(vaultName)"))
             if !embedded {
                 statusLine
                 vaultSelector

@@ -135,7 +135,7 @@ test('the registered host answers a ping from the extension', async () => {
   const popup = await cdp.openTab('about:blank');
   await popup.goto(`chrome-extension://${devId}/popup.html`);
   const reply = await popup.eval(`Host.ping()`);
-  assert.deepEqual({ ok: reply.ok, protocol: reply.protocol }, { ok: true, protocol: 3 }, JSON.stringify(reply));
+  assert.deepEqual({ ok: reply.ok, protocol: reply.protocol }, { ok: true, protocol: 4 }, JSON.stringify(reply));
   await popup.close();
 });
 

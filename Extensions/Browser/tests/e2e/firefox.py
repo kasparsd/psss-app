@@ -234,7 +234,7 @@ class FirefoxTests(unittest.TestCase):
             reply = wait_for(lambda: self.js(popup, "return null") is None, "popup page") and self.m.script(
                 "const done = arguments[arguments.length - 1]; Host.ping().then(done)", async_=True)
             self.assertTrue(reply["ok"], reply)
-            self.assertEqual(reply["protocol"], 3)
+            self.assertEqual(reply["protocol"], 4)
         finally:
             self.close(popup)
 

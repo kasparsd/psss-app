@@ -45,8 +45,10 @@ struct LockHeader: View {
     var vaultName = ""
     var opening = false
     var retry: () -> Void = {}
-    /// Draws "Psss Is Locked" under the icon; the content column beside the sidebar leaves it out.
+    /// The title under the icon; the content column beside the sidebar leaves it out. "Unlock <vault>" when a specific vault is
+    /// being unlocked, "Psss Is Locked" for the app's own lock screen.
     var showsTitle = true
+    var title = String(localized: "Psss Is Locked")
     @Environment(\.scenePhase) private var scenePhase
     /// Just long enough for the screen to draw its first frame with the dots, so the change is seen as a change. Nothing else waits.
     private static let firstFrame = Duration.milliseconds(80)
@@ -60,7 +62,7 @@ struct LockHeader: View {
     var body: some View {
         VStack(spacing: 16) {
             LockIcon(biometry: biometry, vaultName: vaultName, opening: showsName, retry: retry)
-            if showsTitle { Text("Psss Is Locked").font(.title2.weight(.semibold)) }
+            if showsTitle { Text(title).font(.title2.weight(.semibold)).multilineTextAlignment(.center) }
         }
         .task(id: scenePhase) {
             guard scenePhase == .active else { introduced = false; return }

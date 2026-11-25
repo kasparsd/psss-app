@@ -155,6 +155,9 @@ struct VaultSidebarFoot: View {
             .padding(.vertical, 8)
         }
         .background(.bar)
+        // Stays at the bottom, behind the on-screen keyboard (iPad, typing in the unlock form beside the sidebar), instead of
+        // being lifted over it.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 }
 
