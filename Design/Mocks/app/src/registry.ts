@@ -21,6 +21,7 @@ import { VaultStates } from './pages/VaultStates';
 import { Autofill } from './pages/Autofill';
 import { BrowserExtension } from './pages/BrowserExtension';
 import { AppSwitcher } from './pages/AppSwitcher';
+import { IosSafariFill } from './pages/IosSafariFill';
 
 export interface PageEntry {
   slug: string;
@@ -59,4 +60,5 @@ export const pages: PageEntry[] = [
   { slug: 'autofill', short: 'AutoFill', title: 'AutoFill: choosing a login', oldFile: '', status: 'Redrawn 2026-11-24 from the vault-states model; lead-approved, being built', summary: 'The system picker on iPhone, iPad and Mac: the app\u2019s row and search, the Vault row with Unlock beside it, and the notices when the chosen vault is locked or not available.', component: Autofill },
   { slug: 'browser-extension', short: 'Browser extension', title: 'Browser extension: the popup', oldFile: '', status: 'Redrawn 2026-11-24 from the vault-states model; lead-approved, being built', summary: 'The toolbar popup: filling and searching, the compact Vault row with Unlock, and the notices when the chosen vault is locked or not available.', component: BrowserExtension },
   { slug: 'app-switcher', short: 'Leaving and coming back', title: 'Leaving and coming back', oldFile: '', status: 'Built (2026-11-25)', summary: 'A butter-mark-on-charcoal cover when Psss leaves (so the app switcher shows no items), the lock decided before the first frame on return, and the place and item reopened after unlocking; no cover on pull-downs (E2).', component: AppSwitcher },
+  { slug: 'ios-safari-fill', short: 'Cards in Safari (iOS)', title: 'Cards and addresses in Safari (iPhone and iPad)', oldFile: '', status: 'Proposal (2026-11-25), not built', summary: 'A Safari extension popup on iPhone and iPad that fills a saved card or address into a checkout form: how to open it, locked vault, no cards, first-run card.', component: IosSafariFill },
 ];
