@@ -11,15 +11,20 @@ struct MacSettingsView: View {
     @Environment(SettingsRequests.self) private var requests
     @AppStorage("vaultSource") private var vaultSource = ""
     @State private var selection: Entry.ID?
-    @State private var addingVault = false
+    @State private var tab = Tab.general
+    @State private var addChoice: AddVaultChoice?
+
+    private enum Tab: Hashable { case general, vaults }
 
     private enum Entry: Identifiable, Hashable {
         case vault(UUID)
         case sample
+        case add
         var id: String {
             switch self {
             case .vault(let id): id.uuidString
             case .sample: "sample"
+            case .add: "add"
             }
         }
     }
@@ -27,34 +32,42 @@ struct MacSettingsView: View {
     private var sampleOpen: Bool { !vaultSource.isEmpty && vaultSource != RootView.keePassSource }
 
     var body: some View {
-        TabView {
+        TabView(selection: $tab) {
             Form { AppSettingsSections(isSample: sampleOpen) { gate.lock() } }
                 .formStyle(.grouped)
                 .tabItem { Label("General", systemImage: "gearshape") }
+                .tag(Tab.general)
             vaultsPane
                 .tabItem { Label("Vaults", systemImage: "lock.rectangle.stack") }
+                .tag(Tab.vaults)
         }
         .frame(width: 640, height: 560)
         .scenePadding()
-        .sheet(isPresented: $addingVault) {
-            AddVaultSheet(session: session) {
-                gate.markUnlocked()
-                vaultSource = RootView.keePassSource
-                selection = nil
-            }
+        .onAppear(perform: consumeRequest)
+        .onChange(of: requests.page) { _, _ in consumeRequest() }
+    }
+
+    /// Another part of the app asked for Settings at a page (`SettingsRequests.show`).
+    private func consumeRequest() {
+        guard let page = requests.page else { return }
+        requests.page = nil
+        tab = .vaults
+        switch page {
+        case .vault(let id): selection = id.uuidString
+        case .addVault: selection = Entry.add.id
         }
     }
 
+    /// The vaults in the order of the vault list. The open one never moves.
     private var entries: [Entry] {
         if sampleOpen { return [.sample] }
-        return session.knownVaults.map { .vault($0.id) }
+        return session.knownVaults.map { .vault($0.id) } + [.add]
     }
 
     private var current: Entry.ID? { selection ?? entries.first?.id }
 
     private var vaultsPane: some View {
         HStack(spacing: 0) {
-            VStack(spacing: 0) {
             List(selection: Binding(get: { current }, set: { selection = $0 })) {
                 ForEach(entries) { entry in
                     switch entry {
@@ -64,21 +77,21 @@ struct MacSettingsView: View {
                         if let reference = session.knownVaults.first(where: { $0.id == id }) {
                             VaultListName(session: session, reference: reference, unlocked: gate.isUnlocked).tag(entry.id)
                         }
+                    case .add:
+                        Label("Add Vault", systemImage: "plus").tag(entry.id)
                     }
                 }
             }
             .listStyle(.sidebar)
-                Divider()
-                HStack {
-                    Button("Add Vault…") { addingVault = true }
-                    Spacer()
-                }
-                .padding(8)
-            }
             .frame(width: 200)
             Divider()
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .addVaultFlow($addChoice, session: session) {
+            gate.markUnlocked()
+            vaultSource = RootView.keePassSource
+            selection = session.reference?.id.uuidString
         }
     }
 
@@ -86,6 +99,8 @@ struct MacSettingsView: View {
     private var detail: some View {
         if sampleOpen {
             SampleSettingsPage(session: session, gate: gate) { selection = nil }
+        } else if current == Entry.add.id {
+            AddVaultPane(choice: $addChoice)
         } else if let id = current, let reference = session.knownVaults.first(where: { "\($0.id)" == id }) {
             if reference.id == session.reference?.id {
                 let open = gate.isUnlocked ? session.store : nil

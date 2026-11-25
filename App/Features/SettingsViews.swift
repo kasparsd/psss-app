@@ -11,6 +11,20 @@ import SwiftUI
 final class SettingsRequests {
     /// Change Vault Password: its sheet belongs to the vault window, so the Settings window asks for it.
     var changePassword = false
+    /// Which page the Mac Settings window should show. Set it, then call `openSettings()` from the environment; the window
+    /// switches to the Vaults pane, selects the page and clears this.
+    var page: SettingsPage?
+
+    /// Asks for Settings at a page. The caller then opens the window with `@Environment(\.openSettings)`.
+    func show(_ page: SettingsPage) { self.page = page }
+}
+
+/// A place in the Mac Settings window that others can open it at.
+enum SettingsPage: Hashable {
+    /// A vault's own page, by the vault's id in the vault list.
+    case vault(UUID)
+    /// The "Add Vault" row of the Vaults pane.
+    case addVault
 }
 
 /// A vault's name in the Settings list: the name alone (where and how it is kept is on its page), and at the trailing end the
@@ -68,7 +82,12 @@ struct AppSettingsSections: View {
         }
         #endif
         Section("Help") {
+            #if os(macOS)
+            // One row with a push button, not three chevron rows (mock `#/settings` B1).
+            MacHelpRow()
+            #else
             ForEach(HelpTopics.all) { HelpRow(topic: $0) }
+            #endif
         }
     }
 
@@ -77,6 +96,34 @@ struct AppSettingsSections: View {
         "Each vault has its own password, file and \(BiometryKind.unlockName) setting."
     }
 }
+
+#if os(macOS)
+/// The Mac's Help row: what it covers, and a Psss Help push button that shows the topics in a popover.
+private struct MacHelpRow: View {
+    @State private var shown = false
+
+    var body: some View {
+        LabeledContent {
+            Button("Psss Help") { shown = true }
+                .popover(isPresented: $shown) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(HelpTopics.all) { topic in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(verbatim: topic.title).font(.headline)
+                                Text(verbatim: topic.text).font(.body).fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .frame(width: 320, alignment: .leading)
+                }
+        } label: {
+            Text("Copying, verification codes and passkeys")
+        }
+    }
+}
+#endif
 
 /// Forgets (or deletes) the open vault. Another remembered vault takes its place on the lock screen; with none left, the welcome
 /// screen shows.
