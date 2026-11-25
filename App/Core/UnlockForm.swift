@@ -123,3 +123,111 @@ enum UnlockKeyFile {
     /// The wrong-password notice offers "Choose Key File…" only while the row is not already on the screen.
     static func offersChoice(rowShown: Bool) -> Bool { !rowShown }
 }
+
+/// The unlock form for one vault (plan `mail-style-vaults`, slice U; mock `#/unlock-screen`, `#/vault-switcher` frames E, E2, I).
+/// One view for the full lock screen and for the content area beside the sidebar: an optional title ("Unlock Work"), the password
+/// field, the notice slot, the Key file row, the actions and an optional line under them.
+///
+/// Actions: on the Mac and in regular width (iPad) one row, `[Unlock] [Use Touch ID]`, Unlock first; on iPhone Unlock above and
+/// Use Face ID below, both full width. Unlock is the default button and stays disabled until there is a password (`canUnlock`).
+/// The biometric button shows only when `biometry` is non-nil, which the caller sets only when biometric unlock is set up for
+/// this vault. The form holds no state and keeps no secret beyond the password binding. It never starts a biometric prompt itself:
+/// `useBiometrics` is the explicit ask, and the automatic one is `View.biometricAutoPrompt` (UnlockBiometrics.swift).
+struct UnlockForm<Notice: View, KeyFile: View>: View {
+    /// The vault's name for the title "Unlock <name>". Nil leaves the title out (the full lock screen draws its own header).
+    var vaultName: String?
+    @Binding var password: String
+    var focused: FocusState<Bool>.Binding
+    /// Non-nil: biometric unlock is set up for this vault; names the button ("Use Touch ID").
+    var biometry: BiometryKind?
+    /// A check or an attempt is running: field, buttons and links are held still.
+    var working = false
+    /// The field cannot be edited (the vault file is missing).
+    var fieldDisabled = false
+    /// Something to unlock with is entered (a password or a key file).
+    var canUnlock: Bool
+    /// A line under the actions, for example "Passwords locks when Work opens."
+    var footnote: String?
+    let unlock: () -> Void
+    let useBiometrics: () -> Void
+    /// Set when the vault file is missing: "Locate Vault File…" takes the place of the Unlock row.
+    var locateFile: (() -> Void)?
+    /// "Forgot Password" and "Help" below the actions; nil leaves each out.
+    var forgotPassword: (() -> Void)?
+    var help: (() -> Void)?
+    @ViewBuilder var notice: Notice
+    @ViewBuilder var keyFile: KeyFile
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    #endif
+
+    private var sideBySide: Bool {
+        #if os(iOS)
+        sizeClass == .regular
+        #else
+        true
+        #endif
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            if let vaultName {
+                Text("Unlock \(vaultName)").font(.title2.weight(.semibold)).multilineTextAlignment(.center)
+            }
+            UnlockPasswordField(text: $password, focused: focused, working: working, disabled: fieldDisabled || working, onSubmit: submit)
+            notice
+            keyFile.disabled(working)
+            actions
+            if let footnote {
+                Text(footnote).foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            }
+            if forgotPassword != nil || help != nil {
+                HStack(spacing: 8) {
+                    if let forgotPassword { Button("Forgot Password", action: forgotPassword) }
+                    if let help { Button("Help", action: help) }
+                }
+                .buttonStyle(.bordered).foregroundStyle(.primary).disabled(working)
+            }
+        }
+    }
+
+    private func submit() { if canUnlock && !working { unlock() } }
+
+    @ViewBuilder private var actions: some View {
+        if let locateFile {
+            Button(action: locateFile) { Label("Locate Vault File…", systemImage: "folder").frame(maxWidth: .infinity) }
+                .modifier(PrimaryActionStyle())
+        } else if sideBySide {
+            HStack(spacing: 12) { unlockButton; biometricButton }
+        } else {
+            VStack(spacing: 12) { unlockButton; biometricButton }
+        }
+    }
+
+    private var unlockButton: some View {
+        Button(action: unlock) { Text("Unlock").frame(maxWidth: .infinity) }
+            .modifier(PrimaryActionStyle())
+            .disabled(working || !canUnlock)
+            .keyboardShortcut(.defaultAction)
+    }
+
+    @ViewBuilder private var biometricButton: some View {
+        if let biometry {
+            Button(action: useBiometrics) { Text("Use \(biometry.label)").frame(maxWidth: .infinity) }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .disabled(working)
+        }
+    }
+}
+
+/// The prominent action: filled with the accent colour on iPhone and iPad, the system's default button on the Mac.
+private struct PrimaryActionStyle: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(macOS)
+        content.controlSize(.large)
+        #else
+        content.buttonStyle(.borderedProminent).controlSize(.large)
+        #endif
+    }
+}

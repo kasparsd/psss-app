@@ -205,3 +205,129 @@ final class TouchIDListener {
     }
 }
 #endif
+
+// MARK: - Automatic biometric prompt
+
+/// Asks the system for Face ID or Touch ID with Apple's own prompt (no embedded sensor view: a Mac cannot listen silently for a
+/// finger). One prompt at a time: a new request invalidates the one in flight, so two never stack, and `cancel()` dismisses it
+/// (the form disappeared, or the vault changed). The passed `LAContext` is handed on so the Keychain read needs no second prompt
+/// (`EvaluatedContext`, BiometricKey.swift). Uses the async API on the main actor; no closure replies.
+@MainActor
+@Observable
+final class BiometricPrompter {
+    enum Outcome {
+        /// The person passed. The context is evaluated and can read the saved key.
+        case evaluated(LAContext)
+        /// The person cancelled, or the prompt was dismissed by `cancel()` or a newer request. Change nothing on screen.
+        case cancelled
+        /// The finger or face did not match after the system's attempts.
+        case notRecognised
+        /// Lockout, no sensor, or anything else that makes the vault password necessary this time.
+        case unavailable
+    }
+
+    private(set) var isPrompting = false
+    private var context: LAContext?
+    private var finishedAt: Date?
+
+    /// A prompt ended a moment ago. The system prompt makes the window or scene inactive and active again, which is not a new
+    /// activation.
+    var finishedRecently: Bool { finishedAt.map { Date.now.timeIntervalSince($0) < 1.5 } ?? false }
+
+    func evaluate(reason: String) async -> Outcome {
+        context?.invalidate()
+        let session = LAContext()
+        session.localizedCancelTitle = String(localized: "Cancel")
+        // No device-password fallback: the vault password field on the form is the fallback.
+        session.localizedFallbackTitle = ""
+        context = session
+        isPrompting = true
+        var outcome = Outcome.evaluated(session)
+        do {
+            _ = try await session.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason)
+        } catch {
+            switch (error as? LAError)?.code {
+            case .userCancel, .appCancel, .systemCancel: outcome = .cancelled
+            case .authenticationFailed: outcome = .notRecognised
+            default: outcome = .unavailable
+            }
+        }
+        // A stale answer (cancelled, or a newer request took over) changes nothing.
+        guard context === session else { return .cancelled }
+        context = nil
+        isPrompting = false
+        finishedAt = .now
+        return outcome
+    }
+
+    /// Dismisses a prompt in flight. Nothing is reported to the caller beyond `.cancelled`.
+    func cancel() {
+        guard let context else { return }
+        self.context = nil
+        isPrompting = false
+        context.invalidate()
+    }
+}
+
+private struct BiometricActivation: ViewModifier {
+    let prompter: BiometricPrompter
+    let vault: AnyHashable
+    let enabled: Bool
+    let ask: @MainActor () async -> Void
+
+    private struct Token: Equatable { var vault: AnyHashable; var activation: Int; var enabled: Bool }
+    @State private var activation = 0
+    /// The form wanted to ask but its window or scene was not in front; the next activation asks.
+    @State private var pending = false
+    @Environment(\.scenePhase) private var scenePhase
+    #if os(macOS)
+    @Environment(\.controlActiveState) private var controlActiveState
+    #else
+    /// The scene went to the background since the last ask. The system sheet itself only makes the scene inactive and active.
+    @State private var leftScene = false
+    #endif
+
+    private var isActive: Bool {
+        #if os(macOS)
+        controlActiveState == .key
+        #else
+        scenePhase == .active
+        #endif
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .task(id: Token(vault: vault, activation: activation, enabled: enabled)) {
+                guard enabled else { return }
+                guard isActive else { pending = true; return }
+                pending = false
+                await ask()
+            }
+            .onChange(of: isActive) { _, now in
+                guard now, enabled, !prompter.isPrompting, !prompter.finishedRecently else { return }
+                #if os(iOS)
+                guard pending || leftScene else { return }
+                leftScene = false
+                #endif
+                activation += 1
+            }
+            #if os(iOS)
+            .onChange(of: scenePhase) { _, phase in if phase == .background { leftScene = true } }
+            #endif
+            .onChange(of: vault) { prompter.cancel() }
+            .onChange(of: enabled) { _, now in if !now { prompter.cancel() } }
+            .onDisappear { prompter.cancel() }
+    }
+}
+
+extension View {
+    /// Shows the system biometric prompt by itself, once per activation: when this view appears, when its Mac window becomes key
+    /// again or when the iOS scene returns from the background. Not again after a cancel, and not while the person types. `ask`
+    /// should call `BiometricPrompter.evaluate` and act on the outcome; the "Use Touch ID" button calls the same function. A
+    /// prompt in flight is cancelled when the view disappears, the vault changes or `enabled` turns off. Pass `enabled: false`
+    /// when the prompt would only fail (no biometric unlock for this vault, a missing file, a stale key after a lock notice).
+    func biometricAutoPrompt(prompter: BiometricPrompter, vault: some Hashable, enabled: Bool,
+                             ask: @escaping @MainActor () async -> Void) -> some View {
+        modifier(BiometricActivation(prompter: prompter, vault: AnyHashable(vault), enabled: enabled, ask: ask))
+    }
+}
