@@ -1,0 +1,15 @@
+/* Welcome page. The icon is butter in light and dark mode (owner, 2026-11-25). */
+.wl{display:flex;flex-direction:column;align-items:center;text-align:center;padding:48px 22px 24px;gap:10px}
+.wl-icon{border:0;padding:0;cursor:pointer;margin-bottom:8px}
+.wl-icon{background:linear-gradient(#FFE06E,#FFD23A);color:#1F1F23}
+.wl-key{width:44px;height:64px;color:var(--accent);margin-bottom:8px}
+.wl-title{font-size:17px;font-weight:700}
+.wl-line{font-size:13px;color:var(--lab2);max-width:300px}
+.wl-choices{display:flex;flex-direction:column;gap:10px;width:100%;margin-top:10px}
+.wl-choices .btn.wide{font-size:13px}
+.wl-foot{font-size:13px;color:var(--lab2);margin-top:4px}
+.wl.mac{padding:36px 22px 22px}
+.wl-choices.mac{width:260px;align-items:stretch;gap:8px}
+.wl-ipad{display:flex;justify-content:center;padding-top:30px}
+.wl-ipad .wl{max-width:380px}
+.wl-mac{width:620px;height:520px;display:grid;place-items:center}
