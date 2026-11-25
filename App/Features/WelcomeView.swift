@@ -15,9 +15,9 @@ struct WelcomeView: View {
     @State private var purpose = FilePurpose.vaultFile
     @State private var notice: String?
     @State private var comingSoon: String?
+    @State private var fileProblem: String?
     @State private var creating = false
     @State private var pendingImport: [VaultItem] = []
-    @State private var fileToOpen: URL?
 
     @ViewBuilder
     private func choice(_ title: LocalizedStringKey, _ symbol: String, prominent: Bool = false,
@@ -66,7 +66,10 @@ struct WelcomeView: View {
                       allowedContentTypes: purpose == .vaultFile ? [.keePassVault, .data] : [.commaSeparatedText, .plainText]) { result in
             switch purpose {
             case .vaultFile:
-                if let url = try? result.get() { fileToOpen = url }
+                // The file is added to the list, locked, and its unlock form follows: no password is asked here.
+                guard let url = try? result.get() else { return }
+                do { try session.add(fileAt: url); onFinish(RootView.keePassSource) }
+                catch { fileProblem = (error as? KDBXError)?.message ?? (error as? VaultStoreError)?.message ?? String(localized: "Psss could not read that file.") }
             case .passwordsCSV:
                 readPasswordsCSV(result, notice: $notice, problem: $comingSoon) { pendingImport = $0 }
             }
@@ -78,9 +81,9 @@ struct WelcomeView: View {
         .sheet(isPresented: $creating) {
             NewVaultSheet(session: session, importing: pendingImport) { onFinish(RootView.keePassSource) }
         }
-        .sheet(item: $fileToOpen) { url in
-            OpenVaultSheet(session: session, file: url) { onFinish(RootView.keePassSource) }
-        }
+        .alert("Nothing was added", isPresented: Binding(get: { fileProblem != nil }, set: { if !$0 { fileProblem = nil } })) {
+            Button("OK") { fileProblem = nil }
+        } message: { Text(fileProblem ?? "") }
         .alert("Not available yet", isPresented: Binding(get: { comingSoon != nil }, set: { if !$0 { comingSoon = nil } })) {
             Button("OK") { comingSoon = nil }
         } message: { Text(comingSoon ?? "") }

@@ -12,7 +12,7 @@ struct SettingsSheet: View {
     let isSample: Bool
     let itemCount: Int?
     @Binding var path: [UUID]
-    /// Change Vault Password, for the open vault (the sheet closes first; the caller opens the password sheet).
+    /// Change Vault Password, for the vault the window is built on (the sheet closes first; the caller opens the password sheet).
     let changePassword: () -> Void
     let close: () -> Void
     /// A vault was created, opened or imported: it is open now.
@@ -30,7 +30,7 @@ struct SettingsSheet: View {
                     } else {
                         ForEach(session.knownVaults, id: \.id) { reference in
                             NavigationLink(value: reference.id) {
-                                VaultListName(session: session, reference: reference, unlocked: gate.isUnlocked)
+                                VaultListName(session: session, reference: reference)
                             }
                         }
                     }
@@ -58,16 +58,15 @@ struct SettingsSheet: View {
         .addVaultFlow($addChoice, session: session, onAdded: added)
     }
 
-    /// The open (or current) vault's page, or the read-only page of another vault. A vault removed meanwhile pops back.
+    /// A vault's page: its details work from the reference, and what needs the vault open (items, a copy, a new password) is there
+    /// while the vault is open, whichever vault is shown. A vault removed meanwhile pops back.
     @ViewBuilder
     private func page(for id: UUID) -> some View {
         if let reference = session.knownVaults.first(where: { $0.id == id }) {
-            if reference.id == session.reference?.id {
-                VaultSettingsPage(session: session, gate: gate, reference: reference, store: keePass, itemCount: itemCount,
-                                  onChangePassword: keePass == nil ? nil : changePassword, afterLeaving: close)
-            } else {
-                OtherVaultSettingsPage(reference: reference)
-            }
+            let open = session.store(for: id)
+            VaultSettingsPage(session: session, gate: gate, reference: reference, store: open,
+                              itemCount: open === keePass ? itemCount : nil,
+                              onChangePassword: open == nil || open !== keePass ? nil : changePassword, afterLeaving: close)
         }
     }
 }

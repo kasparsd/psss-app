@@ -71,6 +71,11 @@ private struct ListSearch: ViewModifier {
 
 struct VaultView: View {
     let store: any VaultStore
+    /// A place to land on when the window appears or this request changes: a place of another vault that was chosen in the
+    /// sidebar, or the All place of a vault just unlocked.
+    var landing: VaultLanding?
+    /// Another open vault's place was chosen in the sidebar: the root shows that vault (it builds a window for its store).
+    var selectVault: (UUID, VaultDestination) -> Void = { _, _ in }
     @State private var items: [VaultItem]
     /// What waits in Recently Deleted, newest deletion first. Refreshed together with `items`.
     @State private var deletedEntries: [DeletedItem]
@@ -93,8 +98,10 @@ struct VaultView: View {
     @State private var reloadingEditedItem: VaultItem.ID?
     @State private var changingPassword = false
 
-    init(store: any VaultStore) {
+    init(store: any VaultStore, landing: VaultLanding? = nil, selectVault: @escaping (UUID, VaultDestination) -> Void = { _, _ in }) {
         self.store = store
+        self.landing = landing
+        self.selectVault = selectVault
         _items = State(initialValue: store.items())
         _deletedEntries = State(initialValue: store.recentlyDeleted().map(DeletedItem.init))
     }
@@ -176,22 +183,52 @@ struct VaultView: View {
     }
     private var destinationBinding: Binding<VaultDestination?> {
         Binding(get: { destination }, set: { new in
-            guard let new, new != destination else { return }
-            switch new {
-            case .codes: placeBinding.wrappedValue = .codes
-            case .cards: placeBinding.wrappedValue = .cards
-            case .wifi: placeBinding.wrappedValue = .wifi
-            case .recentlyDeleted:
-                placeBinding.wrappedValue = .all
-                selection = nil
-                showsDeleted = true
-            default:
-                placeBinding.wrappedValue = .all
-                var next = filter
-                next.show = new.show ?? .all
-                filterBinding.wrappedValue = next
-            }
+            guard let new else { return }
+            choose(new)
         })
+    }
+
+    /// The vault this window is built on; nil for the sample vault.
+    private var ownID: UUID? { (store as? KeePassVaultStore)?.reference.id }
+    private static let sampleID = UUID()
+
+    /// The sidebar's selection: a place of one vault. While another vault's unlock form is shown nothing is selected.
+    private var sidebarBinding: Binding<VaultSelection?> {
+        Binding(get: {
+            guard let own = ownID else { return VaultSelection(vault: Self.sampleID, destination: destination) }
+            return session.reference?.id == own ? VaultSelection(vault: own, destination: destination) : nil
+        }, set: { new in
+            guard let new else { return }
+            guard let own = ownID else { choose(new.destination); return }
+            // A place of another open vault: the root shows that vault with the place chosen.
+            if new.vault != own { selectVault(new.vault, new.destination); return }
+            // A place of this vault while another vault's unlock form was shown: this vault is shown again.
+            if session.reference?.id != own { session.show(own) }
+            choose(new.destination)
+        })
+    }
+
+    private func applyLanding() {
+        if let landing { choose(landing.destination) }
+    }
+
+    /// Selects a place or kind of this vault.
+    private func choose(_ new: VaultDestination) {
+        guard new != destination else { return }
+        switch new {
+        case .codes: placeBinding.wrappedValue = .codes
+        case .cards: placeBinding.wrappedValue = .cards
+        case .wifi: placeBinding.wrappedValue = .wifi
+        case .recentlyDeleted:
+            placeBinding.wrappedValue = .all
+            selection = nil
+            showsDeleted = true
+        default:
+            placeBinding.wrappedValue = .all
+            var next = filter
+            next.show = new.show ?? .all
+            filterBinding.wrappedValue = next
+        }
     }
     /// The row the list selected, with its section (see `SectionedRowID`).
     @State private var pickedRow: SectionedRowID?
@@ -335,6 +372,9 @@ struct VaultView: View {
             .onChange(of: inSearchTab) { hideSignal += 1 }
             .onChange(of: selections) { hideSignal += 1 }
             .task { if store.isSample { VaultIdentities.remove() } else { registerIdentities() } }
+            // Another open vault's place was chosen, or a vault was just unlocked: land on that place.
+            .onAppear { applyLanding() }
+            .onChange(of: landing) { applyLanding() }
             // AutoFill has just been found on, by the system's prompt or on coming back from Settings. Logins saved while it was
             // off were never sent to the system, so they are sent now, without waiting for the next unlock.
             .onChange(of: autoFill.reading) { old, new in if new == .on, old != .on { registerIdentities(knownEnabled: true) } }
@@ -350,20 +390,34 @@ struct VaultView: View {
         vaultSource = RootView.keePassSource
     }
 
-    /// Choosing another vault (sidebar header or vault menu): this one is written and locked, and the other's unlock form shows.
-    /// One vault is unlocked at a time and `VaultSession.unlock` opens the current vault, so the choice locks the open one at once.
+    /// Choosing a vault in the vault menu: it is shown. An open vault shows at once, with no password; a locked one shows its
+    /// unlock form. No other vault is locked or unlocked by the choice.
     private func switchVault(to id: UUID) {
-        session.lockAndSwitch(to: id)
-        gate.lock()
+        session.show(id)
+    }
+
+    /// Locks one vault (a section header's menu): the other open vaults stay open.
+    private func lockVault(_ id: UUID) {
+        session.lock(id)
+    }
+
+    /// Locks this window's vault because the file's password changed elsewhere, and shows its unlock form with the reason. The
+    /// other vaults stay open; with none open the whole window locks (`gate`).
+    private func lockForChangedFile() {
+        guard let own = ownID, session.openVaults.count > 1 else { gate.lock(notice: Self.changedElsewhereNotice); return }
+        gate.lockNotice = Self.changedElsewhereNotice
+        session.lock(own)
+        session.show(own)
     }
 
     /// The vault button of the iPhone toolbar (the glyph) and of iPad with the sidebar hidden (glyph and name): a menu with every
-    /// vault in the fixed order, the current vault's Vault Settings… and Lock, and the three add items. Shown with one vault too.
+    /// vault in the fixed order (a check on the shown one, a padlock only on a locked one), the shown vault's Vault Settings…,
+    /// Lock and, with two or more open, Lock All Vaults, and the three add items. Shown with one vault too.
     @ViewBuilder
     private func vaultMenuButton(_ style: VaultSwitcher.Style) -> some View {
         if store is KeePassVaultStore {
-            VaultSwitcher(session: session, unlocked: gate.isUnlocked, style: style, context: .app, choose: switchVault,
-                          add: { addChoice = $0 }, lock: { gate.lock() },
+            VaultSwitcher(session: session, style: style, context: .app, choose: switchVault,
+                          add: { addChoice = $0 }, lock: { session.lock() }, lockAll: { session.lockAll() },
                           settings: { if let id = session.reference?.id { showVaultSettings(id) } })
                 .disabled(isEditingInPlace)
         }
@@ -420,11 +474,11 @@ struct VaultView: View {
     }
 
     #if os(iOS)
-    /// File, Vault Settings… and Lock <name> (iPad with a keyboard). On the Mac the root view supplies them (it also covers the
-    /// locked window).
+    /// File, Vault Settings… and Lock <name> or Lock All Vaults (iPad with a keyboard). On the Mac the root view supplies them (it
+    /// also covers the locked window).
     private var vaultMenuCommands: VaultMenuCommands? {
         guard !isEditingInPlace, store is KeePassVaultStore, let reference = session.reference else { return nil }
-        return VaultMenuCommands(name: VaultName.short(reference.name), settings: { showVaultSettings(reference.id) }, lock: { gate.lock() })
+        return VaultMenuCommands.make(session: session) { showVaultSettings(reference.id) }
     }
     #endif
 
@@ -481,7 +535,7 @@ struct VaultView: View {
             if usesStack { stackLayout } else { splitLayout }
         }
         .addVaultFlow($addChoice, session: session) { vaultAdded() }
-        .modifier(VaultRemoval(request: $removingVault, session: session, gate: gate))
+        .modifier(VaultRemoval(request: $removingVault, session: session))
         .passwordsImporter(isPresented: $importing, notice: $importNotice, problem: $importProblem) { added in
             try store.save(added)
             refresh()
@@ -515,11 +569,13 @@ struct VaultView: View {
         .task {
             // The key AutoFill and Face ID open the vault with is saved without a question (owner, 2026-11-24). No passcode on the
             // device, or a Keychain refusal, leaves it unsaved and the next password unlock tries again.
-            if !store.isSample, session.biometricNotice == nil, session.shouldOfferBiometric { try? session.enableBiometric() }
+            if let own = store as? KeePassVaultStore, session.biometricNotice == nil, session.shouldOfferBiometric(for: own.reference.id) {
+                try? session.enableBiometric(for: own.reference.id)
+            }
         }
         .sheet(isPresented: $changingPassword) {
             if let store = store as? KeePassVaultStore { ChangePasswordSheet(store: store, onReloaded: { adoptReloadedVault() },
-                                                          onChangedElsewhere: { gate.lock(notice: Self.changedElsewhereNotice) }) }
+                                                          onChangedElsewhere: { lockForChangedFile() }) }
         }
     }
 
@@ -983,7 +1039,7 @@ struct VaultView: View {
     }
 
     private func sidebarRow(_ row: VaultDestination) -> some View {
-        NavigationLink(value: row) {
+        NavigationLink(value: VaultSelection(vault: ownID ?? Self.sampleID, destination: row)) {
             Label(row.title, systemImage: row.symbol)
                 // Recently Deleted shows how many items wait in it, and nothing when it is empty.
                 .badge(row == .recentlyDeleted ? deletedEntries.count : items.count(where: row.includes))
@@ -995,7 +1051,7 @@ struct VaultView: View {
     private func detail(for id: VaultItem.ID) -> some View {
         if let item = items.first(where: { $0.id == id }) {
             ItemDetail(item: item, hideSignal: hideSignal,
-                       vault: store.title, vaultLocation: session.reference.flatMap { $0.managed ? nil : $0.fileName },
+                       vault: store.title, vaultLocation: (store as? KeePassVaultStore).flatMap { $0.reference.managed ? nil : $0.reference.fileName },
                        isEditing: Binding(get: { editingID == item.id }, set: { editingID = $0 ? item.id : nil }),
                        save: saveEdited, keepDraft: keepDraft, mapFields: { mapping in
                            try saveMapping(mapping, of: item.id)
@@ -1151,36 +1207,66 @@ struct VaultView: View {
         .onSubmit(of: .search) { openTopResult() }
     }
 
-    private var allSplit: some View {
-        regularChrome(
-            NavigationSplitView(columnVisibility: $columns, preferredCompactColumn: $compactColumn) {
-                List(selection: destinationBinding) {
-                    if store is KeePassVaultStore {
-                        // One section per vault, as Mail shows accounts: the open vault expanded with its places, the others
-                        // collapsed with a lock (owner, 2026-11-25, mock `#/vault-switcher` H to N).
-                        VaultSections(session: session, openID: session.reference?.id, choose: switchVault, settings: showVaultSettings,
-                                      lock: { gate.lock() }, remove: { removingVault = $0 }) {
-                            ForEach(VaultDestination.sidebar, id: \.self, content: sidebarRow)
-                        }
-                    } else {
-                        Section(store.title) {
-                            ForEach(VaultDestination.sidebar, id: \.self, content: sidebarRow)
-                        }
+    /// Another vault's unlock form is shown: it fills the content area, and this window's sidebar stays, with every open vault's
+    /// places, so choosing a place of an open vault goes straight back to it.
+    private var shownVaultIsLocked: Bool {
+        guard store is KeePassVaultStore, let shown = session.reference else { return false }
+        return !session.isOpen(shown.id)
+    }
+
+    /// The sidebar, one section per vault: every open vault expanded with its places, every locked vault collapsed with a padlock
+    /// (owner, 2026-11-25, mock `#/vault-switcher` D, D2, E).
+    private var sidebarColumn: some View {
+        List(selection: sidebarBinding) {
+            if store is KeePassVaultStore {
+                VaultSections(session: session, choose: switchVault, settings: showVaultSettings, lock: lockVault,
+                              remove: { removingVault = $0 }) { vault in
+                    if vault.id == ownID {
+                        ForEach(VaultDestination.sidebar, id: \.self, content: sidebarRow)
+                    } else if let other = session.store(for: vault.id) {
+                        OtherVaultPlaces(vault: vault.id, store: other)
                     }
                 }
-                .listStyle(.sidebar)
-                .scrollBounceBehavior(.basedOnSize)
-                .modifier(DimsWhileEditing(editing: isEditingInPlace))
-                // No title in the bar: each section's header names its vault (owner, 2026-11-25, mock `#/vault-switcher` H to J).
-                .columnTitleInList(true)
-                // The foot, pinned to the bottom: Add Vault and the Settings gear (the gear is not in a toolbar, on Mac or iPad).
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    VaultSidebarFoot(showsAdd: store is KeePassVaultStore, add: { addChoice = $0 }, openSettings: showSettings)
-                        .disabled(isEditingInPlace)
+            } else {
+                Section(store.title) {
+                    ForEach(VaultDestination.sidebar, id: \.self, content: sidebarRow)
                 }
-                // Wide enough that "Recently Deleted" and its count stay on one line at the default text size on iPad (180 to 220 pt
-                // wrapped them), and the same on Mac.
-                .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 320)
+            }
+        }
+        .listStyle(.sidebar)
+        .scrollBounceBehavior(.basedOnSize)
+        .modifier(DimsWhileEditing(editing: isEditingInPlace))
+        // No title in the bar: each section's header names its vault (owner, 2026-11-25, mock `#/vault-switcher` H to J).
+        .columnTitleInList(true)
+        // The foot, pinned to the bottom: Add Vault and the Settings gear (the gear is not in a toolbar, on Mac or iPad).
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VaultSidebarFoot(showsAdd: store is KeePassVaultStore, add: { addChoice = $0 }, openSettings: showSettings)
+                .disabled(isEditingInPlace)
+        }
+        // Wide enough that "Recently Deleted" and its count stay on one line at the default text size on iPad (180 to 220 pt
+        // wrapped them), and the same on Mac.
+        .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 320)
+    }
+
+    private var allSplit: some View {
+        regularChrome(
+            Group {
+                if shownVaultIsLocked {
+                    NavigationSplitView(columnVisibility: $columns) {
+                        sidebarColumn
+                    } detail: {
+                        VaultUnlockPane(session: session, gate: gate)
+                    }
+                } else {
+                    openSplit
+                }
+            }
+        )
+    }
+
+    private var openSplit: some View {
+            NavigationSplitView(columnVisibility: $columns, preferredCompactColumn: $compactColumn) {
+                sidebarColumn
             } content: {
                 Group {
                     if isSearching || place == .all {
@@ -1200,7 +1286,6 @@ struct VaultView: View {
             } detail: {
                 regularDetail
             }
-        )
     }
 
     // MARK: Settings (iPhone and iPad; the Mac has a Settings window, `MacSettingsView`)
@@ -1377,8 +1462,14 @@ struct VaultView: View {
     }
 
     /// The All list. The search field is not here: the TabView owns it on iPhone and the split view on Mac and iPad.
-    private func itemResults(_ results: [VaultItem]) -> some View {
-        Group {
+    /// Type-erased: the full modifier chain makes a generic type so deep that the runtime overflows the main thread's stack
+    /// demangling it (crash on iPhone right after unlocking, 2026-11-25).
+    private func itemResults(_ results: [VaultItem]) -> AnyView {
+        AnyView(itemResultsChrome(itemResultsList(results), count: results.count))
+    }
+
+    private func itemResultsList(_ results: [VaultItem]) -> AnyView {
+        AnyView(Group {
             if usesStack {
                 // A stack pushes through its links, so the list must not also track a selection.
                 List { listRows(results) }
@@ -1410,8 +1501,12 @@ struct VaultView: View {
         }
         // The same list style as Codes and Cards (HIG: touch targets are at least 44 x 44 pt).
         .itemListStyle()
-        .overlay {
-            Group {
+        .overlay { emptyResults(results) })
+    }
+
+    /// What the All list shows when it has no rows.
+    private func emptyResults(_ results: [VaultItem]) -> AnyView {
+        AnyView(Group {
             if results.isEmpty {
                 if isRecentlyDeleted {
                     if isSearching {
@@ -1431,8 +1526,12 @@ struct VaultView: View {
                     noResults
                 }
             }
-            }
-        }
+        })
+    }
+
+    /// The All list's notice, search behaviour, focus and titles.
+    private func itemResultsChrome(_ list: AnyView, count: Int) -> some View {
+        list
         .overlay(alignment: .bottom) { AutoFillLaterNotice() }
         #if os(iOS)
         // Keep the title and the New button on screen while search is active.
@@ -1464,7 +1563,7 @@ struct VaultView: View {
         // the bar carries none.
         .navigationTitle(Text(verbatim: heading.title))
         #if os(iOS)
-        .navigationSubtitle(usesStack ? phoneLine(count: results.count) : "")
+        .navigationSubtitle(usesStack ? phoneLine(count: count) : "")
         #endif
         .columnTitleInList(!usesStack)
         #if os(iOS)
@@ -1592,7 +1691,7 @@ struct VaultView: View {
         Task {
             do { try await store.reload(); adoptReloadedVault() }
             catch KDBXError.wrongCredentials {
-                gate.lock(notice: Self.changedElsewhereNotice)
+                lockForChangedFile()
             } catch { storeProblem = (error as? KDBXError)?.message ?? (error as? VaultStoreError)?.message ?? error.localizedDescription }
         }
     }
@@ -2354,12 +2453,19 @@ extension FocusedValues {
     }
 }
 
-/// What the File menu's two vault items need from the focused window: the current vault's name for "Lock <name>", Settings at
-/// that vault's page, and the lock (nil while nothing is open).
+/// What the File menu's two vault items need from the focused window: Settings at the shown vault's page, and the lock. With
+/// one vault open the lock is "Lock <name>" (that vault); with two or more it is "Lock All Vaults" (every vault). Nil while
+/// nothing is open.
 struct VaultMenuCommands {
-    let name: String
     let settings: () -> Void
+    let lockTitle: String?
     let lock: (() -> Void)?
+
+    @MainActor
+    static func make(session: VaultSession, settings: @escaping () -> Void) -> VaultMenuCommands {
+        guard let title = session.lockMenuTitle else { return VaultMenuCommands(settings: settings, lockTitle: nil, lock: nil) }
+        return VaultMenuCommands(settings: settings, lockTitle: title, lock: { session.lockForMenu() })
+    }
 }
 
 private struct VaultMenuCommandsKey: FocusedValueKey {

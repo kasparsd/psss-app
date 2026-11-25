@@ -35,7 +35,7 @@ enum PasswordReason: Equatable, Sendable {
 
 /// The five states the person sees, plus the three ways a vault can be not available.
 enum VaultState: Equatable, Sendable {
-    /// Unlocked. Only the current vault, only in the process that opened it.
+    /// Unlocked: any number of vaults can be open at once, each only in the process that opened it.
     case open
     /// Locked, and Face ID, Touch ID or the passcode opens it.
     case locked
@@ -45,10 +45,9 @@ enum VaultState: Equatable, Sendable {
     case notFound
     case unreadable
 
-    /// The facts the state is made from. `isCurrent` and `isUnlocked` describe the one vault the device has open; any other
-    /// vault is locked by definition.
-    init(file: VaultFileCondition, quickUnlock: QuickUnlock, isCurrent: Bool, isUnlocked: Bool) {
-        if isCurrent && isUnlocked { self = .open; return }
+    /// The facts the state is made from. `isOpen` says this process holds the vault unlocked.
+    init(file: VaultFileCondition, quickUnlock: QuickUnlock, isOpen: Bool) {
+        if isOpen { self = .open; return }
         switch file {
         case .notDownloaded: self = .notDownloaded
         case .notFound: self = .notFound
@@ -184,10 +183,23 @@ extension VaultReference {
 }
 
 extension VaultSession {
-    /// The person-facing state of `vault`. `unlocked` is whether the app or extension holds the current vault open.
-    func state(of vault: VaultReference, unlocked: Bool, quickUnlockUsable: Bool = true) -> VaultState {
+    /// The File menu's lock item (⌘L): "Lock <name>" with one vault open, "Lock All Vaults" with two or more, nil with none open.
+    /// The name is shown safely (`VaultName.short`).
+    var lockMenuTitle: String? {
+        let open = openVaults
+        if open.count >= 2 { return String(localized: "Lock All Vaults") }
+        return open.first.map { String(localized: "Lock \(VaultName.short($0.name))") }
+    }
+
+    /// What the File menu's lock item does: locks the one open vault, or every vault when two or more are open.
+    func lockForMenu() {
+        if openVaults.count >= 2 { lockAll() } else if let only = openVaults.first { lock(only.id) }
+    }
+
+    /// The person-facing state of `vault`: open when this session holds it open, whichever vault is shown.
+    func state(of vault: VaultReference, quickUnlockUsable: Bool = true) -> VaultState {
         VaultState(file: vault.fileCondition(knownUnreadable: unreadable.contains(vault.id)),
                    quickUnlock: vault.quickUnlock(usable: quickUnlockUsable),
-                   isCurrent: vault.id == reference?.id, isUnlocked: unlocked)
+                   isOpen: isOpen(vault.id))
     }
 }

@@ -80,9 +80,9 @@ struct StoredVaultService: BrowserVaultService {
 }
 
 /// The app's half of a request from the browser popup: what the relay calls inside the running app, where the `VaultSession`
-/// lives. It does what the app's own switcher does (`VaultSession.switchTo`, which works only while locked, so the open vault is
-/// locked first), and it unlocks through the app's own flows, passed in as closures so this stays free of any screen: one
-/// active vault and one unlock flow for the whole app.
+/// lives. It does what the app's own switcher does (`VaultSession.show`: no vault is locked or unlocked by it), and it unlocks
+/// through the app's own flows, passed in as closures so this stays free of any screen: one shown vault and one unlock flow for
+/// the whole app. Slice M2 (several open vaults for the popup) will let `vaults` and the fill requests read every open vault.
 @MainActor
 enum BrowserVaultSwitch {
     /// The vaults as the popup lists them: the same rows, order and states as `VaultMenuItems`. `lockedOut` says Touch ID is locked
@@ -90,17 +90,15 @@ enum BrowserVaultSwitch {
     static func vaults(_ session: VaultSession, lockedOut: Bool = false) -> [BrowserVault] {
         session.knownVaults.map { vault in
             let active = vault.id == session.reference?.id
-            return BrowserVaultFacts.vault(vault, active: active, open: active && session.isOpen, lockedOut: active && lockedOut)
+            return BrowserVaultFacts.vault(vault, active: active, open: session.isOpen(vault.id), lockedOut: active && lockedOut)
         }
     }
 
-    /// Makes `id` the current vault: locks the open one first, then switches. It does not unlock (`unlockVault` does).
+    /// Makes `id` the current vault. No vault is locked (several can be open) and none is unlocked (`unlockVault` does that).
     /// Choosing the current vault changes nothing.
-    static func switchVault(id: String, session: VaultSession, lock: () -> Void) -> BrowserVaultOutcome {
+    static func switchVault(id: String, session: VaultSession) -> BrowserVaultOutcome {
         guard let target = UUID(uuidString: id), session.knownVaults.contains(where: { $0.id == target }) else { return .notFound }
-        if target == session.reference?.id { return .switched }
-        lock()
-        session.switchTo(target)
+        session.show(target)
         return .switched
     }
 

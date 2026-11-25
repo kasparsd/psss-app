@@ -483,7 +483,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         }
         let name = reference.name
         let method = BiometryKind.nameForMessages
-        let state = session.state(of: reference, unlocked: false)
+        let state = session.state(of: reference)
         switch state {
         case .notDownloaded, .notFound, .unreadable:
             return showUnavailable(state)
@@ -508,7 +508,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             // The saved key is off or gone. Without a device passcode the system keeps no key, which is a different fix.
             var passcodeError: NSError?
             let hasPasscode = LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: &passcodeError)
-            let now = session.reference.map { session.state(of: $0, unlocked: false) } ?? .needsPassword(.off)
+            let now = session.reference.map { session.state(of: $0) } ?? .needsPassword(.off)
             let passwordState: VaultState
             if case .needsPassword = now { passwordState = now } else { passwordState = .needsPassword(.off) }
             if !hasPasscode {
@@ -559,7 +559,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     private func showPasswordScreen() {
         guard let reference = session.reference else { return }
         openScreenShown = false
-        let state = session.state(of: reference, unlocked: false)
+        let state = session.state(of: reference)
         if let kdf = session.keyDerivationMemory(), !ExtensionUnlockBudget.allows(kdfBytes: kdf) {
             unlockLog.notice("provider password unlock refused before asking: key derivation \(kdf / ExtensionUnlockBudget.mebibyte) MiB, \(ProcessMemory.snapshot().text)")
             return showLocked(state: state, notice: ProviderNotices.openPsss(name: reference.name), canUnlock: false)
@@ -620,7 +620,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         session.lock()
         vault = nil
         openScreenShown = false
-        session.switchTo(id)
+        session.show(id)
         // The old list, its search text and its results go at once: the person sees the new vault's name and that it is opening
         // while Face ID asks. A save keeps its form, which has nothing to clear.
         if lockedScreen == nil {

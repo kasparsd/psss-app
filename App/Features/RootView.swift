@@ -1,7 +1,12 @@
 import SwiftUI
 
-/// Shows the vault only while unlocked. Locking tears the vault view down, so no decrypted state, selection
-/// or search text stays in memory behind the lock screen, and unlocking opens fresh. On a Mac the search field has focus then; on iPhone and iPad it does not, so the keyboard stays closed.
+/// Shows the vaults only while at least one is unlocked. The app-wide lock (`gate`: auto-lock, sleep, quit, Lock All Vaults)
+/// locks every vault and tears the vault view down, so no decrypted state, selection or search text stays in memory behind the
+/// lock screen, and unlocking opens fresh. Locking one vault leaves the others open. On a Mac the search field has focus then; on iPhone and iPad it does not, so the keyboard stays closed.
+///
+/// The gate and the session: `gate.isUnlocked` means "some vault is open". It is set by every unlock (`markUnlocked`), and it
+/// falls when the last vault locks (the observer below), however that happened; `gate.lock()` is the one call that locks every
+/// vault, and the observer on the gate does the locking.
 struct RootView: View {
     /// Owned by the app, so the Mac Settings window reads the same lock state and vault as this window.
     let gate: UnlockGate
@@ -13,6 +18,8 @@ struct RootView: View {
     /// Mac only: whether the bundled Safari extension is switched on. Reads nothing on iPhone and iPad, which have no extension.
     let safariExtension: SafariExtensionStatus
     @AppStorage("vaultSource") private var vaultSource = ""
+    /// Where the window lands when another open vault's place is chosen, or a vault has just been unlocked.
+    @State private var landing: VaultLanding?
     @AppStorage("lockTiming") private var lockTiming = LockTiming.oneMinute.rawValue
     @Environment(\.scenePhase) private var scenePhase
     @Environment(IncomingCodeRequests.self) private var incomingCodes
@@ -39,6 +46,29 @@ struct RootView: View {
         #endif
     }
 
+    /// The window around an open store. One view per window store: a new vault (created, unlocked or shown) is never shown
+    /// through the list and saved-key state the previous vault's view took when it appeared. While another vault's unlock form
+    /// is shown, the window keeps the store it was built on, so the sidebar and the places stay.
+    @ViewBuilder
+    private func openWindow(_ store: KeePassVaultStore) -> some View {
+        #if os(iOS)
+        // iPhone and compact iPad have no sidebar: a locked vault's unlock screen replaces the vault, with a way back.
+        if sizeClass == .compact, let shown = session.reference, !session.isOpen(shown.id) {
+            VaultPasswordView(session: session, gate: gate, cancel: { session.show(store.reference.id) }).id(shown.id)
+        } else {
+            VaultView(store: store, landing: landing, selectVault: selectVault).id(ObjectIdentifier(store))
+        }
+        #else
+        VaultView(store: store, landing: landing, selectVault: selectVault).id(ObjectIdentifier(store))
+        #endif
+    }
+
+    /// Chooses a place of another open vault: that vault is shown with the place selected.
+    private func selectVault(_ id: UUID, _ destination: VaultDestination) {
+        landing = VaultLanding(destination: destination)
+        session.show(id)
+    }
+
     var body: some View {
         Group {
             if vaultSource.isEmpty {
@@ -47,10 +77,8 @@ struct RootView: View {
                     vaultSource = source
                 }
             } else if vaultSource == Self.keePassSource {
-                if gate.isUnlocked, let store = session.store {
-                    // One view per open store: a new vault (created, opened or switched to) is never shown through the list and
-                    // saved-key state the previous vault's view took when it appeared.
-                    VaultView(store: store).id(ObjectIdentifier(store))
+                if gate.isUnlocked, let store = session.windowStore {
+                    openWindow(store)
                 } else {
                     lockedWindow
                 }
@@ -66,16 +94,20 @@ struct RootView: View {
         .environment(session)
         .environment(autoFill)
         .environment(safariExtension)
-        // Locking drops the keys and the decrypted vault, after writing anything pending.
+        // Locking drops the keys and the decrypted vaults, after writing anything pending.
         .onChange(of: gate.isUnlocked) { _, unlocked in
-            if unlocked { Task { await autoFill.refresh(); await safariExtension.refresh() } } else { if session.isOpen { session.lock() }; sample = SampleVaultStore(); incomingCodes.clear() }
+            if unlocked { Task { await autoFill.refresh(); await safariExtension.refresh() } } else { session.lockAll(); sample = SampleVaultStore(); incomingCodes.clear() }
+        }
+        // The last vault locked by itself (Lock <name>): the gate follows, so the window and the gate agree.
+        .onChange(of: session.isAnyOpen) { _, any in if !any, gate.isUnlocked, vaultSource == Self.keePassSource { gate.lock() } }
+        // A vault that has just been unlocked while others are open lands on its All place, as Mail lands on an account's inbox.
+        .onChange(of: session.openVaults.map(\.id)) { old, new in
+            if !old.isEmpty, let added = new.first(where: { !old.contains($0) }), added == session.reference?.id { landing = VaultLanding(destination: .all) }
         }
         #if os(macOS)
-        // File, Vault Settings… and Lock <name>: also while the window is locked (Settings opens at the vault's page).
+        // File, Vault Settings… and Lock <name> or Lock All Vaults: also while the window is locked (Settings opens at the vault's page).
         .focusedSceneValue(\.vaultMenu, vaultSource == Self.keePassSource ? session.reference.map { reference in
-            VaultMenuCommands(name: VaultName.short(reference.name),
-                              settings: { settingsRequests.show(.vault(reference.id)); openSettings() },
-                              lock: gate.isUnlocked ? { gate.lock() } : nil)
+            VaultMenuCommands.make(session: session) { settingsRequests.show(.vault(reference.id)); openSettings() }
         } : nil)
         #endif
         .task { if !vaultSource.isEmpty { await gate.didBecomeActive(after: timing, prompt: usesDeviceAuth) } }
@@ -95,7 +127,7 @@ struct RootView: View {
                 Task { await autoFill.refreshSettling() }
                 if !vaultSource.isEmpty { Task { await gate.didBecomeActive(after: timing, prompt: usesDeviceAuth) } }
             case .inactive, .background:
-                try? session.store?.flush()
+                session.flushAll()
                 gate.didResignActive()
             @unknown default: break
             }

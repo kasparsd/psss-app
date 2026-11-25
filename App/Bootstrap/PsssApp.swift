@@ -92,7 +92,7 @@ struct PsssApp: App {
                 Divider()
                 Button("Vault Settings…") { vaultMenu?.settings() }
                     .disabled(vaultMenu == nil)
-                Button(vaultMenu.map { String(localized: "Lock \($0.name)") } ?? String(localized: "Lock Vault")) { vaultMenu?.lock?() }
+                Button(vaultMenu?.lockTitle ?? String(localized: "Lock Vault")) { vaultMenu?.lock?() }
                     .keyboardShortcut("l", modifiers: .command)
                     .disabled(vaultMenu?.lock == nil)
             }

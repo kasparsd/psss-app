@@ -33,10 +33,9 @@ enum SettingsPage: Hashable {
 struct VaultListName: View {
     let session: VaultSession
     let reference: VaultReference
-    let unlocked: Bool
 
     var body: some View {
-        let state = session.state(of: reference, unlocked: unlocked)
+        let state = session.state(of: reference)
         HStack {
             Text(verbatim: VaultName.short(reference.name))
             if !state.isAvailable {
@@ -125,13 +124,21 @@ private struct MacHelpRow: View {
 }
 #endif
 
-/// Forgets (or deletes) the open vault. Another remembered vault takes its place on the lock screen; with none left, the welcome
-/// screen shows.
+/// Removes (or deletes) vault `id`, open or locked. The other vaults are untouched and stay open; when it was the shown vault
+/// another one is shown; with none left, the welcome screen shows.
 @MainActor
-func leaveOpenVault(session: VaultSession, gate: UnlockGate, vaultSource: inout String, deletingFile: Bool = true) {
+func leaveVault(_ id: UUID, session: VaultSession, vaultSource: inout String, deletingFile: Bool = true) {
+    session.remove(id, deletingFile: deletingFile)
+    if session.reference == nil { vaultSource = "" }
+}
+
+/// Closes the sample vault: the welcome screen shows.
+@MainActor
+func leaveSampleVault(session: VaultSession, gate: UnlockGate, vaultSource: inout String) {
     VaultIdentities.remove()
-    session.forget(deletingFile: deletingFile)
-    if session.reference == nil { vaultSource = "" } else { gate.lock() }
+    session.forget()
+    vaultSource = ""
+    gate.lock()
 }
 
 /// One vault's page. It works from the vault's reference, which holds nothing secret, so the Mac Settings window can show it
@@ -155,7 +162,7 @@ struct VaultSettingsPage: View {
     @State private var problem: String?
 
     private var managed: Bool { reference.managed }
-    private var savedKeyOn: Bool { session.reference?.biometricUnlock == true }
+    private var savedKeyOn: Bool { reference.biometricUnlock }
 
     var body: some View {
         Form {
@@ -201,8 +208,8 @@ struct VaultSettingsPage: View {
                 Toggle("Unlock with \(BiometryKind.unlockName)", isOn: Binding(
                     get: { savedKeyOn },
                     set: { on in
-                        if on { do { try session.enableBiometric() } catch { problem = String(localized: "The key could not be saved on this device. AutoFill needs a passcode set in Settings.") } }
-                        else { session.turnOffSavedKey() }
+                        if on { do { try session.enableBiometric(for: reference.id) } catch { problem = String(localized: "The key could not be saved on this device. AutoFill needs a passcode set in Settings.") } }
+                        else { session.turnOffSavedKey(for: reference.id) }
                     }))
                     // Turning it on saves the key of the open vault, so it needs the vault open; turning it off does not.
                     .disabled(store == nil && !savedKeyOn)
@@ -233,7 +240,7 @@ struct VaultSettingsPage: View {
     }
 
     private func leave(deletingFile: Bool) {
-        leaveOpenVault(session: session, gate: gate, vaultSource: &vaultSource, deletingFile: deletingFile)
+        leaveVault(reference.id, session: session, vaultSource: &vaultSource, deletingFile: deletingFile)
         afterLeaving()
     }
 
@@ -241,11 +248,7 @@ struct VaultSettingsPage: View {
         if let store { copyDocument = (try? VaultFiles.read(store.url)).map(VaultCopy.init) }
     }
 
-    private var whatShowsNext: String {
-        session.remembered.isEmpty
-            ? String(localized: "Psss then shows the welcome screen.")
-            : String(localized: "Psss then shows your next vault.")
-    }
+    private var whatShowsNext: String { RemoveVaultText.whatShowsNext(session: session, removing: reference.id) }
 
     private var saveCopyButton: some View {
         Button("Save a Copy…", action: saveCopy).disabled(store == nil)
@@ -269,26 +272,6 @@ struct VaultSettingsPage: View {
         return (parts + [RemoveVaultText.footer(reference)] + locked).joined(separator: " ")
     }
 
-}
-
-/// A vault Psss remembers but is not the active one: its name and where it is, and how to change it.
-struct OtherVaultSettingsPage: View {
-    let reference: VaultReference
-
-    var body: some View {
-        Form {
-            Section {
-                LabeledContent("Name", value: VaultName.short(reference.name))
-                VaultLocationRows(reference: reference)
-            } footer: {
-                Text("To change this vault, choose it with the vault switcher or on the lock screen. It then opens here.")
-            }
-        }
-        .formStyle(.grouped)
-        #if os(iOS)
-        .navigationTitle(VaultName.short(reference.name))
-        #endif
-    }
 }
 
 /// The sample vault's page: nothing in it is kept, and the way to a real vault is the welcome screen.
@@ -318,7 +301,7 @@ struct SampleSettingsPage: View {
         #endif
         .alert("Close the sample vault?", isPresented: $confirmsClosing) {
             Button("Close Sample Vault") {
-                leaveOpenVault(session: session, gate: gate, vaultSource: &vaultSource)
+                leaveSampleVault(session: session, gate: gate, vaultSource: &vaultSource)
                 afterLeaving()
             }
             Button("Cancel", role: .cancel) {}
@@ -396,6 +379,14 @@ enum RemoveVaultText {
         #endif
     }
 
+    /// What follows removing vault `id`: the welcome screen when it is the only vault, otherwise the others stay as they are.
+    @MainActor
+    static func whatShowsNext(session: VaultSession, removing id: UUID) -> String {
+        session.knownVaults.contains { $0.id != id }
+            ? String(localized: "Your other vaults stay as they are.")
+            : String(localized: "Psss then shows the welcome screen.")
+    }
+
     static func message(_ reference: VaultReference?, next: String) -> String {
         guard let reference, reference.managed else {
             let place = reference?.menuLocation ?? String(localized: "its folder")
@@ -421,7 +412,7 @@ struct RemoveVaultAlert: ViewModifier {
 
     func body(content: Content) -> some View {
         let managed = reference?.managed == true
-        content.alert(String(localized: "Remove \(reference?.name ?? "")?"), isPresented: $isPresented) {
+        content.alert(String(localized: "Remove \(VaultName.short(reference?.name ?? ""))?"), isPresented: $isPresented) {
             if !managed {
                 Button("Remove Vault") { remove(false) }
             } else {

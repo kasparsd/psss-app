@@ -2280,6 +2280,7 @@ do {  // Verification codes and the fill site (release rules for the AutoFill pr
 failures += runTimeParserTests()
 failures += await runRememberedVaultTests()
 failures += await runBackToBackVaultTests()
+failures += await runSeveralOpenVaultTests()
 failures += await runVaultStateTests()
 
 func runCapturing(_ args: [String], input: String = "") -> (status: Int32, out: String, err: String) {

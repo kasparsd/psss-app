@@ -75,7 +75,7 @@ struct MacSettingsView: View {
                         Text("Sample vault").tag(entry.id)
                     case .vault(let id):
                         if let reference = session.knownVaults.first(where: { $0.id == id }) {
-                            VaultListName(session: session, reference: reference, unlocked: gate.isUnlocked).tag(entry.id)
+                            VaultListName(session: session, reference: reference).tag(entry.id)
                         }
                     case .add:
                         Label("Add Vault", systemImage: "plus").tag(entry.id)
@@ -102,18 +102,15 @@ struct MacSettingsView: View {
         } else if current == Entry.add.id {
             AddVaultPane(choice: $addChoice)
         } else if let id = current, let reference = session.knownVaults.first(where: { "\($0.id)" == id }) {
-            if reference.id == session.reference?.id {
-                let open = gate.isUnlocked ? session.store : nil
-                VaultSettingsPage(session: session, gate: gate, reference: reference, store: open, itemCount: nil,
-                                  onChangePassword: open == nil ? nil : {
-                                      requests.changePassword = true
-                                      Self.showVaultWindow()
-                                  },
-                                  afterLeaving: { selection = nil })
-                    .id(reference.id)
-            } else {
-                OtherVaultSettingsPage(reference: reference)
-            }
+            let open = session.store(for: reference.id)
+            VaultSettingsPage(session: session, gate: gate, reference: reference, store: open, itemCount: nil,
+                              // The password sheet belongs to the window, which is built on the shown vault.
+                              onChangePassword: open == nil || reference.id != session.reference?.id ? nil : {
+                                  requests.changePassword = true
+                                  Self.showVaultWindow()
+                              },
+                              afterLeaving: { selection = nil })
+                .id(reference.id)
         } else {
             ContentUnavailableView("No vault yet", systemImage: "lock.rectangle.stack",
                                    description: Text("Create or open a vault in the Psss window. It then shows here."))

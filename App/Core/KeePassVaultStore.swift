@@ -134,16 +134,23 @@ struct VaultReference: Codable, Equatable, Sendable {
         Self.appendToOrder(id)
     }
 
-    /// Changes fields of the stored reference of vault `id`: reads the stored reference again, applies `change` to it and writes
-    /// that, so a setting another process changed since this process last read stays. Does nothing, and returns nil, when the
-    /// stored reference is another vault, none (the vault was forgotten) or the vault was forgotten.
+    /// Changes fields of the stored reference of vault `id` (the active one or a remembered one): reads the stored reference again,
+    /// applies `change` to it and writes that, so a setting another process changed since this process last read stays. Does
+    /// nothing, and returns nil, when no stored reference has that id (the vault was forgotten) or the vault was forgotten.
     @discardableResult
     static func update(_ id: UUID, _ change: (inout VaultReference) -> Void) -> VaultReference? {
-        guard !forgottenIDs.contains(id), var stored = load(), stored.id == id else { return nil }
-        change(&stored)
-        guard let data = try? JSONEncoder().encode(stored) else { return nil }
-        write(data, defaultsKey, file: "vault-reference.json")
-        return stored
+        guard !forgottenIDs.contains(id) else { return nil }
+        if var stored = load(), stored.id == id {
+            change(&stored)
+            guard let data = try? JSONEncoder().encode(stored) else { return nil }
+            write(data, defaultsKey, file: "vault-reference.json")
+            return stored
+        }
+        var list = remembered
+        guard let index = list.firstIndex(where: { $0.id == id }) else { return nil }
+        change(&list[index])
+        setRemembered(list)
+        return list[index]
     }
 
     /// Removes the vault's reference (the active one, or a remembered one) and remembers the vault as forgotten, for good: nothing
@@ -470,7 +477,8 @@ final class KeePassVaultStore: VaultStore {
     /// Whether the last `commit` left rollback copies that were made with an older password.
     private(set) var lastCommitLeftOldBackups = false
 
-    var title: String { reference.name }
+    /// The vault's name made safe for display (`VaultName.short`); the reference keeps the name as typed.
+    var title: String { VaultName.short(reference.name) }
     var isSample: Bool { false }
     var formatLabel: String { document.sourceVersion.map { "\($0), saved as \(document.header.versionLabel)" } ?? document.header.versionLabel }
     var kdfSummary: String { document.header.kdf.summary }
@@ -717,8 +725,15 @@ final class KeePassVaultStore: VaultStore {
     }
 }
 
-/// Owns the open vault for the app: creating, opening, unlocking and locking. One vault today; the shape is one
-/// store per vault so the multiple-vault registry in docs/vaults.md can be added without changing callers.
+/// Owns the open vaults for the app: creating, adding, unlocking, showing and locking. Several vaults can be open at once (owner,
+/// 2026-11-25): the session holds one open store per unlocked vault, and `reference` names the vault that is shown (the one the
+/// window, the AutoFill extension and the browser popup treat as current). A vault the person has not unlocked has no store: only
+/// its reference, which holds nothing secret.
+///
+/// - Order: `knownVaults` is the fixed order (the order the vaults were added in). Unlocking, locking and showing never move a vault.
+/// - One writer per vault: a vault has at most one store in this session. `unlock` of an open vault does nothing, and adding a file
+///   that is already a known vault (the same file, links resolved) reuses that vault, so the same file is never open twice.
+/// - Locking one vault writes its pending changes and drops its keys and decrypted data only; the others stay open.
 @MainActor
 @Observable
 final class VaultSession {
@@ -726,58 +741,67 @@ final class VaultSession {
     /// (`PsssApp`). The AutoFill extension runs the same unlock code and leaves it off, so it never writes to purge.
     static var purgesRecentlyDeletedOnUnlock = false
 
-    private(set) var store: KeePassVaultStore?
+    /// The open stores, by vault. A vault is open exactly while it has one.
+    private(set) var stores: [UUID: KeePassVaultStore] = [:]
+    /// The vault that is shown: open, or locked with its unlock form on screen. It is also the stored current vault.
     private(set) var reference: VaultReference? = VaultReference.load()
-    /// The other vaults the person has used, most recently left first. Shown by the lock screen's vault selector.
+    /// The other vaults the person has added. Their order here is not the order shown: use `knownVaults`.
     private(set) var remembered: [VaultReference] = VaultReference.remembered
+    /// The vault that was shown and open most recently, so the window keeps its sidebar while a locked vault's form is shown.
+    private var lastShownOpen: UUID?
 
     /// Vaults whose file was found but could not be read (damaged, not a vault, a format Psss does not open), as learned by the
     /// last attempt to open them in this process. Shown as "Can't be read"; cleared when the vault opens.
     private(set) var unreadable: Set<UUID> = []
 
-    /// Every vault in the fixed order (the order they were added in): what every list shows. The open vault never moves.
+    /// Every vault in the fixed order (the order they were added in): what every list shows. No vault ever moves.
     var knownVaults: [VaultReference] { VaultReference.inFixedOrder((reference.map { [$0] } ?? []) + remembered) }
 
-    /// The name of the vault that was open when the person chose another one, which locked it: the unlock form of the chosen vault
-    /// says so. Cleared by any unlock or lock that is not that choice.
-    var lockedForSwitch: String?
+    // MARK: Open vaults
 
-    /// Makes `id` the vault the lock screen opens. Only while locked. The vault left stays remembered.
-    func switchTo(_ id: UUID) {
-        guard id != reference?.id, let chosen = VaultReference.activate(id) else { return }
-        store = nil
-        reference = chosen
-        remembered = VaultReference.remembered
-    }
+    /// The shown vault's store; nil while the shown vault is locked.
+    var store: KeePassVaultStore? { reference.flatMap { stores[$0.id] } }
 
-    /// Choosing another vault while one is open: writes and locks the open one, makes `id` the one that opens next. One vault is
-    /// unlocked at a time, and `unlock` opens the current reference, so the other vault's form shows with the first one locked.
-    func lockAndSwitch(to id: UUID) {
-        guard id != reference?.id else { return }
-        let left = isOpen ? reference.map { VaultName.short($0.name) } : nil
-        lock()
-        switchTo(id)
-        lockedForSwitch = left
-    }
-
-    /// Removes a vault that is not the current one, without touching the open vault. Its file is left alone unless it is a
-    /// vault Psss created and `deletingFile` is set.
-    func forgetOther(_ id: UUID, deletingFile: Bool) {
-        guard id != reference?.id, let other = knownVaults.first(where: { $0.id == id }) else { return }
-        if other.managed, deletingFile { try? FileManager.default.removeItem(at: VaultFiles.managedURL(fileName: other.fileName)) }
-        VaultFiles.removeBackups(for: other.id)
-        UsageLog.erase(for: other.id)
-        BiometricKey.delete(for: other.id)
-        VaultReference.forget(other.id)
-        remembered = VaultReference.remembered
-    }
-
+    /// The shown vault is open.
     var isOpen: Bool { store != nil }
 
-    /// Creates the vault with the recommended KDF and cipher, then opens it. In iCloud Drive it is a file in Psss's own folder
-    /// there, found again by a bookmark like any file opened in place, so Forget never deletes it and deleting the app keeps it.
+    func isOpen(_ id: UUID) -> Bool { stores[id] != nil }
+
+    func store(for id: UUID) -> KeePassVaultStore? { stores[id] }
+
+    /// Whether any vault is open.
+    var isAnyOpen: Bool { !stores.isEmpty }
+
+    /// The open vaults in the fixed order.
+    var openVaults: [VaultReference] { knownVaults.filter { stores[$0.id] != nil } }
+
+    /// The store the window is built around: the shown vault's, or while a locked vault's unlock form is shown, the one that was
+    /// shown last (or, failing that, the first open vault in the fixed order). Nil when nothing is open.
+    var windowStore: KeePassVaultStore? {
+        if let store { return store }
+        if let lastShownOpen, let kept = stores[lastShownOpen] { return kept }
+        return openVaults.first.flatMap { stores[$0.id] }
+    }
+
+    private func noteShown() {
+        if let id = reference?.id, stores[id] != nil { lastShownOpen = id }
+    }
+
+    /// Shows vault `id`: it becomes the current vault of the app, AutoFill and the browser. Nothing is locked or unlocked, and the
+    /// order does not change.
+    func show(_ id: UUID) {
+        guard id != reference?.id, let chosen = VaultReference.activate(id) else { return }
+        reference = chosen
+        remembered = VaultReference.remembered
+        noteShown()
+    }
+
+    // MARK: Creating and adding
+
+    /// Creates the vault with the recommended KDF and cipher, then opens and shows it. In iCloud Drive it is a file in Psss's own
+    /// folder there, found again by a bookmark like any file opened in place, so Forget never deletes it and deleting the app keeps it.
     /// On the device it goes in the app's own storage and is deleted with the app. Throws `iCloudUnavailable` when iCloud Drive
-    /// was asked for and is off; nothing is written then.
+    /// was asked for and is off; nothing is written then. The vaults that were open stay open.
     func create(name: String, credentials: KDBXCredentials, items: [VaultItem] = [], location: VaultLocation = .thisDevice) async throws {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? String(localized: "Passwords") : name
         let folder: URL?
@@ -805,41 +829,47 @@ final class VaultSession {
             try VaultFiles.write(data, to: url)
         }
         reference.record(credentials)
-        try? store?.flush()  // the vault being replaced keeps what was pending
         reference.persist()
         self.reference = reference
         remembered = VaultReference.remembered
-        store = KeePassVaultStore(reference: reference, url: url, scoped: false, document: document, fileData: data)
+        stores[reference.id] = KeePassVaultStore(reference: reference, url: url, scoped: false, document: document, fileData: data)
+        noteShown()
     }
 
-    /// Opens a `.kdbx` file in place. The file is edited where it is, never copied.
-    func open(fileAt picked: URL, credentials: KDBXCredentials) async throws {
+    /// Adds a `.kdbx` file the person chose, in place (it is never copied) and shows it, locked: the vault goes to the end of the
+    /// fixed order and its unlock form follows. No password is asked here, so nothing is decrypted and the other open vaults are
+    /// untouched. A file that is already a known vault is not listed twice: that vault is shown instead.
+    ///
+    /// Throws `KDBXError.notAVault` for a file that is not a KeePass file, and the read error for one that cannot be read; nothing
+    /// is added then. The file is read only as far as its header.
+    @discardableResult
+    func add(fileAt picked: URL) throws -> VaultReference {
         let scoped = picked.startAccessingSecurityScopedResource()
-        do {
-            let data = try VaultFiles.read(picked)
-            let document = try await Task.detached { try KDBX.open(data, credentials: credentials) }.value
-            let name = document.databaseName.isEmpty ? picked.deletingPathExtension().lastPathComponent : document.databaseName
-            var reference = VaultReference(name: name, managed: false, bookmark: try VaultFiles.bookmark(for: picked),
-                                           fileName: picked.lastPathComponent)
-            // A file the person opened before keeps its identifier and settings (Face ID, key file), so it is not listed twice.
-            if let known = VaultReference.known(at: picked) {
-                var again = known
-                again.name = name; again.bookmark = reference.bookmark; again.fileName = reference.fileName
-                reference = again
-            }
-            reference.record(credentials)
-            try? store?.flush()  // the vault being replaced keeps what was pending
-            reference.persist()
-            self.reference = reference
-            remembered = VaultReference.remembered
-            store = KeePassVaultStore(reference: reference, url: picked, scoped: scoped, document: document, fileData: data)
-        } catch {
-            if scoped { picked.stopAccessingSecurityScopedResource() }
-            throw error
+        defer { if scoped { picked.stopAccessingSecurityScopedResource() } }
+        let data = try VaultFiles.read(picked)
+        guard KDBX.keyDerivationMemory(of: data) != nil else { throw KDBXError.notAVault }
+        let bookmark = try VaultFiles.bookmark(for: picked)
+        if var known = VaultReference.known(at: picked) {
+            // The same file again keeps its identifier and settings (Face ID, key file); the bookmark is made fresh.
+            let fileName = picked.lastPathComponent
+            known = VaultReference.update(known.id) { $0.bookmark = bookmark; $0.fileName = fileName } ?? known
+            if known.id == reference?.id { reference = known; remembered = VaultReference.remembered } else { show(known.id) }
+            return known
         }
+        let name = picked.deletingPathExtension().lastPathComponent
+        let added = VaultReference(name: name.isEmpty ? String(localized: "Vault") : name, managed: false, bookmark: bookmark,
+                                   fileName: picked.lastPathComponent)
+        added.persist()
+        reference = added
+        remembered = VaultReference.remembered
+        noteShown()
+        return added
     }
 
-    /// Opens the remembered vault after a lock or relaunch.
+    // MARK: Unlocking
+
+    /// Unlocks the shown vault after a lock or relaunch (or the one just added). It joins the vaults that are already open.
+    /// Does nothing when the vault is open already: a vault has one store.
     ///
     /// The AutoFill extension passes `savingQuickUnlockKey: false`: it never saves or replaces a Face ID key (that is the app's
     /// job, after its own unlock) and `beforeKeyDerivation` to refuse a vault whose key derivation would not fit its memory
@@ -867,8 +897,8 @@ final class VaultSession {
     var biometricNotice: String?
 
     /// Switches biometric unlock off after its key could not be saved again, and records the notice.
-    private func dropBiometricKey() {
-        setBiometric(false)
+    private func dropBiometricKey(of id: UUID? = nil) {
+        setBiometric(false, for: id)
         biometricNotice = String(localized: "\(BiometryKind.nameForMessages) could not be turned on again for this vault. You can turn it on in Settings.")
     }
 
@@ -879,12 +909,21 @@ final class VaultSession {
         reference = stored
     }
 
-    /// Changes fields of the vault's reference. Each change re-reads the stored reference and writes only what it changes, so a
-    /// copy this session read earlier cannot undo what the AutoFill extension (or another session) wrote since. When the stored
-    /// reference is gone because the vault was forgotten, nothing is written and the change only shows in this session.
-    private func change(_ change: @escaping (inout VaultReference) -> Void) {
-        guard var current = reference else { return }
-        if let stored = VaultReference.update(current.id, change) { reference = stored } else { change(&current); reference = current }
+    /// Changes fields of vault `id`'s reference (default: the shown vault). Each change re-reads the stored reference and writes
+    /// only what it changes, so a copy this session read earlier cannot undo what the AutoFill extension (or another session) wrote
+    /// since. When the stored reference is gone because the vault was forgotten, nothing is written and the change only shows in
+    /// this session.
+    private func change(_ id: UUID? = nil, _ change: @escaping (inout VaultReference) -> Void) {
+        guard let id = id ?? reference?.id else { return }
+        if let stored = VaultReference.update(id, change) { adopt(stored); return }
+        if var current = reference, current.id == id { change(&current); reference = current }
+        else if let index = remembered.firstIndex(where: { $0.id == id }) { change(&remembered[index]) }
+    }
+
+    /// Takes a freshly written reference in place of the one this session holds for that vault.
+    private func adopt(_ stored: VaultReference) {
+        if stored.id == reference?.id { reference = stored }
+        else if let index = remembered.firstIndex(where: { $0.id == stored.id }) { remembered[index] = stored }
     }
 
     /// Unlocks with Face ID or Touch ID. Never throws for a cancelled prompt; the lock screen just stays.
@@ -901,7 +940,7 @@ final class VaultSession {
         guard let reference, reference.biometricUnlock else { throw BiometricKeyError.invalidated }
         let key: Data
         do {
-            key = try await BiometricKey.load(for: reference.id, reason: String(localized: "Unlock \(reference.name)."), evaluated: evaluated)
+            key = try await BiometricKey.load(for: reference.id, reason: String(localized: "Unlock \(VaultName.sentence(reference.name))."), evaluated: evaluated)
         } catch BiometricKeyError.invalidated {
             setBiometric(false)
             throw BiometricKeyError.invalidated
@@ -917,7 +956,7 @@ final class VaultSession {
         }
     }
 
-    /// The memory the current vault's key derivation will ask for, read from the file's header without deriving anything.
+    /// The memory the shown vault's key derivation will ask for, read from the file's header without deriving anything.
     /// Nil when the file cannot be reached or read as a vault (opening it then fails with its own error), 0 for AES-KDF.
     func keyDerivationMemory() -> UInt64? {
         guard let reference else { return nil }
@@ -941,6 +980,8 @@ final class VaultSession {
                         opening open: @escaping @Sendable (Data) throws -> KDBXDocument) async throws {
         syncReference()
         guard var reference else { throw VaultStoreError.fileMissing }
+        // A vault has one store. Two would be two writers of one file, each with its own idea of what the file holds.
+        guard stores[reference.id] == nil else { return }
         let url: URL, scoped: Bool
         if reference.managed {
             url = VaultFiles.managedURL(fileName: reference.fileName)
@@ -958,18 +999,31 @@ final class VaultSession {
             guard FileManager.default.fileExists(atPath: url.path) || (try? VaultFiles.read(url)) != nil else { throw VaultStoreError.fileMissing }
             let data = try VaultFiles.read(url)
             let document = try await Task.detached { try open(data) }.value
+            // The vault may have been removed, or opened some other way, while the key derivation ran.
+            let id = reference.id
+            guard stores[id] == nil, knownVaults.contains(where: { $0.id == id }) else {
+                if scoped { url.stopAccessingSecurityScopedResource() }
+                return
+            }
             if let credentials, reference.usesKeyFile != (credentials.keyFile != nil) || reference.usesPassword != (credentials.password != nil) {
                 reference.record(credentials)
                 let used = reference
-                VaultReference.update(reference.id) { $0.usesKeyFile = used.usesKeyFile; $0.usesPassword = used.usesPassword }
+                VaultReference.update(id) { $0.usesKeyFile = used.usesKeyFile; $0.usesPassword = used.usesPassword }
             }
-            self.reference = reference
-            unreadable.remove(reference.id)
-            lockedForSwitch = nil
-            store = KeePassVaultStore(reference: reference, url: url, scoped: scoped, document: document, fileData: data)
+            // A vault added from a file is first named after the file; the name inside it is known now.
+            let inside = document.databaseName
+            if !inside.isEmpty, inside != reference.name {
+                reference.name = inside
+                VaultReference.update(id) { $0.name = inside }
+            }
+            adopt(reference)
+            unreadable.remove(id)
+            let opened = KeePassVaultStore(reference: reference, url: url, scoped: scoped, document: document, fileData: data)
+            stores[id] = opened
+            noteShown()
             // The 30-day purge of Recently Deleted. Off unless the app switched it on, so the AutoFill extension, which opens the
             // vault through this same path, never writes because of it. A failed write is retried the next time the app unlocks.
-            if Self.purgesRecentlyDeletedOnUnlock { _ = try? store?.purgeRecentlyDeleted() }
+            if Self.purgesRecentlyDeletedOnUnlock { _ = try? opened.purgeRecentlyDeleted() }
         } catch {
             if scoped { url.stopAccessingSecurityScopedResource() }
             switch error {
@@ -980,7 +1034,7 @@ final class VaultSession {
         }
     }
 
-    /// Points the remembered vault at a file the person found, after the original moved.
+    /// Points the shown vault at a file the person found, after the original moved.
     func relink(to picked: URL) throws {
         guard var reference else { return }
         let scoped = picked.startAccessingSecurityScopedResource()
@@ -991,72 +1045,116 @@ final class VaultSession {
         self.reference = VaultReference.update(reference.id) { $0.bookmark = bookmark; $0.fileName = fileName } ?? reference
     }
 
+    // MARK: Saved key (Face ID, Touch ID)
+
     /// Whether the device can offer biometric unlock at all.
     var biometry: BiometryKind? { BiometryKind.current }
 
-    /// True when the open vault has no saved key and the person has not turned the setting off. The key is saved without asking
-    /// (owner decision 2026-11-24): the system checks Face ID, Touch ID or the passcode when AutoFill reads it, not when it is saved.
-    var shouldOfferBiometric: Bool {
-        guard let reference, isOpen else { return false }
-        return !reference.biometricUnlock && !reference.biometricDeclined
+    /// True when vault `id` (default: the shown one) is open, has no saved key and the person has not turned the setting off. The
+    /// key is saved without asking (owner decision 2026-11-24): the system checks Face ID, Touch ID or the passcode when AutoFill
+    /// reads it, not when it is saved.
+    func shouldOfferBiometric(for id: UUID? = nil) -> Bool {
+        guard let target = knownVaults.first(where: { $0.id == (id ?? reference?.id) }), isOpen(target.id) else { return false }
+        return !target.biometricUnlock && !target.biometricDeclined
     }
 
     /// Turns the setting off for good: deletes the saved key, and Psss does not save it again until the person turns it on.
-    func turnOffSavedKey() {
-        disableBiometric()
-        declineBiometricOffer()
+    /// Per vault: `id` defaults to the shown vault.
+    func turnOffSavedKey(for id: UUID? = nil) {
+        setBiometric(false, for: id)
+        change(id) { $0.biometricDeclined = true }
     }
 
-    /// Saves the open vault's key behind biometrics. Asks nothing now; the prompt comes at the next unlock.
-    func enableBiometric() throws {
-        guard let reference, let store else { return }
-        try BiometricKey.save(store.transformedKey, for: reference.id)
-        change { $0.biometricUnlock = true; $0.biometricDeclined = false; $0.biometricStale = false }
+    /// Saves an open vault's key behind biometrics (default: the shown vault). Asks nothing now; the prompt comes at the next unlock.
+    func enableBiometric(for id: UUID? = nil) throws {
+        guard let id = id ?? reference?.id, let store = stores[id] else { return }
+        try BiometricKey.save(store.transformedKey, for: id)
+        change(id) { $0.biometricUnlock = true; $0.biometricDeclined = false; $0.biometricStale = false }
     }
 
     func disableBiometric() { setBiometric(false) }
 
     func declineBiometricOffer() { change { $0.biometricDeclined = true } }
 
-    /// After the vault password changed, the saved key is stale. Replace it, or drop it if that fails.
-    func refreshBiometricKey() {
-        guard let reference, reference.biometricUnlock else { return }
-        do { try enableBiometric() } catch { dropBiometricKey() }
+    /// After a vault password changed, the saved key is stale. Replace it, or drop it if that fails. Default: the shown vault.
+    func refreshBiometricKey(for id: UUID? = nil) {
+        guard let target = knownVaults.first(where: { $0.id == (id ?? reference?.id) }), target.biometricUnlock else { return }
+        do { try enableBiometric(for: target.id) } catch { dropBiometricKey(of: target.id) }
     }
 
-    private func setBiometric(_ on: Bool, stale: Bool = false) {
-        guard let reference else { return }
-        if !on { BiometricKey.delete(for: reference.id) }
-        change { $0.biometricUnlock = on; $0.biometricStale = !on && stale }
+    private func setBiometric(_ on: Bool, stale: Bool = false, for id: UUID? = nil) {
+        guard let id = id ?? reference?.id else { return }
+        if !on { BiometricKey.delete(for: id) }
+        change(id) { $0.biometricUnlock = on; $0.biometricStale = !on && stale }
     }
 
-    /// Writes pending changes and drops the keys and the decrypted vault from memory.
+    // MARK: Locking
+
+    /// Writes pending changes and drops the keys and the decrypted data of one vault. The other open vaults stay open. When it was
+    /// the shown vault and another is open, that one is shown instead (the next in the fixed order, else the one before).
+    func lock(_ id: UUID) {
+        guard stores[id] != nil else { return }
+        drop(id)
+        guard id == reference?.id else { return }
+        let open = openVaults.map(\.id)
+        let order = knownVaults.map(\.id)
+        let here = order.firstIndex(of: id) ?? 0
+        let next = open.first { (order.firstIndex(of: $0) ?? 0) > here } ?? open.last
+        if let next { show(next) }
+    }
+
+    /// Locks the shown vault (the AutoFill extension's lock: it holds one vault).
     func lock() {
-        try? store?.flush()
-        store = nil
-        lockedForSwitch = nil
+        if let id = reference?.id { lock(id) }
     }
 
-    /// Forgets the vault. A file the person opened is never touched. A vault Psss created is deleted when `deletingFile` (its
-    /// backups always go); the Mac's Remove Vault keeps it in Psss's folder, where Finder can still reach it.
-    func forget(deletingFile: Bool = true) {
-        let forgotten = reference
-        if let reference, reference.managed, deletingFile {
-            try? FileManager.default.removeItem(at: VaultFiles.managedURL(fileName: reference.fileName))
-        }
-        if let reference {
-            VaultFiles.removeBackups(for: reference.id)
-            UsageLog.erase(for: reference.id)
-            BiometricKey.delete(for: reference.id)
-            VaultIdentities.remove()
-        }
-        store = nil
-        reference = nil
+    /// Locks every vault: the app-wide lock (auto-lock, sleep, quit, Lock All Vaults). Which vault is shown does not change.
+    func lockAll() {
+        for id in Array(stores.keys) { drop(id) }
+    }
+
+    /// Writes what is pending in every open vault, for the scene leaving the foreground.
+    func flushAll() {
+        for store in stores.values { try? store.flush() }
+    }
+
+    private func drop(_ id: UUID) {
+        try? stores[id]?.flush()
+        stores[id] = nil
+    }
+
+    // MARK: Removing
+
+    /// Removes vault `id` from the app, open or locked, without touching the other vaults. A file the person opened is never
+    /// touched. A vault Psss created is deleted when `deletingFile` (its backups always go); the Mac's Remove Vault keeps it in
+    /// Psss's folder, where Finder can still reach it. When it was the shown vault, the first open vault (else the first in the
+    /// fixed order) is shown; with none left, the welcome screen shows (`reference` is nil).
+    func remove(_ id: UUID, deletingFile: Bool = true) {
+        guard let gone = knownVaults.first(where: { $0.id == id }) else { return }
+        let wasShown = id == reference?.id
+        stores[id] = nil
+        if lastShownOpen == id { lastShownOpen = nil }
+        if gone.managed, deletingFile { try? FileManager.default.removeItem(at: VaultFiles.managedURL(fileName: gone.fileName)) }
+        VaultFiles.removeBackups(for: gone.id)
+        UsageLog.erase(for: gone.id)
+        BiometricKey.delete(for: gone.id)
+        VaultIdentities.remove()
+        unreadable.remove(id)
         // Final: a copy of this reference that another process still holds cannot write it back.
-        if let forgotten { VaultReference.forget(forgotten.id) } else { VaultReference.clear() }
-        // Another remembered vault takes its place, so the lock screen opens that one; with none left, the welcome screen shows.
-        if let next = VaultReference.remembered.first { reference = VaultReference.activate(next.id) }
+        VaultReference.forget(id)
+        if wasShown {
+            reference = nil
+            let rest = VaultReference.inFixedOrder(VaultReference.remembered)
+            if let next = rest.first(where: { stores[$0.id] != nil }) ?? rest.first { reference = VaultReference.activate(next.id) }
+            if reference == nil { VaultReference.clear() }
+        }
         remembered = VaultReference.remembered
+        noteShown()
+    }
+
+    /// Removes the shown vault (see `remove`).
+    func forget(deletingFile: Bool = true) {
+        if let id = reference?.id { remove(id, deletingFile: deletingFile) } else { VaultReference.clear() }
     }
 }
 

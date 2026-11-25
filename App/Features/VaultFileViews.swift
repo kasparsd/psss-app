@@ -189,61 +189,6 @@ struct NewVaultSheet: View {
     }
 }
 
-/// Asks for the vault password of a file the person just chose to open.
-struct OpenVaultSheet: View {
-    let session: VaultSession
-    let file: URL
-    let onOpened: () -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var password = ""
-    @State private var confirmation = ""
-    @State private var keyFile: Data?
-    @State private var working = false
-    @State private var problem: String?
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    LabeledContent("File", value: file.lastPathComponent)
-                    CredentialFields(password: $password, confirmation: $confirmation, keyFile: $keyFile, confirms: false)
-                } footer: {
-                    Text("Psss opens the file where it is and saves changes to it. It does not make a copy.")
-                }
-                if working { WorkingNotice(text: "Opening the vault…") }
-                if let problem { ProblemText(text: problem) }
-            }
-            .formStyle(.grouped)
-            .disabled(working)
-            .interactiveDismissDisabled(working)
-            .navigationTitle("Open vault")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(working) }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(working ? "Opening…" : "Open") { open() }.disabled(working || (password.isEmpty && keyFile == nil))
-                }
-            }
-        }
-        .modifier(VaultSheetSize())
-    }
-
-    private func open() {
-        working = true
-        problem = nil
-        Task {
-            do {
-                try await session.open(fileAt: file, credentials: .init(password: password.isEmpty ? nil : password, keyFile: keyFile))
-                password = ""; keyFile = nil
-                dismiss()
-                onOpened()
-            } catch {
-                problem = (error as? KDBXError)?.message ?? (error as? VaultStoreError)?.message ?? error.localizedDescription
-                working = false
-            }
-        }
-    }
-}
-
 /// Shown instead of the vault while a KeePass vault is locked. Locking drops the keys, so unlocking needs the vault password.
 ///
 /// Built on `UnlockForm` (plan `mail-style-vaults`, slice W1; mock `#/unlock-screen`): the password form is always shown, Unlock
@@ -255,8 +200,10 @@ struct VaultPasswordView: View {
     let gate: UnlockGate
     /// In the content area beside a sidebar: the icon and "Unlock <vault>" only, no full-screen header, no vault pop-up row.
     var embedded = false
-    /// A line under the actions, for example "Passwords locks when Work opens."
+    /// A line under the actions, for example "Psss is locked. All your vaults are locked."
     var footnote: String?
+    /// iPhone, when other vaults are open: a labeled Cancel at the top that goes back to the vault that was open. Nil leaves it out.
+    var cancel: (() -> Void)?
     @State private var password = ""
     @State private var keyFile: Data?
     @State private var keyFileName: String?
@@ -289,11 +236,12 @@ struct VaultPasswordView: View {
     @FocusState private var focused: Bool
     @AppStorage("vaultSource") private var vaultSource = ""
 
-    init(session: VaultSession, gate: UnlockGate, embedded: Bool = false, footnote: String? = nil) {
+    init(session: VaultSession, gate: UnlockGate, embedded: Bool = false, footnote: String? = nil, cancel: (() -> Void)? = nil) {
         self.session = session
         self.gate = gate
         self.embedded = embedded
         self.footnote = footnote
+        self.cancel = cancel
         _autoPromptOff = State(initialValue: gate.lockNotice != nil)
     }
 
@@ -323,6 +271,11 @@ struct VaultPasswordView: View {
             .scrollBounceBehavior(.basedOnSize)
         }
         .background { if !embedded { Rectangle().fill(.background) } }
+        .overlay(alignment: .topLeading) {
+            if let cancel {
+                Button("Cancel", action: cancel).disabled(working && !unlockingWithBiometrics).padding(16)
+            }
+        }
         .biometricAutoPrompt(prompter: prompter, vault: session.reference?.id, enabled: biometry != nil && !missing && !autoPromptOff) {
             await askBiometrics()
         }
@@ -580,7 +533,7 @@ struct VaultPasswordView: View {
     private var vaultSelector: some View {
         VaultRow(session: session, state: currentState, context: .lockScreen, choose: { id in
             guard id != session.reference?.id else { return }
-            session.switchTo(id)
+            session.show(id)
         }, add: { addChoice = $0 })
         // Not disabled while the system prompt is up: it covers the screen then, and a disabled-then-enabled menu button misses
         // the first tap that follows the prompt's dismissal (iPad). Only the password check holds it still.
@@ -590,7 +543,7 @@ struct VaultPasswordView: View {
     /// The current vault's state for the Vault row: locked here by definition, so Locked, Needs password or not available.
     private var currentState: VaultState {
         guard let reference = session.reference else { return .locked }
-        return session.state(of: reference, unlocked: false)
+        return session.state(of: reference)
     }
 
     /// Puts the cursor back in the password field after a failed attempt, so the person can type again at once. The field was
@@ -764,9 +717,7 @@ struct LostPasswordSheet: View {
     private var managed: Bool { session.reference?.managed == true }
 
     private var next: String {
-        session.remembered.count <= 1
-            ? String(localized: "Psss then shows the welcome screen.")
-            : String(localized: "Psss then shows your next vault.")
+        session.reference.map { RemoveVaultText.whatShowsNext(session: session, removing: $0.id) } ?? ""
     }
 
     var body: some View {

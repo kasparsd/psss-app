@@ -1,7 +1,7 @@
 import Foundation
 
-/// The remembered vaults behind the lock screen's vault selector: opening or creating another vault keeps the one before it,
-/// switching swaps them, forgetting removes one for good. Returns how many checks failed.
+/// The remembered vaults behind the vault lists: creating another vault keeps the one before it (and open), showing a vault changes
+/// the current one and nothing else, forgetting removes one for good. Returns how many checks failed.
 @MainActor func runRememberedVaultTests() async -> Int {
     var failed = 0
     func verify(_ name: String, _ ok: Bool) {
@@ -21,18 +21,21 @@ import Foundation
         verify("creating another vault keeps the first one", session.remembered.map(\.id) == [a.id] && VaultReference.remembered.map(\.id) == [a.id])
         verify("vaults are listed in the order they were added, not active first", session.knownVaults.map(\.name) == ["Remember A", "Remember B"])
         verify("both vaults' files can be found", a.isReachable && b.isReachable)
+        verify("creating another vault leaves the first one open", session.isOpen(a.id) && session.isOpen(b.id) && session.openVaults.map(\.name) == ["Remember A", "Remember B"])
+        session.lockAll()
+        verify("lock all locks both", !session.isAnyOpen && session.store == nil && session.reference?.id == b.id)
 
-        session.switchTo(a.id)
+        session.show(a.id)
         verify("switching does not reorder the list", session.knownVaults.map(\.name) == ["Remember A", "Remember B"] && VaultReference.all.map(\.name) == ["Remember A", "Remember B"])
         let drive = URL(fileURLWithPath: "/Users/x/Library/Mobile Documents/com~apple~CloudDocs/Downloads/Work.kdbx")
         let driveRoot = URL(fileURLWithPath: "/Users/x/Library/Mobile Documents/com~apple~CloudDocs/Work.kdbx")
         verify("iCloud Drive's container is shown as iCloud Drive", VaultFiles.folderWords(of: drive) == "iCloud Drive › Downloads"
                && VaultFiles.folderWords(of: driveRoot) == "iCloud Drive" && VaultFiles.folderWords(of: URL(fileURLWithPath: "/Users/x/Documents/Work.kdbx")) == nil)
-        verify("switching makes the other vault active and keeps this one", session.reference?.id == a.id && VaultReference.load()?.id == a.id
+        verify("showing makes the other vault current and keeps this one", session.reference?.id == a.id && VaultReference.load()?.id == a.id
                && session.remembered.map(\.id) == [b.id] && session.store == nil)
-        session.switchTo(a.id)
+        session.show(a.id)
         verify("switching to the active vault changes nothing", session.reference?.id == a.id && session.remembered.map(\.id) == [b.id])
-        session.switchTo(UUID())
+        session.show(UUID())
         verify("an unknown vault is ignored", session.reference?.id == a.id)
 
         // The browser popup's switch: the same list as the app's menu with each vault's state, a switch that locks and changes the
@@ -40,14 +43,13 @@ import Foundation
         let listed = { BrowserVaultSwitch.vaults(session).map { "\($0.name):\($0.active):\($0.state.rawValue)" } }
         verify("browser list: names, current first, a vault with no saved key needs its password", listed() == ["Remember A:true:needs-password", "Remember B:false:needs-password"]
                && BrowserVaultSwitch.vaults(session).first?.reason == .off)
-        var asked = 0
-        var switchOutcome = BrowserVaultSwitch.switchVault(id: b.id.uuidString, session: session, lock: { asked += 1 })
-        verify("browser switch: current everywhere, the open vault locked first, nothing unlocked", switchOutcome == .switched && session.reference?.id == b.id && asked == 1 && !session.isOpen)
-        switchOutcome = BrowserVaultSwitch.switchVault(id: b.id.uuidString, session: session, lock: { asked += 10 })
-        verify("browser switch to the current vault changes nothing", switchOutcome == .switched && asked == 1)
-        switchOutcome = BrowserVaultSwitch.switchVault(id: a.id.uuidString, session: session, lock: {})
+        var switchOutcome = BrowserVaultSwitch.switchVault(id: b.id.uuidString, session: session)
+        verify("browser switch: current everywhere, nothing locked or unlocked", switchOutcome == .switched && session.reference?.id == b.id && !session.isOpen)
+        switchOutcome = BrowserVaultSwitch.switchVault(id: b.id.uuidString, session: session)
+        verify("browser switch to the current vault changes nothing", switchOutcome == .switched && session.reference?.id == b.id)
+        switchOutcome = BrowserVaultSwitch.switchVault(id: a.id.uuidString, session: session)
         verify("browser switch back: current app-wide", switchOutcome == .switched && session.reference?.id == a.id && VaultReference.load()?.id == a.id)
-        switchOutcome = BrowserVaultSwitch.switchVault(id: UUID().uuidString, session: session, lock: {})
+        switchOutcome = BrowserVaultSwitch.switchVault(id: UUID().uuidString, session: session)
         verify("browser switch to an unknown vault", switchOutcome == .notFound)
         var forwards = 0
         var unlockOutcome = await BrowserVaultSwitch.unlockVault(id: a.id.uuidString, session: session, touchID: { .unlocked }, bringForward: { forwards += 1; return true })
@@ -100,12 +102,12 @@ import Foundation
     typealias S = VaultState
 
     // Mapping: every combination of the facts.
-    func state(_ file: VaultFileCondition, _ quick: QuickUnlock, current: Bool = true, unlocked: Bool = false) -> S {
-        S(file: file, quickUnlock: quick, isCurrent: current, isUnlocked: unlocked)
+    func state(_ file: VaultFileCondition, _ quick: QuickUnlock, open: Bool = false) -> S {
+        S(file: file, quickUnlock: quick, isOpen: open)
     }
-    verify("state: the unlocked current vault is open", state(.available, .ready, unlocked: true) == .open)
-    verify("state: open wins over a quick unlock that is off", state(.available, .off, unlocked: true) == .open)
-    verify("state: a vault that is not the current one is never open", state(.available, .ready, current: false, unlocked: true) == .locked)
+    verify("state: an open vault is open", state(.available, .ready, open: true) == .open)
+    verify("state: open wins over a quick unlock that is off", state(.available, .off, open: true) == .open)
+    verify("state: a vault that is not open is locked", state(.available, .ready) == .locked)
     verify("state: locked with a ready saved key", state(.available, .ready) == .locked)
     verify("state: quick unlock off needs the password", state(.available, .off) == .needsPassword(.off))
     verify("state: a lost key needs the password", state(.available, .lost) == .needsPassword(.lost))
@@ -159,13 +161,15 @@ import Foundation
         let a = session.reference!
         try await session.create(name: "State B", credentials: .init(password: "pw"), items: [])
         let b = session.reference!
-        verify("session: the open vault is open", session.state(of: b, unlocked: true) == .open)
-        verify("session: another vault is locked (quick unlock off here), even while this one is open",
-               session.state(of: a, unlocked: true) == .needsPassword(.off))
-        verify("session: the current vault, locked", session.state(of: b, unlocked: false) == .needsPassword(.off))
+        verify("session: an open vault is open, and so is the one created before it", session.state(of: b) == .open && session.state(of: a) == .open)
+        session.lock(a.id)
+        verify("session: a locked vault is locked (quick unlock off here), while another is open",
+               session.state(of: a) == .needsPassword(.off) && session.state(of: b) == .open)
+        session.lock()
+        verify("session: the current vault, locked", session.state(of: b) == .needsPassword(.off))
         verify("session: unreadable is clear before any failed open", session.unreadable.isEmpty && b.fileCondition() == .available)
         verify("file: a damaged file reads as unreadable once known", b.fileCondition(knownUnreadable: true) == .unreadable
-               && session.state(of: b, unlocked: false) != .unreadable)
+               && session.state(of: b) != .unreadable)
         // A file that is not a vault: opening it fails and the session remembers.
         let url = VaultFiles.managedURL(fileName: b.fileName)
         let original = try Data(contentsOf: url)
@@ -173,12 +177,13 @@ import Foundation
         session.lock()
         _ = try? await session.unlock(credentials: .init(password: "pw"))
         verify("session: a file that is not a vault becomes Can’t be read", session.unreadable.contains(b.id)
-               && session.state(of: b, unlocked: false) == .unreadable)
+               && session.state(of: b) == .unreadable)
         try original.write(to: url)
         try await session.unlock(credentials: .init(password: "pw"))
-        verify("session: opening it again clears the mark", !session.unreadable.contains(b.id) && session.state(of: b, unlocked: true) == .open)
+        verify("session: opening it again clears the mark", !session.unreadable.contains(b.id) && session.state(of: b) == .open)
         try FileManager.default.removeItem(at: url)
-        verify("session: a deleted file is not found", session.state(of: b, unlocked: false) == .notFound)
+        session.lock()
+        verify("session: a deleted file is not found", session.state(of: b) == .notFound)
         session.forget()
         session.forget()
     } catch {
@@ -242,11 +247,11 @@ import Foundation
             verify("[\(location)] the second file holds only Work login", fileB.items().map(\.title) == ["Work login"])
 
             // Switch and unlock each, the way the lock screen and the AutoFill extension do.
-            session.switchTo(a.id)
+            session.show(a.id)
             try await session.unlock(credentials: .init(password: "pw-a"))
             verify("[\(location)] after switching, the first vault shows its own items", session.reference?.id == a.id && titles(session.store) == ["Personal login"])
             session.lock()
-            session.switchTo(b.id)
+            session.show(b.id)
             try await session.unlock(credentials: .init(password: "pw-b"))
             verify("[\(location)] after switching back, Work shows its own items", session.reference?.id == b.id && titles(session.store) == ["Work login"])
             session.lock()
@@ -262,5 +267,219 @@ import Foundation
     verify("suggested name: Passwords when no vault has it", VaultName.suggested(among: []) == "Passwords" && VaultName.suggested(among: ["Work"]) == "Passwords")
     verify("suggested name: empty when Passwords exists", VaultName.suggested(among: ["Work", "Passwords"]).isEmpty
            && VaultName.suggested(among: [" passwords "]).isEmpty)
+    return failed
+}
+
+/// Several vaults open at once (owner, 2026-11-25, slice M1): unlocking adds a vault to the open ones, locking one leaves the others
+/// open with their data, lock all locks every vault, the fixed order never changes, removing a vault touches no other vault, a
+/// vault file added by Open Vault File… stays locked until it is unlocked, and a file that disappears hurts only its own vault.
+/// Also the hostile-input and secrecy checklist of AGENTS.md ("Delegated work and validation") where it applies to session code:
+/// vault names with bidirectional controls and newlines are made safe in every message, a missing, unwritable or non-vault file
+/// gives a plain message and changes nothing, no secret reaches a state file, and a vault is never open twice in a session (a
+/// second unlock does nothing and adding the same file again reuses the vault); two processes writing one file are the store's
+/// `changedOnDisk` check, tested with the lifecycle tests in main.swift. `kill -9` at any moment leaves `verify` clean because every
+/// write is one atomic replace (VaultFiles.write), tested there too. Returns how many checks failed.
+@MainActor func runSeveralOpenVaultTests() async -> Int {
+    var failed = 0
+    func verify(_ name: String, _ ok: Bool) {
+        if ok { print("ok   \(name)") } else { failed += 1; print("FAIL \(name)") }
+    }
+    let session = VaultSession()
+    func reset() {
+        session.lockAll()
+        while session.reference != nil { session.forget() }
+        for vault in VaultReference.remembered { VaultReference.forget(vault.id) }
+    }
+    reset()
+    func titles(_ store: KeePassVaultStore?) -> [String] { (store?.items() ?? []).map(\.title).sorted() }
+    let secret = "pw-secret-\(UUID().uuidString)"
+    let names = { session.knownVaults.map(\.name) }
+    let hostile = "Wo\u{202E}rk\nTaxes\u{200B}" + String(repeating: "x", count: 200)
+
+    do {
+        // Three vaults: A and B open (create keeps the vault before it open), C created and locked again.
+        try await session.create(name: "Several A", credentials: .init(password: secret), items: [VaultItem(kind: .login, title: "In A", account: "a", website: "https://a.example", secret: "s1")])
+        let a = session.reference!
+        try await session.create(name: hostile, credentials: .init(password: secret), items: [VaultItem(kind: .login, title: "In B", account: "b", website: "https://b.example", secret: "s2")])
+        let b = session.reference!
+        try await session.create(name: "Several C", credentials: .init(password: secret), items: [VaultItem(kind: .login, title: "In C", account: "c", website: "https://c.example", secret: "s3")])
+        let c = session.reference!
+        let order = [a.id, b.id, c.id]
+        func orderKept(_ label: String) {
+            verify("order: \(label)", session.knownVaults.map(\.id) == order && VaultReference.all.map(\.id) == order)
+        }
+        verify("three vaults are open together, each with its own items", session.openVaults.map(\.id) == order
+               && titles(session.store(for: a.id)) == ["In A"] && titles(session.store(for: b.id)) == ["In B"] && titles(session.store(for: c.id)) == ["In C"])
+        orderKept("after creating three")
+
+        // Lock one: the others stay open with their data.
+        let storeB = session.store(for: b.id)
+        session.lock(c.id)
+        verify("lock one: it is locked, the others are open with their data", !session.isOpen(c.id) && session.isOpen(a.id) && session.isOpen(b.id)
+               && session.store(for: b.id) === storeB && titles(session.store(for: a.id)) == ["In A"] && titles(session.store(for: b.id)) == ["In B"])
+        verify("lock the shown vault: another open vault is shown, the next in the fixed order or the one before", session.reference?.id == b.id)
+        orderKept("after locking one")
+        session.lock(a.id)
+        session.lock(b.id)
+        verify("locking the last open vault leaves nothing open and shows no other vault", !session.isAnyOpen && session.store == nil && session.windowStore == nil)
+        orderKept("after locking all one by one")
+
+        // Unlock two, one after the other, the way the lock screen does.
+        session.show(a.id)
+        try await session.unlock(credentials: .init(password: secret))
+        verify("unlock A: it is open and shown, the others stay locked", session.isOpen(a.id) && session.reference?.id == a.id && !session.isOpen(b.id) && !session.isOpen(c.id))
+        session.show(b.id)
+        verify("showing a locked vault while another is open leaves the open one open", session.isOpen(a.id) && !session.isOpen(b.id) && session.store == nil
+               && session.windowStore === session.store(for: a.id))
+        try await session.unlock(credentials: .init(password: secret))
+        verify("unlock B: both are open, each with its own data", session.isOpen(a.id) && session.isOpen(b.id) && titles(session.store(for: a.id)) == ["In A"] && titles(session.store) == ["In B"])
+        orderKept("after unlocking two")
+        // A vault has one store: unlocking an open vault again does nothing, so there is never a second writer in this session.
+        let openB = session.store
+        try await session.unlock(credentials: .init(password: "a wrong password that is never tried"))
+        verify("unlock of an open vault does nothing: the same store, no second writer", session.store === openB)
+        session.show(a.id)
+        verify("showing an open vault needs no password and keeps its store", session.store === session.store(for: a.id) && session.isOpen(b.id))
+        orderKept("after showing")
+
+        // Lock all.
+        session.lockAll()
+        verify("lock all: every vault is locked, the shown vault does not change", !session.isAnyOpen && session.reference?.id == a.id)
+        orderKept("after lock all")
+
+        // Removing a locked vault while another is open.
+        session.show(a.id)
+        try await session.unlock(credentials: .init(password: secret))
+        verify("C is locked while A is open", !session.isOpen(c.id) && session.isOpen(a.id))
+        session.remove(c.id)
+        verify("remove a locked vault: it is gone, the open vault is untouched", session.knownVaults.map(\.id) == [a.id, b.id] && session.isOpen(a.id)
+               && titles(session.store(for: a.id)) == ["In A"] && !c.isReachable && session.reference?.id == a.id)
+        // Removing an open vault: it goes, the other stays open and is shown.
+        try await session.unlock(credentials: .init(password: secret)) // A is open already: nothing
+        session.show(b.id)
+        try await session.unlock(credentials: .init(password: secret))
+        verify("both open again", session.isOpen(a.id) && session.isOpen(b.id))
+        session.remove(b.id)
+        verify("remove an open vault: its store is gone, the other stays open and is shown", session.knownVaults.map(\.id) == [a.id] && !session.isOpen(b.id)
+               && session.isOpen(a.id) && session.reference?.id == a.id && titles(session.store) == ["In A"] && !b.isReachable)
+
+        // Open Vault File…: the file is added locked, no password, and unlocking names it from inside.
+        let fileURL = VaultFiles.storageRoot.appendingPathComponent("added-by-file-\(UUID().uuidString).kdbx")
+        let outside = try KDBX.create(name: "Inside Name", credentials: .init(password: secret))
+        outside.upsert([VaultItem(kind: .login, title: "In file", account: "f", website: "https://f.example", secret: "s4")])
+        try KDBX.save(outside).write(to: fileURL)
+        let added = try session.add(fileAt: fileURL)
+        verify("add by file: listed at the end of the fixed order, locked, shown, named after the file, A still open",
+               session.knownVaults.map(\.id) == [a.id, added.id] && !session.isOpen(added.id) && session.reference?.id == added.id
+               && added.name == fileURL.deletingPathExtension().lastPathComponent && session.isOpen(a.id) && session.store == nil)
+        verify("add by file: no Touch ID offered before the first unlock", added.biometricUnlock == false && session.state(of: added) == .needsPassword(.off))
+        let again = try session.add(fileAt: fileURL)
+        verify("adding the same file again reuses the vault: not listed twice", again.id == added.id && session.knownVaults.count == 2)
+        try await session.unlock(credentials: .init(password: secret))
+        verify("unlock the added vault: it joins the open ones and takes its name from inside the file", session.isOpen(added.id) && session.isOpen(a.id)
+               && session.reference?.name == "Inside Name" && titles(session.store) == ["In file"])
+        let again2 = try session.add(fileAt: fileURL)
+        verify("adding the file of an open vault shows it and does not lock or duplicate it", again2.id == added.id && session.isOpen(added.id) && session.knownVaults.count == 2)
+
+        // A file that is not a vault, is empty or is missing is refused in plain words and adds nothing.
+        let junk = VaultFiles.storageRoot.appendingPathComponent("junk-\(UUID().uuidString).kdbx")
+        try Data("this is not a vault".utf8).write(to: junk)
+        var refused = ""
+        do { _ = try session.add(fileAt: junk) } catch { refused = (error as? KDBXError)?.message ?? "other: \(error)" }
+        verify("a file that is not a vault is refused with the plain message and adds nothing", refused == KDBXError.notAVault.message && session.knownVaults.count == 2)
+        let empty = VaultFiles.storageRoot.appendingPathComponent("empty-\(UUID().uuidString).kdbx")
+        try Data().write(to: empty)
+        var emptyRefused = false
+        do { _ = try session.add(fileAt: empty) } catch { emptyRefused = true }
+        verify("an empty file is refused and adds nothing", emptyRefused && session.knownVaults.count == 2)
+        var missingRefused = false
+        do { _ = try session.add(fileAt: VaultFiles.storageRoot.appendingPathComponent("not-there-\(UUID().uuidString).kdbx")) } catch { missingRefused = true }
+        verify("a missing file is refused and adds nothing", missingRefused && session.knownVaults.count == 2)
+        try? FileManager.default.removeItem(at: junk); try? FileManager.default.removeItem(at: empty)
+
+        // A file that disappears while another vault is open.
+        session.lock(added.id)
+        session.show(added.id)
+        try FileManager.default.removeItem(at: fileURL)
+        var unlockError: Error?
+        do { try await session.unlock(credentials: .init(password: secret)) } catch { unlockError = error }
+        verify("a vanished file: unlock fails with the plain 'cannot find' message, the vault is not available, nothing opens",
+               (unlockError as? VaultStoreError)?.message == VaultStoreError.fileMissing.message && !session.isOpen(added.id)
+               && session.state(of: session.reference!) == .notFound)
+        verify("a vanished file does not touch the other open vault", session.isOpen(a.id) && titles(session.store(for: a.id)) == ["In A"])
+        try session.store(for: a.id)?.save([VaultItem(kind: .login, title: "Saved meanwhile", account: "m", website: "https://m.example", secret: "s5")])
+        verify("the other open vault still saves", titles(session.store(for: a.id)) == ["In A", "Saved meanwhile"])
+        session.remove(added.id)
+        verify("removing the vanished vault leaves the open vault shown and open", session.knownVaults.map(\.id) == [a.id] && session.reference?.id == a.id && session.isOpen(a.id))
+
+        // An unwritable location: the save is refused in plain words, nothing in memory changed, the vault stays open.
+        let directory = VaultFiles.managedDirectory
+        let before = titles(session.store(for: a.id))
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
+        var writeMessage = ""
+        do { try session.store(for: a.id)?.save([VaultItem(kind: .login, title: "Cannot be saved", account: "u", website: "https://u.example", secret: "s6")]) }
+        catch { writeMessage = (error as? VaultStoreError)?.message ?? "other: \(error)" }
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        verify("an unwritable location: plain message with no raw error and no secret, the vault is as it was and stays open",
+               !writeMessage.isEmpty && !writeMessage.hasPrefix("other") && !writeMessage.contains("Domain") && !writeMessage.contains(secret)
+               && titles(session.store(for: a.id)) == before && session.isOpen(a.id))
+        try session.store(for: a.id)?.save([VaultItem(kind: .login, title: "Saved after", account: "u", website: "https://u.example", secret: "s7")])
+        verify("after the location is writable again the vault saves", titles(session.store(for: a.id)).contains("Saved after"))
+    } catch {
+        failed += 1
+        print("FAIL several open vaults threw \(error)")
+    }
+
+    // Names are the person's text and may be hostile: every message the session composes is one safe, short line.
+    do {
+        reset()
+        try await session.create(name: hostile, credentials: .init(password: secret), items: [])
+        let reference = session.reference!
+        let title = session.lockMenuTitle ?? ""
+        verify("hostile name: the File menu's lock item is one safe, short line", title.hasPrefix("Lock ") && !title.contains("\n") && !title.contains("\u{202E}")
+               && !title.contains("\u{200B}") && title.count <= 5 + VaultName.maxLength)
+        verify("hostile name: the short and sentence forms of the name are safe", VaultName.short(reference.name).count <= VaultName.maxLength
+               && !VaultName.sentence(reference.name).contains("\n"))
+        verify("hostile name: the name is kept as typed in the reference (only shown safely)", reference.name == hostile)
+        session.lockAll()
+        verify("with nothing open the File menu has no lock", session.lockMenuTitle == nil)
+        try await session.create(name: "Menu A", credentials: .init(password: secret), items: [])
+        verify("one open vault: the File menu says Lock and its name", session.lockMenuTitle == "Lock Menu A")
+        try await session.create(name: "Menu B", credentials: .init(password: secret), items: [])
+        verify("a second open vault: Lock All Vaults", session.lockMenuTitle == "Lock All Vaults")
+        session.lockForMenu()
+        verify("Lock All Vaults locks every vault", !session.isAnyOpen)
+    } catch {
+        failed += 1
+        print("FAIL hostile names threw \(error)")
+    }
+
+    // No secret in any state file the session wrote (references, order, the forgotten list): the password and the vault key are not in them.
+    do {
+        reset()
+        try await session.create(name: "Secrecy", credentials: .init(password: secret), items: [])
+        session.lockAll()
+        try await session.unlock(credentials: .init(password: secret))
+        let key = session.store?.transformedKey ?? Data()
+        var leaked = false
+        let root = VaultFiles.storageRoot
+        if let paths = try? FileManager.default.subpathsOfDirectory(atPath: root.path) {
+            for path in paths where !path.hasSuffix(".kdbx") {
+                let file = root.appendingPathComponent(path)
+                var isDirectory: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory), !isDirectory.boolValue,
+                      let data = try? Data(contentsOf: file) else { continue }
+                let text = String(decoding: data, as: UTF8.self)
+                if text.contains(secret) || (!key.isEmpty && (data.range(of: key) != nil || text.contains(key.base64EncodedString())
+                    || text.contains(key.map { String(format: "%02x", $0) }.joined()))) { leaked = true; print("leak in \(file.path)") }
+            }
+        }
+        verify("no secret in any state file: neither the password nor the vault key", !leaked && !key.isEmpty)
+        session.lockAll()
+    } catch {
+        failed += 1
+        print("FAIL secrecy threw \(error)")
+    }
+    reset()
     return failed
 }

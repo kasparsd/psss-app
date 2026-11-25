@@ -64,22 +64,23 @@ extension AddVaultChoice {
 
 /// The rows of the vault menu, shared by the app, the unlock screens and the extensions (owner, 2026-11-24, mock
 /// `#/vault-states`). Each vault shows its name (cut in the middle when long), under it where it is kept or the words of its
-/// `VaultState`, a check on the current one and the state's glyph: open padlock, closed padlock or the warning triangle.
+/// `VaultState`, a check on the shown one and, on a vault that is not open, the state's glyph: closed padlock or the warning
+/// triangle. An open vault has no padlock (owner, 2026-11-25): several can be open at once.
 ///
 /// `lock` is the app's lock action and is used only in the `.app` context; `addVault` is the last row and only the `.app` and
 /// `.lockScreen` contexts show it. Not available vaults stay selectable: choosing one shows its lock screen, where the way out is.
 struct VaultMenuItems: View {
     let session: VaultSession
-    /// Whether the active vault is unlocked. Only the active vault ever is.
-    let unlocked: Bool
     var context = VaultMenuContext.extension
     let choose: (UUID) -> Void
     /// Starts one of the three add flows. The `.app` and `.lockScreen` contexts list them as the last section.
     var add: ((AddVaultChoice) -> Void)?
     /// The old single "Add Vault…" row, for a caller that has not moved to `add` yet. Ignored when `add` is given.
     var addVault: (() -> Void)?
-    /// "Lock <name>", in the `.app` context.
+    /// "Lock <name>", in the `.app` context: locks the shown vault only.
     var lock: (() -> Void)?
+    /// "Lock All Vaults", in the `.app` context, listed only while two or more vaults are open.
+    var lockAll: (() -> Void)?
     /// "Vault Settings…", in the `.app` context: Settings at the current vault's page.
     var settings: (() -> Void)?
 
@@ -93,6 +94,7 @@ struct VaultMenuItems: View {
                 Section {
                     if let settings { Button(String(localized: "Vault Settings…"), systemImage: "gearshape", action: settings) }
                     if let lock { Button(String(localized: "Lock \(currentName)"), systemImage: "lock", action: lock) }
+                    if let lockAll, session.openVaults.count >= 2 { Button(String(localized: "Lock All Vaults"), systemImage: "lock", action: lockAll) }
                 } header: { Text(verbatim: currentName) }
             }
         case .lockScreen:
@@ -114,21 +116,21 @@ struct VaultMenuItems: View {
     /// One Button per vault, its label a plain title Text, subtitle Text and image. A `Toggle` or a `Label` with two Texts loses
     /// the second line in an iOS menu (found in the simulator, 2026-11-25); a Button's title and subtitle Texts keep it.
     ///
-    /// The row's one glyph: a checkmark on the current vault, otherwise the vault's state glyph (closed padlock, or the warning
-    /// triangle when it is not available). A menu row has room for one glyph, so the current vault's padlock is not drawn; its
-    /// state is in the words under its name when it has any ("Needs vault password", "Not found"), and the Vault row beside the
-    /// menu shows the padlock or the warning triangle.
+    /// The row's one glyph: a checkmark on the shown vault, otherwise, for a vault that is not open, its state glyph (closed
+    /// padlock, or the warning triangle when it is not available). An open vault has none. A menu row has room for one glyph,
+    /// so the shown vault's padlock is not drawn; its state is in the words under its name when it has any ("Needs vault
+    /// password", "Not found"), and the Vault row beside the menu shows the padlock or the warning triangle.
     @ViewBuilder private func rows(_ current: VaultReference?) -> some View {
         ForEach(session.knownVaults, id: \.id) { vault in
             let isActive = vault.id == current?.id
-            let state = session.state(of: vault, unlocked: unlocked)
+            let state = session.state(of: vault)
             Button {
                 if !isActive { choose(vault.id) }
             } label: {
                 // A plain title, subtitle and image, as an iOS menu draws a row with a second line (not a Label).
                 Text(verbatim: VaultName.short(vault.name))
                 Text(verbatim: state.subtitle(location: vault.menuLocation))
-                Image(systemName: isActive ? "checkmark" : state.symbol)
+                if isActive { Image(systemName: "checkmark") } else if state != .open { Image(systemName: state.symbol) }
             }
             .accessibilityValue(Text(verbatim: (isActive ? String(localized: "Current vault. ") : "") + state.spoken))
         }
@@ -152,7 +154,6 @@ struct VaultSwitcher: View {
     }
 
     let session: VaultSession
-    let unlocked: Bool
     var style = Style.icon
     /// Where the menu is shown. Defaults to AutoFill and the browser (no Lock, no Add Vault…); the app passes `.app`, the lock
     /// screen `.lockScreen`.
@@ -162,6 +163,8 @@ struct VaultSwitcher: View {
     var addVault: (() -> Void)?
     /// The app's lock, for "Lock <name>" in the current vault's section of the `.app` menu.
     var lock: (() -> Void)?
+    /// "Lock All Vaults" in that section while two or more vaults are open.
+    var lockAll: (() -> Void)?
     /// "Vault Settings…" in that section.
     var settings: (() -> Void)?
 
@@ -187,7 +190,7 @@ struct VaultSwitcher: View {
 
     private func menu(name: String) -> some View {
         Menu {
-            VaultMenuItems(session: session, unlocked: unlocked, context: context, choose: choose, add: add, addVault: addVault, lock: lock, settings: settings)
+            VaultMenuItems(session: session, context: context, choose: choose, add: add, addVault: addVault, lock: lock, lockAll: lockAll, settings: settings)
         } label: {
             switch style {
             case .icon:
@@ -295,7 +298,7 @@ extension PopUpRow where Trailing == EmptyView {
 /// Used on the lock screen (no `unlock`: the screen is itself the unlock), on every AutoFill screen and, compact, in the browser
 /// popup's header. Show it with two or more vaults (`VaultSwitcher.isShown`); the lock screen shows it always.
 ///
-/// - `state`: the current vault's `VaultState` (`session.state(of:unlocked:)`). `unlock` is drawn only for a locked vault
+/// - `state`: the current vault's `VaultState` (`session.state(of:)`). `unlock` is drawn only for a locked vault
 ///   (`.locked`, `.needsPassword`), never for an open one and never for a not available one: the notice under the row says what
 ///   Psss will do, and the row stays so another vault is one choice away.
 /// - `choose`: called with the chosen vault's id (the caller switches, locks and reloads).
@@ -315,7 +318,7 @@ struct VaultRow: View {
     var body: some View {
         let name = VaultName.short(session.reference?.name ?? String(localized: "Vault"))
         PopUpRow("Vault", labelInside: true) {
-            VaultSwitcher(session: session, unlocked: state == .open, style: .row, context: context, choose: choose, add: add, addVault: addVault)
+            VaultSwitcher(session: session, style: .row, context: context, choose: choose, add: add, addVault: addVault)
         } trailing: {
             if state.isLocked, let unlock {
                 Button("Unlock", action: unlock)
