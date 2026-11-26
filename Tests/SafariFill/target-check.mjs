@@ -1,7 +1,7 @@
 // What the iPhone and iPad Safari extension is made of and asks for (docs/plans/ios-safari-fill.md, sections 5 and 7). Run by
 // scripts/test-safari-fill.sh. Reads the project through `plutil`, changes nothing.
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
 import { popupProblems } from "./popup-guard.mjs";
 
@@ -85,19 +85,36 @@ need("permissions", manifest.permissions, ["activeTab", "scripting", "nativeMess
 need("description", manifest.description,
   "Fills out credit cards and addresses in forms, which system AutoFill does not do for Psss. Uses the website URL to check the page, and the form fields to match the values.");
 
+// The wall (docs/autofill.md, "What the Safari extension can reach"): the extension lists the fill Keychain group and its own App
+// Group, and neither the vault App Group (itself a Keychain access group) nor the vault key group.
 const group = "$(AppIdentifierPrefix)app.psss.safari-fill";
+const keyGroup = "$(AppIdentifierPrefix)app.psss.vault-key";
+const vaultAppGroup = "group.app.psss";
+const safariAppGroup = "group.app.psss.safari";
 need("extension entitlements", plist("Configuration/SafariFill-iOS.entitlements"),
-  { "com.apple.security.application-groups": ["group.app.psss"], "keychain-access-groups": [group] });
-// The app's own group comes first: an item saved without naming a group must not land where the extension can read it.
-need("app Keychain groups", plist("Configuration/App-iOS.entitlements")["keychain-access-groups"],
-  ["$(AppIdentifierPrefix)app.psss.Psss", group]);
-for (const path of ["Configuration/CredentialProvider-iOS.entitlements", "Configuration/CredentialProvider-macOS.entitlements",
-  "Configuration/App-macOS.entitlements", "Configuration/SafariExtension-macOS.entitlements"]) {
-  need(`${path} must not list the fill group`, readFileSync(path, "utf8").includes("safari-fill"), false);
-}
+  { "com.apple.security.application-groups": [safariAppGroup], "keychain-access-groups": [group] });
+const iosApp = plist("Configuration/App-iOS.entitlements");
+// The app's own group comes first: an item saved without naming a group must not land where an extension can read it.
+need("app Keychain groups", iosApp["keychain-access-groups"], ["$(AppIdentifierPrefix)app.psss.Psss", group, keyGroup]);
+need("app App Groups", iosApp["com.apple.security.application-groups"], [vaultAppGroup, safariAppGroup]);
+const provider = plist("Configuration/CredentialProvider-iOS.entitlements");
+need("AutoFill provider Keychain groups", provider["keychain-access-groups"], ["$(AppIdentifierPrefix)app.psss.Psss.AutoFill", keyGroup]);
+need("AutoFill provider App Groups", provider["com.apple.security.application-groups"], [vaultAppGroup]);
+// No other target, on either platform, lists a group of the Safari fill or the iPhone and iPad vault key group.
+const entitlements = readdirSync("Configuration").filter((name) => name.endsWith(".entitlements"));
+const listing = (value) => entitlements.filter((name) =>
+  Object.values(plist(`Configuration/${name}`)).flat().includes(value)).sort();
+need("targets listing the fill group", listing(group), ["App-iOS.entitlements", "SafariFill-iOS.entitlements"]);
+need("targets listing the vault key group", listing(keyGroup), ["App-iOS.entitlements", "CredentialProvider-iOS.entitlements"]);
+need("targets listing the vault App Group", listing(vaultAppGroup), ["App-iOS.entitlements", "CredentialProvider-iOS.entitlements"]);
+need("targets listing the Safari App Group", listing(safariAppGroup), ["App-iOS.entitlements", "SafariFill-iOS.entitlements"]);
 for (const path of ["Configuration/App-Info.plist", "Configuration/SafariFill-iOS-Info.plist"]) {
   need(`${path} access group key`, plist(path).PsssSafariFillAccessGroup, group);
 }
+for (const path of ["Configuration/App-Info.plist", "Configuration/CredentialProvider-Info.plist"]) {
+  need(`${path} vault key group key`, plist(path).PsssVaultKeyAccessGroup, keyGroup);
+}
+need("the extension is told no vault key group", plist("Configuration/SafariFill-iOS-Info.plist").PsssVaultKeyAccessGroup, undefined);
 
 if (problems.length) {
   console.error(problems.map((p) => `test-safari-fill: ${p}`).join("\n"));

@@ -9,13 +9,17 @@
     <key>com.apple.security.application-groups</key>
     <array>
         <string>group.app.psss</string>
+        <!-- Only what the Safari extension reads: its copy of the vault list and its "seen" note. -->
+        <string>group.app.psss.safari</string>
     </array>
     <!-- The first group is where a Keychain item saved without naming a group goes, so the app's own stays first. The second
-         holds only the card and address grant for the Safari extension (KeychainSafariFillStore). -->
+         holds only the card and address grant for the Safari extension (KeychainSafariFillStore). The third holds the vault
+         keys (BiometricKey): only the app and the AutoFill provider list it. -->
     <key>keychain-access-groups</key>
     <array>
         <string>$(AppIdentifierPrefix)app.psss.Psss</string>
         <string>$(AppIdentifierPrefix)app.psss.safari-fill</string>
+        <string>$(AppIdentifierPrefix)app.psss.vault-key</string>
     </array>
     <key>com.apple.developer.icloud-container-identifiers</key>
     <array>

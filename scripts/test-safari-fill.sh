@@ -56,6 +56,10 @@ Self.log.info("request \(reply.type ?? "unknown", privacy: .public) \(reply.refu
   echo "test-safari-fill: the Safari handler logs only the type, the error word and the time (see the lines above)" >&2
   exit 1
 fi
+if grep -rnE '"group\.app\.psss"|app\.psss\.vault-key|SharedVault\.groupID' App/SafariFill Extensions/SafariIOS; then
+  echo "test-safari-fill: the Safari extension must not name the vault App Group or the vault key group (see the lines above)" >&2
+  exit 1
+fi
 node Tests/SafariFill/target-check.mjs
 
 # The popup: its logic with a faked browser, then drawn in headless Chromium and WebKit over the test site's pages with the real
@@ -78,10 +82,10 @@ if [ ! -x Extensions/Browser/tests/node_modules/.bin/playwright ]; then
   exit 1
 fi
 (cd Extensions/Browser/tests && "$NODE" node_modules/.bin/playwright test safari-popup)
-group_id='static let id = "group.app.psss"'
+group_id='static let id = "group.app.psss.safari"'
 if ! grep -qF "$group_id" App/SafariFill/SafariExtensionSeen.swift ||
-   ! grep -qF 'defaultGroupID = "group.app.psss"' App/Core/SharedVault.swift; then
-  echo "test-safari-fill: the App Group differs between the app and the Safari extension" >&2
+   ! grep -qF 'safariGroupID = "group.app.psss.safari"' App/Core/SharedVault.swift; then
+  echo "test-safari-fill: the Safari extension's App Group differs between the app and the extension" >&2
   exit 1
 fi
 # The handler reads the app's vault list under the keys the app writes it with.

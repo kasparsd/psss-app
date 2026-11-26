@@ -1416,5 +1416,187 @@ do {
     check("never another grant's value", wrong.value == nil)
 }
 
-print("safari fill: \(passes) passed, \(failures) failed")
-exit(failures == 0 ? 0 : 1)
+// MARK: The wall: the Safari extension's copy of the vault list, written by the app's own code
+
+/// A stand-in for the extension's App Group, which can refuse to take writes or removals.
+final class SafariCopy: SafariVaultListStore, SafariFillVaultSource {
+    var values: [String: Data] = [:]
+    var refuses: Set<String> = []
+    var keepsRemoved = false
+    var writes: [String] = []
+    func data(forKey key: String) -> Data? { values[key] }
+    func set(_ value: Any?, forKey key: String) {
+        writes.append(key)
+        if !refuses.contains(key) { values[key] = value as? Data }
+    }
+    func removeObject(forKey key: String) { if !keepsRemoved { writes.append(key); values[key] = nil } }
+    func object(forKey key: String) -> Any? { values[key] }
+}
+
+do {
+    typealias List = SafariFillVaultList
+    let keys = [List.activeKey, List.rememberedKey, List.forgottenKey, List.orderKey]
+    check("the extension's group is the app's name for it", SafariFillAppGroup.id == SharedVault.safariGroupID)
+    check("and not the group of the vaults", SafariFillAppGroup.id != SharedVault.groupID)
+
+    check("no group: nothing written, and said so", !VaultReference.mirrorForSafari())
+    let copy = SafariCopy()
+    VaultReference.testSafariStore = copy
+    defer { VaultReference.testSafariStore = nil }
+    func appList() -> [SafariFillListedVault] { VaultReference.all.map { SafariFillListedVault(id: $0.id, name: $0.name) } }
+    func copied() -> [SafariFillListedVault]? { try? List(source: copy).vaults() }
+    func matches() -> Bool { copied() == appList() }
+
+    check("launch writes the list", VaultReference.mirrorForSafari() && matches() && !appList().isEmpty)
+    var kept = VaultReference(name: "Copied", managed: false, bookmark: Data(repeating: 0xB7, count: 600), fileName: "secret-place.kdbx")
+    kept.biometricUnlock = true
+    kept.persist()
+    check("add", matches() && copied()?.contains { $0.id == kept.id } == true)
+    let added = VaultReference(name: "Second copied", managed: true, bookmark: nil, fileName: "e.kdbx")
+    added.persist()
+    check("add keeps the order", matches() && copied()?.suffix(2).map(\.id) == [kept.id, added.id])
+    VaultReference.update(kept.id) { $0.name = "Renamed" }
+    check("rename of a remembered vault", matches() && copied()?.contains { $0.name == "Renamed" } == true)
+    VaultReference.update(added.id) { $0.name = "Renamed too" }
+    check("rename of the active vault", matches() && copied()?.contains { $0.name == "Renamed too" } == true)
+    VaultReference.activate(kept.id)
+    check("switching moves nothing", matches() && copied()?.suffix(2).map(\.id) == [kept.id, added.id])
+
+    // Only identifiers and names: no bookmark, file name or setting reaches the extension's group.
+    check("only the four list keys", Set(copy.values.keys).isSubset(of: keys))
+    func objects(_ key: String) -> [[String: Any]] {
+        let value = copy.values[key].flatMap { try? JSONSerialization.jsonObject(with: $0) }
+        return (value as? [[String: Any]]) ?? (value as? [String: Any]).map { [$0] } ?? []
+    }
+    let entries = objects(List.activeKey) + objects(List.rememberedKey)
+    check("an entry is an identifier and a name", entries.count == appList().count && entries.allSatisfy { Set($0.keys) == ["id", "name"] })
+    let bytes = copy.values.values.map { String(decoding: $0, as: UTF8.self) }.joined()
+    check("no bookmark, file or setting", !bytes.contains("secret-place") && !bytes.contains(".kdbx") && !bytes.contains("bookmark")
+          && !bytes.contains(Data(repeating: 0xB7, count: 600).base64EncodedString().prefix(40)) && !bytes.contains("biometric"))
+    copy.writes = []
+    check("an unchanged list is not written again", VaultReference.mirrorForSafari() && copy.writes.isEmpty)
+
+    // A live grant for a vault that is then removed gives nothing.
+    let held = MemoryStore()
+    let grant = SafariFillGrant(vault: .init(id: kept.id, name: "Renamed"), cards: [sampleCard()], clock: clock)
+    try held.write(grant)
+    let release = releaseRequest(SafariFillRef(grantID: grant.grantID, item: grant.cards[0].id).text, roles: ["cc-number"], vault: kept.id)
+    check("listed: the grant releases", answer(handler(held, vaults: List(source: copy)), release).refusal == nil)
+    copy.writes = []
+    VaultReference.forget(kept.id)
+    check("remove: the forgotten list is written first", copy.writes.first == List.forgottenKey)
+    check("remove: not listed, and named as forgotten", matches() && copied()?.contains { $0.id == kept.id } == false
+          && (try? List(source: copy).contents().forgotten.contains(kept.id)) == true)
+    let refused = answer(handler(held, vaults: List(source: copy)), release)
+    check("remove: nothing is released", refused.refusal != nil && refused.message["fields"] == nil)
+
+    // A copy left stale (the app stopped half way, or the provider renamed a vault) is put right at the next launch.
+    let right = copy.values
+    copy.values = [List.activeKey: json(["id": kept.id.uuidString, "name": "Renamed"])]
+    check("launch replaces a stale copy", VaultReference.mirrorForSafari() && copy.values == right && matches())
+    VaultReference.clear()
+    check("clearing the active vault", matches() && copy.values[List.activeKey] == nil)
+
+    // A copy that cannot be written lists nothing, so a removed vault cannot stay fillable.
+    for key in keys {
+        copy.refuses = []
+        copy.values = [:]
+        let one = VaultReference(name: "Before", managed: true, bookmark: nil, fileName: "f.kdbx")
+        let other = VaultReference(name: "Other", managed: true, bookmark: nil, fileName: "g.kdbx")
+        one.persist()
+        other.persist()
+        VaultReference.forget(UUID())
+        check("written before the failure \(key)", matches() && copy.values[key] != nil)
+        // Whatever this key holds is now stale: the next change that touches it fails.
+        copy.values[key] = Data("stale".utf8)
+        copy.refuses = [key]
+        check("a refused write is reported (\(key))", !VaultReference.mirrorForSafari())
+        check("a refused write leaves nothing listed (\(key))", copy.values.isEmpty && copied() == [])
+        VaultReference.forget(one.id)
+        check("removal while refused lists nothing removed (\(key))", copied()?.contains { $0.id == one.id } == false)
+        VaultReference.forget(other.id)
+    }
+    copy.refuses = Set(keys)
+    copy.values = [:]
+    check("a group that takes nothing", !VaultReference.mirrorForSafari() && copy.values.isEmpty)
+    copy.refuses = []
+    check("recovers", VaultReference.mirrorForSafari() && matches())
+    // A group that takes neither writes nor removals keeps what it had: the app is told (and must then give Safari no grant).
+    copy.refuses = Set(keys)
+    copy.keepsRemoved = true
+    copy.values[List.rememberedKey] = Data("stuck".utf8)
+    check("a frozen group is reported", !VaultReference.mirrorForSafari())
+}
+
+// MARK: The wall: vault keys
+
+/// Asynchronous, so it runs from a task at the end: a top-level `await` would make every check above asynchronous too.
+@MainActor func checkVaultKeys() async throws {
+    typealias Key = BiometricKey
+    func group(_ value: Any?) -> String { Key.iOSAccessGroup(infoDictionary: value.map { [Key.accessGroupInfoKey: $0] }) }
+    check("the built group is used", group("ABCDE12345.app.psss.vault-key") == "ABCDE12345.app.psss.vault-key")
+    for bad: Any? in [nil, "", 7, "group.app.psss", "ABCDE12345.app.psss.Psss", "ABCDE12345.app.psss.safari-fill", ".app.psss.vault-key",
+                      "$(AppIdentifierPrefix).app.psss.vault-key", "ABCDE12345.app.psss.vault-key.x"] {
+        check("anything else is the bare name, never another group", group(bad) == "app.psss.vault-key")
+    }
+    check("the old keys are removed from the App Group only",
+          Key.oldAppGroupItemsQuery[kSecAttrAccessGroup as String] as? String == SharedVault.groupID
+          && Key.oldAppGroupItemsQuery[kSecAttrService as String] as? String == "app.psss.vault-key"
+          && Key.oldAppGroupItemsQuery[kSecUseDataProtectionKeychain as String] as? Bool == true
+          && Key.oldAppGroupItemsQuery.count == 4)
+
+    // An earlier build's key is not found: the vault asks for its password, and the key is saved again after it.
+    let session = VaultSession()
+    session.forget()
+    try await session.create(name: "Old key", credentials: .init(password: "pw-fictional"), items: [])
+    let old = session.reference!.id
+    try session.enableBiometric()
+    try await session.create(name: "Kept key", credentials: .init(password: "pw-fictional"), items: [])
+    let fine = session.reference!.id
+    try session.enableBiometric()
+    session.lockAll()
+    Key.memory[old] = nil
+    func vault(_ id: UUID) -> VaultReference? { VaultReference.all.first { $0.id == id } }
+
+    Key.failure = .unavailable
+    session.forgetMissingSavedKeys()
+    check("a key that cannot be read now is not missing", vault(old)?.biometricUnlock == true && vault(fine)?.biometricUnlock == true)
+    Key.failure = nil
+    session.forgetMissingSavedKeys()
+    check("a missing key switches the setting off, quietly", vault(old)?.biometricUnlock == false && vault(old)?.biometricStale == false
+          && vault(old)?.biometricDeclined == false)
+    check("a saved key stays", vault(fine)?.biometricUnlock == true && Key.memory[fine] != nil)
+    check("this session knows it too", session.knownVaults.first { $0.id == old }?.biometricUnlock == false)
+    session.show(old)
+    try await session.unlock(credentials: .init(password: "pw-fictional"))
+    check("after the password the key is offered again", session.shouldOfferBiometric(for: old))
+    try session.enableBiometric(for: old)
+    session.lockAll()
+    try await session.unlockWithBiometrics()
+    check("and opens the vault", session.isOpen(old))
+    session.lockAll()
+
+    // The same where no launch ran first (the AutoFill provider): one refusal, the setting off, and no second try.
+    Key.memory[old] = nil
+    var refusals = 0
+    for _ in 0..<2 {
+        do { try await session.unlockWithBiometrics() } catch BiometricKeyError.invalidated { refusals += 1 } catch {}
+    }
+    check("refused as invalidated, again without a key", refusals == 2 && !session.isOpen(old))
+    check("off, not stale", vault(old)?.biometricUnlock == false && vault(old)?.biometricStale == false)
+    check("the provider says the password is needed", session.state(of: vault(old)!) == .needsPassword(.off))
+    try await session.unlock(credentials: .init(password: "pw-fictional"), savingQuickUnlockKey: false)
+    check("the provider saves no key", Key.memory[old] == nil)
+    session.lockAll()
+    try await session.unlock(credentials: .init(password: "pw-fictional"))
+    check("the app offers it again", session.shouldOfferBiometric(for: old))
+    session.remove(old)
+    session.remove(fine)
+}
+
+Task { @MainActor in
+    do { try await checkVaultKeys() } catch { check("the vault key checks threw", false) }
+    print("safari fill: \(passes) passed, \(failures) failed")
+    exit(failures == 0 ? 0 : 1)
+}
+dispatchMain()

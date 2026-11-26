@@ -24,6 +24,15 @@ struct PsssApp: App {
         // Only the app purges Recently Deleted (items older than 30 days) when it unlocks a vault. The AutoFill extension does not.
         VaultSession.purgesRecentlyDeletedOnUnlock = true
         #if os(iOS)
+        // Keys earlier builds kept in the App Group are removed, and a vault left without a key asks for its password.
+        BiometricKey.removeOldAppGroupItems()
+        Self.appLock.session.forgetMissingSavedKeys()
+        // The Safari extension reads its own copy of the vault list: written now and on each return (the AutoFill provider
+        // cannot write it), and after every change the app makes.
+        VaultReference.mirrorForSafari()
+        NotificationCenter.default.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { _ = VaultReference.mirrorForSafari() }
+        }
         // Undo is the capsule after Move to Recently Deleted (and Command-Z on iPad). Shaking the phone must not undo anything.
         UIApplication.shared.applicationSupportsShakeToEdit = false
         #elseif os(macOS)

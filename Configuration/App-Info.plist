@@ -21,6 +21,10 @@
          app shares this file, has no entitlement for the group and never reads the key. -->
     <key>PsssSafariFillAccessGroup</key>
     <string>$(AppIdentifierPrefix)app.psss.safari-fill</string>
+    <!-- iPhone and iPad: the Keychain group of the vault keys (BiometricKey). The Mac app keeps them in its App Group and never
+         reads the key. -->
+    <key>PsssVaultKeyAccessGroup</key>
+    <string>$(AppIdentifierPrefix)app.psss.vault-key</string>
     <!-- Mac: shown under the system's question before the menu bar reads a browser's front tab. -->
     <key>NSAppleEventsUsageDescription</key>
     <string>Psss reads the address of the front tab, to show your saved logins for that page.</string>

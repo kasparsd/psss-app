@@ -1,12 +1,14 @@
 import Foundation
 
-/// The App Group of the iPhone and iPad app and its extensions. The Safari extension compiles this folder and not
-/// `SharedVault`, so the identifier is here too; `scripts/test-safari-fill.sh` checks that the two agree.
+/// The App Group of the iPhone and iPad app and the Safari extension, and of nothing else: it holds the extension's copy of the
+/// vault list and the "seen" note. The vault files and the vault keys are not in it, and the extension does not list the group
+/// that has them. The extension compiles this folder and not `SharedVault`, so the identifier (`SharedVault.safariGroupID`) is
+/// here too; `scripts/test-safari-fill.sh` checks that the two agree.
 enum SafariFillAppGroup {
-    static let id = "group.app.psss"
+    static let id = "group.app.psss.safari"
 }
 
-/// Where the "seen" note is kept: the App Group's preferences, behind a protocol so a test uses a stand-in.
+/// Where the "seen" note is kept: that App Group's preferences, behind a protocol so a test uses a stand-in.
 protocol SafariExtensionSeenStore {
     func bool(forKey key: String) -> Bool
     func set(_ value: Bool, forKey key: String)

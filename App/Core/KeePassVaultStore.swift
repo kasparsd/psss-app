@@ -90,13 +90,73 @@ struct VaultReference: Codable, Equatable, Sendable {
     }
 
     private static func write(_ data: Data, _ key: String, file: String) {
+        defer { mirrorForSafari() }
         if let defaults { defaults.set(data, forKey: key); return }
         try? FileManager.default.createDirectory(at: fallbackURL(named: file).deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: fallbackURL(named: file), options: VaultFiles.writeOptions)
     }
 
     private static func remove(_ key: String, file: String) {
+        defer { mirrorForSafari() }
         if let defaults { defaults.removeObject(forKey: key) } else { try? FileManager.default.removeItem(at: fallbackURL(named: file)) }
+    }
+
+    // MARK: The Safari extension's copy
+
+    /// What the copy holds of a vault. Never a bookmark, a file name or a setting.
+    private struct SafariEntry: Encodable {
+        let id: UUID
+        let name: String
+    }
+
+    #if HOSTLESS_TESTS
+    /// Hostless tests set this to a stand-in for the Safari extension's App Group.
+    nonisolated(unsafe) static var testSafariStore: (any SafariVaultListStore)?
+    #endif
+
+    /// The App Group the Safari extension reads. Nil on the Mac, in an app extension (only the app writes the copy) and when the
+    /// group cannot be opened.
+    private static var safariStore: (any SafariVaultListStore)? {
+        #if HOSTLESS_TESTS
+        return testSafariStore
+        #elseif os(iOS)
+        guard Bundle.main.infoDictionary?["NSExtension"] == nil,
+              FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: SharedVault.safariGroupID) != nil else { return nil }
+        return UserDefaults(suiteName: SharedVault.safariGroupID)
+        #else
+        return nil
+        #endif
+    }
+
+    /// Writes the iPhone and iPad Safari extension's copy of the vault list: each vault's identifier and name, the forgotten
+    /// identifiers and the order, under the app's own keys. Runs after every change to the list; the app also calls it at launch
+    /// and on return to the foreground (a rename the AutoFill provider made reaches the copy then). The forgotten identifiers are
+    /// written first, so a removed vault stops counting before anything else changes. When a value cannot be written, the whole
+    /// copy is removed: no vault listed rather than a stale one. False when there is no such group or the copy was not written.
+    @discardableResult
+    static func mirrorForSafari() -> Bool {
+        guard let store = safariStore else { return false }
+        let forgotten = forgottenIDs
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        func entry(_ reference: VaultReference) -> SafariEntry { SafariEntry(id: reference.id, name: reference.name) }
+        let active = load().flatMap { forgotten.contains($0.id) ? nil : entry($0) }
+        let others = remembered.map(entry)
+        let order = order.map(\.uuidString)
+        let values: [(key: String, data: Data?)] = [
+            (forgottenKey, forgotten.isEmpty ? nil : try? encoder.encode(forgotten.map(\.uuidString))),
+            (defaultsKey, active.flatMap { try? encoder.encode($0) }),
+            (rememberedKey, others.isEmpty ? nil : try? encoder.encode(others)),
+            (orderKey, order.isEmpty ? nil : try? encoder.encode(order)),
+        ]
+        for (key, data) in values where store.data(forKey: key) != data {
+            if let data { store.set(data, forKey: key) } else { store.removeObject(forKey: key) }
+            guard store.data(forKey: key) == data else {
+                for value in values { store.removeObject(forKey: value.key) }
+                return false
+            }
+        }
+        return true
     }
 
     static func load() -> VaultReference? {
@@ -270,6 +330,16 @@ struct VaultReference: Codable, Equatable, Sendable {
 
     static func clear() { remove(defaultsKey, file: "vault-reference.json") }
 }
+
+/// Where the Safari extension's copy of the vault list is written: its App Group's preferences, behind a protocol so a test
+/// uses a stand-in.
+protocol SafariVaultListStore: AnyObject {
+    func data(forKey key: String) -> Data?
+    func set(_ value: Any?, forKey key: String)
+    func removeObject(forKey key: String)
+}
+
+extension UserDefaults: SafariVaultListStore {}
 
 /// Vault files on disk: coordinated reads, atomic writes and a few encrypted rollback copies.
 enum VaultFiles {
@@ -1093,6 +1163,16 @@ final class VaultSession {
     }
 
     func disableBiometric() { setBiometric(false) }
+
+    /// iPhone and iPad, at app launch: switches the setting off for every vault that says it has a saved key when the Keychain
+    /// holds none, for example one saved by a build that kept keys in the App Group. The lock screen then asks for the password
+    /// without a Face ID prompt or an error, and the key is saved again once the vault is open. The person did not turn it off
+    /// and the vault did not change, so neither is noted.
+    func forgetMissingSavedKeys() {
+        for vault in knownVaults where vault.biometricUnlock && BiometricKey.isMissing(for: vault.id) {
+            change(vault.id) { $0.biometricUnlock = false }
+        }
+    }
 
     func declineBiometricOffer() { change { $0.biometricDeclined = true } }
 

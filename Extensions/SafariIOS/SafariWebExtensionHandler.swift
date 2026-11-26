@@ -7,7 +7,8 @@ extension UserDefaults: SafariFillVaultSource {}
 /// Receives the popup's native messages in Safari on iPhone and iPad and answers them from the short-lived card and address
 /// grant (`SafariFillHandler`; docs/plans/ios-safari-fill.md, section 4). There is no running app to relay to, unlike on the Mac
 /// (`Extensions/Safari`). This process holds no key and no vault code: it reads one Keychain item that the app writes, and the
-/// app's vault list (identifiers and names) from the App Group.
+/// app's copy of the vault list (identifiers and names) from an App Group that holds nothing else of the vaults
+/// (`SafariFillAppGroup`).
 final class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
     private static let log = Logger(subsystem: "app.psss", category: "safari-fill")
 

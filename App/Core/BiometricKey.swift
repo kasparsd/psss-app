@@ -139,8 +139,8 @@ enum BiometricKeyError: Error {
 /// There are two kinds of build, decided once per process and never per error:
 /// - Provisioned (every iOS and iPadOS build, and a Mac build signed with the team's profile, which carries the shared
 ///   `keychain-access-groups` entry): the key is a data protection keychain item with a biometric access control
-///   (`.userPresence`, this device only) in the shared access group, readable by the AutoFill extension and only with
-///   Face ID or Touch ID, or the device passcode. This is the only item such a build ever reads or writes, and any error is an error: there
+///   (`.userPresence`, this device only) in the shared access group (`accessGroup`), readable by the AutoFill extension and only
+///   with Face ID or Touch ID, or the device passcode. This is the only item such a build ever reads or writes, and any error is an error: there
 ///   is no fallback to a weaker item. A login-keychain item left by an earlier local build is deleted, never read.
 /// - Local (an unsigned or ad-hoc signed Mac build, which cannot use the protected item): the key sits in the login keychain,
 ///   readable on this device, and the app asks for Touch ID itself before it reads it. The AutoFill extension never runs in
@@ -149,14 +149,71 @@ enum BiometricKeyError: Error {
 enum BiometricKey {
     private static let service = "app.psss.vault-key"
 
+    /// The Info.plist key through which the app and the AutoFill provider on iPhone and iPad hand their team-prefixed access
+    /// group to the code.
+    static let accessGroupInfoKey = "PsssVaultKeyAccessGroup"
+    private static let groupName = "app.psss.vault-key"
+
+    /// iPhone and iPad: the Keychain access group of the vault keys, which only the app and the AutoFill provider list. Never
+    /// the App Group. The value is the group name with the team prefix in front, as built. Anything else (no value, or one that
+    /// was not expanded) gives the bare name, which a signed build is not entitled to: the Keychain then refuses, and the key
+    /// never lands in another group.
+    static func iOSAccessGroup(infoDictionary: [String: Any]?) -> String {
+        guard let group = infoDictionary?[accessGroupInfoKey] as? String, group.hasSuffix("." + groupName),
+              group.count > groupName.count + 1, !group.contains("$") else { return groupName }
+        return group
+    }
+
+    /// Where the protected item sits. The Mac keeps it in the team-prefixed App Group, which doubles as a Keychain group.
+    static var accessGroup: String {
+        #if os(macOS)
+        SharedVault.groupID
+        #else
+        iOSAccessGroup(infoDictionary: Bundle.main.infoDictionary)
+        #endif
+    }
+
+    /// Every key an earlier build left in the iPhone and iPad App Group. It names that group: without one the delete would also
+    /// remove the keys of today.
+    static var oldAppGroupItemsQuery: [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword,
+         kSecUseDataProtectionKeychain as String: true,
+         kSecAttrService as String: service,
+         kSecAttrAccessGroup as String: SharedVault.groupID]
+    }
+
+    /// iPhone and iPad, from the app at launch: removes the keys earlier builds kept in the App Group. Nothing reads them, and
+    /// none is moved over. Does nothing on the Mac, where that group is where the keys are.
+    static func removeOldAppGroupItems() {
+        #if os(iOS) && !HOSTLESS_TESTS
+        SecItemDelete(oldAppGroupItemsQuery as CFDictionary)
+        #endif
+    }
+
+    /// iPhone and iPad: true only when the Keychain says there is no saved key for vault `id`. Asks nothing of the person. A
+    /// key that is there but cannot be read now, or any other answer, is not "missing". Always false on the Mac.
+    static func isMissing(for id: UUID) -> Bool {
+        #if HOSTLESS_TESTS
+        return failure == nil && memory[id] == nil
+        #elseif os(macOS)
+        return false
+        #else
+        let context = LAContext()
+        context.interactionNotAllowed = true
+        var query = baseQuery(for: id, protected: true)
+        query[kSecUseAuthenticationContext as String] = context
+        return SecItemCopyMatching(query as CFDictionary, nil) == errSecItemNotFound
+        #endif
+    }
+
     private static func baseQuery(for id: UUID, protected: Bool) -> [String: Any] {
         var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
                                     kSecAttrService as String: service,
                                     kSecAttrAccount as String: id.uuidString]
         if protected {
-            // The App Group (team-prefixed on macOS) doubles as the keychain access group, so the AutoFill extension can read the same item.
+            // A group the app and the AutoFill extension both list, so the extension can read the same item.
             query[kSecUseDataProtectionKeychain as String] = true
-            query[kSecAttrAccessGroup as String] = SharedVault.groupID
+            query[kSecAttrAccessGroup as String] = accessGroup
         }
         return query
     }
@@ -264,6 +321,10 @@ enum BiometricKey {
         return key
         #else
         return try await Task.detached {
+            #if os(iOS)
+            // No saved key (never saved in this group, or removed with the passcode): say so before asking for Face ID for nothing.
+            if isMissing(for: id) { throw BiometricKeyError.invalidated }
+            #endif
             #if os(macOS)
             removeLeftoverLoginItems()
             guard provisioned else {

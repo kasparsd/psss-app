@@ -3,12 +3,14 @@ import os
 import Foundation
 import Security
 
-/// What the app and its AutoFill extension share: the App Group identifier, the credential identity store and the site rule.
+/// What the app and its AutoFill extension share: the App Group identifiers, the credential identity store and the site rule.
 /// No credential is stored here. Logins live only in the encrypted vault file; the sample vault is in memory.
 private let identityLog = Logger(subsystem: "app.psss.Psss", category: "identities")
 
 enum SharedVault {
-    /// The App Group, and also the Keychain access group the biometric key sits in.
+    /// The App Group of the app and its AutoFill provider: the vault files, the vault list and shared settings. On the Mac it is
+    /// also the Keychain access group the biometric key sits in; iPhone and iPad keep that key in a group of its own
+    /// (`BiometricKey.accessGroup`). The iPhone and iPad Safari extension lists neither.
     ///
     /// iOS and iPadOS use a `group.` identifier. On macOS 15 and later an extension is refused the group container unless the
     /// identifier starts with the team identifier (or a provisioning profile or the Mac App Store authorises it), so the Mac
@@ -24,6 +26,11 @@ enum SharedVault {
     }()
 
     private static let defaultGroupID = "group.app.psss"
+
+    /// iPhone and iPad: the App Group of the app and the Safari extension. It holds only the extension's copy of the vault list
+    /// (`VaultReference.mirrorForSafari`) and its "seen" note. The extension compiles `App/SafariFill` and not this file, so
+    /// `SafariFillAppGroup.id` repeats it; `scripts/test-safari-fill.sh` checks that the two agree.
+    static let safariGroupID = "group.app.psss.safari"
 
     /// The first identifier in `groups` that starts with a team identifier: ten letters or digits (upper case), a dot and
     /// then a name. What `$(TeamIdentifierPrefix)` leaves in a build with no team (`app.psss`, or one that starts

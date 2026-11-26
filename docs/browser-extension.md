@@ -43,6 +43,7 @@ Built so far (2026-11-26, plan `docs/plans/ios-safari-fill.md`): the target, its
 | Native handler | `Extensions/SafariIOS/SafariWebExtensionHandler.swift`: answers `status` and `release` from the grant, records the “seen” note, logs only the request type, the error word and the time |
 | Web files | `Extensions/SafariIOS/web`: manifest (permissions exactly `activeTab`, `scripting`, `nativeMessaging`; no content or background script) and the popup (`popup.html`, `popup.css`, `popup.js` draws, `popup-logic.js` decides). From `Extensions/Browser/src`, by file reference in the project (no copies): the icons, `page-fill.js`, `origin.js` and `display.js`. The Mac, Chrome and Firefox extensions do not carry the iPhone popup’s files |
 | Keychain group | `<team>.app.psss.safari-fill`, listed by the app and this extension only, and handed to the code through the Info.plist key `PsssSafariFillAccessGroup`. The app lists its own `<team>.app.psss.Psss` first, so an item saved without a group does not land where the extension can read it |
+| App Group | `group.app.psss.safari`, listed by the app and this extension only: the app's copy of the vault list (identifiers, names, forgotten identifiers, order) and the “seen” note. The extension lists neither `group.app.psss` (vault files, and a Keychain group) nor the vault key group; see [AutoFill](autofill.md#where-the-saved-key-is-and-what-the-safari-extension-can-reach) |
 | Release | The `Psss-iOS` Release configuration sets `EXCLUDED_SOURCE_FILE_NAMES = SafariExtension-iOS.appex`, so the app does not carry the unfinished extension. Debug builds embed it. Remove the setting when the feature is switched on |
 
 #### The popup
@@ -81,7 +82,7 @@ A card like the AutoFill one says that cards and addresses need the extension. M
 
 | | Mac | iPhone and iPad |
 | --- | --- | --- |
-| How the app knows | Asks Safari (`SFSafariExtensionManager`) | Cannot ask. The extension calls `SafariExtensionSeen().record()`, a flag in the App Group that holds no vault data. Seen counts as on, not seen as off |
+| How the app knows | Asks Safari (`SFSafariExtensionManager`) | Cannot ask. The extension calls `SafariExtensionSeen().record()`, a flag in the App Group `group.app.psss.safari`, which holds no vault file or key. Seen counts as on, not seen as off |
 | Shows while | The extension is off | The extension has not been seen. Once seen, never again, even if it is turned off later (accepted gap) |
 | Where | The vault list (and an empty vault) | The top of the Cards and Addresses places, scrolling with the list. Not on All, not on an empty place |
 | Second sentence | "Passwords already fill through AutoFill. Cards, addresses, new logins and generated passwords in Safari need the Psss extension." | "Passwords already fill through AutoFill. Cards and addresses need the Psss extension in Safari." |
