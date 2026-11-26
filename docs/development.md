@@ -23,7 +23,7 @@ Compiles `App/Core/KDBX`, the store and `Tests/KDBX/main.swift` with `swiftc` an
 `scripts/spike-sync.sh mac-mac|mac-iphone [rounds] [interval]` runs the CloudKit sync spike: two copies of the signed Debug app (two on this Mac, or the Mac and a paired iPhone) change the same item on a schedule and the script compares what each ends up holding. It needs signed builds in `build/sync-spike-dd`, both devices on one Apple Account, and the phone unlocked with Psss in front for the whole run. The harness is in `App/Core/Sync/SyncSpikeHarness.swift`, compiled in Debug only and inert without the `-psss-sync-spike` launch argument. It writes test records to zones named `spike-…` in the development environment of `iCloud.app.psss`. Do not stop Psss by name (`killall`, `pkill`) while a run is going: stop your own build by its path or process ID.
 
 `scripts/test-matching.sh` checks site matching against the public suffix list, and `scripts/test-import.sh` checks the 1Password 7 importer against hand-written fixtures and, when present, a real export under `build/`. `scripts/build-public-suffix.py` downloads the list from publicsuffix.org and regenerates `App/Core/PublicSuffixList.swift`; commit the result. The codec and import scripts compile with `-D HOSTLESS_TESTS`, which drops the file-protection class from vault writes in those test builds only, because macOS refuses protected writes while the screen is locked. App builds keep complete file protection.
-`scripts/test-safari-fill.sh` checks the card and address grant for iOS Safari (`App/SafariFill`, `App/Core/SafariFillSnapshot.swift`): what goes into it, which cards are left out, expiry, the store against an in-memory Keychain stand-in, and what the Safari handler answers (origins, strict requests, masked names, release roles, the stored vault list). The real Keychain and App Group are not exercised.
+`scripts/test-safari-fill.sh` checks the card and address grant for iOS Safari (`App/SafariFill`, `App/Core/SafariFillSnapshot.swift`): what goes into it, which cards are left out, expiry, the store against an in-memory Keychain stand-in, and what the Safari handler answers (origins, strict requests, masked names, release roles, the stored vault list). It also checks the iPhone and iPad extension target (`Tests/SafariFill/target-check.mjs`, Node 24): its source folders and extra files, entitlements, manifest and the Release exclusion, and that its whole source list type checks without the rest of the app. The real Keychain and App Group are not exercised.
 
 `scripts/test-kdbx.sh` also compiles `-D HOSTLESS_UNLOCKGATE` and adds `App/Core/UnlockGate.swift` to the sources, which switches on the lock-notice checks at the end of `Tests/KDBX/main.swift` (a notice survives `didBecomeActive`, a timing lock clears a stale one). Without the flag those checks are not compiled.
 
@@ -43,7 +43,7 @@ DEVELOPMENT_TEAM = ABCDE12345
 PSSS_MAC_ENTITLEMENTS_SUFFIX =
 ```
 
-All targets use automatic signing, so with `-allowProvisioningUpdates` Xcode registers the App IDs (`app.psss.Psss`, `app.psss.Psss.CredentialProvider`, `app.psss.Psss.Safari` (Mac only)), the iOS App Group `group.app.psss` and development profiles for the team, and adds the connected device to the iOS profiles. Nothing else in the developer account changes. Always build through `scripts/xcb.sh`, which takes the `xcodebuild` arguments, runs one job at a time and keeps this Mac from running out of memory.
+All targets use automatic signing, so with `-allowProvisioningUpdates` Xcode registers the App IDs (`app.psss.Psss`, `app.psss.Psss.CredentialProvider`, `app.psss.Psss.Safari` (Mac, and the unfinished iPhone and iPad extension)), the iOS App Group `group.app.psss` and development profiles for the team, and adds the connected device to the iOS profiles. Nothing else in the developer account changes. Always build through `scripts/xcb.sh`, which takes the `xcodebuild` arguments, runs one job at a time and keeps this Mac from running out of memory.
 
 ```sh
 scripts/xcb.sh -project Psss.xcodeproj -scheme Psss-macOS -configuration Debug \
@@ -62,6 +62,16 @@ The Mac provisioning profiles list the AutoFill capability and the keychain grou
 If the build says "PLA Update available", the account holder must accept the latest Program License Agreement at developer.apple.com; Xcode cannot create profiles until then.
 A simulator build with the team set and no overrides builds, and Xcode embeds the simulated entitlements (AutoFill key and `group.app.psss`); the ad-hoc override recipe under "Testing AutoFill in the simulator" is then needed only for the temporary 26.2 floor.
 The product is `build/signed-dd/Build/Products/Debug/Psss.app` (Mac) and `Debug-iphoneos/Psss.app` (iPhone, not installed by the build).
+
+## Menu bar prototype (Mac)
+
+Debug builds carry a prototype of the menu bar panel (`App/Features/MenuBar`), off unless the app is launched with an argument. After the signed Mac build above, start it on the sample vault, which reads and changes nothing of yours:
+
+```sh
+open -n build/signed-dd/Build/Products/Debug/Psss.app --args -psss-menu-bar-sample
+```
+
+Use `-psss-menu-bar` instead for your real vaults. The ring in the menu bar and ⌃⌘P open the panel. Logins for the page work in Safari and Chrome after “Allow in …”. Not in the prototype: Paste, the extension card, page matching in other browsers, key files in the panel, and the Dock and login settings. Its Apple Events entitlement is in every Mac configuration, so it blocks a release until the feature ships.
 
 ## The Psss folder in iCloud Drive
 

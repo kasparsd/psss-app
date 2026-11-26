@@ -23,7 +23,7 @@ AuthenticationServices documents a user-selected text insertion path. Verify it 
 ## Decisions
 
 - 1.0 covers Safari and apps through the system provider on iPhone, iPad and Mac. Other browsers on iPhone and iPad ride the system provider. Chrome, Edge, Firefox and other Mac browsers need the extension and native host in [browser extension](browser-extension.md), which is a prototype and stays out of 1.0 until its roadmap items are done.
-- Bundle a Safari Web Extension with the Mac app. Its reason to exist is Mac generate and save on sign-up forms, and it shares one source folder and one protocol implementation with the Chrome and Firefox prototype. iPhone and iPad have none (removed 2026-11-24: it duplicated the system prompts); a card and identity filler for iOS Safari is a critical later feature. See [browser extension](browser-extension.md#safari-bundled-with-the-app).
+- Bundle a Safari Web Extension with the Mac app. Its reason to exist is Mac generate and save on sign-up forms, and it shares one source folder and one protocol implementation with the Chrome and Firefox prototype. On iPhone and iPad the login extension was removed on 2026-11-24 because it duplicated the system prompts; a separate card and address filler for iOS Safari is being built and Release builds do not embed it yet. See [browser extension](browser-extension.md#safari-bundled-with-the-app).
 - Passkeys and verification codes ride the same provider and are required for TestFlight.
 
 - Prefer Apple’s integration anywhere it supports the intended action.

@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Psss",
+  "short_name": "Psss",
+  "version": "0.1.0",
+  "description": "Fills out credit cards and addresses in forms, which system AutoFill does not do for Psss. Uses the website URL to check the page, and the form fields to match the values.",
+  "icons": {
+    "16": "action-16.png",
+    "32": "action-32.png",
+    "48": "icon-48.png",
+    "128": "icon-128.png"
+  },
+  "action": {
+    "default_title": "Psss",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "action-16.png",
+      "32": "action-32.png"
+    }
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "nativeMessaging"
+  ]
+}

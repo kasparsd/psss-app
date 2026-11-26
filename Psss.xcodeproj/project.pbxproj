@@ -10,6 +10,7 @@
 		00000000000000000000001C /* CredentialProvider-macOS.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 00000000000000000000000E /* CredentialProvider-macOS.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		000000000000000000000030 /* CredentialProvider-iOS.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 000000000000000000000022 /* CredentialProvider-iOS.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		00000000000000000000005F /* SafariExtension-macOS.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 000000000000000000000056 /* SafariExtension-macOS.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		00000000000000000000006A /* SafariExtension-iOS.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 000000000000000000000061 /* SafariExtension-iOS.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -34,6 +35,13 @@
 			remoteGlobalIDString = 000000000000000000000055;
 			remoteInfo = "SafariExtension-macOS";
 		};
+		000000000000000000000068 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 00000000000000000000000D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 000000000000000000000060;
+			remoteInfo = "SafariExtension-iOS";
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -56,6 +64,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				000000000000000000000030 /* CredentialProvider-iOS.appex in Embed App Extensions */,
+				00000000000000000000006A /* SafariExtension-iOS.appex in Embed App Extensions */,
 			);
 			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -79,6 +88,9 @@
 		000000000000000000000073 /* App-macOS-local.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "App-macOS-local.entitlements"; sourceTree = "<group>"; };
 		000000000000000000000074 /* CredentialProvider-macOS-local.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "CredentialProvider-macOS-local.entitlements"; sourceTree = "<group>"; };
 		000000000000000000000075 /* SafariExtension-macOS-local.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "SafariExtension-macOS-local.entitlements"; sourceTree = "<group>"; };
+		000000000000000000000061 /* SafariExtension-iOS.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; path = "SafariExtension-iOS.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		000000000000000000000090 /* SafariFill-iOS-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "SafariFill-iOS-Info.plist"; sourceTree = "<group>"; };
+		000000000000000000000091 /* SafariFill-iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "SafariFill-iOS.entitlements"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -94,6 +106,7 @@
 		000000000000000000000080 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				SafariExtensionReminder.swift,
 				SafariFillSnapshot.swift,
 			);
 			target = 000000000000000000000015 /* CredentialProvider-macOS */;
@@ -101,6 +114,7 @@
 		000000000000000000000081 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				SafariExtensionReminder.swift,
 				SafariFillSnapshot.swift,
 			);
 			target = 000000000000000000000029 /* CredentialProvider-iOS */;
@@ -108,9 +122,20 @@
 		000000000000000000000082 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				SafariExtensionReminder.swift,
 				SafariFillSnapshot.swift,
 			);
 			target = 000000000000000000000055 /* SafariExtension-macOS */;
+		};
+		000000000000000000000092 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"action-16.png",
+				"action-32.png",
+				"icon-128.png",
+				"icon-48.png",
+			);
+			target = 000000000000000000000060 /* SafariExtension-iOS */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -119,7 +144,9 @@
 		000000000000000000000002 /* Extensions/CredentialProvider */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Extensions/CredentialProvider; sourceTree = "<group>"; };
 		000000000000000000000040 /* App/Core */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (000000000000000000000080 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, 000000000000000000000081 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, 000000000000000000000082 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = App/Core; sourceTree = "<group>"; };
 		000000000000000000000050 /* Extensions/Safari */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Extensions/Safari; sourceTree = "<group>"; };
-		000000000000000000000051 /* Extensions/Browser/src */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (000000000000000000000052 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = Extensions/Browser/src; sourceTree = "<group>"; };
+		000000000000000000000051 /* Extensions/Browser/src */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (000000000000000000000052 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, 000000000000000000000092 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = Extensions/Browser/src; sourceTree = "<group>"; };
+		000000000000000000000093 /* App/SafariFill */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = App/SafariFill; sourceTree = "<group>"; };
+		000000000000000000000094 /* Extensions/SafariIOS */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Extensions/SafariIOS; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -158,6 +185,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		000000000000000000000063 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -175,6 +209,8 @@
 				000000000000000000000073 /* App-macOS-local.entitlements */,
 				000000000000000000000074 /* CredentialProvider-macOS-local.entitlements */,
 				000000000000000000000075 /* SafariExtension-macOS-local.entitlements */,
+				000000000000000000000090 /* SafariFill-iOS-Info.plist */,
+				000000000000000000000091 /* SafariFill-iOS.entitlements */,
 			);
 			path = Configuration;
 			sourceTree = "<group>";
@@ -187,6 +223,7 @@
 				000000000000000000000022 /* CredentialProvider-iOS.appex */,
 				00000000000000000000002A /* Psss.app */,
 				000000000000000000000056 /* SafariExtension-macOS.appex */,
+				000000000000000000000061 /* SafariExtension-iOS.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -201,6 +238,8 @@
 				000000000000000000000008 /* Products */,
 				000000000000000000000050 /* Extensions/Safari */,
 				000000000000000000000051 /* Extensions/Browser/src */,
+				000000000000000000000093 /* App/SafariFill */,
+				000000000000000000000094 /* Extensions/SafariIOS */,
 			);
 			sourceTree = "<group>";
 		};
@@ -285,6 +324,7 @@
 			);
 			dependencies = (
 				00000000000000000000002F /* PBXTargetDependency */,
+				000000000000000000000069 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				000000000000000000000001 /* App */,
@@ -316,6 +356,27 @@
 			productReference = 000000000000000000000056 /* SafariExtension-macOS.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		000000000000000000000060 /* SafariExtension-iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 000000000000000000000067 /* Build configuration list for PBXNativeTarget "SafariExtension-iOS" */;
+			buildPhases = (
+				000000000000000000000062 /* Sources */,
+				000000000000000000000063 /* Frameworks */,
+				000000000000000000000064 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				000000000000000000000093 /* App/SafariFill */,
+				000000000000000000000094 /* Extensions/SafariIOS */,
+			);
+			name = "SafariExtension-iOS";
+			productName = "SafariExtension-iOS";
+			productReference = 000000000000000000000061 /* SafariExtension-iOS.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -343,6 +404,7 @@
 				000000000000000000000029 /* CredentialProvider-iOS */,
 				000000000000000000000035 /* Psss-iOS */,
 				000000000000000000000055 /* SafariExtension-macOS */,
+				000000000000000000000060 /* SafariExtension-iOS */,
 			);
 		};
 /* End PBXProject section */
@@ -377,6 +439,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		000000000000000000000059 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		000000000000000000000064 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -421,6 +490,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		000000000000000000000062 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -438,6 +514,11 @@
 			isa = PBXTargetDependency;
 			target = 000000000000000000000055 /* SafariExtension-macOS */;
 			targetProxy = 00000000000000000000005D /* PBXContainerItemProxy */;
+		};
+		000000000000000000000069 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 000000000000000000000060 /* SafariExtension-iOS */;
+			targetProxy = 000000000000000000000068 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -584,6 +665,8 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 000000000000000000000005 /* iOS.xcconfig */;
 			buildSettings = {
+				/* The Safari extension is unfinished: Release builds do not embed it. Remove with docs/plans/ios-safari-fill.md, slice 7. */
+				EXCLUDED_SOURCE_FILE_NAMES = "SafariExtension-iOS.appex";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "Configuration/App-iOS.entitlements";
 				CODE_SIGN_IDENTITY = "Apple Development";
@@ -630,6 +713,38 @@
 				INFOPLIST_FILE = "Configuration/SafariExtension-Info.plist";
 				PRODUCT_BUNDLE_IDENTIFIER = app.psss.Psss.Safari;
 				PRODUCT_NAME = "SafariExtension-macOS";
+				SKIP_INSTALL = YES;
+			};
+			name = Release;
+		};
+		000000000000000000000065 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 000000000000000000000005 /* iOS.xcconfig */;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = "Configuration/SafariFill-iOS.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Configuration/SafariFill-iOS-Info.plist";
+				PRODUCT_BUNDLE_IDENTIFIER = app.psss.Psss.Safari;
+				PRODUCT_NAME = "SafariExtension-iOS";
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		000000000000000000000066 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 000000000000000000000005 /* iOS.xcconfig */;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = "Configuration/SafariFill-iOS.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Configuration/SafariFill-iOS-Info.plist";
+				PRODUCT_BUNDLE_IDENTIFIER = app.psss.Psss.Safari;
+				PRODUCT_NAME = "SafariExtension-iOS";
 				SKIP_INSTALL = YES;
 			};
 			name = Release;
@@ -687,6 +802,15 @@
 			buildConfigurations = (
 				00000000000000000000005A /* Debug */,
 				00000000000000000000005B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		000000000000000000000067 /* Build configuration list for PBXNativeTarget "SafariExtension-iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000065 /* Debug */,
+				000000000000000000000066 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

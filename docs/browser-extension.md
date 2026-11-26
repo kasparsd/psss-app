@@ -11,7 +11,7 @@ Psss fills in Safari and native apps through the system AutoFill provider. Other
 
 ## Safari: bundled with the app
 
-The Safari extension ships inside Psss-macOS only (target `SafariExtension-macOS`, embedded next to the credential provider). Psss-iOS embeds the credential provider alone: the `SafariExtension-iOS` target was removed on 2026-11-24 (decision below). Its web files are the shared `Extensions/Browser/src` folder with no overlay: the Safari manifest is the base manifest, which `build.py check` verifies. Its native half is `Extensions/Safari/SafariWebExtensionHandler.swift`, a relay client of the running Mac app (below, “Safari over the relay”): it answers the same protocol as the Chrome and Firefox host. The settings page is left out of the Safari bundle because Safari has no browser save prompt to switch off. The extension folder is flat because Xcode's synchronized folders flatten resources into the bundle.
+The Safari extension that works today ships inside Psss-macOS only (target `SafariExtension-macOS`, embedded next to the credential provider). The general `SafariExtension-iOS` target was removed on 2026-11-24 (decision below). A new iPhone and iPad target of the same name, for cards and addresses only, is being built ([below](#iphone-and-ipad-cards-and-addresses)): Release builds of Psss-iOS do not embed it yet. Its web files are the shared `Extensions/Browser/src` folder with no overlay: the Safari manifest is the base manifest, which `build.py check` verifies. Its native half is `Extensions/Safari/SafariWebExtensionHandler.swift`, a relay client of the running Mac app (below, “Safari over the relay”): it answers the same protocol as the Chrome and Firefox host. The settings page is left out of the Safari bundle because Safari has no browser save prompt to switch off. The extension folder is flat because Xcode's synchronized folders flatten resources into the bundle.
 
 The system AutoFill provider already does most of the work in Safari, so the extension adds a small, specific set of things:
 
@@ -33,11 +33,25 @@ On iPhone and iPad the extension duplicated what system AutoFill already does (f
 
 **Critical, later: fill cards and identities in Safari on iPhone and iPad.** iOS has no third-party AutoFill for payment cards or addresses, so this is the one thing an iOS Safari extension could do that the system cannot, and the owner wants it (priority set 2026-11-24). It needs the iOS target back, a popup that lists cards and identities for the page, and the handler relaying to the unlocked app instead of answering `unsupported`. The app’s side of [the reminder](#the-reminder) is built and waits for it. Tracked on the [roadmap](roadmap.md) under M2. Mock: `Design/Mocks/app/src/pages/IosSafariFill.tsx` (`#/ios-safari-fill`), approved 2026-11-26 with two decisions. After the person unlocks in Psss the extension gets a short read permission of about two minutes, cleared when the app locks. One tap on Fill writes the card's name, number, expiry and a saved security code together; there is no separate Fill Security Code tap (owner's change to the earlier draft, which had a separate step). An address row reads full name · city.
 
+### iPhone and iPad: cards and addresses
+
+Built so far (2026-11-26, plan `docs/plans/ios-safari-fill.md`): the target, its native handler and the shared grant code. The popup is a placeholder with no script, so nothing can be filled, and the app does not yet write the grant.
+
+| Part | Where |
+| --- | --- |
+| Target `SafariExtension-iOS`, bundle `app.psss.Psss.Safari` | Compiles `App/SafariFill` and `Extensions/SafariIOS` only: no vault codec, no store, no key |
+| Native handler | `Extensions/SafariIOS/SafariWebExtensionHandler.swift`: answers `status` and `release` from the grant, records the “seen” note, logs only the request type, the error word and the time |
+| Web files | `Extensions/SafariIOS/web`: manifest (permissions exactly `activeTab`, `scripting`, `nativeMessaging`; no content or background script) and the placeholder popup. The icons are the ones in `Extensions/Browser/src`, by file reference |
+| Keychain group | `<team>.app.psss.safari-fill`, listed by the app and this extension only, and handed to the code through the Info.plist key `PsssSafariFillAccessGroup`. The app lists its own `<team>.app.psss.Psss` first, so an item saved without a group does not land where the extension can read it |
+| Release | The `Psss-iOS` Release configuration sets `EXCLUDED_SOURCE_FILE_NAMES = SafariExtension-iOS.appex`, so the app does not carry the unfinished extension. Debug builds embed it. Remove the setting when the feature is switched on |
+
+`scripts/test-safari-fill.sh` checks the target's sources, entitlements, manifest and the Release exclusion.
+
 ### The reminder
 
 A card like the AutoFill one says that cards and addresses need the extension. Mock: `Design/Mocks/app/src/pages/SafariExtensionReminder.tsx` (`#/safari-extension-reminder`), approved 2026-11-26. It replaces the earlier Mac-only card and its words.
 
-**Both constants are off, so no device shows the card or the Settings row today.** `SafariExtensionReminder.extensionWorks` has one value per platform. Mac: the handler relays to the app (R5) but has not run in a signed Safari, so flip it when it has. iPhone and iPad: there is no extension, so flip it when the iOS web extension target ships, fills cards and addresses, and its handler records the "seen" note.
+**Both constants are off, so no device shows the card or the Settings row today.** `SafariExtensionReminder.extensionWorks` has one value per platform. Mac: the handler relays to the app (R5) but has not run in a signed Safari, so flip it when it has. iPhone and iPad: the extension cannot fill yet and Release builds leave it out, so flip it when it ships and fills cards and addresses. Its handler already records the "seen" note.
 
 | | Mac | iPhone and iPad |
 | --- | --- | --- |
@@ -50,7 +64,7 @@ A card like the AutoFill one says that cards and addresses need the extension. M
 
 The title everywhere is "Fill cards and addresses in Safari". Later snoozes a week, like AutoFill; iPhone and iPad then say "Psss will remind you in a week." for a few seconds. The steps sheet's last sentence, "This card goes away once Psss has run in Safari.", shows only when the sheet is opened from the card, not from Settings. One card at a time: it waits until AutoFill is on and the "AutoFill is on" confirmation has had its Done. On iPhone and iPad the AutoFill card, with its confirmation, also leads the Cards and Addresses places, whatever the constants say. The reading is taken at launch, after unlock and when the app becomes active.
 
-Code: rules and words in `App/Core/SafariExtensionReminder.swift`, the note in `App/Core/SafariExtensionSeen.swift`, the card in `App/Features/SafariExtensionCard.swift`, the steps and the Settings row in `App/Features/SafariExtensionSteps.swift`, checks in `Tests/KDBX`. Not checked on a device: the Settings path and the switch names on iOS 26, and whether Safari runs the extension's scripts before the person first opens it (the note would then come earlier, which is fine).
+Code: rules and words in `App/Core/SafariExtensionReminder.swift`, the note in `App/SafariFill/SafariExtensionSeen.swift`, the card in `App/Features/SafariExtensionCard.swift`, the steps and the Settings row in `App/Features/SafariExtensionSteps.swift`, checks in `Tests/KDBX`. Not checked on a device: the Settings path and the switch names on iOS 26, and whether Safari runs the extension's scripts before the person first opens it (the note would then come earlier, which is fine).
 
 Status: the Mac target builds unsigned with the app, the embedded resources are complete, and Apple's packager reports no unsupported keys. It has not been run in Safari (needs a signed build and enabling the extension), and in an unsigned build the App Group is unavailable, so a save from the extension does not persist.
 

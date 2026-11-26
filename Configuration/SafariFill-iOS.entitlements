@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- The app's vault list (identifiers and names) and the "seen" note. -->
+    <key>com.apple.security.application-groups</key>
+    <array>
+        <string>group.app.psss</string>
+    </array>
+    <!-- The card and address grant. Only the app and this extension list this group. -->
+    <key>keychain-access-groups</key>
+    <array>
+        <string>$(AppIdentifierPrefix)app.psss.safari-fill</string>
+    </array>
+</dict>
+</plist>

@@ -14,7 +14,8 @@ if grep -nE "$LEAKS" $FILES; then
   echo "test-safari-fill: these files must not log, print or put a value in a message (see the lines above)" >&2
   exit 1
 fi
-if grep -nE 'UserDefaults|FileManager|NSUbiquit|\.write\(to|FileHandle|Pasteboard|NSCache' $FILES | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//'; then
+# SafariExtensionSeen.swift is the one exception: it keeps a yes-or-no note in the App Group.
+if grep -nE 'UserDefaults|FileManager|NSUbiquit|\.write\(to|FileHandle|Pasteboard|NSCache' $(ls $FILES | grep -v '/SafariExtensionSeen.swift$') | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//'; then
   echo "test-safari-fill: a grant goes nowhere but the Keychain (see the lines above)" >&2
   exit 1
 fi
@@ -24,6 +25,21 @@ if grep -hE '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import ' App/SafariFill/*.sw
   exit 1
 fi
 swiftc -typecheck -swift-version 6 App/SafariFill/*.swift
+# The extension's whole source list type checks on its own, so it uses no vault codec and no store. Its one log line takes the
+# request's type, the error word and the time, and nothing it received or answered.
+swiftc -typecheck -swift-version 6 App/SafariFill/*.swift Extensions/SafariIOS/*.swift
+if grep -nE "$LEAKS" Extensions/SafariIOS/*.swift |
+   grep -vF -e 'private static let log = Logger(subsystem: "app.psss", category: "safari-fill")' -e 'Self.log.info("request \(reply.type ?? "unknown", privacy: .public) \(reply.refusal?.rawValue ?? "ok", privacy: .public) \(milliseconds, privacy: .public) ms")'; then
+  echo "test-safari-fill: the Safari handler logs only the type, the error word and the time (see the lines above)" >&2
+  exit 1
+fi
+node Tests/SafariFill/target-check.mjs
+group_id='static let id = "group.app.psss"'
+if ! grep -qF "$group_id" App/SafariFill/SafariExtensionSeen.swift ||
+   ! grep -qF 'defaultGroupID = "group.app.psss"' App/Core/SharedVault.swift; then
+  echo "test-safari-fill: the App Group differs between the app and the Safari extension" >&2
+  exit 1
+fi
 # The handler reads the app's vault list under the keys the app writes it with.
 for key in vaultReference rememberedVaults forgottenVaultIDs vaultOrder; do
   if ! grep -qE "static let [a-zA-Z]+Key = \"$key\"" App/Core/KeePassVaultStore.swift ||
