@@ -5,13 +5,16 @@
 .isf-in{height:30px;border-radius:8px;background:var(--field);display:flex;align-items:center;padding:0 10px;margin-bottom:4px}
 .isf-in.on{box-shadow:0 0 0 2px var(--accent)}
 .isf-row2{display:flex;gap:8px}.isf-row2>div{flex:1;min-width:0}
-.isf-safari{flex:none;background:var(--screen);padding:6px 12px 10px;display:flex;flex-direction:column;gap:8px}
-.isf-cap{height:40px;border-radius:999px;background:var(--glass);box-shadow:0 2px 10px rgba(0,0,0,.15);display:flex;align-items:center;justify-content:space-between;padding:0 14px;position:relative}
-.isf-aa{font-weight:600;padding:2px 6px;border-radius:8px}
-.isf-aa.on{background:var(--accent-bg);color:var(--accent)}
-.isf-tools{display:flex;justify-content:space-around;color:var(--accent);font-size:17px}
-.isf-menu{position:absolute;left:12px;bottom:92px;width:236px;background:var(--glass);backdrop-filter:blur(20px);border-radius:16px;box-shadow:var(--shadow);padding:6px;z-index:20}
-.isf-mi{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 10px;border-radius:10px}
+.isf-safari{flex:none;background:var(--screen);padding:6px 12px 14px;display:flex;align-items:center;gap:8px}
+.isf-circ{width:40px;height:40px;flex:none;border-radius:50%;background:var(--glass);box-shadow:0 2px 10px rgba(0,0,0,.15);display:grid;place-items:center}
+.isf-cap{flex:1;min-width:0;height:40px;border-radius:999px;background:var(--glass);box-shadow:0 2px 10px rgba(0,0,0,.15);display:flex;align-items:center;justify-content:space-between;gap:6px;padding:0 10px}
+.isf-pm{display:flex;flex-direction:column;align-items:center;line-height:1;padding:3px 5px;border-radius:8px}
+.isf-pm b{width:8px;height:8px;border-radius:2px;background:currentColor;opacity:.45;align-self:flex-start}
+.isf-url{flex:1;min-width:0;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.isf-pm i{width:14px;height:6px;border-block:2px solid currentColor;margin-top:2px}
+.isf-pm.on{background:var(--accent-bg);color:var(--accent)}
+.isf-menu{position:absolute;left:12px;bottom:66px;width:236px;background:var(--glass);backdrop-filter:blur(20px);border-radius:16px;box-shadow:var(--shadow);padding:6px;z-index:20}
+.isf-mi{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 10px;border-radius:10px}
 .isf-mi.hl{background:var(--accent-bg);color:var(--accent);font-weight:600}
 .isf-msep{height:1px;background:var(--sep);margin:4px 8px}
 .isf-dim{position:absolute;inset:0;background:var(--dim);z-index:30}
@@ -24,6 +27,19 @@
 .isf-grp-h{color:var(--lab2);padding:0 2px}
 .isf-pad{padding:2px 0;display:flex;flex-direction:column;gap:10px}
 .isf-help{color:var(--lab2);text-align:center}
+/* Safari's question */
+.isf-ask{position:absolute;left:18px;right:18px;top:46%;z-index:31;background:var(--screen);border-radius:20px;box-shadow:var(--shadow);padding:18px 20px;display:flex;flex-direction:column;gap:18px}
+.isf-ask .btns{display:flex;justify-content:flex-end;gap:24px;color:var(--accent)}
+/* Settings: the extension's page */
+.isf-set{flex:1;min-height:0;background:var(--screen);padding:8px 14px 14px;display:flex;flex-direction:column;gap:12px}
+.isf-stitle{display:grid;grid-template-columns:40px 1fr 40px;align-items:center;text-align:center}
+.isf-group{background:var(--card);border-radius:18px;padding:2px 14px}
+.isf-srow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0}
+.isf-srow+.isf-srow{border-top:1px solid var(--sep)}
+.isf-srow.col{flex-direction:column;align-items:flex-start;gap:2px}
+.isf-sw{width:44px;height:26px;flex:none;border-radius:999px;background:var(--sep);position:relative}
+.isf-sw:after{content:"";position:absolute;top:2px;left:2px;width:22px;height:22px;border-radius:50%;background:#fff}
+.isf-sw.on{background:#34c759}.isf-sw.on:after{left:20px}
 /* iPad */
 .isf-ipad{height:470px;display:flex;flex-direction:column;position:relative;background:var(--card)}
 .isf-itool{display:flex;align-items:center;gap:12px;padding:8px 14px;background:var(--bar)}
@@ -35,3 +51,4 @@
 .isf-pop{position:absolute;top:44px;right:56px;width:340px;background:var(--screen);border-radius:16px;box-shadow:var(--shadow);padding:12px;display:flex;flex-direction:column;gap:10px;z-index:5}
 .isf-pop:before{content:"";position:absolute;top:-6px;right:20px;width:14px;height:14px;background:var(--screen);transform:rotate(45deg)}
 .isf-note{border:1px dashed var(--sep);border-radius:10px;padding:8px 10px;color:var(--lab2)}
+.isf-safari .isf-circ{width:34px;height:34px}
