@@ -78,7 +78,7 @@ export const fillCases: FillCase[] = [
   card('code-beside-number', `<div><div>${f('n', 'cc-number')}</div><div>${labelled('c', 'Security code')}</div></div>`, { n: NUMBER, c: '987' }),
   card('number-cleared', f('n', 'cc-number', 'oninput="this.value=\'\'"') + f('c', 'cc-csc') + f('h', 'cc-name'), {}),
   card('number-reformatted', f('n', 'cc-number', 'oninput="this.value=this.value.replace(/(.{4})(?!$)/g,\'$1 \')"') + f('c', 'cc-csc'), { n: '4111 1111 1111 1111', c: '987' }),
-  card('number-moved', `<form>${f('n', 'cc-number', 'oninput="document.getElementById(\'o\').appendChild(this)"')}${f('c', 'cc-csc')}</form><form id="o"></form>`, { n: NUMBER }),
+  card('number-moved', `<form>${f('n', 'cc-number', 'oninput="document.getElementById(\'o\').appendChild(this)"')}${f('c', 'cc-csc')}</form><form id="o"></form>`, {}),
   card('code-moved', `<form>${f('n', 'cc-number', 'oninput="document.getElementById(\'o\').appendChild(document.getElementById(\'c\'))"')}${f('c', 'cc-csc')}</form><form id="o"></form>`, { n: NUMBER }),
   card('code-clipped-later', f('n', 'cc-number', 'oninput="document.getElementById(\'w\').style.cssText=\'position:absolute;clip:rect(0 0 0 0)\'"') + `<div id="w">${f('c', 'cc-csc')}</div>`, { n: NUMBER }),
 
@@ -145,7 +145,7 @@ export const fillCases: FillCase[] = [
 
   // Each write looks again at what the page has become.
   card('code-leaves-block', `<div>${f('n', 'cc-number', 'oninput="document.getElementById(\'o\').appendChild(document.getElementById(\'c\'))"')}${f('c', 'cc-csc')}</div><footer id="o"></footer>`, { n: NUMBER }),
-  card('number-leaves-block', `<div>${f('n', 'cc-number', 'oninput="document.getElementById(\'o\').appendChild(this)"')}${f('c', 'cc-csc')}</div><div id="o"></div>`, { n: NUMBER }),
+  card('number-leaves-block', `<div>${f('n', 'cc-number', 'oninput="document.getElementById(\'o\').appendChild(this)"')}${f('c', 'cc-csc')}</div><div id="o"></div>`, {}),
   { ...card('number-cleared-later', f('n', 'cc-number') + f('h', 'cc-name', 'oninput="document.getElementById(\'n\').value=\'\'"') + f('e', 'cc-exp') + f('c', 'cc-csc'),
     { h: 'Jane Q Doe' }), filled: ['cc-name'] },
   { ...card('next-becomes-file', f('n', 'cc-number', 'oninput="document.getElementById(\'h\').type=\'file\'"') + f('h', 'cc-name') + f('c', 'cc-csc'),

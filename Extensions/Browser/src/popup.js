@@ -611,7 +611,13 @@
       func: psssFillPage,
       args: [fields, card ? 'card' : 'login', origin]
     });
-    if (result?.filled?.length) window.close();
+    // The page did not keep something as written: claim nothing, and stay open to say so.
+    if (result?.left?.length) {
+      say('Psss couldn’t confirm what was filled. Check the fields on this page.', 'warning');
+      noticeTitle.textContent = 'Check the form';
+      noticeTitle.hidden = false;
+      button.disabled = false;
+    } else if (result?.filled?.length) window.close();
     else { say(card ? 'No matching checkout fields found on this page.' : 'No sign-in fields found on this page.'); button.disabled = false; }
   }
 

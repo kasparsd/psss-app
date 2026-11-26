@@ -15,7 +15,8 @@ struct RootView: View {
     @State private var sample = SampleVaultStore()
     /// What the system says about AutoFill, read here so every screen shows the same answer.
     let autoFill: AutoFillStatus
-    /// Mac only: whether the bundled Safari extension is switched on. Reads nothing on iPhone and iPad, which have no extension.
+    /// Whether the Safari extension is switched on, for the card and the Settings row. On iPhone and iPad both are off until the
+    /// extension fills (`SafariExtensionReminder.extensionWorks`).
     let safariExtension: SafariExtensionStatus
     #if os(iOS)
     /// Covers this scene while the app is away, so the app switcher's picture shows no item.

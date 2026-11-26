@@ -10,7 +10,7 @@ var OriginPolicy = (function () {
     const secure = u.protocol === 'https:';
     const local = u.protocol === 'http:' && LOCAL.has(u.hostname);
     if (!secure && !local) return null;
-    if (u.username || u.password) return null; // https://paypal.com@evil.example/
+    if (u.username || u.password) return null; // a trusted name before "@" is not the host
     return { origin: u.origin, host: u.hostname, secure };
   }
 

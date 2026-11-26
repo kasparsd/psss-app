@@ -1,0 +1,65 @@
+/* The popup in Safari on iPhone (a sheet) and iPad (a popover). System fonts, colours, light and dark, and the text size the
+   person chose (Dynamic Type). One type size: names and titles are told apart by weight, supporting text by colour. */
+:root {
+  color-scheme: light dark;
+  --background: #fff; --text: #000; --secondary: rgba(60, 60, 67, .72); --separator: rgba(60, 60, 67, .22);
+  --fill: rgba(120, 120, 128, .12); --accent: #007aff; --on-accent: #fff; --warning: #ff9500;
+}
+@supports (color: -apple-system-blue) { :root { --accent: -apple-system-blue; } }
+@media (prefers-color-scheme: dark) {
+  :root { --background: #1c1c1e; --text: #fff; --secondary: rgba(235, 235, 245, .68); --separator: rgba(84, 84, 88, .65);
+          --fill: rgba(120, 120, 128, .26); --accent: #0a84ff; --warning: #ff9f0a; }
+  @supports (color: -apple-system-blue) { :root { --accent: -apple-system-blue; } }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { font: 17px/1.35 system-ui, sans-serif; font: -apple-system-body; -webkit-text-size-adjust: 100%; }
+/* The minimum width is what gives the iPad popover its size; a sheet is wider. */
+body { margin: 0; min-width: 320px; padding: 16px; background: var(--background); color: var(--text); overflow-wrap: anywhere; }
+main { display: flex; flex-direction: column; gap: 12px; }
+h1, h2, p, ul { margin: 0; padding: 0; font-size: 1rem; }
+h1 { font-weight: 600; }
+h2 { font-weight: 400; padding: 0 4px; }
+.secondary { color: var(--secondary); }
+
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; min-height: 32px; }
+.logo { width: 52px; height: 25px; flex: none; }
+.vaultbar { display: flex; min-width: 0; max-width: 70%; }
+select { font: inherit; color: var(--text); background-color: var(--fill); border: 0; border-radius: 10px; min-height: 44px; padding: 4px 12px; max-width: 100%; }
+
+button { font: inherit; border: 0; cursor: pointer; min-height: 44px; min-width: 44px; border-radius: 999px; }
+button:disabled { opacity: .5; cursor: default; }
+button:focus-visible, select:focus-visible, .notice:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn { padding: 6px 18px; background: var(--fill); color: var(--accent); font-weight: 600; }
+.btn.primary { background: var(--accent); color: var(--on-accent); }
+.btn.wide { display: block; width: 100%; }
+
+.group { display: flex; flex-direction: column; gap: 6px; }
+.card { list-style: none; background: var(--fill); border-radius: 12px; overflow: hidden; }
+.row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 10px 12px; border-bottom: 1px solid var(--separator); }
+.row:last-child { border-bottom: 0; }
+/* With large text the button moves under the name and nothing is cut. */
+.row .grow { flex: 1 1 9em; min-width: 0; }
+.row .name { font-weight: 600; }
+.row .btn { flex: none; margin-left: auto; }
+/* The square grows with the text, so its letter is never cut. */
+.tile { width: max(32px, 2em); height: max(32px, 2em); border-radius: 8px; display: grid; place-items: center; flex: none; color: #fff; font-weight: 700; overflow: hidden; }
+.c1 { background: #5e5ce6; } .c2 { background: #248a3d; } .c3 { background: #c93400; }
+.c4 { background: #6c6c70; } .c5 { background: #0a6cd6; } .c6 { background: #d30f45; }
+
+/* No coloured box: the icon says what kind of message it is. The button sits under the words, as the mock draws it. */
+.notice { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; justify-items: start; gap: 10px; padding: 4px; border-radius: 8px; }
+.notice > button { grid-column: 2; }
+/* A grey circled i, or a filled orange triangle with a white mark for a warning. Drawn here: the popup's scripts draw no SVG. */
+.nicon { display: grid; place-items: center; box-sizing: border-box; width: 1.3em; height: 1.3em; border: .12em solid var(--secondary); border-radius: 50%; color: var(--secondary); font-weight: 700; line-height: 1; }
+.nicon::before { content: "i"; font-size: .8em; }
+.notice[data-kind="warning"] .nicon { place-items: end center; width: 1.4em; height: 1.25em; border: 0; border-radius: 0; background: var(--warning); color: #fff; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.notice[data-kind="warning"] .nicon::before { content: "!"; }
+.notice .words { max-width: 100%; display: flex; flex-direction: column; gap: 4px; }
+.hint { padding: 0 4px; }
+
+/* The first load can take several seconds. */
+.spinner { width: 24px; height: 24px; flex: none; border-radius: 50%; border: 3px solid var(--separator); border-top-color: var(--secondary); animation: turn .9s linear infinite; }
+.notice[data-kind="progress"] { align-items: center; }
+@keyframes turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }

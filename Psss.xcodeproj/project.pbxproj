@@ -132,8 +132,11 @@
 			membershipExceptions = (
 				"action-16.png",
 				"action-32.png",
+				display.js,
 				"icon-128.png",
 				"icon-48.png",
+				origin.js,
+				"page-fill.js",
 			);
 			target = 000000000000000000000060 /* SafariExtension-iOS */;
 		};

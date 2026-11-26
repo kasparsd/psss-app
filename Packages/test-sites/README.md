@@ -27,13 +27,15 @@ Card and address pages (fictional, nothing is submitted). They start empty; a pa
 
 | Page | What it tests |
 | --- | --- |
-| `/checkout` | `cc-name`, `cc-number`, `cc-exp`, `cc-csc`; `?expiry=select` for month and year lists, `?address=billing` for a billing address above the card, `?form=none` for fields without a form |
-| `/delivery` | shipping address with region and country lists; `?name=split`, `?street=lines` or `?street=box`, `?billing=1` for a billing address first, `?form=none` |
+| `/checkout` | `cc-name`, `cc-number`, `cc-exp`, `cc-csc`; `?expiry=select` for month and year lists, `?address=billing` for a billing address above the card, `?number=short` for a number box too short to fill, `?second=hidden` for a second card form that is not shown yet, page scripts that change filled fields (see below), `?form=none` for fields without a form |
+| `/delivery` | shipping address with region and country lists; `?name=split`, `?street=lines` or `?street=box`, `?billing=1` for a billing address first, `?tel=short` for a phone box too short to fill, `?street2=short` for a second street box too short to fill, `?second=1` (or `hidden`) for a second address form, the same page scripts as `/checkout`, `?form=none` |
 | `/checkout-frame` | card fields in a `/payment-frame` from `pay.example.localhost` |
 | `/checkout-hostile` | hidden, transparent, off-screen, tiny, clipped, inert, disabled and read-only card number traps beside one visible set |
 | `/fill-case?name=` | one bare page per way of hiding, misplacing or reshaping a field (`src/fill-cases.ts`), run by `Extensions/Browser/tests/playwright/page-fill.spec.mjs` |
 
-Safari only runs card and address fill on HTTPS pages, and this server speaks plain HTTP: for a simulator run put a TLS proxy with a throwaway certificate in front of it.
+Page scripts on `/checkout` and `/delivery`, for checking what a filler reports. Each takes `trigger:what` and runs when the trigger field changes. `?clear=`, `?remove=`, `?hide=`, `?show=` and `?move=` (out of the form) take ids; `?replace=` and `?rerender=` swap in empty copies or copies that keep the value; `?strip=` swaps in bare inputs that hold the value and have no attribute; `?set=` writes a town into fields, as a postal code lookup does. `?format=id:how` rewrites a field on its own change: `dots` groups it in fours, `cut` keeps 12 characters, `stuck` keeps 12 and puts them back when emptied, `short` masks all but the ends, `plain` drops accents, `national` and `prefix` rewrite a phone number, `noprefix` drops `LV-`, `expand` spells out a street. `?split=id:drop` (or `:keep`, leaving the first four) spreads a number over four new boxes. Examples: `/checkout?clear=csc:exp`, `/checkout?second=hidden&show=csc:second&hide=csc:first`, `/delivery?second=1&hide=tel:first`.
+
+The iPhone Safari popup is tested against these pages by `Extensions/Browser/tests/playwright/safari-popup.spec.mjs`. Safari only runs card and address fill on HTTPS pages, and this server speaks plain HTTP: for a simulator run put a TLS proxy with a throwaway certificate in front of it.
 
 A passkey can be added to an account that has a password only when you are signed in to it. A passkey-only account is created when the email is new.
 

@@ -72,6 +72,97 @@ for (const [engine, type] of Object.entries({ chromium, webkit })) {
       }
     });
 
+    // Page scripts that react to a filled field. `filled` is what may be reported as filled: only what stayed as written.
+    // `left` names every other role that was written. `values` is everything the page's fields hold afterwards: only the card
+    // number and security code are ever taken back, and no element is changed that the fill did not write.
+    const CARD = ['cc-number', 'cc-name', 'cc-exp', 'cc-csc'];
+    const ADDRESS = ['name', 'organization', 'address-line1', 'address-level2', 'address-level1', 'postal-code', 'country', 'email', 'tel'];
+    const NUMBER = '4111111111111111';
+    const card = { cardholder: 'Jane Q Doe', cardnumber: NUMBER, exp: '05/31', csc: '987' };
+    const home = { fullname: 'Jane Doe', organization: 'Acme SIA', street: 'Brivibas 1, Apt 2', city: 'Rigacity', region: 'VID',
+      postal: 'LV-1010', country: 'LV', email: 'jane@secret.test', tel: '+37120000000' };
+    const without = (set, ...ids) => Object.fromEntries(Object.entries(set).filter(([id]) => !ids.includes(id)));
+    const all = (list, ...roles) => list.filter((role) => !roles.includes(role));
+    const boxes = (parts) => Object.fromEntries(parts.map((part, index) => ['bare' + index, part]));
+    for (const [path, filled, left, values, other] of [
+      ['/checkout?clear=csc:exp,cardholder', ['cc-number', 'cc-csc'], ['cc-name', 'cc-exp'], without(card, 'exp', 'cardholder')],
+      ['/checkout?clear=csc:exp', all(CARD, 'cc-exp'), ['cc-exp'], without(card, 'exp')],
+      ['/checkout?clear=exp:cardholder', all(CARD, 'cc-name'), ['cc-name'], without(card, 'cardholder')],
+      ['/checkout?clear=csc:csc', all(CARD, 'cc-csc'), ['cc-csc'], without(card, 'csc')],
+      ['/checkout?remove=csc:exp', all(CARD, 'cc-exp'), ['cc-exp'], without(card, 'exp')],
+      ['/checkout?replace=csc:exp,cardholder', ['cc-number', 'cc-csc'], ['cc-name', 'cc-exp'], without(card, 'exp', 'cardholder')],
+      ['/checkout?rerender=csc:exp,cardholder', CARD, [], card],
+      ['/checkout?rerender=csc:cardnumber', CARD, [], card],
+      ['/checkout?format=cardnumber:dots', CARD, [], { ...card, cardnumber: '4111.1111.1111.1111' }],
+      // The card number: nothing more goes to a page that did not keep it, and what it did not keep is taken back.
+      ['/checkout?format=cardnumber:cut', [], ['cc-number'], {}],
+      ['/checkout?format=cardnumber:short', [], ['cc-number'], {}],
+      ['/checkout?format=cardnumber:stuck', [], ['cc-number'], { cardnumber: NUMBER.slice(0, 12) }],
+      ['/checkout?format=csc:cut&clear=csc:cardnumber', all(CARD, 'cc-number'), ['cc-number'], without(card, 'cardnumber')],
+      ['/checkout?move=csc:cardnumber', all(CARD, 'cc-number'), ['cc-number'], without(card, 'cardnumber')],
+      ['/checkout?move=csc:csc', all(CARD, 'cc-csc'), ['cc-csc'], without(card, 'csc')],
+      // Digits the page put somewhere else are not the fill's to change, and nothing is claimed.
+      ['/checkout?split=cardnumber:drop', [], ['cc-number'], boxes(['4111', '1111', '1111', '1111'])],
+      ['/checkout?split=cardnumber:keep', [], ['cc-number'], boxes(['4111', '1111', '1111', '1111'])],
+      ['/checkout?strip=cardnumber:cardnumber', [], ['cc-number'], boxes([NUMBER])],
+      ['/checkout?strip=csc:cardnumber', all(CARD, 'cc-number'), ['cc-number'], { ...without(card, 'cardnumber'), bare0: NUMBER }],
+      ['/checkout?strip=csc:cardholder', all(CARD, 'cc-name'), ['cc-name'], { ...without(card, 'cardholder'), bare0: 'Jane Q Doe' }],
+      // A second card form is never touched, whatever happens to the first.
+      ['/checkout?second=hidden', CARD, [], card],
+      ['/checkout?second=hidden&show=cardnumber:second&hide=cardnumber:first', [], ['cc-number'], {}],
+      ['/checkout?second=hidden&show=cardnumber:second&remove=cardnumber:first', [], ['cc-number'], {}],
+      ['/checkout?second=hidden&show=csc:second&hide=csc:first', [], CARD, without(card, 'cardnumber', 'csc')],
+      ['/checkout?second=hidden&show=csc:second&remove=csc:first', [], CARD, {}],
+      // Nor a second address form: what the page does with an address is left as it is.
+      ['/delivery?second=1', ADDRESS, [], home],
+      ['/delivery?second=1&hide=fullname:first', [], ['name'], { fullname: 'Jane Doe' }],
+      ['/delivery?second=1&remove=fullname:first', [], ['name'], {}],
+      ['/delivery?second=1&hide=tel:first', [], ADDRESS, home],
+      ['/delivery?second=1&remove=tel:first', [], ADDRESS, {}],
+      ['/delivery?clear=tel:tel', all(ADDRESS, 'tel'), ['tel'], without(home, 'tel')],
+      ['/delivery?clear=postal:city', all(ADDRESS, 'address-level2'), ['address-level2'], without(home, 'city')],
+      ['/delivery?clear=tel:fullname,region', all(ADDRESS, 'name', 'address-level1'), ['name', 'address-level1'], without(home, 'fullname', 'region')],
+      ['/delivery?remove=tel:email', all(ADDRESS, 'email'), ['email'], without(home, 'email')],
+      ['/delivery?replace=tel:street', all(ADDRESS, 'address-line1'), ['address-line1'], without(home, 'street')],
+      // Rewrites stay as the page left them.
+      ['/delivery?format=fullname:plain', all(ADDRESS, 'name'), ['name'], { ...home, fullname: 'Janis Berzins' }, { name: 'J\u0101nis B\u0113rzi\u0146\u0161' }],
+      ['/delivery?format=tel:national', all(ADDRESS, 'tel'), ['tel'], { ...home, tel: '20 000 000' }],
+      ['/delivery?format=tel:prefix', all(ADDRESS, 'tel'), ['tel'], { ...home, tel: '+1 +37120000000' }],
+      ['/delivery?format=postal:noprefix', all(ADDRESS, 'postal-code'), ['postal-code'], { ...home, postal: '1010' }],
+      ['/delivery?set=postal:city', all(ADDRESS, 'address-level2'), ['address-level2'], { ...home, city: 'C\u0113sis' }],
+      ['/delivery?format=street:expand', all(ADDRESS, 'address-line1'), ['address-line1'], { ...home, street: 'Brivibas street 1, Apt 2' }],
+      ['/delivery?format=street:cut&format=email:cut', all(ADDRESS, 'address-line1', 'email'), ['address-line1', 'email'],
+        { ...home, street: 'Brivibas 1, ', email: 'jane@secret.' }],
+      ['/delivery?format=tel:dots', ADDRESS, [], { ...home, tel: '+371.2000.0000' }]
+    ]) {
+      test('only what stayed is reported: ' + path, async () => {
+        const mode = path.startsWith('/delivery') ? 'address' : 'card';
+        await page.goto(base + path);
+        await page.addScriptTag({ content: script });
+        const result = await page.evaluate(([values, mode]) => psssFillPage(values, mode, location.origin), [{ ...fields[mode], ...other }, mode]);
+        expect(result.filled).toEqual(filled);
+        expect(result.left ?? []).toEqual(left);
+        const held = await page.evaluate(() => {
+          let bare = 0;
+          return Object.fromEntries([...document.querySelectorAll('input, select, textarea')]
+            .filter((e) => e.id !== 'note' && !e.id.endsWith('load')).map((e) => [e.id || 'bare' + bare++, e.value]).filter(([, value]) => value));
+        });
+        expect(held).toEqual(values);
+      });
+    }
+
+    test('nothing is written after the time the caller gave', async () => {
+      for (const until of [0, Date.now() - 1, NaN]) {
+        await page.goto(base + '/checkout');
+        await page.addScriptTag({ content: script });
+        const result = await page.evaluate(([values, until]) => psssFillPage(values, 'card', location.origin, { until }), [fields.card, until]);
+        expect(result.filled).toEqual([]);
+        expect(await page.evaluate(() => [...document.querySelectorAll('input:not(#note)')].filter((e) => e.value).length)).toBe(0);
+      }
+      const later = await page.evaluate(([values]) => psssFillPage(values, 'card', location.origin, { until: Date.now() + 60000 }), [fields.card]);
+      expect(later.filled).toEqual(CARD);
+    });
+
     test('the test site checkout pages fill, and the hostile traps stay empty', async () => {
       for (const path of ['/checkout', '/checkout?expiry=select&form=none', '/checkout?address=billing&form=none', '/checkout-hostile',
         '/delivery?billing=1&name=split&street=lines', '/delivery?form=none&street=box']) {

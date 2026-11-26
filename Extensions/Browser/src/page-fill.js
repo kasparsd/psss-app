@@ -3,7 +3,9 @@
 //
 // Modes: 'login', 'card', 'address' (write the released `fields`, keyed by autocomplete role), 'probe-card' ({ checkout: true } when
 // there is a card number field) and 'probe' ({ card: [roles], address: [roles], paymentFrame }). Probes write nothing.
-function psssFillPage(fields, mode, expectedOrigin) {
+// `options` (the iPhone popup): `pageOrder` lists a probe's roles in the order of their fields on the page, and `focusEmptyCode`
+// focuses the security code field after a card fill that had no code to write.
+function psssFillPage(fields, mode, expectedOrigin, options = {}) {
   const result = { filled: [] };
   if (window !== window.top || location.origin !== expectedOrigin) return result;
 
@@ -198,7 +200,7 @@ function psssFillPage(fields, mode, expectedOrigin) {
   const normalize = (value) => plain(value).replace(/[^a-z0-9]/g, '');
 
   // A page can be built to make every look slow. Past this, a card or address fill writes nothing more.
-  const deadline = Date.now() + 2000;
+  let deadline = Date.now() + 2000;
   const LATE = {};
   const tick = () => { if (Date.now() > deadline) throw LATE; };
   const timed = (look, none) => () => {
@@ -708,6 +710,50 @@ function psssFillPage(fields, mode, expectedOrigin) {
     return undefined;
   };
 
+  // Once every field is written, a page's handlers may have changed, moved, removed or replaced any of them. `filled` keeps
+  // the roles whose value stayed as written. The others are `left`: what became of their values is not known, so nothing may be
+  // claimed about them. A card number or security code that did not stay is also taken back, from the element it was written to.
+  // No other element is changed, whatever it holds now: only what this fill wrote is the fill's to change.
+  const secrets = new Set(['cc-number', 'cc-csc']);
+  const settle = () => {
+    if (!records.length) return;
+    // Looking again has its own time budget.
+    deadline = Date.now() + 2000;
+    const look = () => mode === 'card' ? cardTargets() : addressTargets();
+    const shows = (input) => timed(() => seen(input), false)();
+    const holds = (record, now) => {
+      if (record.refused) return false;
+      const { input, target, value, role } = record;
+      const next = now.find((other) => other.role === role)?.entry.input;
+      let holder = input;
+      if (input.isConnected === false) {
+        // A new element the page put in its place may hold the value; one that was already there is another field.
+        holder = next && !present.has(next) ? next : undefined;
+      } else if (next && next !== input && !shows(input)) {
+        return false;  // hidden, with another field shown for the role
+      } else if (secrets.has(role)) {
+        const at = place(input);
+        if (at.length !== target.place.length || at.some((node, index) => node !== target.place[index])) return false;
+      }
+      return Boolean(holder) && (holder.tagName === 'SELECT' ? holder.value === value : same(holder.value, value, role));
+    };
+    let held = records;
+    // Taking a value back runs the page's handlers again, so look until nothing more goes.
+    while (held.length) {
+      chains.clear();
+      const now = look();
+      const gone = held.filter((record) => !holds(record, now));
+      if (!gone.length) break;
+      held = held.filter((record) => !gone.includes(record));
+      for (const { role, input, before } of gone) {
+        if (secrets.has(role) && input.value !== '' && input.value !== before) { set(input, before); announce(input); }
+      }
+    }
+    result.filled = held.map(({ role }) => role);
+    const left = records.filter((record) => !held.includes(record)).map(({ role }) => role);
+    if (left.length) result.left = left;
+  };
+
   const stillThere = (target) => {
     const now = (mode === 'card' ? cardTargets() : addressTargets()).find(({ role }) => role === target.role);
     return Boolean(now) && now.entry.input === target.entry.input && now.identity === target.identity &&
@@ -715,8 +761,16 @@ function psssFillPage(fields, mode, expectedOrigin) {
       now.place.every((node, index) => node === target.place[index]);
   };
 
+  // A caller that stops waiting at `options.until` (milliseconds since 1970) knows nothing is written after it.
+  const expired = () => options.until !== undefined && !(Date.now() < options.until);
+
+  // What was written to card and address fields, for `settle` to check once all of them are done, and the fields the page had
+  // before the first of those writes.
+  const records = [];
+  let present;
+
   const write = (target, value, role, others = []) => {
-    if (!target || typeof value !== 'string' || !value) return;
+    if (!target || typeof value !== 'string' || !value || expired()) return;
     // Card and address targets remember the form they were chosen in.
     const entry = target.entry ?? target;
     const { input } = entry;
@@ -731,33 +785,65 @@ function psssFillPage(fields, mode, expectedOrigin) {
       // A cut value would be wrong data, so a field too short for it is left alone.
       if (input.maxLength >= 0 && value.length > input.maxLength) return;
     }
-    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value').set;
+    if (mode !== 'login') present ??= new Set(query(inputTypes + ', textarea'));
     const before = input.value;
-    setter.call(input, value);
-    if (input.value !== value) { setter.call(input, before); return; }
+    set(input, value);
+    if (input.value !== value) { set(input, before); return; }
+    // Recorded first: the page's handlers run inside `announce`.
+    if (mode !== 'login') records.push({ role, target, input, before, value });
+    announce(input);
+    result.filled.push(role);
+  };
+
+  // The element's own setter, past anything a framework put on the element.
+  function set(input, value) {
+    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value').set.call(input, value);
+  }
+  function announce(input) {
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
-    result.filled.push(role);
+  }
+
+  // What a page may do to a value and still have it as written: letter case and spacing, separators in numbers, a masked card
+  // number or code, a year written long. Nothing here accepts an empty, shorter or different value.
+  const separated = new Set(['cc-number', 'cc-exp', 'cc-exp-month', 'cc-exp-year', 'cc-csc', 'tel', 'postal-code']);
+  const bare = (text, role) => {
+    const value = String(text ?? '').normalize('NFC').replace(/\p{Cf}/gu, '');
+    return (separated.has(role) ? value.replace(/[\s\p{Pd}./()]/gu, '') : value.replace(/\s+/g, ' ').trim()).toUpperCase();
+  };
+  const same = (shown, wrote, role) => {
+    const now = bare(shown, role), then = bare(wrote, role);
+    if (!now) return false;
+    if (now === then) return true;
+    if (role === 'cc-number') {
+      // A mask stands for each digit it hides, so it is as long as the number.
+      const masked = /^(\d*)[•●∙·*X#]+(\d{4})$/.exec(now);
+      return now.length === then.length && (Boolean(masked && then.startsWith(masked[1]) && then.endsWith(masked[2])) ||
+        /^[•●∙·*#]+$/.test(now));
+    }
+    if (role === 'cc-csc') return now.length === then.length && /^[•●∙·*]+$/.test(now);
+    if (role === 'cc-exp') {
+      const short = (text) => text.length === 6 ? text.replace(/^(\d\d)20(\d\d)$/, '$1$2').replace(/^20(\d{4})$/, '$1') : text;
+      return /^\d{4}$/.test(short(now)) && short(now) === short(then);
+    }
+    if (role === 'cc-exp-year') return now === '20' + then || then === '20' + now;
+    if (role === 'cc-exp-month') return /^\d{1,2}$/.test(now) && Number(now) === Number(then);
+    return false;
   };
 
   if (mode === 'probe-card') return cardTargets().length ? { ...result, checkout: true } : result;
   if (mode === 'probe') {
-    const card = cardTargets().map(({ role }) => role);
-    return { ...result, card, address: addressTargets().map(({ role }) => role), paymentFrame: !card.length && paymentFrame() };
+    const roles = (targets) => (options.pageOrder ? [...targets].sort((a, b) =>
+      call(a.entry.input, 'Node', 'compareDocumentPosition', b.entry.input) & 4 ? -1 : 1) : targets).map(({ role }) => role);
+    const card = roles(cardTargets());
+    return { ...result, card, address: roles(addressTargets()), paymentFrame: !card.length && paymentFrame() };
   }
 
   if (mode === 'card') {
     const iso = /^\d{4}-\d{2}$/.test(fields['cc-exp'] ?? '') ? fields['cc-exp'] : undefined;
     const chosen = cardTargets();
     // The page's own script may space or mask the number, but must leave it there, in the same place.
-    const kept = (value) => {
-      const shown = String(value ?? '').replace(/[\s-]/g, '');
-      const number = String(fields['cc-number'] ?? '').replace(/[\s-]/g, '');
-      const masked = /^(\d*)[•●∙·*xX#]+(\d{4})$/.exec(shown);
-      return shown === number || Boolean(masked && number.startsWith(masked[1]) && number.endsWith(masked[2])) ||
-        (shown.length === number.length && /^[•●∙·*#]+$/.test(shown));
-    };
-    const stuck = (target) => stillThere(target) && kept(target.entry.input.value);
+    const stuck = (target) => stillThere(target) && same(target.entry.input.value, fields['cc-number'], 'cc-number');
     for (const target of chosen) {
       const { role, entry } = target;
       let value = fields[role];
@@ -785,11 +871,18 @@ function psssFillPage(fields, mode, expectedOrigin) {
       // Nothing more of a card goes to a page that has not kept the number.
       if (role !== 'cc-number' && !stuck(chosen[0])) break;
       write(target, value, role);
-      // Nothing else of a card goes to a page that did not take the number.
-      if (role === 'cc-number' && !(result.filled.length && stuck(target))) { result.filled.length = 0; break; }
+      // Nothing else of a card goes to a page that did not take the number, and what it did not keep is taken back.
+      if (role === 'cc-number' && !(records.length && stuck(target))) {
+        // A number moved elsewhere counts as not taken, whatever it still shows.
+        if (records.length) records[0].refused = true;
+        break;
+      }
     }
-    // A later field's script may have cleared or changed it.
-    if (result.filled[0] === 'cc-number' && !kept(chosen[0].entry.input.value)) result.filled.shift();
+    settle();
+    if (options.focusEmptyCode && !fields['cc-csc'] && result.filled[0] === 'cc-number') {
+      const code = chosen.find(({ role }) => role === 'cc-csc');
+      if (code && stillThere(code)) code.entry.input.focus();
+    }
     return result;
   }
 
@@ -830,6 +923,7 @@ function psssFillPage(fields, mode, expectedOrigin) {
         ? [country, given['country-name'], ...countryNames].filter(Boolean) : [];
       write(target, value, role, others);
     }
+    settle();
     return result;
   }
 

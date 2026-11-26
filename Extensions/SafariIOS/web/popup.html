@@ -1,15 +1,28 @@
 <!doctype html>
-<!-- Placeholder until the popup is designed, approved and built (docs/plans/ios-safari-fill.md, slice 5). It has no script, so
-     it can neither ask for nor fill anything. The Release build does not embed this extension while this is all there is. -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light dark">
   <title>Psss</title>
-  <style>body { font: -apple-system-body; margin: 16px; min-width: 260px; }</style>
+  <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <p>Filling in Safari is not ready yet.</p>
+  <header>
+    <svg class="logo" xmlns="http://www.w3.org/2000/svg" viewBox="4 32 118 56" role="img" aria-label="Psss" focusable="false"><title>Psss</title>
+<rect x="6.5" y="34.5" width="113" height="51" rx="25.5" fill="none" stroke="currentColor" stroke-width="5"/>
+<g fill="currentColor" stroke="currentColor" stroke-width="2.394" stroke-linejoin="round"><path d="M22.301 79.415Q21.549 79.415 21.033 78.88Q20.518 78.345 20.518 77.592L20.518 51.481Q20.518 50.728 21.033 50.213Q21.549 49.698 22.301 49.698Q23.094 49.698 23.609 50.213Q24.124 50.728 24.124 51.481L24.124 52.511Q25.511 51.085 27.175 50.292Q28.839 49.5 30.9 49.5Q33.316 49.5 35.496 50.728Q37.675 51.957 39.082 54.294Q40.488 56.632 40.488 60Q40.488 63.368 39.082 65.706Q37.675 68.043 35.496 69.272Q33.316 70.5 30.9 70.5Q28.839 70.5 27.175 69.708Q25.511 68.915 24.124 67.489L24.124 77.592Q24.124 78.345 23.609 78.88Q23.094 79.415 22.301 79.415ZM30.384 67.132Q33.198 67.132 35.04 65.309Q36.882 63.487 36.882 60Q36.882 56.474 35.04 54.671Q33.198 52.868 30.384 52.868Q28.443 52.868 26.858 53.72Q25.273 54.571 24.124 55.84L24.124 64.16Q25.273 65.429 26.858 66.28Q28.443 67.132 30.384 67.132Z"/></g>
+<path d="M19.321 72H25.321V87.192A28 28 0 0 1 19.321 84.965Z" fill="currentColor"/>
+<g fill="currentColor"><circle cx="54.518" cy="60" r="7"/><circle cx="76.116" cy="60" r="7"/><circle cx="97.714" cy="60" r="7"/></g>
+</svg>
+    <div id="vaultbar" class="vaultbar" hidden>
+      <select id="vault" aria-label="Vault"></select>
+    </div>
+  </header>
+  <main id="content" aria-live="polite"></main>
+  <script src="display.js"></script>
+  <script src="origin.js"></script>
+  <script src="page-fill.js"></script>
+  <script src="popup-logic.js"></script>
+  <script src="popup.js"></script>
 </body>
 </html>

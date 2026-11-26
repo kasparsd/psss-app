@@ -185,13 +185,14 @@ function cardFields(query: URLSearchParams): string {
   const expiry = query.get('expiry') === 'select'
     ? select('exp-month', 'Expiry month', 'cc-exp-month', months) + select('exp-year', 'Expiry year', 'cc-exp-year', years)
     : input('exp', 'Expiry (MM/YY)', 'cc-exp', ' inputmode="numeric" maxlength="5"');
-  return input('cardholder', 'Name on card', 'cc-name') + input('cardnumber', 'Card number', 'cc-number', ' inputmode="numeric"')
+  const short = query.get('number') === 'short' ? ' maxlength="12"' : '';
+  return input('cardholder', 'Name on card', 'cc-name') + input('cardnumber', 'Card number', 'cc-number', ' inputmode="numeric"' + short)
     + expiry + input('csc', 'Security code', 'cc-csc', ' inputmode="numeric" maxlength="4"');
 }
 
-const maybeForm = (query: URLSearchParams, button: string, fields: string) => query.get('form') === 'none'
-  ? `<div>${fields}<button type="button">${button}</button></div>`
-  : `<form onsubmit="return false">${fields}<button type="submit">${button}</button></form>`;
+const maybeForm = (query: URLSearchParams, button: string, fields: string, id = 'first') => query.get('form') === 'none'
+  ? `<div id="${id}">${fields}<button type="button">${button}</button></div>`
+  : `<form id="${id}" onsubmit="return false">${fields}<button type="submit">${button}</button></form>`;
 
 /** One address block. `?name=split` asks for first and last name, `?street=lines` for two street boxes or `?street=box` for a text area. */
 function addressFields(query: URLSearchParams, section: 'shipping' | 'billing'): string {
@@ -202,7 +203,7 @@ function addressFields(query: URLSearchParams, section: 'shipping' | 'billing'):
     ? field('firstname', 'First name', 'given-name') + field('lastname', 'Last name', 'family-name')
     : field('fullname', 'Full name', 'name');
   const street = query.get('street') === 'lines'
-    ? field('street', 'Street address', 'address-line1') + field('street2', 'Apartment or suite', 'address-line2')
+    ? field('street', 'Street address', 'address-line1') + field('street2', 'Apartment or suite', 'address-line2', query.get('street2') === 'short' ? ' maxlength="4"' : '')
     : query.get('street') === 'box'
       ? `<label for="${prefix}street">Street address</label><textarea id="${prefix}street" name="${prefix}street" autocomplete="${section} street-address" rows="3" style="width:100%"></textarea>`
       : field('street', 'Street address', 'address-line1');
@@ -210,23 +211,92 @@ function addressFields(query: URLSearchParams, section: 'shipping' | 'billing'):
     + list('region', 'Region', 'address-level1', [['RIX', 'Riga'], ['VID', 'Vidzeme'], ['KUR', 'Kurzeme']])
     + field('postal', 'Postal code', 'postal-code')
     + list('country', 'Country', 'country', [['EE', 'Estonia'], ['LV', 'Latvia'], ['LT', 'Lithuania']])
-    + field('email', 'Email', 'email', ' type="email"') + field('tel', 'Phone', 'tel', ' type="tel"');
+    + field('email', 'Email', 'email', ' type="email"')
+    + field('tel', 'Phone', 'tel', query.get('tel') === 'short' ? ' type="tel" maxlength="6"' : ' type="tel"');
 }
 
 /** A marker that changes on every load and a field no filler should touch: both show whether the page kept its state. */
 const kept = `<p class="note">Page load <b id="load"></b></p>${input('note', 'Order note (never filled)', 'off')}
 <script>document.getElementById('load').textContent = Math.random().toString(36).slice(2, 7);</script>`;
 
+/**
+ * Page scripts that react to a filled field, for checking what a filler says afterwards. Each is `trigger:what` and runs on the
+ * trigger's change. `?clear`, `?remove`, `?hide`, `?show` and `?move` (out of the form) take ids; so do `?replace` and `?rerender`
+ * (swap in empty copies, or copies that keep the value), `?strip` (swap in bare inputs with the value and no attribute) and
+ * `?set` (writes a town into them, as a postal code lookup does). `?format=id:how` rewrites a field on its own change: `dots`
+ * groups it in fours, `cut` keeps 12 characters, `stuck` keeps 12 characters and puts them back when emptied, `short` masks
+ * all but the ends, `plain` drops accents, `national` and `prefix` rewrite a phone number, `noprefix` drops `LV-`, `expand`
+ * spells out a street. `?split=id:drop` (or `:keep`, which leaves the first four) spreads a number over four new boxes.
+ */
+function meddling(query: URLSearchParams): string {
+  const id = /^[a-z0-9-]+$/;
+  const kinds = ['clear', 'show', 'remove', 'hide', 'move', 'replace', 'rerender', 'strip', 'set', 'format', 'split'];
+  const rules = kinds.flatMap((how) => query.getAll(how).flatMap((rule) => {
+    const [trigger = '', rest = ''] = rule.split(':');
+    const targets = rest.split(',').filter((text) => id.test(text));
+    return id.test(trigger) && targets.length ? [[how, trigger, targets] as const] : [];
+  }));
+  if (!rules.length) return '';
+  return `<script>
+for (const [how, trigger, targets] of ${JSON.stringify(rules)}) document.getElementById(trigger).addEventListener('change', (event) => {
+  const field = event.target;
+  if (how === 'format') {
+    const rewrite = {
+      dots: (v) => v.replace(/[. ]/g, '').replace(/(.{4})(?!$)/g, '$1.'),
+      cut: (v) => v.slice(0, 12),
+      stuck: (v) => (field.dataset.held = v.slice(0, 12) || field.dataset.held),
+      short: (v) => v && v[0] + '\\u2022' + v.slice(-4),
+      plain: (v) => v.normalize('NFD').replace(/\\p{M}/gu, ''),
+      national: (v) => v.replace(/^\\+371/, '').replace(/^(\\d{2})(\\d{3})(\\d{3})$/, '$1 $2 $3'),
+      prefix: (v) => v.startsWith('+1 ') ? v : '+1 ' + v,
+      noprefix: (v) => v.replace(/^LV-/, ''),
+      expand: (v) => v.replace(/^Brivibas /, 'Brivibas street ')
+    }[targets[0]];
+    field.value = rewrite(field.value);
+    return;
+  }
+  if (how === 'split') {
+    if (!field.value || field.dataset.split) return;
+    field.dataset.split = '1';
+    field.after(...field.value.match(/.{1,4}/g).map((part) => { const box = document.createElement('input'); box.value = part; box.size = 4; return box; }));
+    field.value = targets[0] === 'keep' ? field.value.slice(0, 4) : '';
+    return;
+  }
+  for (const target of targets.map((name) => document.getElementById(name)).filter(Boolean)) {
+    if (how === 'clear') target.value = '';
+    else if (how === 'set') target.value = 'C\\u0113sis';
+    else if (how === 'remove') target.remove();
+    else if (how === 'hide') target.style.display = 'none';
+    else if (how === 'show') target.style.display = '';
+    else if (how === 'move') document.body.append(target);
+    else {
+      const copy = how === 'strip' ? document.createElement('input') : target.cloneNode(true);
+      copy.value = how === 'replace' ? '' : target.value;
+      target.replaceWith(copy);
+    }
+  }
+});
+</script>`;
+}
+
+/** The same fields again in a form of their own, their ids starting `second-`: another card, or another address. */
+const again = (query: URLSearchParams, button: string, fields: string) => {
+  const second = query.get('second');
+  if (second !== '1' && second !== 'hidden') return '';
+  const form = maybeForm(query, button, fields.replace(/ (id|name|for)="/g, ' $1="second-'), 'second');
+  return second === 'hidden' ? form.replace(' id="second"', ' id="second" style="display:none"') : form;
+};
+
 export function checkout(ctx: Ctx, query: URLSearchParams): string {
   const address = query.get('address') === 'billing' ? `<h2>Billing address</h2>${addressFields(query, 'billing')}<h2>Card</h2>` : '';
-  return layout(ctx, 'Checkout', `${kept}${maybeForm(query, 'Pay (does nothing)', address + cardFields(query))}
-<p class="note"><code>?expiry=select</code> uses month and year lists. <code>?address=billing</code> adds a billing address above the card. <code>?form=none</code> leaves out the form element. Nothing is sent.</p>`);
+  return layout(ctx, 'Checkout', `${kept}${maybeForm(query, 'Pay (does nothing)', address + cardFields(query))}${again(query, 'Pay with another card (does nothing)', cardFields(query))}${meddling(query)}
+<p class="note"><code>?expiry=select</code> uses month and year lists. <code>?address=billing</code> adds a billing address above the card. <code>?number=short</code> makes the card number box too short. <code>?second=hidden</code> adds a second card form that a page script can show (two visible card forms are left alone). <code>?clear=</code>, <code>?remove=</code>, <code>?hide=</code>, <code>?move=</code>, <code>?replace=</code>, <code>?rerender=</code>, <code>?strip=</code>, <code>?set=</code>, <code>?format=</code> and <code>?split=</code> make the page change fields after they are filled (see the README). <code>?form=none</code> leaves out the form element. Nothing is sent.</p>`);
 }
 
 export function delivery(ctx: Ctx, query: URLSearchParams): string {
   const billing = query.get('billing') === '1' ? `<h2>Billing address</h2>${addressFields(query, 'billing')}<h2>Delivery address</h2>` : '';
-  return layout(ctx, 'Delivery address', `${kept}${maybeForm(query, 'Continue (does nothing)', billing + addressFields(query, 'shipping'))}
-<p class="note"><code>?name=split</code> asks for first and last name, <code>?street=lines</code> or <code>?street=box</code> changes the street boxes, <code>?billing=1</code> puts a billing address first. <code>?form=none</code> leaves out the form element. Nothing is sent.</p>`);
+  return layout(ctx, 'Delivery address', `${kept}${maybeForm(query, 'Continue (does nothing)', billing + addressFields(query, 'shipping'))}${again(query, 'Use another address (does nothing)', addressFields(query, 'shipping'))}${meddling(query)}
+<p class="note"><code>?name=split</code> asks for first and last name, <code>?street=lines</code> or <code>?street=box</code> changes the street boxes, <code>?billing=1</code> puts a billing address first. <code>?tel=short</code> makes the phone box too short. <code>?street2=short</code> makes the second street box too short. <code>?second=1</code> adds a second address form (<code>hidden</code>: one that is not shown yet); the page scripts work as on <code>/checkout</code>. <code>?form=none</code> leaves out the form element. Nothing is sent.</p>`);
 }
 
 /** The shop page whose card fields live in a frame from another host, as payment providers do. */

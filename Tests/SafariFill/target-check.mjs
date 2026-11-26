@@ -1,8 +1,9 @@
 // What the iPhone and iPad Safari extension is made of and asks for (docs/plans/ios-safari-fill.md, sections 5 and 7). Run by
 // scripts/test-safari-fill.sh. Reads the project through `plutil`, changes nothing.
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
+import { popupProblems } from "./popup-guard.mjs";
 
 const plist = (path) => JSON.parse(execFileSync("plutil", ["-convert", "json", "-o", "-", path], { encoding: "utf8" }));
 const problems = [];
@@ -17,12 +18,13 @@ const [extensionID, extension] = target("SafariExtension-iOS");
 const configuration = (owner, name) =>
   objects[owner.buildConfigurationList].buildConfigurations.map((id) => objects[id]).find((c) => c.name === name).buildSettings;
 
-// Sources: the grant's folder, the handler and its web files, and the four icons. No vault codec, store or app code.
+// Sources: the grant's folder, the handler and its web files, and from the browser extension the four icons and the three scripts
+// the popup shares with it. No vault codec, store or app code.
 need("source folders", extension.fileSystemSynchronizedGroups.map((id) => objects[id].path).sort(), ["App/SafariFill", "Extensions/SafariIOS"]);
 need("files added one by one",
   all.filter(([, o]) => o.isa === "PBXFileSystemSynchronizedBuildFileExceptionSet" && o.target === extensionID)
     .flatMap(([, o]) => o.membershipExceptions).sort(),
-  ["action-16.png", "action-32.png", "icon-128.png", "icon-48.png"]);
+  ["action-16.png", "action-32.png", "display.js", "icon-128.png", "icon-48.png", "origin.js", "page-fill.js"]);
 for (const id of extension.buildPhases) need(`${objects[id].isa} entries`, objects[id].files, []);
 need("target dependencies", extension.dependencies, []);
 need("package products", extension.packageProductDependencies ?? [], []);
@@ -33,10 +35,48 @@ for (const name of ["Debug", "Release"]) {
   need(`${name} linker flags`, settings.OTHER_LDFLAGS, undefined);
 }
 
-// While the extension has no popup script it cannot fill, and a Release app must not carry it.
-const unfinished = !readdirSync("Extensions/SafariIOS/web").some((file) => file.endsWith(".js"));
+// The extension is not finished: a Release app must not carry it, and the iPhone and iPad switch
+// (`SafariExtensionReminder.extensionWorks`, the `#else` branch) must be off. Switching on is slice 7
+// (docs/plans/ios-safari-fill.md): it changes this check together with the switch and the exclusion. Neither alone, nor both,
+// passes before that.
 const [, app] = target("Psss-iOS");
-if (unfinished) need("Psss-iOS Release excludes the unfinished extension", configuration(app, "Release").EXCLUDED_SOURCE_FILE_NAMES, "SafariExtension-iOS.appex");
+const reminder = readFileSync("App/Core/SafariExtensionReminder.swift", "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+const declared = reminder.match(/static\s+(?:let|var)\s+extensionWorks\b.*$/gm) ?? [];
+need("the extension switch is declared once for each platform", declared.length, 2);
+need("the iPhone and iPad extension switch is off",
+  reminder.match(/#if os\(macOS\)[^#]*?#else\s*(static[^\n]*?)[ \t]*\n\s*#endif/)?.[1], "static let extensionWorks = false");
+const exclusions = ([id]) => Object.entries(configuration(id, "Release")).filter(([key]) => /^(?:EX|IN)CLUDED_SOURCE_FILE_NAMES/.test(key));
+need("Psss-iOS Release excludes the unfinished extension, with no setting that undoes it",
+  exclusions([app]), [["EXCLUDED_SOURCE_FILE_NAMES", "SafariExtension-iOS.appex"]]);
+
+// DEBUG compiles the localhost allowance into the handler, so no setting that reaches the extension's Release build may define
+// it: the target's, the project's, or the xcconfig files either is based on.
+const included = (path) => {
+  let text;
+  try { text = readFileSync(path, "utf8"); } catch { return []; }
+  return text.split("\n").flatMap((line) => {
+    const include = line.match(/^\s*#include\??\s+"([^"]+)"/);
+    if (include) return included(`Configuration/${include[1]}`);
+    const setting = line.replace(/\/\/.*$/, "").match(/^\s*([A-Z_0-9]+(?:\[[^\]]*\])*)\s*=(.*)$/);
+    return setting ? [[path, setting[1], setting[2]]] : [];
+  });
+};
+const project = objects[plist("Psss.xcodeproj/project.pbxproj").rootObject];
+const release = [project, extension].flatMap((owner) => {
+  const { buildSettings, baseConfigurationReference: base } = objects[owner.buildConfigurationList].buildConfigurations
+    .map((id) => objects[id]).find((c) => c.name === "Release");
+  return [
+    ...Object.entries(buildSettings).map(([key, value]) => ["project.pbxproj", key, [value].flat().join(" ")]),
+    ...(base ? included(`Configuration/${objects[base].path.split("/").pop()}`) : []),
+  ];
+});
+need("settings that define DEBUG in the extension's Release build", release
+  .filter(([, key, value]) => /^(SWIFT_ACTIVE_COMPILATION_CONDITIONS|OTHER_SWIFT_FLAGS)(\[|$)/.test(key) &&
+    !key.includes("[config=Debug]") && /(^|[\s"']|-D)DEBUG\b/.test(value))
+  .map(([where, key]) => `${where}: ${key}`), []);
+
+// The popup: its files, and nothing in them that could keep, send or print a value, draw text as HTML or open another link.
+problems.push(...popupProblems());
 
 const manifest = JSON.parse(readFileSync("Extensions/SafariIOS/web/manifest.json", "utf8"));
 need("manifest keys", Object.keys(manifest).sort(),

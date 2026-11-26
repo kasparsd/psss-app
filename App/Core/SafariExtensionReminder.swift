@@ -45,8 +45,9 @@ struct SafariExtensionReminder: Equatable, Sendable {
     /// has run in a signed Safari (docs/browser-extension.md).
     static let extensionWorks = false
     #else
-    /// Off because the iPhone and iPad extension (`Extensions/SafariIOS`) cannot fill yet: it has no popup, and Release builds do
-    /// not embed it. Flip this when it ships and fills cards and addresses. Until then neither the card nor the Settings row shows.
+    /// Off because the iPhone and iPad extension (`Extensions/SafariIOS`) cannot fill yet: the app does not write what it reads,
+    /// and Release builds do not embed it. Flip this when it ships and fills cards and addresses. Until then neither the card nor
+    /// the Settings row shows.
     static let extensionWorks = false
     #endif
 
