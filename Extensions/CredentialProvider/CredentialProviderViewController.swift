@@ -94,7 +94,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     /// The system’s text insertion (iOS 18 and later): the person tapped a field and chose Psss. One value goes into that field.
     override func prepareInterfaceForUserChoosingTextToInsert() {
         unlocked(title: "Choose Text to Insert") { [self] in
-            present(TextPicker(items: PickerSearch.offerable(items), vaults: vaultSwitch,
+            present(TextPicker(items: PickerSearch.offerable(items), vaults: vaultSwitch, vaultName: session.reference?.name,
                                insert: { [weak self] item, text in self?.complete(insertingText: text, from: item) },
                                cancel: { [weak self] in self?.cancel(.userCanceled) }))
         }
@@ -113,8 +113,8 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     }
 
     override func prepareInterfaceToProvideCredential(for credentialIdentity: ASPasswordCredentialIdentity) {
-        // A tapped suggestion shows the same list as the key button, for the suggestion's site: one matching login has the main
-        // Fill button, and the search field and the Vault row are there. There is no one-login Fill screen. Nothing leaves the
+        // A tapped suggestion shows the same list as the key button, for the suggestion's site: one matching login is the
+        // default row, and the search field and the Vault row are there. There is no one-login Fill screen. Nothing leaves the
         // vault until a row is chosen.
         showVault(of: credentialIdentity.recordIdentifier)
         unlocked(title: "Choose a Login") { [self] in presentLoginList(site: credentialIdentity.serviceIdentifier.identifier) }
@@ -406,7 +406,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         } ?? []
         present(CodeList(host: host, items: matching,
                          others: items.filter { SharedVault.hasReadableCode($0) },
-                         vaults: vaultSwitch,
+                         vaults: vaultSwitch, vaultName: session.reference?.name,
                          choose: { [weak self] in self?.complete(code: $0) },
                          cancel: { [weak self] in self?.cancel(.userCanceled) }))
     }

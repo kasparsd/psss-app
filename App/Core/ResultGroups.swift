@@ -6,7 +6,7 @@ import Foundation
 /// - "For This Site": the login's website matches the page's site.
 /// - "Other Matches": found by name, username or a search, but saved for another site or with no website. Each such login keeps a
 ///   second line, "Saved for <site>" or "No website": with the group's heading it is the check against a lookalike site, because
-///   there is one Fill button everywhere and no question before a login from another site is filled.
+///   a tap on a row fills everywhere and no question before a login from another site is filled.
 enum ResultGroups {
     struct Split {
         var thisSite: [VaultItem]

@@ -107,3 +107,53 @@ enum RowLine {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
+
+extension RowLine {
+    /// What differs, for rows that would read the same (owner, 2026-11-26, mock `#/autofill-lessons`, frame B). Two rows read the same
+    /// when their title and second line are the same text, such as two E-Klase logins for one username. Each of them gets one more
+    /// part for its second line: the website (“No website” for one without), when the websites differ; else the vault, when the
+    /// vaults differ; else “Changed <date>”. Rows that read differently get nothing, and a row that has nothing to add is left out of
+    /// the result, so a person is never shown a line that tells nothing.
+    /// - Parameters:
+    ///   - showsSite: the same flag `text(for:showsSite:)` takes, so the comparison is of what the rows really show.
+    ///   - vaultName: the vault an item sits in, or nil when the list holds one vault.
+    ///   - changed: how a change date reads. The default is the person's own date format.
+    static func differences(in items: [VaultItem], showsSite: Bool = false, vaultName: (VaultItem) -> String? = { _ in nil },
+                            changed: (Date) -> String = RowLine.changedText) -> [UUID: String] {
+        var groups: [String: [VaultItem]] = [:]
+        for item in items {
+            let key = DisplayText.title(of: item) + "\u{0}" + (text(for: item, showsSite: showsSite) ?? "")
+            groups[key, default: []].append(item)
+        }
+        var result: [UUID: String] = [:]
+        for group in groups.values where group.count > 1 {
+            let sites = group.map { HostDisplay.shown(SharedVault.host($0.website)) }
+            let vaults = group.map { vaultName($0).map { DisplayText.safe($0, empty: "") } ?? "" }
+            for (index, item) in group.enumerated() {
+                if Set(sites).count > 1 {
+                    result[item.id] = sites[index].isEmpty ? String(localized: "No website") : sites[index]
+                } else if Set(vaults).count > 1, !vaults[index].isEmpty {
+                    result[item.id] = vaults[index]
+                } else if let modified = item.modified {
+                    result[item.id] = changed(modified)
+                }
+            }
+        }
+        return result
+    }
+
+    /// The second line with `extra` after it, as the picker draws a row that would read like another one.
+    static func line(_ base: String?, extra: String?) -> String? {
+        switch (base, extra) {
+        case let (base?, extra?): return base + " · " + extra
+        case let (base?, nil): return base
+        case let (nil, extra?): return extra
+        default: return nil
+        }
+    }
+
+    /// “Changed 14 Dec 2023”: the day, month and year in the person's own format.
+    static func changedText(_ date: Date) -> String {
+        String(localized: "Changed \(date.formatted(.dateTime.day().month(.abbreviated).year()))")
+    }
+}

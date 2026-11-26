@@ -617,6 +617,46 @@ do {
     same("row line: the name is the site, so it is not repeated", row("gitforge.example", account: "sam.r", website: "https://gitforge.example", site: true), "sam.r")
     same("row line: hostile newline and bidi are removed", row("Gitforge", account: "sam\n\u{202E}r", website: ""), DisplayText.safe("sam\n\u{202E}r"))
 
+    // Rows that would read the same get what differs (owner, 2026-11-26): the website, else the vault, else the change date.
+    func login(_ title: String, _ account: String, _ website: String, modified: Date? = nil) -> VaultItem {
+        VaultItem(kind: .login, title: title, account: account, website: website, secret: "x", modified: modified)
+    }
+    func fixedDate(_ day: Int) -> Date { Date(timeIntervalSince1970: TimeInterval(1_700_000_000 + day * 86_400)) }
+    let stamp: (Date) -> String = { "Changed \(Int($0.timeIntervalSince1970))" }
+    let a1 = login("E-Klase", "071114-25629", "https://auth.e-klase.lv", modified: fixedDate(0))
+    let a2 = login("E-Klase", "071114-25629", "https://e-klase.lv", modified: fixedDate(1))
+    let a3 = login("E-Klase", "160716-25638", "https://e-klase.lv")
+    let s1 = RowLine.differences(in: [a1, a2, a3])
+    same("row differences: the website tells two like rows apart", "\(s1[a1.id] ?? "nil") | \(s1[a2.id] ?? "nil")", "auth.e-klase.lv | e-klase.lv")
+    same("row differences: a row that reads differently gets nothing", s1[a3.id], nil)
+    let b1 = login("E-Klase", "sam", "https://e-klase.lv", modified: fixedDate(0))
+    let b2 = login("E-Klase", "sam", "https://e-klase.lv", modified: fixedDate(2))
+    let s2 = RowLine.differences(in: [b1, b2], changed: stamp)
+    same("row differences: the same website, so the change date", "\(s2[b1.id] ?? "nil") | \(s2[b2.id] ?? "nil")", "\(stamp(fixedDate(0))) | \(stamp(fixedDate(2)))")
+    let s3 = RowLine.differences(in: [b1, b2], vaultName: { $0.id == b1.id ? "Home" : "Work" }, changed: stamp)
+    same("row differences: the vault comes before the change date", "\(s3[b1.id] ?? "nil") | \(s3[b2.id] ?? "nil")", "Home | Work")
+    let c1 = login("E-Klase", "sam", "", modified: fixedDate(0))
+    let c2 = login("E-Klase", "sam", "https://e-klase.lv", modified: fixedDate(0))
+    let s4 = RowLine.differences(in: [c1, c2])
+    same("row differences: a login without a website says so", "\(s4[c1.id] ?? "nil") | \(s4[c2.id] ?? "nil")", "No website | e-klase.lv")
+    let d1 = login("E-Klase", "sam", "https://e-klase.lv")
+    let d2 = login("E-Klase", "sam", "https://e-klase.lv")
+    expect("row differences: nothing differs and nothing is dated, so nothing is added", RowLine.differences(in: [d1, d2]).isEmpty, true)
+    expect("row differences: one row, none", RowLine.differences(in: [a1]).isEmpty, true)
+    expect("row differences: an empty list", RowLine.differences(in: []).isEmpty, true)
+    let e1 = login("sam", "sam", "https://auth.e-klase.lv")
+    let e2 = login("sam", "sam", "https://e-klase.lv")
+    expect("row differences: the website already in the line is compared as shown, so these differ and need nothing",
+           RowLine.differences(in: [e1, e2]).isEmpty, true)
+    let h1 = login("E-Klase", "sam\n\u{202E}r", "https://e-klase.lv", modified: fixedDate(0))
+    let h2 = login("E-Klase", "sam r", "https://e-klase.lv", modified: fixedDate(1))
+    same("row differences: hostile text is compared as it is shown (the same row line, so both are told apart by date)", String(RowLine.differences(in: [h1, h2], changed: stamp).count), "2")
+    same("row line: the extra part joins with a dot", RowLine.line("071114-25629", extra: "e-klase.lv"), "071114-25629 · e-klase.lv")
+    same("row line: only the extra part when there is no line", RowLine.line(nil, extra: "e-klase.lv"), "e-klase.lv")
+    same("row line: no extra part", RowLine.line("sam", extra: nil), "sam")
+    same("row line: nothing at all", RowLine.line(nil, extra: nil), nil)
+    expect("changed text names the day", RowLine.changedText(Date(timeIntervalSince1970: 1_702_555_200)).hasPrefix("Changed "), true)
+
     let method = "Face ID"
     same("notice: cancelled", ProviderNotices.cancelled(method: method).text, "Face ID was cancelled.")
     same("notice: password, off", ProviderNotices.needsPassword(.needsPassword(.off), name: "Work", method: method)?.text, "Face ID is off for Work. Unlock with the vault password.")

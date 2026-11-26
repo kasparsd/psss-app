@@ -193,14 +193,38 @@ struct SaveFailed: View {
     }
 }
 
-/// One login or card in a list, in the app's list row (icon, name, one line under it, the passkey glyph) with its button at the
-/// trailing end (owner, 2026-11-24, mock `#/autofill`). The button is a real, bordered button, not a word in the accent
-/// color; the default one is prominent. Tapping the name opens the item's values when `openValues` is set, else it does what the
-/// button does.
+/// The (i) at the end of a picker row (owner, 2026-11-26, mock `#/autofill-lessons`, frame B): the standard detail button, in the accent
+/// color, with no border. It opens the login's details in the sheet; tapping the row itself is the main action.
+private struct DetailButton: View {
+    let name: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "info.circle")
+                .imageScale(.large)
+                #if os(iOS)
+                .frame(minWidth: 44, minHeight: 44)
+                #else
+                .frame(minWidth: 28, minHeight: 28)
+                #endif
+                .contentShape(.rect)
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(Color.accentColor)
+        .accessibilityLabel(String(localized: "Details for \(name)"))
+        .help(String(localized: "Show Details"))
+    }
+}
+
+/// One login or card in a list, in the app's list row (icon, name, one line under it, the passkey glyph). Tapping the row does the
+/// main thing (owner, 2026-11-26, as in Apple Passwords): fill the login, sign in, use the code, or open a card's values. The (i) at
+/// the end opens the details. The row that is the one match answers Return, through a button nobody sees.
 private struct LoginRow: View {
     let item: VaultItem
     /// Shown after the account, so a login for another site says which site it belongs to.
     var showsSite = false
+    /// What a tap on the row does, which VoiceOver speaks as the row's hint ("Fill", "Choose", "Sign In", "Use Code").
     let verb: LocalizedStringKey
     var isDefault = false
     /// The line under the name when the list supplies its own (a search result with the match in bold). Nil: the account.
@@ -209,26 +233,34 @@ private struct LoginRow: View {
     var subtitleLines = 1
     /// The text searched for: the part of the name that holds it is in bold.
     var titleHighlight = ""
-    var openValues: (() -> Void)?
+    /// What tells this row from another that would read the same (`RowLine.differences`): the website, the vault or the change date.
+    var extra: String?
+    let openValues: () -> Void
     let action: () -> Void
 
     /// The second line, as the app's list draws it: the account, and the website when the name is the account (or the login has no
-    /// account). A list that shows other sites' logins (`showsSite`) always adds the website after the account.
+    /// account). A list that shows other sites' logins (`showsSite`) always adds the website after the account. A row that would
+    /// read like another one has what differs after it.
     private var line: Text? {
-        if let subtitle { return subtitle }
-        guard let text = RowLine.text(for: item, showsSite: showsSite) else { return nil }
+        if let subtitle {
+            guard let extra else { return subtitle }
+            return Text("\(subtitle) · \(Text(verbatim: extra))")
+        }
+        guard let text = RowLine.line(RowLine.text(for: item, showsSite: showsSite), extra: extra) else { return nil }
         return Text(verbatim: text)
     }
 
     var body: some View {
-        ItemListRow(item: item, subtitle: line, subtitleLines: subtitleLines, titleHighlight: titleHighlight,
+        ItemListRow(item: item, subtitle: line, subtitleLines: extra == nil ? subtitleLines : max(subtitleLines, 2),
+                    titleHighlight: titleHighlight,
                     glyphs: item.passkey == nil ? [] : [.passkey], glyphColumns: [.passkey],
-                    open: openValues ?? action) {
-            let button = Button(verb, action: action)
+                    open: action, openHint: verb) {
+            DetailButton(name: DisplayText.title(of: item), action: openValues)
+        }
+        .background {
             if isDefault {
-                button.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-            } else {
-                button.buttonStyle(.bordered)
+                Button(action: action) { Text(verbatim: "") }.keyboardShortcut(.defaultAction)
+                    .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true)
             }
         }
     }
@@ -252,28 +284,123 @@ private struct ValueRow: View {
     }
 }
 
-/// The values of one item, to fill the whole login or to use one value. On a page that is not encrypted, `lines` holds the network
-/// warning above the buttons: this screen is the confirmation, so the person sees it before choosing. `fill` is nil for a card, which has no login to fill. The Vault row is on this
-/// screen too; choosing another vault there returns to that vault's list.
+/// The eye beside a hidden value (owner-approved exception, 2026-11-23): Show and Hide, with a label and a tooltip.
+private struct ShowButton: View {
+    let name: String
+    @Binding var revealed: Bool
+
+    var body: some View {
+        let title = revealed ? String(localized: "Hide \(name)") : String(localized: "Show \(name)")
+        Button { revealed.toggle() } label: {
+            Image(systemName: revealed ? "eye.slash" : "eye")
+                #if os(iOS)
+                .frame(minWidth: 44, minHeight: 44)
+                #else
+                .frame(minWidth: 28, minHeight: 28)
+                #endif
+                .contentShape(.rect)
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(Color.accentColor)
+        .accessibilityLabel(title)
+        .help(title)
+    }
+}
+
+/// The details of one item, read-only, then its values (owner, 2026-11-26, mock `#/autofill-lessons`, frame C): the icon, then for a
+/// login the username, the password hidden until the eye is used, the website; for both kinds the vault and when it last changed. Then
+/// the main button (`fill`, "Fill Username and Password" unless `fillTitle` says otherwise) and, unless `showsValues` is off, one Use
+/// row per value. On a page that is not encrypted, `lines` holds the network warning above the buttons: this screen is the
+/// confirmation, so the person sees it before choosing. `fill` is nil for a card, which has no login to fill. The Vault row is on this
+/// screen too; choosing another vault there returns to that vault's list. The password is shown only after the eye, and hides again
+/// when the screen goes away or the sheet leaves the foreground.
 private struct ItemValues: View {
     let item: VaultItem
     let lines: [ConfirmLine]
     let fill: (() -> Void)?
+    var fillTitle: LocalizedStringKey = "Fill Username and Password"
+    /// False where a single value cannot be put anywhere (the code list).
+    var showsValues = true
     /// "Use" when the value is inserted into the field the person tapped, "Copy" when it goes to the clipboard.
     let verb: LocalizedStringKey
     let use: (PickerValue) -> Void
     let cancel: () -> Void
     let back: () -> Void
     var vaults: ProviderVaultSwitch?
+    /// The vault's name, when the screen has no Vault row (one vault).
+    var vaultName: String?
+
+    @State private var revealed = false
+    @Environment(\.scenePhase) private var scenePhase
 
     private var values: [PickerValue] { PickerSearch.values(of: item) }
-    private var fillTitle: LocalizedStringKey { "Fill Username and Password" }
+
+    private var shownVault: String? {
+        let name = vaults?.name ?? vaultName.map { VaultName.sentence($0) } ?? ""
+        return name.isEmpty ? nil : name
+    }
+
+    /// The website as the picker names sites: the host in readable form, else the text made safe for one line.
+    private var shownWebsite: String? {
+        let site = item.visibleWebsite.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !site.isEmpty else { return nil }
+        let host = HostDisplay.shown(SharedVault.host(site))
+        let text = host.isEmpty ? DisplayText.safe(site, empty: "") : host
+        return text.isEmpty ? nil : text
+    }
+
+    private var password: String? { item.kind == .login ? ReleaseCheck.value(item: item, role: .password) : nil }
+
+    private func detailRow(_ label: LocalizedStringKey, _ value: String) -> some View {
+        LabeledContent { Text(verbatim: value).multilineTextAlignment(.trailing) } label: { Text(label) }
+    }
+
+    private var details: some View {
+        Section {
+            if item.kind == .login {
+                let account = DisplayText.safe(item.account, empty: "")
+                if !account.isEmpty { detailRow("Username", account) }
+                if let password {
+                    LabeledContent {
+                        HStack(spacing: 0) {
+                            Group {
+                                if revealed {
+                                    Text(verbatim: password).textSelection(.disabled).privacySensitive()
+                                } else {
+                                    Text(verbatim: "••••••••").accessibilityLabel(Text("Hidden"))
+                                }
+                            }
+                            .multilineTextAlignment(.trailing)
+                            ShowButton(name: String(localized: "Password"), revealed: $revealed)
+                        }
+                    } label: { Text("Password") }
+                }
+                if let shownWebsite { detailRow("Website", shownWebsite) }
+            }
+            if let shownVault { detailRow("Vault", shownVault) }
+            if let modified = item.modified {
+                detailRow("Changed", modified.formatted(.dateTime.day().month(.abbreviated).year()))
+            }
+        }
+    }
 
     private var list: some View {
         List {
-            #if os(macOS)
-            Section { Text(verbatim: DisplayText.title(of: item)).font(.title2.bold()) }
-            #endif
+            Section {
+                HStack {
+                    Spacer(minLength: 0)
+                    VStack(spacing: 8) {
+                        ItemIcon(item: item, size: 60)
+                        #if os(macOS)
+                        Text(verbatim: DisplayText.title(of: item)).font(.title2.bold()).multilineTextAlignment(.center)
+                        #endif
+                    }
+                    Spacer(minLength: 0)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(verbatim: DisplayText.title(of: item)))
+            }
+            .listRowBackground(Color.clear)
             if !lines.isEmpty {
                 Section {
                     ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
@@ -285,18 +412,23 @@ private struct ItemValues: View {
                     }
                 }
             }
+            details
             #if os(iOS)
             if let fill {
                 Section { InlinePrimary(title: fillTitle, action: fill) }
                     .listRowBackground(Color.clear).listRowInsets(EdgeInsets())
             }
             #endif
-            Section {
-                ForEach(values) { value in ValueRow(value: value, verb: verb) { use(value) } }
-            } header: {
-                SectionHead(text: fill == nil ? String(localized: "Use one value") : String(localized: "Or use one value"))
+            if showsValues {
+                Section {
+                    ForEach(values) { value in ValueRow(value: value, verb: verb) { use(value) } }
+                } header: {
+                    SectionHead(text: fill == nil ? String(localized: "Use one value") : String(localized: "Or use one value"))
+                }
             }
         }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { revealed = false } }
+        .onDisappear { revealed = false }
     }
 
     var body: some View {
@@ -438,11 +570,11 @@ extension View {
 /// passkey request pending (sites such as Google ask for a passkey first): the passkeys for the request come first under
 /// "Passkeys for <site>" with Sign In, then the same logins under "Logins", with the same search and the same confirmations.
 ///
-/// One screen. Logins saved for the site come first under "For This Site", each with a Fill button, and when exactly one matches it
+/// One screen. Logins saved for the site come first under "For This Site", each filled by tapping the row (the (i) opens its details), and when exactly one matches it
 /// is the default action. A search field (bottom on iPhone, under the Vault row on iPad and Mac) searches the whole vault by name,
 /// account and saved site; other items appear only once the person types, in a second group, "Other Matches", each saying
-/// "Saved for <site>" or "No website" (`ResultGroups`). Fill is the same button in both groups and asks nothing more: the heading and
-/// that line are the check against a lookalike site. Tapping a name opens the item's values (fill one field). On a plain `http`
+/// "Saved for <site>" or "No website" (`ResultGroups`). A tap fills the same way in both groups and asks nothing more: the heading and
+/// that line are the check against a lookalike site. The (i) opens the item's details and values (fill one field). On a plain `http`
 /// page no login is offered automatically: the page's own logins are behind a button and ask for confirmation. When the site is
 /// unknown, every login is "other". A site with nothing in this vault says so in a notice under its heading.
 struct FillList: View {
@@ -467,6 +599,8 @@ struct FillList: View {
     @FocusState private var searchFocused: Bool
     @State private var pending: Pending?
     @State private var detail: VaultItem?
+    /// The details are of a login listed under "Passkeys for <site>": its main button signs in with the passkey.
+    @State private var detailIsPasskey = false
     @State private var copied: PickerValue?
 
     init(site: FillSite, items: [VaultItem], passkeys: PasskeyChoice? = nil,
@@ -509,7 +643,7 @@ struct FillList: View {
         // A system alert cannot make Cancel visibly the preferred choice on iPhone and iPad (the default-action shortcut changes
         // nothing in the iOS 26 alert), nor both the default (Return) and the cancel button (Escape) on the Mac. So all three
         // platforms show one sheet of ours: Cancel prominent, Fill Anyway secondary. It is asked only on a page that is not
-        // encrypted; a login saved for another site is filled with the one Fill button, with no question.
+        // encrypted; a login saved for another site is filled with a tap on the row, with no question.
         Group {
             if let copied {
                 ValueCopied(label: copied.label, done: cancel)
@@ -528,7 +662,7 @@ struct FillList: View {
         ProviderScreen(heading: heading, cancel: ProviderAction(title: "Cancel", run: cancel), vaults: vaults) {
             mainContent
                 .footSearch($search, focused: $searchFocused)
-                .navigationDestination(isPresented: Binding(get: { detail != nil }, set: { if !$0 { detail = nil } })) {
+                .navigationDestination(isPresented: Binding(get: { detail != nil }, set: { if !$0 { detail = nil; detailIsPasskey = false } })) {
                     if let detail { detailView(detail) }
                 }
         }
@@ -578,7 +712,10 @@ struct FillList: View {
     @ViewBuilder private var browseSections: some View {
         if let passkeys, !passkeys.items.isEmpty {
             Section {
-                ForEach(passkeys.items) { item in LoginRow(item: item, verb: "Sign In", isDefault: passkeys.items.count == 1) { passkeys.choose(item) } }
+                ForEach(passkeys.items) { item in
+                    LoginRow(item: item, verb: "Sign In", isDefault: passkeys.items.count == 1,
+                             openValues: { detailIsPasskey = true; detail = item }) { passkeys.choose(item) }
+                }
             } header: {
                 SectionHead(text: String(localized: "Passkeys for \(HostDisplay.shown(passkeys.rpID))"))
             }
@@ -597,11 +734,12 @@ struct FillList: View {
             } else {
                 Section {
                     // Return fills the one login only when no passkey sits beside it.
-                    ForEach(siteLogins) { row($0, isDefault: siteLogins.count == 1 && passkeyItems.isEmpty) }
+                    let extras = RowLine.differences(in: siteLogins)
+                    ForEach(siteLogins) { row($0, extra: extras[$0.id], isDefault: siteLogins.count == 1 && passkeyItems.isEmpty) }
                 } header: {
                     SectionHead(text: siteLabel())
                 } footer: {
-                    ListFooter(shown: siteLogins.count, total: siteLogins.count, fallback: "Tap a name to use one value instead.")
+                    ListFooter(shown: siteLogins.count, total: siteLogins.count, fallback: "Tap a login to fill it. Tap the info button for its details.")
                 }
             }
         case .plainHTTP(let host):
@@ -615,11 +753,12 @@ struct FillList: View {
             }
             if showSiteLogins {
                 Section {
-                    ForEach(siteLogins) { row($0) }
+                    let extras = RowLine.differences(in: siteLogins)
+                    ForEach(siteLogins) { row($0, extra: extras[$0.id]) }
                 } header: {
                     SectionHead(text: siteLabel())
                 } footer: {
-                    ListFooter(shown: siteLogins.count, total: siteLogins.count, fallback: "Tap a name to use one value instead.")
+                    ListFooter(shown: siteLogins.count, total: siteLogins.count, fallback: "Tap a login to fill it. Tap the info button for its details.")
                 }
             }
         case .unknown:
@@ -634,13 +773,14 @@ struct FillList: View {
         let found = PickerSearch.matches(items, query: query, in: chosenFields)
         let shown = Array(found.prefix(PickerSearch.limit))
         let groups = ResultGroups.split(shown, host: site.host)
-        let footer = ListFooter(shown: shown.count, total: found.count, fallback: "Tap a name to use one value instead.")
+        let footer = ListFooter(shown: shown.count, total: found.count, fallback: "Tap a login to fill it. Tap the info button for its details.")
         if found.isEmpty {
             Section { Text("No items match “\(query)”.").foregroundStyle(.secondary) }
         }
         if !groups.thisSite.isEmpty {
             Section {
-                ForEach(groups.thisSite) { row($0, searchLine: resultLine(for: $0)) }
+                let extras = RowLine.differences(in: groups.thisSite)
+                ForEach(groups.thisSite) { row($0, searchLine: resultLine(for: $0), extra: extras[$0.id]) }
             } header: {
                 SectionHead(text: String(localized: "For This Site"))
             } footer: {
@@ -649,7 +789,8 @@ struct FillList: View {
         }
         if !groups.other.isEmpty {
             Section {
-                ForEach(groups.other) { row($0, searchLine: resultLine(for: $0)) }
+                let extras = RowLine.differences(in: groups.other, showsSite: true)
+                ForEach(groups.other) { row($0, searchLine: resultLine(for: $0), extra: extras[$0.id]) }
             } header: {
                 SectionHead(text: String(localized: "Other Matches"))
             } footer: {
@@ -662,11 +803,13 @@ struct FillList: View {
     /// so "Fill Username and Password" asks nothing more.
     private func detailView(_ item: VaultItem) -> some View {
         let confirmLines = item.kind == .login && plainHTTP ? [httpWarning] : []
+        let signsIn = detailIsPasskey && passkeys?.items.contains { $0.id == item.id } == true
         return ItemValues(item: item, lines: confirmLines,
-                          fill: item.kind == .login ? { detail = nil; choose(item) } : nil,
+                          fill: signsIn ? { detail = nil; passkeys?.choose(item) } : (item.kind == .login ? { detail = nil; choose(item) } : nil),
+                          fillTitle: signsIn ? "Sign In with Passkey" : "Fill Username and Password",
                           verb: insert == nil ? "Copy" : "Use",
                           use: { useValue($0, of: item) },
-                          cancel: cancel, back: { detail = nil }, vaults: vaults)
+                          cancel: cancel, back: { detail = nil; detailIsPasskey = false }, vaults: vaults, vaultName: vaultName)
     }
 
     /// Releases the one chosen value: inserted into the tapped field where the system allows, else copied.
@@ -694,14 +837,15 @@ struct FillList: View {
         return (saved, 2)
     }
 
-    private func row(_ item: VaultItem, searchLine: (text: Text, lines: Int)? = nil, isDefault: Bool = false) -> some View {
+    /// `extra` is what tells this row from another that would read the same (`RowLine.differences`).
+    private func row(_ item: VaultItem, searchLine: (text: Text, lines: Int)? = nil, extra: String? = nil, isDefault: Bool = false) -> some View {
         let isLogin = item.kind == .login
         let verb: LocalizedStringKey = isLogin ? "Fill" : "Choose"
         return LoginRow(item: item, verb: verb, isDefault: isDefault && isLogin, subtitle: searchLine?.text,
                         subtitleLines: searchLine?.lines ?? 1,
-                        titleHighlight: searchLine == nil ? "" : query,
-                        openValues: { detail = item }) {
-            if isLogin { select(item) } else { detail = item }
+                        titleHighlight: searchLine == nil ? "" : query, extra: extra,
+                        openValues: { detailIsPasskey = false; detail = item }) {
+            if isLogin { select(item) } else { detailIsPasskey = false; detail = item }
         }
     }
 
@@ -728,6 +872,7 @@ struct FillList: View {
 struct TextPicker: View {
     let items: [VaultItem]
     var vaults: ProviderVaultSwitch?
+    var vaultName: String?
     let insert: (VaultItem, String) -> Void
     let cancel: () -> Void
 
@@ -751,8 +896,10 @@ struct TextPicker: View {
                                 Text("No items match “\(query)”.").foregroundStyle(.secondary)
                             }
                         } else {
-                            ForEach(found.prefix(PickerSearch.limit)) { item in
-                                LoginRow(item: item, showsSite: true, verb: "Choose") { detail = item }
+                            let shown = Array(found.prefix(PickerSearch.limit))
+                            let extras = RowLine.differences(in: shown, showsSite: true)
+                            ForEach(shown) { item in
+                                LoginRow(item: item, showsSite: true, verb: "Choose", extra: extras[item.id], openValues: { detail = item }) { detail = item }
                             }
                         }
                     } footer: {
@@ -767,7 +914,7 @@ struct TextPicker: View {
                 if let item = detail {
                     ItemValues(item: item, lines: [], fill: nil, verb: "Use", use: { value in
                         if let text = ReleaseCheck.value(item: item, role: value.role) { insert(item, text) }
-                    }, cancel: cancel, back: { detail = nil }, vaults: vaults)
+                    }, cancel: cancel, back: { detail = nil }, vaults: vaults, vaultName: vaultName)
                 }
             }
         }
@@ -882,10 +1029,13 @@ struct CodeList: View {
     var others: [VaultItem] = []
     /// The Vault row, when there are two or more vaults.
     var vaults: ProviderVaultSwitch?
+    /// The current vault's name, for the details of a login when there is no Vault row.
+    var vaultName: String?
     let choose: (VaultItem) -> Void
     let cancel: () -> Void
 
     @State private var search = ""
+    @State private var detail: VaultItem?
     @State private var pending: VaultItem?
     @FocusState private var searchFocused: Bool
 
@@ -937,7 +1087,30 @@ struct CodeList: View {
         return String(localized: "No verification codes are saved for \(shown). Search to use a code from another login.")
     }
 
+    /// The details of a login in this list: read-only, with one button, "Use Code". A single value cannot be put anywhere from here.
+    private func codeDetails(_ item: VaultItem) -> some View {
+        ItemValues(item: item, lines: [], fill: { select(item) }, fillTitle: "Use Code", showsValues: false, verb: "Use", use: { _ in },
+                   cancel: cancel, back: { detail = nil }, vaults: vaults, vaultName: vaultName)
+    }
+
     var body: some View {
+        #if os(macOS)
+        if let detail {
+            codeDetails(detail).sheet(item: $pending) { item in confirmSheet(item) }
+        } else {
+            screen
+        }
+        #else
+        screen
+        #endif
+    }
+
+    private func confirmSheet(_ item: VaultItem) -> some View {
+        ConfirmSheet(title: "Use a code from another site?", lines: lines(for: item), confirmTitle: "Use Code Anyway",
+                     confirm: { pending = nil; choose(item) }, cancel: { pending = nil })
+    }
+
+    private var screen: some View {
         ProviderScreen(heading: "Choose a Code", cancel: ProviderAction(title: "Cancel", run: cancel), vaults: vaults) {
             VStack(spacing: 0) {
                 if ProviderLayout.inlineSearch { InlineSearchField(text: $search, focused: $searchFocused, hasPills: false) }
@@ -947,8 +1120,11 @@ struct CodeList: View {
                             if found.isEmpty {
                                 Text("No logins with a code match “\(query)”.").foregroundStyle(.secondary)
                             } else {
-                                ForEach(found.prefix(PickerSearch.limit)) { item in
-                                    LoginRow(item: item, showsSite: true, verb: isOwnSite(item) ? "Use Code" : "Use Code…") { select(item) }
+                                let shown = Array(found.prefix(PickerSearch.limit))
+                                let extras = RowLine.differences(in: shown, showsSite: true)
+                                ForEach(shown) { item in
+                                    LoginRow(item: item, showsSite: true, verb: isOwnSite(item) ? "Use Code" : "Use Code…", extra: extras[item.id],
+                                             openValues: { detail = item }) { select(item) }
                                 }
                             }
                         }
@@ -961,7 +1137,11 @@ struct CodeList: View {
                             }
                         } else {
                             Section {
-                                ForEach(items) { item in LoginRow(item: item, verb: "Use Code", isDefault: items.count == 1) { choose(item) } }
+                                let extras = RowLine.differences(in: items)
+                                ForEach(items) { item in
+                                    LoginRow(item: item, verb: "Use Code", isDefault: items.count == 1, extra: extras[item.id],
+                                             openValues: { detail = item }) { choose(item) }
+                                }
                             } header: {
                                 SectionHead(text: String(localized: "For \(HostDisplay.shown(host))"))
                             }
@@ -972,11 +1152,11 @@ struct CodeList: View {
                 }
             }
             .footSearch($search)
+            .navigationDestination(isPresented: Binding(get: { detail != nil }, set: { if !$0 { detail = nil } })) {
+                if let item = detail { codeDetails(item) }
+            }
         }
-        .sheet(item: $pending) { item in
-            ConfirmSheet(title: "Use a code from another site?", lines: lines(for: item), confirmTitle: "Use Code Anyway",
-                         confirm: { pending = nil; choose(item) }, cancel: { pending = nil })
-        }
+        .sheet(item: $pending) { item in confirmSheet(item) }
     }
 }
 

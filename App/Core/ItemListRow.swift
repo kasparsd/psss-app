@@ -24,11 +24,13 @@ struct ItemListRow<Trailing: View>: View {
     /// When set, the icon and the words open it as a button and the accessory stays its own target (a code button must not also
     /// open the login). Without it the row is plain content, for a list link or a selection to wrap.
     var open: (() -> Void)?
+    /// What VoiceOver says after the words when `open` is set: what a tap does ("Fill").
+    var openHint: LocalizedStringKey?
     @ViewBuilder var trailing: Trailing
     @Environment(\.dynamicTypeSize) private var typeSize
 
     init(item: VaultItem, subtitle: Text? = nil, subtitleSpoken: String? = nil, subtitleLines: Int = 1, titleHighlight: String = "", glyphs: [ItemTrait] = [],
-         glyphColumns: [ItemTrait] = ItemTrait.glyphColumns, open: (() -> Void)? = nil,
+         glyphColumns: [ItemTrait] = ItemTrait.glyphColumns, open: (() -> Void)? = nil, openHint: LocalizedStringKey? = nil,
          @ViewBuilder trailing: () -> Trailing) {
         self.item = item
         self.subtitle = subtitle
@@ -38,6 +40,7 @@ struct ItemListRow<Trailing: View>: View {
         self.glyphs = glyphs
         self.glyphColumns = glyphColumns
         self.open = open
+        self.openHint = openHint
         self.trailing = trailing()
     }
 
@@ -78,7 +81,11 @@ struct ItemListRow<Trailing: View>: View {
 
     @ViewBuilder
     private var opener: some View {
-        if let open { Button(action: open) { leading }.buttonStyle(.plain) } else { leading }
+        if let open {
+            Button(action: open) { leading }.buttonStyle(.plain).accessibilityHint(openHint.map { Text($0) } ?? Text(verbatim: ""))
+        } else {
+            leading
+        }
     }
 
     /// Where the words start: the icon's width and the gap after it. What moves under the words starts here, not under the icon.
