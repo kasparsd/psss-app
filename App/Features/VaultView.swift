@@ -123,6 +123,11 @@ struct VaultView: View {
     @State private var inSearchTab = false
     /// iPhone: the More tab is showing. The place underneath stays what it was.
     @State private var inMoreTab = false
+    /// The place the More tab shows as its page; nil until the person has chosen one from the popover (owner, 2026-11-26).
+    @State private var morePlace: MoreRoute?
+    /// The popover of places that tapping More opens.
+    @State private var showsMoreMenu = false
+    /// What is open inside the place the More tab shows (an item's page).
     @State private var morePath = NavigationPath()
     /// iPhone tabs. Each has its own stack, so each keeps its own open login.
     @State private var codesPath: [VaultItem.ID] = []
@@ -794,6 +799,7 @@ struct VaultView: View {
             Tab("Codes", systemImage: VaultPlace.codes.symbol, value: PhoneTab.place(.codes)) { codesTab }
             Tab("Cards", systemImage: VaultPlace.cards.symbol, value: PhoneTab.place(.cards)) { cardsTab }
             Tab("More", systemImage: "ellipsis", value: PhoneTab.more) { moreTab }
+                .popover(isPresented: $showsMoreMenu, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) { moreMenu }
             Tab(value: PhoneTab.search, role: .search) { searchTab }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
@@ -826,9 +832,16 @@ struct VaultView: View {
                 case .search: searchPath = []
                 }
             }
+            if new == .more {
+                // More is not a page of its own: tapping it opens the popover of places. With a place already chosen, More also
+                // shows that place underneath, so dismissing the popover leaves the person where they were.
+                showsMoreMenu = true
+                if morePlace != nil { inSearchTab = false; inMoreTab = true }
+                return
+            }
             switch new {
             case .place(let chosen): inSearchTab = false; inMoreTab = false; place = chosen; if chosen != .all { showsDeleted = false }
-            case .more: inSearchTab = false; inMoreTab = true
+            case .more: break
             case .search: inSearchTab = true
             }
         })
@@ -916,33 +929,16 @@ struct VaultView: View {
         }
     }
 
-    /// The More tab: the places that are not in the bar, drawn as places, not items (owner, 2026-11-26, mock `#/places`): an inset grouped
-    /// list of a symbol in the accent colour, the name and the count, with Recently Deleted in its own group. The list is top-anchored: `defaultScrollAnchor(.bottom)`
-    /// did not rest a short `List` at the foot (checked 2026-11-26), so the platform wins over the mock. A place is one more row, never one more tab. The symbols are the sidebar's.
+    /// The More tab shows the place chosen in `moreMenu` as its page (owner, 2026-11-26, mock `#/places` option B). Tapping the tab opens
+    /// that popover, so the tab never shows a list of places itself; its label stays "More". An item opens on this tab's own stack.
     private var moreTab: some View {
         NavigationStack(path: $morePath) {
-            List {
-                Section {
-                    NavigationLink(value: MoreRoute.addresses) {
-                        moreRow("Addresses", VaultPlace.addresses.symbol, count: items.count(where: { $0.kind == .address }))
-                    }
-                    NavigationLink(value: MoreRoute.wifi) {
-                        moreRow("Wi-Fi", VaultPlace.wifi.symbol, count: items.count(where: { $0.kind == .wifi }))
-                    }
-                }
-                Section {
-                    NavigationLink(value: MoreRoute.recentlyDeleted) {
-                        moreRow("Recently Deleted", VaultDestination.recentlyDeleted.symbol, count: deletedEntries.count)
-                    }
-                }
-            }
-            .listStyle(.insetGrouped)
-            .navigationTitle("More")
-            .navigationDestination(for: MoreRoute.self) { route in
-                switch route {
+            Group {
+                switch morePlace {
                 case .addresses: addressesView
                 case .wifi: wifiView
                 case .recentlyDeleted: deletedList
+                case nil: Color.clear
                 }
             }
             .navigationDestination(for: VaultItem.ID.self) { id in
@@ -952,13 +948,43 @@ struct VaultView: View {
         }
     }
 
-    /// A place in the More list. The count is plain secondary text, and absent while the place is empty.
-    private func moreRow(_ title: LocalizedStringKey, _ symbol: String, count: Int) -> some View {
-        LabeledContent {
-            if count > 0 { Text(verbatim: count.formatted()) }
-        } label: {
-            Label(title, systemImage: symbol)
+    /// The popover above the More tab: the places that are not in the bar, with their counts, and Recently Deleted apart. It stays a
+    /// popover on iPhone (not a sheet). A place is one more row, never one more tab. The symbols are the sidebar's.
+    private var moreMenu: some View {
+        VStack(spacing: 0) {
+            moreMenuRow(.addresses, "Addresses", VaultPlace.addresses.symbol, count: items.count(where: { $0.kind == .address }))
+            Divider()
+            moreMenuRow(.wifi, "Wi-Fi", VaultPlace.wifi.symbol, count: items.count(where: { $0.kind == .wifi }))
+            Divider().padding(.vertical, 4)
+            moreMenuRow(.recentlyDeleted, "Recently Deleted", VaultDestination.recentlyDeleted.symbol, count: deletedEntries.count)
         }
+        .padding(.vertical, 4)
+        .frame(minWidth: 260)
+        // A popover is sized once, so wrapped rows at the accessibility sizes overlap and a single line is cut short ("Address…"). Like
+        // Apple's own menus, it stops growing at the largest regular size (checked on the iPhone 17 simulator, 2026-11-26).
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        .presentationCompactAdaptation(.popover)
+    }
+
+    private func moreMenuRow(_ route: MoreRoute, _ title: LocalizedStringKey, _ symbol: String, count: Int) -> some View {
+        Button {
+            morePlace = route
+            morePath = NavigationPath()
+            inSearchTab = false
+            inMoreTab = true
+            showsMoreMenu = false
+        } label: {
+            HStack {
+                Label(title, systemImage: symbol)
+                Spacer(minLength: 16)
+                if count > 0 { Text(verbatim: count.formatted()).foregroundStyle(.secondary) }
+            }
+            .padding(.horizontal, 16)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(count > 0 ? RecentlyDeletedText.itemCount(count) : "")
     }
 
     /// Recently Deleted as a page of the More tab: what waits there, newest first, Restore on a swipe and in the item's own page.
@@ -974,7 +1000,7 @@ struct VaultView: View {
         }
         .itemListStyle()
         .overlay {
-            if deletedEntries.isEmpty { RecentlyDeletedEmpty { morePath = NavigationPath() } }
+            if deletedEntries.isEmpty { RecentlyDeletedEmpty { inMoreTab = false; place = .all; showsDeleted = false } }
         }
         .navigationTitle(VaultDestination.recentlyDeleted.title)
         .navigationSubtitle(RecentlyDeletedText.itemCount(deletedEntries.count))
@@ -1066,6 +1092,8 @@ struct VaultView: View {
         if usesStack {
             if inSearchTab {
                 searchPath.append(id)
+            } else if inMoreTab {
+                morePath.append(id)
             } else {
                 switch place {
                 case .all: compactPath.append(id)
@@ -1959,8 +1987,8 @@ struct VaultView: View {
             if item.kind == .wifi || item.kind == .address {
                 if usesStack {
                     inMoreTab = true
+                    morePlace = item.kind == .address ? .addresses : .wifi
                     morePath = NavigationPath()
-                    morePath.append(item.kind == .address ? MoreRoute.addresses : MoreRoute.wifi)
                     morePath.append(item.id)
                 } else {
                     place = item.kind == .address ? .addresses : .wifi
