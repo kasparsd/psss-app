@@ -32,7 +32,7 @@ Review of 2026-11-22. The native shell is a vault browser: sidebar of categories
 | 8 | Add item | Store something new in one gesture | Paste or scan, and the type is inferred. Manual entry is the fallback | One “Add” field: paste a URL, an otpauth link, a card number, or point the camera at a card (iOS). Type picker only on ambiguity |
 | 9 | Edit | Fix a field without fear | Autosave, no Save button. Every change is undoable. A field has one control | Remove the modal editor. Edit in place in the detail pane. Generator appears inline on any password field, with one tap to regenerate and use |
 | 10 | Generator | Get a strong password and move on | One tap, already a good default, already inserted | There is no generator screen. It is a button on the password field and in the signup fill sheet. Length and character rules live behind “Customize”, remembered per site |
-| 11 | Mac quick access | Find and fill without opening the app | A global shortcut opens a compact search over the same list. Return fills or copies. Escape closes | Menu bar item plus shortcut is the Mac's fastest path, faster than the window. Required for the Strongbox and 1Password crowd |
+| 11 | Mac quick access | Find and fill without opening the app | A global shortcut opens a compact search over the same list. Return copies the selected item’s password or card number. Escape closes | Menu bar item plus shortcut is the Mac's fastest path, faster than the window. Required for the Strongbox and 1Password crowd |
 | 12 | Sync | Use the vault on more than one device | One switch. Sync through iCloud is free, with no account beyond the Apple Account already on the device. A plain status line says when the vault was last synced | Appears when the person turns sync on or a second device shows up. No offer, price or paywall: monetization is undecided (see [product](product.md#business-model)) |
 | 13 | Conflict | Never lose an edit | Usually invisible. The only visible case is the same field edited on two devices | A two-line comparison, “Edited on iPhone, 14:02” against “Edited on Mac, 14:05”, one tap to keep either. Never a conflicted copy file |
 | 14 | Recently Deleted and restore | Undo a mistake | Delete is always a move. Restore is one tap. Items purge after 30 days, with the date visible | Replaces confirmation dialogs for single items. Deleting for good asks once, naming the item or giving the count. Built 2026-11-23 as package A of [approved screens](plans/approved-screens.md), validation pending |
@@ -165,6 +165,17 @@ Mocks are kept, and kept current (owner, 2026-11-24; before that a page was dele
 - The sample vault contains more than 300 logins, 10 cards, 20 notes and 30 custom items. Logins with a code each have their own seed; one makes an 8-digit code every 60 s and one has a seed that cannot make a code. Four cards are hand-made (with a security code, without one, and one expired) so Cards shows every state. Some logins carry a recent-use date.
 
 Adapted from `macos-photo-db` at `71732c0`, principally `AGENTS.md` and `docs/user-interface.md`. [Apple sidebars](https://developer.apple.com/design/human-interface-guidelines/sidebars), [Apple toolbars](https://developer.apple.com/design/human-interface-guidelines/toolbars), [Apple search fields](https://developer.apple.com/design/human-interface-guidelines/search-fields), [SwiftUI adaptive navigation](https://developer.apple.com/documentation/swiftui/navigationsplitview).
+
+### Mac menu bar and background running (approved 2026-11-26, not built)
+
+Mocks: [menu bar](../Design/Mocks/app/src/pages/MacMenuBar.tsx) (`#/menu-bar`), [background, Dock and login](../Design/Mocks/app/src/pages/MacBackground.tsx) (`#/mac-background`) and frames Q to S of `#/browser-extension`. Build rules and probes are in `docs/plans/mac-menu-bar.md`.
+
+- **Panel.** A panel under the menu bar item, also opened with ⌃⌘P, showing one vault chosen at the top. Tabs: Search, Generate, New Login. Phase 1 copies; Paste is a later step.
+- **State and locking.** Closing keeps the tab, search, open item, shown values, drafts and generated values. A lock or Quit clears them; a lock keeps generator settings. Opening the panel checks the lock time first, and Touch ID is asked only when Unlock is pressed.
+- **New Login.** One unsaved login per vault, and replacing it is asked first. Name, an eye, Update with Save as New, and Copy Password after saving. A saved site covers its subdomains, never its parent.
+- **Copying.** One status line above the footer reports every copy and when the clipboard clears.
+- **Logins for the page.** Apple Events in Safari and Chromium browsers, after the person presses Allow; the Psss extension in Firefox and Zen, which asks for tab addresses from its own button. A browser without the extension gets one card opening `psss.app/#<browser>`, shipped only once that address has something to install.
+- **Background.** One sheet after the first vault opens offers the menu bar item, opening at login and the Dock icon, all switched on, applied only by “Use These Settings”. Settings › General has the same switches, page access per browser and extension setup. Quit really quits.
 
 ### Places: All, Codes, Cards (approved 2026-11-23)
 
@@ -328,7 +339,7 @@ Principle: with one vault the app looks exactly as it does today. Every change b
 | 8 | Add item | New items go to the default vault. The editor shows the destination as a labeled row, changeable. | Hidden |
 | 9 | Edit | Same Vault row as Add. Moving an item saves it to the new vault and removes it from the old in one step, with Undo. | Hidden |
 | 10 | Generator | Unaffected. | Unaffected |
-| 11 | Mac quick access | Searches every unlocked vault. Result rows carry the vault name as in screen 6. | Unchanged |
+| 11 | Mac quick access | Shows one vault, chosen at the top of the panel (owner, 2026-11-26); a search with no results offers other open vaults that have some. | Unchanged |
 | 12 | Sync | Per-vault sync state. Turning sync off for a vault locks nothing. |
 | 13 | Conflict | Names the vault and the item. Conflicts are resolved per vault. | Unchanged |
 | 14 | Recently Deleted | One list, grouped by vault, each item says where Restore puts it. | Unchanged |

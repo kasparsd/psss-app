@@ -21,7 +21,8 @@
   "permissions": [
     "activeTab",
     "scripting",
-    "nativeMessaging"
+    "nativeMessaging",
+    "storage"
   ],
   "commands": {
     "_execute_action": {

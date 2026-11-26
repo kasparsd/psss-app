@@ -150,6 +150,9 @@ async function popupFor(pageUrl, id = devId) {
   await until(async () => (await page.eval('document.readyState')) === 'complete', 'page load');
   const target = new URL(pageUrl);
   const popup = await cdp.openTab('about:blank');
+  // Each test starts with nothing kept from the last popup.
+  await popup.goto(`chrome-extension://${id}/settings.html`);
+  await popup.eval('chrome.storage.session.clear()');
   await popup.goto(`chrome-extension://${id}/popup.html#target=${target.protocol}//${target.hostname}/*`); // match patterns have no port
   return { page, popup };
 }

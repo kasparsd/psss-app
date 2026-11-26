@@ -16,6 +16,7 @@
   const listEl = $('logins');
   const searchEl = $('search');
   const queryEl = $('q');
+  const accountEl = $('account');
   const pillsEl = $('pills');
   const resultsEl = $('results');
   const createEl = $('create');
@@ -165,6 +166,7 @@
     noticeUnlock.hidden = true;
     unlockBtn.disabled = noticeUnlock.disabled = false;
     if (!v || v.state === 'open') return true;
+    Kept.clear(api);  // seen locked: nothing typed carries over to the next unlock
     hideEverything();
     const n = notice(v, hint);
     say(n.text, n.kind);
@@ -196,7 +198,7 @@
     }
     drawVaultBar();  // the pick list shows the vault chosen now
     say('');
-    if (showVaultState()) await afterOpen();
+    if (showVaultState()) { await afterOpen(); keep(); }
   }
 
   // ---------- unlocking ----------
@@ -241,6 +243,7 @@
   async function afterOpen() {
     searchEl.hidden = false;
     await loadSite();
+    await restore();
     await runSearch();
     drawCreate();
   }
@@ -303,6 +306,8 @@
     b.dataset.field = field;
     b.addEventListener('click', () => {
       chosen.has(field) ? chosen.delete(field) : chosen.add(field);
+      stale = false;
+      keep();
       runSearch();
     });
     b.textContent = label;
@@ -321,6 +326,31 @@
   }
 
   const searching = () => queryEl.value.trim() !== '';
+
+  // ---------- kept between openings ----------
+
+  let restored = false;  // nothing is saved over what was kept before it has been read back
+  function keep() {
+    if (restored && isOpen()) Kept.save(api, origin, vaultId(), { query: queryEl.value, fields: [...chosen], account: signUp && typedAccount ? accountEl.value : '' });
+  }
+  let stale = false;  // the search on screen was typed in an earlier opening: Return must not act on it
+  let typedAccount = false;  // only a username typed here is kept; one read from the page is read again
+  async function restore() {
+    if (restored) return;
+    const kept = await Kept.load(api, origin, vaultId());
+    restored = true;
+    // Typing that began before the host answered wins over what was kept.
+    if (queryEl.value) return keep();
+    if (!kept) return;
+    queryEl.value = kept.query;
+    queryEl.select();  // typing replaces the kept search; selected before any wait, so nothing typed meanwhile is swept up
+    stale = searching();
+    for (const field of kept.fields) chosen.add(field);
+    // A username now on the page wins over one typed in an earlier opening.
+    if (signUp && kept.account && !signUp.username) { accountEl.value = kept.account; typedAccount = true; }
+  }
+  queryEl.addEventListener('input', () => { stale = false; keep(); });
+  accountEl.addEventListener('input', () => { typedAccount = true; keep(); });
   let timer;
   let latest = 0;
   queryEl.addEventListener('input', () => {
@@ -333,8 +363,10 @@
   queryEl.addEventListener('keydown', async (e) => {
     if (e.key !== 'Enter' || e.isComposing) return;
     e.preventDefault();
+    if (stale) return;
     clearTimeout(timer);
     await runSearch();
+    if (stale) return;
     const rows = [...(searching() ? resultsEl : listEl).querySelectorAll('li.row')];
     if (rows.length === 1) rows[0].querySelector('button')?.click();
   });
@@ -388,7 +420,6 @@
   // closes when focus leaves it, so saving later could lose the password. The save happens with the click. The login goes into
   // the chosen vault, which the button names with two or more vaults; when that vault already has this site and username
   // the button says Update, which changes only the password.
-  const accountEl = $('account');
   const generateEl = $('generate');
   const createdEl = $('created');
   let signUp = null;  // what the page's form said, once probed
@@ -454,6 +485,7 @@
       ? `${saved.result === 'updated' ? 'Updated' : 'Saved'} the login for ${line(account, 60)}${where}. The password is filled in.`
       : 'The password is filled in, but Psss could not save it. Do not submit the form yet.';
     generateEl.disabled = !saved.ok;
+    if (saved.ok) { typedAccount = false; keep(); }  // used: the next opening reads the page again
   }
 
   // ---------- rows ----------
@@ -589,5 +621,7 @@
   await probeSignUp();
   if (!showVaultState(badge === '!' ? 'cancelled' : undefined)) return;
   await loadSite();
+  await restore();
+  await runSearch();
   drawCreate();
 })();

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Psss Page Probe</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font: menu; font-size: 13px; width: 320px; margin: 12px; }
+    h1 { font-size: 13px; }
+    button { font: inherit; margin: 0 6px 6px 0; }
+  </style>
+</head>
+<body>
+  <h1>Use Psss with this browser</h1>
+  <p>The Psss extension tells Psss the address of the open page. Your browser will ask you to allow that.</p>
+  <button id="allow">Allow…</button>
+  <button id="remove">Remove Access</button>
+  <button id="tab">Open as a Page</button>
+  <p id="status" role="status"></p>
+  <p id="page"></p>
+  <script src="probe.js"></script>
+</body>
+</html>

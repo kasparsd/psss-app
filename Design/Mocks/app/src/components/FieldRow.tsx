@@ -7,6 +7,8 @@ import { Problem } from './Problem';
 interface FieldRowProps extends Field {
   /** Start with the value shown. */
   shown?: boolean;
+  /** Told when the eye shows or hides the value, for a container that keeps it. */
+  onShown?: (shown: boolean) => void;
   /** Start with the checkmark showing (a frame that draws "just copied"). */
   copied?: boolean;
   /** Replace the value line, e.g. a live code. */
@@ -24,7 +26,7 @@ interface FieldRowProps extends Field {
  * (its inset equals the row's leading padding), hidden values as a fixed
  * mask followed inline by an eye.
  */
-export function FieldRow({ label, value, secret, mask = DOTS, shown: shown0 = false, copied: copied0 = false, display, noCopy, action, notice }: FieldRowProps) {
+export function FieldRow({ label, value, secret, mask = DOTS, shown: shown0 = false, onShown, copied: copied0 = false, display, noCopy, action, notice }: FieldRowProps) {
   const [shown, setShown] = useState(shown0);
   const [copied, setCopied] = useState(copied0);
   const notify = useCopied();
@@ -53,7 +55,7 @@ export function FieldRow({ label, value, secret, mask = DOTS, shown: shown0 = fa
             </span>
           )}
           {secret && !display && (
-            <button className="eye" onClick={(e) => { e.stopPropagation(); setShown(!shown); }} aria-label={`${shown ? 'Hide' : 'Show'} ${lower}`} data-tip={`${shown ? 'Hide' : 'Show'} ${lower}`}>
+            <button className="eye" onClick={(e) => { e.stopPropagation(); setShown(!shown); onShown?.(!shown); }} aria-label={`${shown ? 'Hide' : 'Show'} ${lower}`} data-tip={`${shown ? 'Hide' : 'Show'} ${lower}`}>
               {shown ? <EyeOffIcon /> : <EyeIcon />}
             </button>
           )}

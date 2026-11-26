@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Psss Page Probe",
+  "version": "0.1.0",
+  "description": "Throwaway: shows the browser's question for reading tab addresses.",
+  "optional_permissions": ["tabs"],
+  "action": { "default_title": "Psss Page Probe", "default_popup": "probe.html" },
+  "browser_specific_settings": {
+    "gecko": { "id": "page-probe@psss.app", "strict_min_version": "140.0", "data_collection_permissions": { "required": ["none"] } }
+  }
+}

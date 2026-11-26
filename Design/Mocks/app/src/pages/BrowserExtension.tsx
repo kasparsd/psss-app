@@ -260,6 +260,48 @@ export function BrowserExtension() {
         </Frame>
       </Frames>
 
+      <Section title="Page access in Firefox and Zen">
+        <p>Approved 2026-11-26 with the Mac menu bar (<a href="#/menu-bar">menu bar quick search</a>), not built. The Mac app cannot ask for this permission, so the popup does, from a button. Firefox and Zen only; Chrome and Safari answer macOS instead.</p>
+      </Section>
+      <Frames>
+        <Frame label="Q · Not allowed yet" caption="Above the logins, until allowed or Not Now. Filling works either way.">
+          <Browser>
+            <XHead />
+            <Notice kind="info" action={<><button className="btn sq">Not Now</button> <button className="btn sq">Allow…</button></>}>Show logins for this page in the Psss menu bar. Psss on your Mac gets the page’s address; your browser will ask to allow access to browser tabs.</Notice>
+            <Head>For This Site</Head>
+            <div className="xp-card">
+              <XRow item={gitforge} sub="sam.r" button={<FillBtn />} />
+              <XRow item={harbor} button={<FillBtn />} last />
+            </div>
+            <XFoot />
+          </Browser>
+        </Frame>
+        <Frame label="R · The browser’s question" caption="Zen’s own words, seen on a test add-on. The popup stays open behind it.">
+          <Browser prompt={<div className="xp xp-ask" role="alertdialog" aria-label="Browser permission"><div className="t">Psss requests additional settings</div><div>New permissions: Access browser tabs</div><a href="#/browser-extension" onClick={(e) => e.preventDefault()}>Learn more</a><div><button className="btn sq">Deny</button> <button className="btn sq">Allow</button></div></div>}>
+            <XHead />
+            <Notice kind="info" action={<><button className="btn sq">Not Now</button> <button className="btn sq">Allow…</button></>}>Show logins for this page in the Psss menu bar. Psss on your Mac gets the page’s address; your browser will ask to allow access to browser tabs.</Notice>
+            <Head>For This Site</Head>
+            <div className="xp-card">
+              <XRow item={gitforge} sub="sam.r" button={<FillBtn />} />
+              <XRow item={harbor} button={<FillBtn />} last />
+            </div>
+            <XFoot />
+          </Browser>
+        </Frame>
+        <Frame label="S · After Not Now" caption="One line stays at the bottom, so access can be allowed later.">
+          <Browser>
+            <XHead />
+            <Head>For This Site</Head>
+            <div className="xp-card">
+              <XRow item={gitforge} sub="sam.r" button={<FillBtn />} />
+              <XRow item={harbor} button={<FillBtn />} last />
+            </div>
+            <div><div className="s">The Psss menu bar can’t see this page’s address.</div><button className="btn sq">Allow…</button></div>
+            <XFoot />
+          </Browser>
+        </Frame>
+      </Frames>
+
       <Section title="4. How it is built">
         <ul>
           <li>Plain HTML and CSS following the system’s look (system font, accent colour, light and dark). The icon tile is a coloured initial.</li>
@@ -350,6 +392,10 @@ export function BrowserExtension() {
       <History
         proposal
         entries={[
+          { date: '2026-11-26', text: 'Owner approved frames Q, R and S.' },
+          { date: '2026-11-26', text: 'Q shows the logins under the request, R keeps the popup open behind the browser’s question (replacing a prompt drawn in its place) with its Learn more link, and S is new: the way back after Not Now.' },
+          { date: '2026-11-26', text: 'Proposed frames Q and R: the popup asks for access to tab addresses in Firefox and Zen, so the Mac menu bar can show logins for the page.' },
+          { date: '2026-11-26', text: 'Owner: reopening the popup keeps what was on it (replacing an empty search each time): the search text, the search fields and a typed username, for the same site and vault, in session memory until the popup sees the vault locked. The kept text is selected, so typing replaces it. The popup shows no passwords, so none are kept. Frames are unchanged.' },
           { date: '2026-11-25', text: <>Built that way, mock follows. The vault pick list (frames G, G2) is a native select, which cannot draw a padlock, a location or a warning glyph: it lists names only, in the fixed order, with a check on the current vault, and the state is said by the notice; the warning glyph beside the pick list in frame O is gone too. Every request now names its vault (protocol 4): the popup fills and saves from the vault chosen in it, whichever vault the app shows, and never falls back to another one when that vault locks. Unlock applies to the vault the app shows, so choosing a vault in the popup first asks the app to show it. Replaces the open and closed padlocks and the location lines drawn in the pick list.</> },
           { date: '2026-11-25', text: <>Several vaults can be open at once (owner): the vault select lists open vaults as ready to fill and locked ones as needing unlock, and choosing a vault no longer locks the other one. New frame G2 shows both vaults open. Replaces “one current vault per device”, where choosing another vault made it the app’s vault and locked the open one. The select itself is unchanged.</> },
           { date: '2026-11-25', text: <>Fill… and its ask-first confirmation (frame B2) are replaced by grouped results with a uniform Fill, at the owner’s request. Frame B now shows “For This Site” and “Other Matches”; the second line “Saved for githosting.example” (or “No website”) stays on every Other Matches row as the lookalike-site signal. Replaces the “Fill…” button on logins saved for another site, frame B2 and its Fill Anyway card, and the one flat list.</> },

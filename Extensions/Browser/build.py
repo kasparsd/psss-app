@@ -37,7 +37,7 @@ OUT = ROOT / "build" / "browser"
 HOST_NAME = "app.psss.passwords"
 HOST_DESCRIPTION = "Psss password manager"
 TARGET_NAMES = ["chromium", "firefox", "safari"]
-EXPECTED_PERMISSIONS = {"activeTab", "scripting", "nativeMessaging"}
+EXPECTED_PERMISSIONS = {"activeTab", "scripting", "nativeMessaging", "storage"}
 ZIP_DATE = (2026, 1, 1, 0, 0, 0)  # fixed, so archives are reproducible
 
 # Where each browser looks for native messaging manifests: `<support dir>/NativeMessagingHosts`.

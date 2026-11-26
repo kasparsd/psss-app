@@ -20,7 +20,11 @@ export function CopiedPill({ text, className = '' }: { text: string; className?:
  * Wrap the content of a device frame (which must be position: relative).
  * `initial` shows the pill without a click, for frames that draw that state.
  */
-export function CopyHost({ initial, className, children }: { initial?: string; className?: string; children: ReactNode }) {
+export function CopyHost({ initial, className, onNotify, children }: {
+  initial?: string; className?: string; children: ReactNode;
+  /** A surface that reports copies in its own place gets the text and shows no pill. */
+  onNotify?: (text: string) => void;
+}) {
   const [text, setText] = useState<string | null>(initial ?? null);
   const timer = useRef<number | undefined>(undefined);
   const notify = useCallback((t: string) => {
@@ -30,7 +34,7 @@ export function CopyHost({ initial, className, children }: { initial?: string; c
   }, []);
   useEffect(() => () => window.clearTimeout(timer.current), []);
   return (
-    <NotifyContext.Provider value={notify}>
+    <NotifyContext.Provider value={onNotify ?? notify}>
       {children}
       {text && <CopiedPill key={text} text={text} className={className} />}
     </NotifyContext.Provider>

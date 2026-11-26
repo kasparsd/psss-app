@@ -25,6 +25,8 @@ import { IosSafariFill } from './pages/IosSafariFill';
 import { AddressItem } from './pages/AddressItem';
 import { SafariExtensionReminder } from './pages/SafariExtensionReminder';
 import { AutofillLessons } from './pages/AutofillLessons';
+import { MacMenuBar } from './pages/MacMenuBar';
+import { MacBackground } from './pages/MacBackground';
 
 export interface PageEntry {
   slug: string;
@@ -67,4 +69,6 @@ export const pages: PageEntry[] = [
   { slug: 'address-item', short: 'Addresses', title: 'Addresses: a new item kind', oldFile: '', status: 'Proposal (2026-11-25), not built', summary: 'An Address kind beside Login, Card, Note, Custom Item and Wi-Fi Network: where it is added and found, how it is stored in a KeePass entry, its page and editor with country-aware order, the list row, import from 1Password, and edge cases.', component: AddressItem },
   { slug: 'safari-extension-reminder', short: 'Safari extension reminder', title: 'Safari extension reminder (iPhone, iPad)', oldFile: '', status: 'Approved by the owner, 2026-11-26; built, switched off until the iOS extension exists', summary: 'A card on the Cards and Addresses places that says cards and addresses need the Psss extension in Safari, a steps sheet (iOS has no link to the switch), a Settings row, the order after AutoFill, and the Mac card\'s words beside it.', component: SafariExtensionReminder },
   { slug: 'autofill-lessons', short: 'AutoFill lessons', title: 'AutoFill picker: lessons from Apple Passwords', oldFile: '', status: 'Partly approved by the owner, 2026-11-26', summary: 'Our picker beside Apple Passwords\u2019 iOS 26 one: the site named, duplicates told apart, the login\u2019s details and New Login inside the sheet, and what the system\u2019s own list lets us change.', component: AutofillLessons },
+  { slug: 'menu-bar', short: 'Menu bar', title: 'Mac menu bar: quick search', oldFile: '', status: 'Approved 2026-11-26 (phase 1: copy and page matching), not built', summary: 'A clickable menu bar and \u2303\u2318P panel with a vault switcher and tabs (Search with logins for the page and item values to copy, Generate, New Login), the browser extension card, the later Paste, and a comparison of other apps.', component: MacMenuBar },
+  { slug: 'mac-background', short: 'Mac background', title: 'Mac: running in the background, Dock and login', oldFile: '', status: 'Approved 2026-11-26, not built', summary: 'The menu bar, open at login and Dock settings, the one-time sheet that asks, the later reminder, the approval state, and the rules for closing, locking and quitting, and a Browsers section for page logins.', component: MacBackground },
 ];
