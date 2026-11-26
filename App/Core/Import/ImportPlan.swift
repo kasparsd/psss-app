@@ -6,7 +6,7 @@ import Foundation
 enum ImportSourceKind: String, Sendable { case onePasswordPIF, csv }
 
 /// The template an item opens with in Psss.
-enum ImportItemKind: String, Sendable { case login, card, note, custom }
+enum ImportItemKind: String, Sendable { case login, card, address, note, custom }
 
 /// What a field is for. Everything that is not a standard field is `custom` and carries its own label.
 enum ImportFieldRole: String, Sendable {
@@ -118,6 +118,7 @@ struct ImportSummary: Sendable, Equatable {
     /// Logins, cards, notes and other items added.
     var logins = 0
     var cards = 0
+    var addresses = 0
     var notes = 0
     var others = 0
     /// Attachments written, in added items and in updates and merges.
@@ -159,7 +160,7 @@ struct ImportSummary: Sendable, Equatable {
     var merged = 0
 
     /// Items added.
-    var addedCount: Int { logins + cards + notes + others }
+    var addedCount: Int { logins + cards + addresses + notes + others }
     /// Items that changed the vault: added, updated or merged. Zero means nothing needs writing.
     var itemCount: Int { addedCount + updated + merged }
     /// Whether applying this changes the vault file at all.
@@ -242,6 +243,7 @@ extension ImportSummary {
         switch item.kind {
         case .login: logins += 1
         case .card: cards += 1
+        case .address: addresses += 1
         case .note: notes += 1
         case .custom: others += 1
         }

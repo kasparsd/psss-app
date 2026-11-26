@@ -31,7 +31,7 @@ private enum VaultAlert: Hashable {
 private enum PhoneTab: Hashable { case place(VaultPlace), more, search }
 
 /// Where the More tab can go: the places that are not in the bar (owner, 2026-11-24).
-private enum MoreRoute: Hashable { case wifi, recentlyDeleted }
+private enum MoreRoute: Hashable { case addresses, wifi, recentlyDeleted }
 
 /// While a page is edited in place the rest of the window is dimmed and does not react (owner, 2026-11-24).
 private struct DimsWhileEditing: ViewModifier {
@@ -177,6 +177,7 @@ struct VaultView: View {
         switch place {
         case .codes: .codes
         case .cards: .cards
+        case .addresses: .addresses
         case .wifi: .wifi
         case .all: showsDeleted ? .recentlyDeleted : VaultDestination(show: filter.show)
         }
@@ -217,7 +218,7 @@ struct VaultView: View {
                 case .all: open = compactPath.last
                 case .codes: open = codesPath.last
                 case .cards: open = cardsPath.last
-                case .wifi: open = nil
+                case .addresses, .wifi: open = nil
                 }
             }
         } else {
@@ -237,7 +238,7 @@ struct VaultView: View {
             case .all: compactPath = [id]
             case .codes: codesPath = [id]
             case .cards: cardsPath = [id]
-            case .wifi: break
+            case .addresses, .wifi: break
             }
         } else {
             selection = id
@@ -255,6 +256,7 @@ struct VaultView: View {
         switch new {
         case .codes: placeBinding.wrappedValue = .codes
         case .cards: placeBinding.wrappedValue = .cards
+        case .addresses: placeBinding.wrappedValue = .addresses
         case .wifi: placeBinding.wrappedValue = .wifi
         case .recentlyDeleted:
             placeBinding.wrappedValue = .all
@@ -819,7 +821,7 @@ struct VaultView: View {
                     scrollToTop += 1
                 case .place(.codes): codesPath = []
                 case .place(.cards): cardsPath = []
-                case .place(.wifi): break
+                case .place(.addresses), .place(.wifi): break
                 case .more: morePath = NavigationPath()
                 case .search: searchPath = []
                 }
@@ -918,6 +920,9 @@ struct VaultView: View {
     private var moreTab: some View {
         NavigationStack(path: $morePath) {
             List {
+                NavigationLink(value: MoreRoute.addresses) {
+                    moreRow("Addresses", "mappin.and.ellipse", "Where you live, work, ship to", count: items.count(where: { $0.kind == .address }))
+                }
                 NavigationLink(value: MoreRoute.wifi) {
                     moreRow("Wi-Fi", "wifi", "Network passwords", count: items.count(where: { $0.kind == .wifi }))
                 }
@@ -929,6 +934,7 @@ struct VaultView: View {
             .navigationTitle("More")
             .navigationDestination(for: MoreRoute.self) { route in
                 switch route {
+                case .addresses: addressesView
                 case .wifi: wifiView
                 case .recentlyDeleted: deletedList
                 }
@@ -1010,6 +1016,25 @@ struct VaultView: View {
             #endif
     }
 
+    private var addressesView: some View {
+        AddressesView(items: items, selection: usesStack ? nil : selectionBinding, add: { editor = VaultItem(kind: .address) })
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(usesStack ? .automatic : .inline)
+            .toolbar {
+                if usesStack {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button { editor = VaultItem(kind: .address) } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "plus")
+                                Text("Add address")
+                            }
+                        }
+                    }
+                }
+            }
+            #endif
+    }
+
     private var wifiView: some View {
         WifiView(items: items, selection: usesStack ? nil : selectionBinding, add: { editor = VaultItem(kind: .wifi) })
             #if os(iOS)
@@ -1047,7 +1072,7 @@ struct VaultView: View {
                 case .all: compactPath.append(id)
                 case .codes: codesPath.append(id)
                 case .cards: cardsPath.append(id)
-                case .wifi: morePath.append(id)
+                case .addresses, .wifi: morePath.append(id)
                 }
             }
         } else {
@@ -1123,6 +1148,10 @@ struct VaultView: View {
             let withCode = items.filter { $0.traits.contains(.code) }
                 .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
             return unique(RecentlyUsed.visible(snapshot: nil, in: withCode) + withCode)
+        }
+        if place == .addresses {
+            let ordered = AddressesOrder.ordered(items)
+            return unique(ordered.recent + ordered.all)
         }
         if place == .wifi {
             return items.filter { $0.kind == .wifi }
@@ -1312,6 +1341,8 @@ struct VaultView: View {
                         itemResults(results)
                     } else if place == .codes {
                         codesView
+                    } else if place == .addresses {
+                        addressesView
                     } else if place == .wifi {
                         wifiView
                     } else {
@@ -1658,6 +1689,9 @@ struct VaultView: View {
         if item.kind == .creditCard {
             link(item.id, section) { CardListRow(card: item) }
                 .itemRowInsets(first: first, last: last)
+        } else if item.kind == .address, !isSearching {
+            link(item.id, section) { AddressListRow(address: item) }
+                .itemRowInsets(first: first, last: last)
         } else {
             let subtitle = isSearching ? searchSubtitle(item, query: search, chosen: searchFields) : (item.visibleAccount.isEmpty ? Text(item.kind.label) : Text(verbatim: item.visibleAccount))
             if isSearching, item.makesCode {
@@ -1923,19 +1957,19 @@ struct VaultView: View {
             // widened when they would hide it).
             inSearchTab = false
             inMoreTab = false
-            if item.kind == .wifi {
+            if item.kind == .wifi || item.kind == .address {
                 if usesStack {
                     inMoreTab = true
                     morePath = NavigationPath()
-                    morePath.append(MoreRoute.wifi)
+                    morePath.append(item.kind == .address ? MoreRoute.addresses : MoreRoute.wifi)
                     morePath.append(item.id)
                 } else {
-                    place = .wifi
+                    place = item.kind == .address ? .addresses : .wifi
                 }
             } else if item.kind == .creditCard {
                 place = .cards
             } else {
-                if place == .cards || place == .wifi || (place == .codes && !item.traits.contains(.code)) { place = .all }
+                if place == .cards || place == .addresses || place == .wifi || (place == .codes && !item.traits.contains(.code)) { place = .all }
                 // Show the saved item: the filter is widened as little as it takes (its kind, then no With), and never Recently Deleted.
                 if place == .all {
                     showsDeleted = false
@@ -2071,7 +2105,7 @@ private struct ItemDetail: View {
         _draft = State(initialValue: item)
     }
 
-    private enum FieldID: Hashable { case value(ItemField), code, totpSecret, totpLink, wifiSecurity, wifiHidden }
+    private enum FieldID: Hashable { case value(ItemField), code, totpSecret, totpLink, wifiSecurity, wifiHidden, copyAddress }
 
     /// The groups of the page, each its own card, in this order (owner, 2026-11-24): what you copy to sign in or pay (website,
     /// username, password; a card's number, expiry, security code and name); a login's verification code; the notes (a note's text);
@@ -2091,7 +2125,8 @@ private struct ItemDetail: View {
     private var canSave: Bool { draft.canSave }
 
     private var canMap: Bool {
-        item.fieldMappingNeedsReview == true || item.fieldMapping != nil || item.sourceFields?.contains(where: { !$0.value.isEmpty }) == true
+        // An address is never shown as a card or a login.
+        item.kind != .address && (item.fieldMappingNeedsReview == true || item.fieldMapping != nil || item.sourceFields?.contains(where: { !$0.value.isEmpty }) == true)
     }
 
     /// One button opens the sheet; its words say what the sheet offers (owner, 2026-11-24).
@@ -2226,7 +2261,9 @@ private struct ItemDetail: View {
         if groupsShown.isEmpty {
             Section {} header: { ItemIdentity(item: item) }
         }
-        if groupsShown.contains(.values) {
+        if item.kind == .address {
+            addressSections
+        } else if groupsShown.contains(.values) {
             Section {
                 ForEach(item.firstCardRows, id: \.self) { entry in
                     if entry.isSet { field(entry.field) } else { unsetField(entry.field) }
@@ -2288,6 +2325,27 @@ private struct ItemDetail: View {
                     Text("One or more mapped fields changed. Choose the fields again.").foregroundStyle(.secondary)
                 }
                 Button(mappingLabel, action: beginFieldMapping)
+            }
+        }
+    }
+
+    /// An address: name and organization; the address with Copy Address; email and phone; whatever else an import brought. The icon
+    /// and name lead above the first card that is there.
+    @ViewBuilder
+    private var addressSections: some View {
+        let groups = item.addressViewGroups()
+        ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
+            Section {
+                ForEach(group, id: \.self) { entry in
+                    if entry.isSet { field(entry.field) } else { unsetField(entry.field) }
+                }
+                if group.contains(where: { $0.field == .country }), item.hasPostalAddress {
+                    Button("Copy Address", systemImage: "doc.on.doc") {
+                        copy(item.addressEnvelope(), as: .copyAddress, name: String(localized: "Address"))
+                    }
+                }
+            } header: {
+                if index == 0 { ItemIdentity(item: item) }
             }
         }
     }
@@ -2363,8 +2421,11 @@ private struct ItemDetail: View {
 
     /// One of the item's own values, under the name its kind gives it. A card's expiry is shown as MM/YY; protected values are hidden.
     private func field(_ field: ItemField) -> some View {
-        let value = field == .expiry || field == .validFrom ? CardExpiry.displayed(item[field]) : item[field]
-        return row(.value(field), field.label(for: item.kind), value,
+        var value = field == .expiry || field == .validFrom ? CardExpiry.displayed(item[field]) : item[field]
+        // The street is one value of up to two lines, and the country is shown by its name.
+        if field == .street { value = item.address.street }
+        if field == .country { value = item.address.shownCountry }
+        return row(.value(field), field.label(for: item.kind, layout: item.kind == .address ? item.address.layout() : nil), value,
                    hidden: field == .secret || field == .securityCode || field == .pin || item.concealedFields?.contains(field.rawValue) == true,
                    notice: item.mappedValueNotice(for: field))
     }
@@ -2397,13 +2458,13 @@ private struct ItemDetail: View {
 
     /// A recognized field with no value: "Not set" and an Add that opens Edit with this field focused (owner, 2026-11-24).
     private func unsetField(_ field: ItemField) -> some View {
-        UnsetFieldRow(label: field.label(for: item.kind)) { beginEditing(at: field) }
+        UnsetFieldRow(label: field.label(for: item.kind, layout: item.kind == .address ? item.address.layout() : nil)) { beginEditing(at: field) }
     }
 
     /// A field is one row with a copy icon at its end. Protected values stay hidden until a deliberate reveal.
-    private func row(_ id: FieldID, _ label: LocalizedStringResource, _ value: String, hidden: Bool = false, notice: String? = nil) -> some View {
+    private func row(_ id: FieldID, _ label: LocalizedStringResource, _ value: String, shown: String? = nil, hidden: Bool = false, notice: String? = nil) -> some View {
         let isSecret = id == .value(.secret)
-        return FieldRow(label: label, value: value, shown: isSecret ? item.spacedSecret : value,
+        return FieldRow(label: label, value: value, shown: shown ?? (isSecret ? item.spacedSecret : value),
                         masked: isSecret ? item.maskedSecret : VaultItem.hiddenMask,
                         hidden: hidden,
                         revealed: Binding(get: { revealed.contains(id) },

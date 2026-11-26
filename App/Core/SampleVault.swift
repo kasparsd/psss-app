@@ -20,6 +20,22 @@ enum SampleVault {
         })
     }
 
+    /// Fictional addresses: with a label and a name, with a label alone, and with a name alone.
+    private static var sampleAddresses: [VaultItem] {
+        func address(_ title: String, _ name: String, _ part: PostalAddress) -> VaultItem {
+            var item = VaultItem(kind: .address, title: title, account: name)
+            item.address = part
+            return item
+        }
+        return [
+            address("Home", "Alex Example", PostalAddress(street: "12 Harbour Road", city: "Riga", postalCode: "LV-1010", country: "LV",
+                                                          email: "alex@example.net", phone: "+371 2000 0000")),
+            address("Parents", "Maria Example", PostalAddress(street: "2210 Maple Avenue\nApt 4B", city: "Portland", region: "OR", postalCode: "97201",
+                                                              country: "US", phone: "+1 503 555 0100")),
+            address("Cabin", "", PostalAddress(street: "Lake Road 7", city: "Sigulda", postalCode: "LV-2150", country: "LV"))
+        ]
+    }
+
     /// The cards: with and without a security code, and one that has expired. Test numbers only.
     private static var sampleCards: [VaultItem] {
         [
@@ -61,7 +77,7 @@ enum SampleVault {
             VaultItem(kind: .wifi, title: "Home", account: "Harbor-5G", secret: "demo-harbor-light-4821", lastUsed: .now.addingTimeInterval(-3000), useCount: 4),
             VaultItem(kind: .wifi, account: "studio-guest", secret: "demo-studio-guest-77"),
             VaultItem(kind: .wifi, title: "Cabin", account: "Cabin Net", secret: "", wifiSecurity: .none)
-        ] + (1...298).map { index in
+        ] + sampleAddresses + (1...298).map { index in
             let services = ["Atlas Mail", "Cedar Bank", "Daybreak Studio", "Elm Hosting",
                             "Fern Market", "Harbor Books", "Maple Transit", "Northstar Journal",
                             "Postbox", "River Cinema", "Summit Travel", "Willow Works",

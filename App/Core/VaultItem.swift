@@ -1,7 +1,7 @@
 import Foundation
 
 enum ItemKind: String, CaseIterable, Identifiable, Sendable, Codable {
-    case login, creditCard, secureNote, keePassEntry, wifi
+    case login, creditCard, address, secureNote, keePassEntry, wifi
 
     var id: Self { self }
 
@@ -10,10 +10,46 @@ enum ItemKind: String, CaseIterable, Identifiable, Sendable, Codable {
         switch self {
         case .login: String(localized: "Login")
         case .creditCard: String(localized: "Card")
+        case .address: String(localized: "Address")
         case .secureNote: String(localized: "Note")
         case .keePassEntry: String(localized: "Custom item")
         case .wifi: String(localized: "Wi-Fi network")
         }
+    }
+}
+
+/// The parts of an address that are not already the item's title (label), `account` (full name) or `notes`. Address items only.
+/// Stored as plain named strings (`EntryMapping`), none of them protected. `street` holds up to two lines in one value, the second
+/// being the apartment or suite. `country` is a two-letter code when it came from the picker, else the text as imported.
+struct PostalAddress: Codable, Equatable, Sendable {
+    var organization = ""
+    var street = ""
+    var city = ""
+    var region = ""
+    var postalCode = ""
+    var country = ""
+    var email = ""
+    var phone = ""
+
+    var isEmpty: Bool { self == PostalAddress() }
+
+    /// The first line of the street.
+    var streetLine1: String {
+        get { street.split(maxSplits: 1, omittingEmptySubsequences: false, whereSeparator: \.isNewline).first.map(String.init) ?? "" }
+        set { street = Self.joined(newValue, streetLine2) }
+    }
+
+    /// Everything after the first line: the apartment or suite, and any further lines an import brought.
+    var streetLine2: String {
+        get {
+            let parts = street.split(maxSplits: 1, omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+            return parts.count > 1 ? String(parts[1]) : ""
+        }
+        set { street = Self.joined(streetLine1, newValue) }
+    }
+
+    private static func joined(_ first: String, _ second: String) -> String {
+        first.isEmpty ? second : second.isEmpty ? first : first + "\n" + second
     }
 }
 
@@ -64,6 +100,9 @@ struct VaultItem: Identifiable, Sendable, Codable {
     /// A Wi-Fi network's security and whether it hides its name, Wi-Fi only. The network name is `account` and the password `secret`.
     var wifiSecurity = WiFiSecurity.wpa
     var wifiHidden = false
+    /// An address's street, city, region, postal code, country, organization, email and phone, address items only. The label is
+    /// `title`, the full name `account`.
+    var address = PostalAddress()
     var notes = ""
     /// TOTP (RFC 6238) secret as Base32, logins only. The codes it makes are shown as the item's one-time code.
     var otpSecret = ""
@@ -128,6 +167,12 @@ struct VaultItem: Identifiable, Sendable, Codable {
         case .wifi:
             let name = visibleAccount.trimmingCharacters(in: .whitespacesAndNewlines)
             return name.isEmpty ? kind.unnamedTitle : name
+        case .address:
+            // The full name, else the first line of the street, else "Address".
+            let name = visibleAccount.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty { return name }
+            let street = address.streetLine1.trimmingCharacters(in: .whitespacesAndNewlines)
+            return street.isEmpty ? kind.unnamedTitle : street
         }
     }
 

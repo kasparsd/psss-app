@@ -46,7 +46,7 @@ enum KeePassImport {
     static func displayLabel(_ key: String, kind: ImportItemKind) -> String {
         switch key {
         case "Title": return "Title"
-        case "UserName": return kind == .card ? "Cardholder" : "Username"
+        case "UserName": return kind == .card ? "Cardholder" : kind == .address ? "Full name" : "Username"
         case "Password": return kind == .card ? "Card number" : "Password"
         case "URL": return "Website"
         case "Notes": return "Notes"
@@ -594,6 +594,7 @@ enum KeePassImport {
             // Without a site, a username or a code the reader would take the entry for a note or a custom item.
             if websites.isEmpty, username.isEmpty, item.first(.code) == nil { string(EntryMapping.typeKey, "login") }
         case .card: string(EntryMapping.typeKey, "card")
+        case .address: string(EntryMapping.typeKey, "address")
         case .note: string(EntryMapping.typeKey, "note")
         case .custom: string(EntryMapping.typeKey, "custom")
         }

@@ -408,7 +408,7 @@ export function AddressItem() {
         <Frame phone label="7 · New Address, nothing typed" caption="Save is off. One line under the heading says what is needed: a label or a full name. No field carries “(optional)”, because only this pair is asked and the line already says so. Layout is Latvia’s, the country of this device.">
           <PhoneEditor a={{ color: 5, country: 'LV' }} title="New Address" empty />
         </Frame>
-        <Frame phone label="8 · Editing Parents, a warning" caption="The email has no @. A warning in the usual style appears under it; Save still works, because the address is what the person typed. Country is a standard picker: it pushes a list of countries, searchable. Changing it from United States to Latvia would turn State and ZIP code into Postal code and City and keep the typed values.">
+        <Frame phone label="8 · Editing Parents, a warning" caption="The email has no @. A warning in the usual style appears under it; Save still works, because the address is what the person typed. Country is a standard pop-up menu of every region by name (the system draws it, the same on iPhone, iPad and Mac). Changing it from United States to Latvia would turn State and ZIP code into Postal code and City and keep the typed values.">
           <PhoneEditor a={{ ...parents, email: 'maria.karlsson' }} title="Edit Address" warn />
         </Frame>
       </Frames>
@@ -566,11 +566,12 @@ export function AddressItem() {
         <p><strong>Questions for the owner.</strong> (a) Is “Address” the right kind, or the broader “Contact” or “Identity”? (b) The position in the + Add menu, after Card. (c) A saved Region that the chosen country has no row for stays visible as “Region”: right, or should changing the country clear it? (d) Decision 9’s open point on imported Identities.</p>
       </div>
       <Against>
-        <li>None. Standard controls throughout: a native country picker (a pushed list on iPhone, a pop-up button on Mac), the system keyboard types, a macOS form for the Mac sheet, and a More row and sidebar row like Wi-Fi’s. The address layout follows Apple’s Contacts.</li>
+        <li>None. Standard controls throughout: a native country pop-up menu (the system’s menu picker on iPhone and iPad, a pop-up button on Mac), the system keyboard types, a macOS form for the Mac sheet, and a More row and sidebar row like Wi-Fi’s. The address layout follows Apple’s Contacts.</li>
       </Against>
 
       <History
         entries={[
+          { date: '2026-11-26', text: <>Built. Where the platform differs the frames follow the build: Country is the system’s standard pop-up menu on iPhone and iPad, not a pushed searchable list (a search field is a possible later step), so frame 8’s caption and the Against note were changed. Both schemes build and the unit tests pass; the check on the iPhone 17 and iPad Air 11-inch simulators has not been done yet (the simulator was not available to the build session), so no frame has been compared with a screenshot.</> },
           { date: '2026-11-26', text: <>Approved by the owner; build started. The Safari fill page now draws the row as full name and city, as decision 7 suggested. Nothing in the frames was replaced by the approval.</> },
           { date: '2026-11-25', text: <>New page, for the Safari card-and-address fill, which assumed an address item the vault does not have. Nothing replaced: today an address can only be a custom item with hand-made fields, and an imported 1Password Identity becomes a custom item with the address as one text block. Both are what this proposal would replace.</> },
         ]}

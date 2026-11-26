@@ -21,9 +21,14 @@ enum SearchField: CaseIterable, Hashable {
         switch self {
         // A nameless login's made-up name is its website or username, which have their own pills. (Logins Psss saves from a page
         // get the site as their name, see `SaveWords.newTitle`, so they count under Name.)
-        case .name: item.kind == .login ? [item.visibleTitle] : [item.visibleTitle, item.displayTitle]
+        case .name:
+            // An address is found by its label, its full name and its city, and never by street, email or phone (owner, 2026-11-26).
+            // The name made from a street is not searched either.
+            item.kind == .address ? [item.visibleTitle, item.visibleAccount, item.address.city]
+                : item.kind == .login ? [item.visibleTitle] : [item.visibleTitle, item.displayTitle]
         case .website: [item.visibleWebsite]
-        case .username: [item.visibleAccount]
+        // The full name of an address is a Name match, so an address never answers to "Username".
+        case .username: item.kind == .address ? [] : [item.visibleAccount]
         }
     }
 

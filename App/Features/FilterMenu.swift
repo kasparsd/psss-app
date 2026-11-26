@@ -11,6 +11,7 @@ extension VaultDestination {
         case .all, .logins, .notes, .custom: show?.title ?? ""
         case .codes: String(localized: "Codes")
         case .cards: String(localized: "Cards")
+        case .addresses: String(localized: "Addresses")
         case .wifi: String(localized: "Wi-Fi")
         case .recentlyDeleted: String(localized: "Recently Deleted")
         }
@@ -21,6 +22,7 @@ extension VaultDestination {
         case .all: VaultPlace.all.symbol
         case .codes: VaultPlace.codes.symbol
         case .cards: VaultPlace.cards.symbol
+        case .addresses: VaultPlace.addresses.symbol
         case .wifi: VaultPlace.wifi.symbol
         case .logins: ItemKind.login.symbol
         case .notes: ItemKind.secureNote.symbol

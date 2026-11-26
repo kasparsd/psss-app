@@ -267,6 +267,16 @@ enum EntryMapping {
     /// A Wi-Fi network: its security (`WPA`, `WEP` or `None`) and, when set, `Yes` for a network that hides its name.
     static let wifiSecurityKey = "Security"
     static let wifiHiddenKey = "Hidden network"
+    /// An address: plain named strings, none protected. The label is `Title`, the full name `UserName`; the street is one value of
+    /// up to two lines; the country is the two-letter code.
+    static let addressOrganizationKey = "Organization"
+    static let addressStreetKey = "Street"
+    static let addressCityKey = "City"
+    static let addressRegionKey = "Region"
+    static let addressPostalCodeKey = "Postal code"
+    static let addressCountryKey = "Country"
+    static let addressEmailKey = "Email"
+    static let addressPhoneKey = "Phone"
 
     // KeePassXC passkey fields, so a passkey made here opens there and the other way round.
     static let passkeyCredential = "KPEX_PASSKEY_CREDENTIAL_ID"
@@ -432,6 +442,7 @@ enum EntryMapping {
             case "note": kind = .secureNote
             case "custom": kind = .keePassEntry
             case "wifi": kind = .wifi
+            case "address": kind = .address
             case "login": kind = .login
             default:
                 if !website.isEmpty || !account.isEmpty || !otp.secret.isEmpty || passkey != nil { kind = .login }
@@ -446,6 +457,8 @@ enum EntryMapping {
         let validFromKey = plainCard ? cardValidFromKey : nil, pinKey = plainCard ? cardPINKey : nil, issuerKey = plainCard ? cardIssuerKey : nil
         let isWifi = kind == .wifi && assigned == nil
         let wifiSecurityKey = isWifi ? Self.wifiSecurityKey : nil, wifiHiddenKey = isWifi ? Self.wifiHiddenKey : nil
+        let isAddress = kind == .address && assigned == nil
+        func addressKey(_ key: String) -> String? { isAddress ? key : nil }
         let times = entry.child("Times")
         var item = VaultItem(id: id, kind: kind, title: title, account: account, website: website, secret: secret,
                              expiry: read(expiryKey), securityCode: read(securityKey),
@@ -455,6 +468,11 @@ enum EntryMapping {
                              modified: times?.child("LastModificationTime").flatMap { KeePassTime.date($0.text) })
         item.wifiSecurity = WiFiSecurity(rawValue: read(wifiSecurityKey)) ?? (isWifi && string(entry, Self.wifiSecurityKey) == nil && secret.isEmpty ? .none : .wpa)
         item.wifiHidden = read(wifiHiddenKey).lowercased() == "yes"
+        item.address = PostalAddress(
+            organization: read(addressKey(addressOrganizationKey)), street: read(addressKey(addressStreetKey)),
+            city: read(addressKey(addressCityKey)), region: read(addressKey(addressRegionKey)),
+            postalCode: read(addressKey(addressPostalCodeKey)), country: read(addressKey(addressCountryKey)),
+            email: read(addressKey(addressEmailKey)), phone: read(addressKey(addressPhoneKey)))
         item.passkey = passkey
         item.sourceFields = candidates
         item.fieldMapping = resolved
@@ -464,6 +482,10 @@ enum EntryMapping {
             ("website", websiteKey), ("expiry", expiryKey), ("securityCode", securityKey),
             ("validFrom", validFromKey), ("pin", pinKey), ("issuer", issuerKey),
             ("wifiSecurity", wifiSecurityKey), ("wifiHidden", wifiHiddenKey),
+            ("addressOrganization", addressKey(addressOrganizationKey)), ("addressStreet", addressKey(addressStreetKey)),
+            ("addressCity", addressKey(addressCityKey)), ("addressRegion", addressKey(addressRegionKey)),
+            ("addressPostalCode", addressKey(addressPostalCodeKey)), ("addressCountry", addressKey(addressCountryKey)),
+            ("addressEmail", addressKey(addressEmailKey)), ("addressPhone", addressKey(addressPhoneKey)),
         ]
         let displayed = Set(core.compactMap { $0.1 }).subtracting(
             fields.contains { $0.key == "Title" && $0.isProtected } ? ["Title"] : []
@@ -554,6 +576,17 @@ enum EntryMapping {
             case .secureNote: set(typeKey, "note")
             case .keePassEntry: set(typeKey, "custom")
             case .wifi: set(typeKey, "wifi")
+            case .address: set(typeKey, "address")
+            }
+            if item.kind == .address {
+                set(addressOrganizationKey, item.address.organization)
+                set(addressStreetKey, item.address.street)
+                set(addressCityKey, item.address.city)
+                set(addressRegionKey, item.address.region)
+                set(addressPostalCodeKey, item.address.postalCode)
+                set(addressCountryKey, item.address.country)
+                set(addressEmailKey, item.address.email)
+                set(addressPhoneKey, item.address.phone)
             }
             if item.kind == .wifi {
                 set(wifiSecurityKey, item.wifiSecurity.rawValue)
@@ -653,6 +686,7 @@ enum EntryMapping {
             && (a.kind == .creditCard ? CardExpiry.displayed(a.expiry) == CardExpiry.displayed(b.expiry) && a.securityCode == b.securityCode
                 && a.validFrom == b.validFrom && a.pin == b.pin && a.issuer == b.issuer : true)
             && (a.kind == .wifi ? a.wifiSecurity == b.wifiSecurity && a.wifiHidden == b.wifiHidden : true)
+            && (a.kind == .address ? a.address == b.address : true)
             && code(a) == code(b) && passkey(a) == passkey(b)
     }
 

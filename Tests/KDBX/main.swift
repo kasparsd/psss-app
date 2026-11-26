@@ -118,6 +118,174 @@ do {
     document.remove(full.id)
 }
 do {
+    // Addresses (owner, 2026-11-26): an ordinary entry marked PSSS_TYPE=address with plain named strings.
+    var home = VaultItem(kind: .address, title: "Home", account: "Sam Rivers")
+    home.address = PostalAddress(organization: "Harbor Studio", street: "12 Harbour Road\nFloor 3", city: "Riga", region: "", postalCode: "LV-1010",
+                                 country: "LV", email: "sam@harbor.example", phone: "+371 2000 0000")
+    home.notes = "Ring twice"
+    document.upsert(home)
+    let saved = try KDBX.save(document)
+    let again = try KDBX.open(saved, credentials: .init(password: "correct horse"))
+    let read = again.items().first { $0.id == home.id }!
+    check("address: kind survives", "\(read.kind)", "address")
+    check("address: label, full name and notes", "\(read.title)|\(read.account)|\(read.notes)", "Home|Sam Rivers|Ring twice")
+    check("address: every part survives", [read.address.organization, read.address.street, read.address.city, read.address.postalCode, read.address.country, read.address.email, read.address.phone].joined(separator: "|"),
+          "Harbor Studio|12 Harbour Road\nFloor 3|Riga|LV-1010|LV|sam@harbor.example|+371 2000 0000")
+    check("address: no part is an other field", (read.otherFields ?? []).map(\.key).joined(separator: ","), "")
+    let entry = again.rootGroup!.children(named: "Entry").first { EntryMapping.uuid(of: $0) == home.id }!
+    let strings = EntryMapping.strings(entry)
+    check("address: the stored names", ["Organization", "Street", "City", "Postal code", "Country", "Email", "Phone", "PSSS_TYPE"].map { strings[$0]?.value ?? "-" }.joined(separator: "|"),
+          "Harbor Studio|12 Harbour Road\nFloor 3|Riga|LV-1010|LV|sam@harbor.example|+371 2000 0000|address")
+    check("address: the full name is the user name", strings["UserName"]?.value ?? "-", "Sam Rivers")
+    expect("address: nothing is protected", !["Organization", "Street", "City", "Postal code", "Country", "Email", "Phone", "UserName"].contains { strings[$0]?.isProtected == true })
+    expect("address: an empty region is not stored", strings["Region"] == nil)
+    // An edit of one part alone is a change that reaches the file.
+    var edited = read
+    edited.address.city = "Sigulda"
+    again.upsert(edited)
+    let edited2 = try KDBX.open(try KDBX.save(again), credentials: .init(password: "correct horse"))
+    check("address: a city-only edit is stored", edited2.items().first { $0.id == home.id }?.address.city ?? "-", "Sigulda")
+    var cleared = edited
+    cleared.address.phone = ""
+    edited2.upsert(cleared)
+    check("address: clearing a part removes its string", EntryMapping.strings(edited2.rootGroup!.children(named: "Entry").first { EntryMapping.uuid(of: $0) == home.id }!)["Phone"] == nil ? "gone" : "kept", "gone")
+    document.remove(home.id)
+
+    // The layout follows the country.
+    func rows(_ a: PostalAddress, device: String = "LV") -> String {
+        let layout = a.layout(device: device)
+        return a.geoParts(device: device).map { part in part == .region && layout.region == nil ? "Region" : String(localized: layout.label(part)!) }.joined(separator: ",")
+    }
+    check("address layout: United States", rows(PostalAddress(country: "US")), "City,State,ZIP code")
+    check("address layout: Latvia", rows(PostalAddress(country: "LV")), "Postal code,City")
+    check("address layout: Spain", rows(PostalAddress(country: "ES")), "Postal code,City,Province")
+    check("address layout: Italy keeps Spain's order", rows(PostalAddress(country: "IT")), "Postal code,City,Province")
+    check("address layout: United Kingdom", rows(PostalAddress(country: "GB")), "Town or city,Postcode")
+    check("address layout: Canada", rows(PostalAddress(country: "CA")), "City,Province,Postal code")
+    check("address layout: Australia", rows(PostalAddress(country: "AU")), "City,State,Postcode")
+    check("address layout: Sweden is the default", rows(PostalAddress(country: "SE")), "Postal code,City")
+    check("address layout: no country uses the device's (US)", rows(PostalAddress(), device: "US"), "City,State,ZIP code")
+    check("address layout: no country uses the device's (LV)", rows(PostalAddress(), device: "LV"), "Postal code,City")
+    check("address layout: a country that is no country uses the device's", rows(PostalAddress(country: "Narnia"), device: "US"), "City,State,ZIP code")
+    check("address layout: a name is read as its country", rows(PostalAddress(country: "united states")), "City,State,ZIP code")
+    check("address layout: a region the country has no row for stays as Region", rows(PostalAddress(region: "Kurzeme", country: "LV")), "Postal code,City,Region")
+    check("address layout: Spain has a Province row, not a second Region", rows(PostalAddress(region: "Valencia", country: "ES")), "Postal code,City,Province")
+    check("address country: code in any case", "\(AddressCountry.code(for: "lv") ?? "-")\(AddressCountry.code(for: "Lv") ?? "-")", "LVLV")
+    check("address country: an unknown text is no code", AddressCountry.code(for: "Narnia") ?? "none", "none")
+    check("address country: a three-letter code is not guessed", AddressCountry.code(for: "LVA") ?? "none", "none")
+    check("address country: shown by name, unknown shown as written", "\(PostalAddress(country: "US").shownCountry)|\(PostalAddress(country: "Narnia").shownCountry)|\(PostalAddress().shownCountry)",
+          "\(Locale.current.localizedString(forRegionCode: "US") ?? "US")|Narnia|")
+    expect("address country: the picker lists every region once", Set(AddressCountry.choices.map(\.code)).count == AddressCountry.choices.count && AddressCountry.choices.count > 200)
+
+    // Rows of the editor and the page.
+    var us = VaultItem(kind: .address, title: "Parents", account: "Maria Karlsson")
+    us.address = PostalAddress(street: "2210 Maple Avenue\nApt 4B", city: "Portland", region: "OR", postalCode: "97201", country: "US", phone: "+1 503 555 0142")
+    check("address editor: groups in the page's order", us.addressEditGroups(device: "LV").map { $0.map(\.rawValue).joined(separator: ",") }.joined(separator: " / "),
+          "account,organization / street,apartment,city,region,postalCode,country / email,phone")
+    check("address page: only what is filled, country last of the address", us.addressViewGroups(device: "LV").map { $0.map { $0.field.rawValue }.joined(separator: ",") }.joined(separator: " / "),
+          "account / street,city,region,postalCode,country / phone")
+    check("address page: the street is one two-line value", us.address.street, "2210 Maple Avenue\nApt 4B")
+    check("address editor: the two street lines", "\(us.address.streetLine1)|\(us.address.streetLine2)", "2210 Maple Avenue|Apt 4B")
+    var street = PostalAddress(street: "A")
+    street.streetLine2 = "B"
+    street.streetLine1 = "C"
+    check("address editor: lines join and split", street.street, "C\nB")
+    street.streetLine1 = ""
+    check("address editor: an empty first line leaves the second as the street", street.street, "B")
+    var nocountry = VaultItem(kind: .address, title: "Gift", account: "Liene")
+    nocountry.address.city = "Riga"
+    let unset = nocountry.addressViewGroups().flatMap { $0 }.first { $0.field == .country }
+    expect("address page: no country is a Not set row", unset != nil && unset?.isSet == false)
+    expect("address page: a field never filled in has no row", !us.addressViewGroups().flatMap { $0 }.contains { $0.field == .email })
+    expect("address: no field says (optional)", ItemField.allCases.allSatisfy { !VaultItem.isOptional($0, for: .address) })
+
+    // What is needed, and what is warned.
+    expect("address: nothing typed cannot be saved", !VaultItem(kind: .address).canSave)
+    expect("address: only a street cannot be saved", { var a = VaultItem(kind: .address); a.address.street = "Lake Road 7"; return !a.canSave }())
+    expect("address: a label alone can be saved", VaultItem(kind: .address, title: "Cabin").canSave)
+    expect("address: a full name alone can be saved", VaultItem(kind: .address, account: "Liene").canSave)
+    expect("address: spaces are no name", !VaultItem(kind: .address, title: "  ", account: "\n").canSave)
+    var mail = VaultItem(kind: .address, title: "Dad")
+    mail.address.email = "dad.example"
+    expect("address: an email without @ warns", mail.emailLooksWrong)
+    expect("address: an email without @ still saves", mail.canSave)
+    mail.address.email = "dad@example.com"
+    expect("address: an email with @ does not warn", !mail.emailLooksWrong)
+    expect("address: a typed address has changes", us.hasChanges(from: { var b = us; b.address.city = "Salem"; return b }()))
+    expect("address: the same address has none", !us.hasChanges(from: us))
+    expect("address: a country typed as a name is stored as its code", { var a = us; a.address.country = "Latvia"; return a.savedForm.address.country == "LV" || AddressCountry.code(for: "Latvia") == nil }())
+    check("address: an unknown country is kept as written", { var a = us; a.address.country = "Narnia"; return a.savedForm.address.country }(), "Narnia")
+
+    // Titles and the row.
+    func line(_ title: String, _ name: String, _ city: String, street: String = "") -> String {
+        var a = VaultItem(kind: .address, title: title, account: name)
+        a.address.city = city
+        a.address.street = street
+        return "\(a.displayTitle)|\(a.addressSecondLine ?? "nil")"
+    }
+    check("address row: label, name, city", line("Home", "Sam Rivers", "Riga"), "Home|Sam Rivers \u{00B7} Riga")
+    check("address row: label and no name", line("Cabin", "", "Sigulda"), "Cabin|Sigulda")
+    check("address row: name and no label", line("", "Jonas Karlsson", "Gothenburg"), "Jonas Karlsson|Gothenburg")
+    check("address row: neither, the first street line", line("", "", "Riga", street: "Brivibas iela 21\nDz. 8"), "Brivibas iela 21|Riga")
+    check("address row: nothing at all", line("", "", ""), "Address|nil")
+    check("address row: a label and nothing else", line("Home", "", ""), "Home|nil")
+    check("address row: the street is never in the row", line("Home", "Sam", "Riga", street: "SECRET STREET 1").contains("SECRET") ? "street" : "none", "none")
+
+    // Hostile values: stored exactly, shown cleaned.
+    var hostile = VaultItem(kind: .address, title: "Ho\u{202E}me\nx", account: "Sam\u{200B} \u{202D}Rivers\r\nLine")
+    let long = String(repeating: "Calle de la Constituci\u{00F3}n ", count: 4000)
+    hostile.address = PostalAddress(organization: "Org\u{2066}", street: long + "\n" + long, city: "Ri\u{202E}ga\nBad", region: "", postalCode: "LV\u{200F}-1010", country: "LV",
+                                    email: "a@b.c\u{202E}", phone: "+371\n2000")
+    document.upsert(hostile)
+    let hostileBack = try KDBX.open(try KDBX.save(document), credentials: .init(password: "correct horse"))
+    let hostileRead = hostileBack.items().first { $0.id == hostile.id }!
+    check("address hostile: every value survives exactly", hostileRead.address == hostile.address ? "same" : "changed", "same")
+    check("address hostile: label and name survive", hostileRead.title == hostile.title && hostileRead.account == hostile.account ? "same" : "changed", "same")
+    let shown = hostileRead.addressSecondLine ?? ""
+    expect("address hostile: the row has no bidi control, no newline", !shown.unicodeScalars.contains { (0x202A...0x202E).contains($0.value) || (0x2066...0x2069).contains($0.value) || $0.value == 0x200F || $0.value == 0x200B } && !shown.contains("\n") && !shown.contains("\r"))
+    expect("address hostile: copying a very long street does not fail", hostileRead.addressEnvelope(device: "LV").count > 100_000)
+    check("address hostile: a very long street keeps its two lines", hostileRead.address.streetLine2 == long ? "two" : "other", "two")
+    expect("address hostile: search finds the city but never the street", ItemSearch.matches(hostileRead, query: "Bad") && !ItemSearch.matches(hostileRead, query: "Constituci"))
+    document.remove(hostile.id)
+
+    // Copy Address: the formatter's lines for the country, the name and organization first.
+    var env = us
+    env.address.organization = "Maple Ltd"
+    let text = env.addressEnvelope(device: "LV")
+    let lines = text.split(separator: "\n").map(String.init)
+    check("address copy: name and organization lead", lines.prefix(2).joined(separator: "|"), "Maria Karlsson|Maple Ltd")
+    expect("address copy: the street, place and country follow", text.contains("2210 Maple Avenue") && text.contains("Apt 4B") && text.contains("Portland") && text.contains("97201") && text.contains(us.address.shownCountry))
+    check("address copy: a US address ends with its country", lines.last ?? "", us.address.shownCountry)
+    expect("address copy: an address with only a name has nothing to copy", !VaultItem(kind: .address, title: "Dad", account: "Dad").hasPostalAddress)
+
+    // Search: label, full name and city, nothing else.
+    var found = VaultItem(kind: .address, title: "Parents", account: "Maria Karlsson")
+    found.address = PostalAddress(street: "Maple Avenue 1", city: "Portland", postalCode: "97201", country: "US", email: "maria@karlsson.example", phone: "+1 503 555 0142")
+    found.notes = "neighbour at 2214"
+    check("address search: label, name and city", ["parents", "karlsson", "portland"].map { ItemSearch.matches(found, query: $0) ? "y" : "n" }.joined(), "yyy")
+    check("address search: not street, email, phone, postal code or notes", ["maple", "maria@", "503", "97201", "neighbour", "2214"].map { ItemSearch.matches(found, query: $0) ? "y" : "n" }.joined(), "nnnnnn")
+    check("address search: a full-name match counts as Name, never Username", "\(ItemSearch.fields(of: found, query: "karlsson").map { $0.label }.joined(separator: ","))", SearchField.name.label)
+    var nameless = VaultItem(kind: .address)
+    nameless.address.street = "Hidden Street 9"
+    expect("address search: a name made from the street is not searched", !ItemSearch.matches(nameless, query: "Hidden"))
+
+    // The place lists A to Z, with a recent group past five.
+    var list: [VaultItem] = ["Work", "home", "Cabin", "Parents", "Gift", "Office Berlin", "Sister"].map { VaultItem(kind: .address, title: $0) }
+    list.append(VaultItem(kind: .login, title: "Not an address"))
+    let order = AddressesOrder.ordered(list)
+    check("addresses: A to Z, addresses only", order.all.map(\.title).joined(separator: ","), "Cabin,Gift,home,Office Berlin,Parents,Sister,Work")
+    check("addresses: no recent group when none was used", "\(order.recent.count)", "0")
+    let now = Date()
+    list[0].lastUsed = now.addingTimeInterval(-60)
+    list[2].lastUsed = now.addingTimeInterval(-30)
+    let used = AddressesOrder.ordered(list, now: now)
+    check("addresses: the recent group, most recent first", used.recent.map(\.title).joined(separator: ","), "Cabin,Work")
+    check("addresses: no group at five or fewer", "\(AddressesOrder.ordered(Array(list.prefix(5)), now: now).recent.count)", "0")
+    check("addresses: the sidebar counts addresses only", "\(list.count(where: { VaultDestination.addresses.includes($0) }))", "7")
+    expect("addresses: Show has no address choice", ItemShow(kind: .address) == nil)
+    expect("addresses: the kind is listed after Card in the Add menu", { let all = ItemKind.allCases; return all.firstIndex(of: .address) == all.firstIndex(of: .creditCard).map { $0 + 1 } }())
+}
+do {
     // Wi-Fi networks: stored as ordinary entries with a type marker, and shared as the standard WIFI: QR text.
     var home = VaultItem(kind: .wifi, title: "Home", account: "Harbor-5G", secret: "pa;ss:wo\\rd,\"1\"", wifiSecurity: .wpa, wifiHidden: true)
     let open = VaultItem(kind: .wifi, account: "Cabin Net", secret: "", wifiSecurity: .none)
@@ -295,7 +463,7 @@ do {
     expect("filter: and clears With when the kind is not enough", ItemFilter(show: .logins, with: .passkey).revealing(login) == ItemFilter(show: .logins))
     expect("filter: an item that is listed leaves the filter alone", ItemFilter(show: .logins, with: .notes).revealing(notedLogin) == ItemFilter(show: .logins, with: .notes))
     expect("filter: the With ticks survive their stored number", ItemWith(rawValue: ItemWith([.passkey, .notes]).rawValue) == [ItemWith.passkey, .notes])
-    check("destination: sidebar rows", "\(VaultDestination.sidebar.count)", "8")
+    check("destination: sidebar rows", "\(VaultDestination.sidebar.count)", "9")
     check("destination: kinds are Show choices", VaultDestination.allCases.compactMap(\.show).map(\.rawValue).joined(separator: ","), "all,logins,notes,custom")
 }
 do {

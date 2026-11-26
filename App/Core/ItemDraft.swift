@@ -20,6 +20,8 @@ extension VaultItem {
             clean.expiry = CardExpiry.displayed(clean.expiry)
             clean.validFrom = CardExpiry.displayed(clean.validFrom)
         }
+        // A country typed or imported as a name that is one becomes its code (owner, 2026-11-26); any other text is kept as written.
+        if clean.kind == .address, let code = clean.address.countryCode { clean.address.country = code }
         if case .setup(let setup) = TOTP.parse(otpSecret) {
             clean.otpSecret = setup.secret
             if otpSecret.lowercased().contains("otpauth://") { clean.otpSettings = setup.settings }
@@ -37,7 +39,7 @@ extension VaultItem {
         return a.title != b.title || a.account != b.account || a.website != b.website || a.secret != b.secret
             || a.expiry != b.expiry || a.securityCode != b.securityCode
             || a.validFrom != b.validFrom || a.pin != b.pin || a.issuer != b.issuer
-            || a.wifiSecurity != b.wifiSecurity || a.wifiHidden != b.wifiHidden || a.notes != b.notes
+            || a.wifiSecurity != b.wifiSecurity || a.wifiHidden != b.wifiHidden || a.address != b.address || a.notes != b.notes
             || a.otpSecret != b.otpSecret || a.otpSettings != b.otpSettings
             || (a.otherFieldEdits ?? [:]) != (b.otherFieldEdits ?? [:])
     }
@@ -50,13 +52,29 @@ extension VaultItem {
 
     /// The item holds something: a name, a value, a note, a code or a passkey. An entirely empty item cannot be saved.
     var hasContent: Bool {
-        passkey != nil || otherFields?.isEmpty == false || [title, account, website, secret, expiry, securityCode, validFrom, pin, issuer, notes, otpSecret]
+        passkey != nil || otherFields?.isEmpty == false || !address.isEmpty || [title, account, website, secret, expiry, securityCode, validFrom, pin, issuer, notes, otpSecret]
             .contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
 
     /// Save is on (owner, 2026-11-24): as soon as the item has any content, and the setup key, if one is typed, makes codes. No kind
     /// needs a name.
-    var canSave: Bool { hasContent && !totpInvalid }
+    /// An address needs a label or a full name, and nothing else (owner, 2026-11-26): a cabin with only a street and a city is a good
+    /// address once it is called Cabin.
+    var canSave: Bool {
+        if kind == .address { return hasAddressName && !totpInvalid }
+        return hasContent && !totpInvalid
+    }
+
+    /// An address has a label or a full name.
+    var hasAddressName: Bool {
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !account.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// An email that has no @ gets a warning in the form and is saved as typed.
+    var emailLooksWrong: Bool {
+        let text = address.email.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !text.isEmpty && !text.contains("@")
+    }
 
     /// The fields of the first card, in the one order the item page, edit in place and the new-item sheet share (owner, 2026-11-24).
     /// A login's verification code, the notes and a passkey are cards of their own after it; a note's text is its only card.
@@ -65,7 +83,8 @@ extension VaultItem {
         case .login, .keePassEntry: [.website, .account, .secret]
         case .creditCard: [.secret, .validFrom, .expiry, .securityCode, .pin, .account, .issuer]
         case .wifi: [.account, .secret]
-        case .secureNote: []
+        // An address is laid out by `addressEditGroups` and `addressViewGroups`.
+        case .address, .secureNote: []
         }
     }
 
@@ -75,6 +94,9 @@ extension VaultItem {
     /// A card shown from a KeePass mapping keeps its number row even when the number is empty, so the page can say so
     /// (`mappedValueNotice`).
     var filledFirstCardFields: [ItemField] {
+        if kind == .address {
+            return (addressEditGroups().flatMap { $0 } + [.website, .secret, .expiry, .securityCode, .validFrom, .pin, .issuer]).filter { !self[$0].isEmpty }
+        }
         let own = Self.firstCardFields(for: kind)
         let keepsNumber = kind == .creditCard && fieldMapping != nil
         return (own + ItemField.allCases.filter { !own.contains($0) && $0 != .notes })
@@ -93,6 +115,7 @@ extension VaultItem {
     /// fields), so nothing is offered that the entry would store under another name. What an imported item carries beyond its kind's
     /// fields follows, filled only.
     var firstCardRows: [FirstCardRow] {
+        if kind == .address { return addressViewGroups().flatMap { $0 } }
         let own = Self.firstCardFields(for: kind)
         let showsUnset = kind == .login || (kind == .creditCard && fieldMapping == nil)
         let ownRows: [FirstCardRow] = own.compactMap { field in
@@ -102,6 +125,30 @@ extension VaultItem {
         let keepsNumber = kind == .creditCard && fieldMapping != nil && self[.secret].isEmpty
         let extra = ItemField.allCases.filter { !own.contains($0) && $0 != .notes && !self[$0].isEmpty }.map { FirstCardRow(field: $0, isSet: true) }
         return (keepsNumber ? [FirstCardRow(field: .secret, isSet: true)] : []) + ownRows + extra
+    }
+
+    /// The editor's groups of an address, the same order as the page (owner, 2026-11-26): name and organization; the street in two
+    /// lines, the place rows in the order of the country and the country last; email and phone. Notes follow as their own card.
+    func addressEditGroups(device: String = AddressCountry.device) -> [[ItemField]] {
+        [[.account, .organization],
+         [.street, .apartment] + address.geoParts(device: device).map(ItemField.init(part:)) + [.country],
+         [.email, .phone]]
+    }
+
+    /// The page's groups of an address: what is filled in, in the same order, and Country always (as a quiet Not set row with Add
+    /// when empty, because it decides the layout). What an imported item carries beyond an address (a website or password) follows
+    /// as a last group so nothing stored is out of sight.
+    func addressViewGroups(device: String = AddressCountry.device) -> [[FirstCardRow]] {
+        func filled(_ fields: [ItemField]) -> [FirstCardRow] {
+            fields.filter { !self[$0].isEmpty }.map { FirstCardRow(field: $0, isSet: true) }
+        }
+        let person = filled([.account, .organization])
+        var place = address.street.isEmpty ? [] : [FirstCardRow(field: .street, isSet: true)]
+        place += filled(address.geoParts(device: device).map(ItemField.init(part:)))
+        place.append(FirstCardRow(field: .country, isSet: !address.country.isEmpty))
+        let contact = filled([.email, .phone])
+        let extra = filled([.website, .secret, .expiry, .securityCode, .validFrom, .pin, .issuer])
+        return [person, place, contact, extra].filter { !$0.isEmpty }
     }
 
     /// What is wrong with the value of a mapped card, written under its row on the item page. Saving a mapping never checks
@@ -128,8 +175,9 @@ extension VaultItem {
     static func isOptional(_ field: ItemField, for kind: ItemKind) -> Bool {
         switch field {
         case .secret: false
-        case .notes: kind != .secureNote
-        default: true
+        case .notes: kind != .secureNote && kind != .address
+        // An address asks for a label or a full name only: its one line under the heading says so, so no field says "(optional)".
+        default: kind != .address
         }
     }
 }
@@ -137,6 +185,16 @@ extension VaultItem {
 /// A value of an item that the page shows as a row and the form as a field.
 enum ItemField: String, CaseIterable, Hashable, Sendable {
     case website, account, secret, expiry, securityCode, validFrom, pin, issuer, notes
+    // An address's own fields. `street` and `apartment` are the two lines of one stored value.
+    case organization, street, apartment, city, region, postalCode, country, email, phone
+
+    init(part: AddressPart) {
+        switch part {
+        case .city: self = .city
+        case .region: self = .region
+        case .postalCode: self = .postalCode
+        }
+    }
 
     fileprivate var value: WritableKeyPath<VaultItem, String> {
         switch self {
@@ -149,6 +207,15 @@ enum ItemField: String, CaseIterable, Hashable, Sendable {
         case .pin: \.pin
         case .issuer: \.issuer
         case .notes: \.notes
+        case .organization: \.address.organization
+        case .street: \.address.streetLine1
+        case .apartment: \.address.streetLine2
+        case .city: \.address.city
+        case .region: \.address.region
+        case .postalCode: \.address.postalCode
+        case .country: \.address.country
+        case .email: \.address.email
+        case .phone: \.address.phone
         }
     }
 }

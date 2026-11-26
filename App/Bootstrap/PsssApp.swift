@@ -80,6 +80,8 @@ struct PsssApp: App {
                 Button("New Card") { newItem?(.creditCard) }
                     .keyboardShortcut("n", modifiers: [.command, .option])
                     .disabled(newItem == nil)
+                Button("New Address") { newItem?(.address) }
+                    .disabled(newItem == nil)
                 Button("New Note") { newItem?(.secureNote) }
                     .keyboardShortcut("n", modifiers: [.command, .shift])
                     .disabled(newItem == nil)

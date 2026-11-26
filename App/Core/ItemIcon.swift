@@ -7,6 +7,7 @@ extension ItemKind {
         switch self {
         case .login: "Login"
         case .creditCard: "Card"
+        case .address: "Address"
         case .secureNote: "Note"
         case .keePassEntry: "Custom item"
         case .wifi: "Wi-Fi network"
@@ -17,6 +18,7 @@ extension ItemKind {
         switch self {
         case .login: "key"
         case .creditCard: "creditcard"
+        case .address: "mappin.and.ellipse"
         case .secureNote: "note.text"
         case .keePassEntry: "doc"
         case .wifi: "wifi"

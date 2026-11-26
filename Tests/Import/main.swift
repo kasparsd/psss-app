@@ -437,7 +437,7 @@ do {
 
 do {
     let p = try plan("kinds")
-    check("kinds: seventeen custom items", "\(p.items.filter { $0.kind == .custom }.count) of \(p.items.count)", "17 of 17")
+    check("kinds: sixteen custom items and the identity, which is an address", "\(p.items.filter { $0.kind == .custom }.count) \(p.items.filter { $0.kind == .address }.count) of \(p.items.count)", "16 1 of 17")
     let unknown = p.items.flatMap(\.issues).filter { $0.kind == .unknownKind }
     check("kinds: an unknown and a numeric type are never named, the text says what happened", unknown.map { $0.detail.contains("wallet.example.Gadget") || $0.detail.contains("114") ? "named" : $0.detail }.joined(separator: ","),
           "this is an item type Psss does not know, so its fields were kept as a custom item,this is an item type Psss does not know, so its fields were kept as a custom item")
@@ -445,9 +445,18 @@ do {
     try vault.apply(p)
     let back = try reopen(vault)
     func s(_ title: String) -> Strings { strings(entry(back, title)!) }
-    check("kinds: identity text", s("Fixture Identity")["Identification: first name"]?.value ?? "", "Alex")
-    check("kinds: a date is a UTC calendar date", s("Fixture Identity")["Identification: birth date"]?.value ?? "", "1980-02-29")
-    check("kinds: an address is multi-line", s("Fixture Identity")["Address: address"]?.value ?? "", "1 Example Street\nExampleville\nEX\n00000\nlv")
+    let identity = s("Fixture Identity")
+    check("kinds: an identity is read back as an address", "\(back.items().first { $0.title == "Fixture Identity" }?.kind.rawValue ?? "-")", "address")
+    check("kinds: full name is first name, initial and last name", identity["UserName"]?.value ?? "", "Alex Q Example")
+    check("kinds: organization from company", identity["Organization"]?.value ?? "", "Example Ltd")
+    check("kinds: the address object's parts", [identity["Street"], identity["City"], identity["Region"], identity["Postal code"], identity["Country"]].map { $0?.value ?? "-" }.joined(separator: "|"),
+          "1 Example Street|Exampleville|EX|00000|LV")
+    check("kinds: email and the default phone", "\(identity["Email"]?.value ?? "") \(identity["Phone"]?.value ?? "")", "alex@example.net 555-0101")
+    check("kinds: other phones stay under their names", "\(identity["Address: home"]?.value ?? "") \(identity["Address: cell"]?.value ?? "") \(identity["Address: business"]?.value ?? "")", "555-0102 555-0103 555-0104")
+    check("kinds: a date is a UTC calendar date", identity["Identification: birth date"]?.value ?? "", "1980-02-29")
+    let filled = identity.values.map(\.value).filter { !$0.isEmpty }
+    check("kinds: no value is stored twice", "\(Set(filled).count) of \(filled.count)", "\(filled.count) of \(filled.count)")
+    check("kinds: the address is read as an address item", back.items().first { $0.title == "Fixture Identity" }.map { "\($0.account)|\($0.address.street)|\($0.address.countryCode ?? "-")|\($0.address.phone)" } ?? "-", "Alex Q Example|1 Example Street|LV|555-0101")
     check("kinds: a menu value is kept as written", s("Fixture Bank")["type"]?.value ?? "", "checking")
     expect("kinds: telephone PIN is protected", s("Fixture Bank")["telephone PIN"]?.protected == true)
     expect("kinds: database password is protected", s("Fixture Database")["password"]?.protected == true)
@@ -648,7 +657,7 @@ do {
     check("windows: card", "\(card.kind) \(card.first(.cardholder) ?? "") \(card.first(.expiry) ?? "")", "card Win Holder 05/28")
     check("windows: card has no repeated value", "\(Set(card.fields.map(\.value)).count)", "\(card.fields.count)")
     check("windows: note", item(p, "Windows note")!.first(.notes) ?? "", "windows note body")
-    check("windows: identity is a custom item", "\(item(p, "Windows identity")!.kind) \(item(p, "Windows identity")!.fields.first?.label ?? "")", "custom Identification: first name")
+    check("windows: identity is an address", "\(item(p, "Windows identity")!.kind) \(item(p, "Windows identity")!.username)", "address Win Example")
     let password = item(p, "Windows password")!
     check("windows: a password item with a website is a login", "\(password.kind) \(password.username.isEmpty) \(password.password)", "login true win-only-password")
     check("windows: router website", item(p, "Windows router")!.websites.joined(), "192.0.2.9")
@@ -976,7 +985,7 @@ do {
         let summary = try vault.apply(p)
         let back = try reopen(vault)
         check("real: every item is in the file", "\(back.items().count)", "\(summary.addedCount)")
-        check("real: kinds add up", "\(summary.logins + summary.cards + summary.notes + summary.others)", "\(p.items.count)")
+        check("real: kinds add up", "\(summary.logins + summary.cards + summary.addresses + summary.notes + summary.others)", "\(p.items.count)")
         check("real: a second import changes nothing", "\(try vault.apply(p).itemCount)", "0")
         let csv = URL(fileURLWithPath: "build/1p7-export.csv")
         if fm.fileExists(atPath: csv.path) {
@@ -993,7 +1002,7 @@ do {
 
 do {
     let table: [(title: String, fields: [String])] = [
-    ("Fixture Identity", ["Address: address=1 Example Street\nExampleville\nEX\n00000\nlv", "Address: business=555-0104", "Address: cell=555-0103", "Address: default phone=555-0101", "Address: home=555-0102", "Identification: birth date=1980-02-29", "Identification: company=Example Ltd", "Identification: department=QA", "Identification: first name=Alex", "Identification: initial=Q", "Identification: job title=Lead", "Identification: last name=Example", "Identification: occupation=Tester", "Identification: sex=male", "Internet Details: ICQ=12345", "Internet Details: email=alex@example.net", "Internet Details: reminder answer=Fixture", "Internet Details: reminder question=First pet?", "Internet Details: username=alexq", "Internet Details: website=https://alex.example.net"]),
+    ("Fixture Identity", ["Address: business=555-0104", "Address: cell=555-0103", "Address: home=555-0102", "City=Exampleville", "Country=LV", "Email=alex@example.net", "Identification: birth date=1980-02-29", "Identification: department=QA", "Identification: job title=Lead", "Identification: occupation=Tester", "Identification: sex=male", "Internet Details: ICQ=12345", "Internet Details: reminder answer=Fixture", "Internet Details: reminder question=First pet?", "Internet Details: username=alexq", "Internet Details: website=https://alex.example.net", "Organization=Example Ltd", "Phone=555-0101", "Postal code=00000", "Region=EX", "Street=1 Example Street", "UserName=Alex Q Example"]),
     ("Fixture Bank", ["*telephone PIN=2468", "Branch Information: address=2 Example Street\nExampleville", "Branch Information: phone=555-0111", "IBAN=XX00EXAMPLE00000000", "SWIFT=EXAMPLXX", "account number=11112222", "bank name=Example Bank", "name on account=Alex Example", "routing number=000000000", "type=checking"]),
     ("Fixture Database", ["*password=db-pass-fixture", "SID=FX1", "URL=db.example.net", "alias=fx", "connection options=sslmode=require", "database=fixture", "port=5432", "server=db.example.net", "type=postgresql", "username=dbuser"]),
     ("Fixture Driver Licence", ["address=3 Example Road\nExampleville\nus", "birth date=1975-07-04", "conditions / restrictions=none", "country=Exampleland", "expiry date=06/2031", "full name=Alex Example", "height=170 cm", "license class=B", "number=FX-0000-1", "sex=female", "state=EX"]),

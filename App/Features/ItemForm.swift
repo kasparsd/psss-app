@@ -2,10 +2,10 @@ import SwiftUI
 
 extension ItemField {
     /// The field's name on the item page, by kind.
-    func label(for kind: ItemKind) -> LocalizedStringResource {
+    func label(for kind: ItemKind, layout: AddressLayout? = nil) -> LocalizedStringResource {
         switch self {
         case .website: "Website"
-        case .account: kind == .creditCard ? "Name on card" : kind == .wifi ? "Network name" : "Username"
+        case .account: kind == .creditCard ? "Name on card" : kind == .wifi ? "Network name" : kind == .address ? "Full name" : "Username"
         case .secret:
             switch kind {
             case .login: "Password"
@@ -13,6 +13,7 @@ extension ItemField {
             case .keePassEntry: "Value"
             case .secureNote: "Secret"
             case .wifi: "Password"
+            case .address: "Password"
             }
         case .expiry: "Expiry"
         case .securityCode: "Security code"
@@ -20,12 +21,23 @@ extension ItemField {
         case .pin: "PIN"
         case .issuer: "Card issuer"
         case .notes: kind == .secureNote ? "Note" : "Notes"
+        case .organization: "Organization"
+        case .street: "Street"
+        case .apartment: "Apartment, suite"
+        // The place rows are named as the country names them (State, ZIP code, Province, Postcode).
+        case .city: layout?.city ?? "City"
+        case .region: layout?.region ?? "Region"
+        case .postalCode: layout?.postal ?? "Postal code"
+        case .country: "Country"
+        case .email: "Email"
+        case .phone: "Phone"
         }
     }
 
     /// The field's caption in the form: the same name, with "(optional)" on every field that may be left empty.
-    func formLabel(for kind: ItemKind) -> String {
-        let name = String(localized: label(for: kind))
+    func formLabel(for kind: ItemKind, layout: AddressLayout? = nil) -> String {
+        // The editor's Country row says what the picker also lets a person choose: a region.
+        let name = self == .country ? String(localized: "Country or region") : String(localized: label(for: kind, layout: layout))
         return VaultItem.isOptional(self, for: kind) ? String(localized: "\(name) (optional)") : name
     }
 }
@@ -38,6 +50,7 @@ extension ItemKind {
         case .creditCard: "New Card"
         case .secureNote: "New Note"
         case .keePassEntry: "New Custom Item"
+        case .address: "New Address"
         case .wifi: "New Wi-Fi Network"
         }
     }
@@ -66,7 +79,7 @@ struct ItemFields: View {
 
     var body: some View {
         Group {
-            first
+            if item.kind == .address { addressGroups } else { first }
             if item.kind == .wifi { wifiGroup }
             if item.kind == .login { codeGroup }
             if item.kind != .secureNote { Section { input(.notes) } }
@@ -98,6 +111,7 @@ struct ItemFields: View {
             case .creditCard: focused = .secret
             case .secureNote: focused = .notes
             case .wifi: focused = .account
+            case .address: focused = .account
             }
         }
     }
@@ -112,6 +126,30 @@ struct ItemFields: View {
             }
             Toggle("Hidden network", isOn: $item.wifiHidden)
         }
+    }
+
+    /// An address: the label as the heading with the one line that says what is needed, then three cards (name and organization;
+    /// street, place rows in the order of the country and the country; email and phone). Notes follow as their own card.
+    @ViewBuilder
+    private var addressGroups: some View {
+        let groups = item.addressEditGroups()
+        Section {
+            ForEach(groups[0], id: \.self) { input($0) }
+        } header: {
+            VStack(spacing: 0) {
+                ItemIdentity(item: item, name: item.concealedFields?.contains("title") == true ? nil : $item.title)
+                Text(item.hasAddressName
+                     ? "Only a label or a full name is needed. Everything else is optional."
+                     : "Add a label such as Home, or a full name, to save. Everything else is optional.")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .textCase(nil)
+            }
+        }
+        Section { ForEach(groups[1], id: \.self) { input($0) } }
+        Section { ForEach(groups[2], id: \.self) { input($0) } }
     }
 
     private var first: some View {
@@ -194,8 +232,9 @@ struct ItemFields: View {
     /// One field: its caption, with "(optional)" where it may be left empty, and the control that suits it.
     @ViewBuilder
     private func input(_ field: ItemField) -> some View {
-        let name = String(localized: field.label(for: item.kind))
-        labeled(field.formLabel(for: item.kind), info: field == .securityCode ? HelpTopics.securityCode : nil) {
+        let layout = item.kind == .address ? item.address.layout() : nil
+        let name = String(localized: field.label(for: item.kind, layout: layout))
+        labeled(field.formLabel(for: item.kind, layout: layout), info: field == .securityCode ? HelpTopics.securityCode : nil) {
             if item.concealedFields?.contains(field.rawValue) == true && field != .secret && field != .securityCode && field != .pin {
                 SecureField(name, text: Binding(get: { item[field] }, set: { item[field] = $0 })).secretEntry()
             } else {
@@ -208,7 +247,13 @@ struct ItemFields: View {
                         #endif
                         .autocorrectionDisabled()
                 case .account:
-                    if item.kind == .creditCard {
+                    if item.kind == .address {
+                        TextField(name, text: $item.account, prompt: Text(verbatim: ""))
+                            #if os(iOS)
+                            .textContentType(.name)
+                            .textInputAutocapitalization(.words)
+                            #endif
+                    } else if item.kind == .creditCard {
                         TextField(name, text: $item.account, prompt: Text(verbatim: ""))
                             .autocorrectionDisabled()
                     } else {
@@ -254,6 +299,55 @@ struct ItemFields: View {
                         #endif
                 case .issuer:
                     TextField(name, text: $item.issuer, prompt: Text(verbatim: ""))
+                case .organization:
+                    addressText(name, $item.address.organization, words: true)
+                        #if os(iOS)
+                        .textContentType(.organizationName)
+                        #endif
+                case .street:
+                    addressText(name, $item.address.streetLine1, words: true)
+                        #if os(iOS)
+                        .textContentType(.streetAddressLine1)
+                        #endif
+                case .apartment:
+                    addressText(name, $item.address.streetLine2, words: true)
+                        #if os(iOS)
+                        .textContentType(.streetAddressLine2)
+                        #endif
+                case .city:
+                    addressText(name, $item.address.city, words: true)
+                        #if os(iOS)
+                        .textContentType(.addressCity)
+                        #endif
+                case .region:
+                    addressText(name, $item.address.region, words: true)
+                        #if os(iOS)
+                        .textContentType(.addressState)
+                        #endif
+                case .postalCode:
+                    addressText(name, $item.address.postalCode, words: false)
+                        #if os(iOS)
+                        .textContentType(.postalCode)
+                        #endif
+                case .country:
+                    countryPicker
+                case .email:
+                    VStack(alignment: .leading, spacing: 4) {
+                        addressText(name, $item.address.email, words: false)
+                            #if os(iOS)
+                            .textContentType(.emailAddress)
+                            .keyboardType(.emailAddress)
+                            #endif
+                        if item.emailLooksWrong {
+                            Label("This doesn\u{2019}t look like an email address. It is saved as typed.", systemImage: "exclamationmark.triangle")
+                        }
+                    }
+                case .phone:
+                    addressText(name, $item.address.phone, words: false)
+                        #if os(iOS)
+                        .textContentType(.telephoneNumber)
+                        .keyboardType(.phonePad)
+                        #endif
                 case .notes:
                     TextField(name, text: $item.notes, prompt: Text(verbatim: ""), axis: .vertical)
                         .lineLimit(item.kind == .secureNote ? 6...20 : 3...8)
@@ -261,6 +355,28 @@ struct ItemFields: View {
             }
         }
         .focused($focused, equals: field)
+    }
+
+    /// A plain address field: words capitalised where it is a name or a place, and never autocorrected (a street is not a word).
+    private func addressText(_ name: String, _ text: Binding<String>, words: Bool) -> some View {
+        TextField(name, text: text, prompt: Text(verbatim: ""))
+            .autocorrectionDisabled()
+            #if os(iOS)
+            .textInputAutocapitalization(words ? .words : .never)
+            #endif
+    }
+
+    /// The country or region: a standard pop-up menu of the ISO regions by name, stored as the two-letter code. A country that came
+    /// in as text that is no known country is listed as written, so choosing nothing never loses it.
+    private var countryPicker: some View {
+        let unknown = item.address.countryCode == nil && !item.address.country.isEmpty ? item.address.country : nil
+        return Picker("Country or region", selection: Binding(get: { item.address.countryCode ?? item.address.country },
+                                                                set: { item.address.country = $0 })) {
+            Text("Not set").tag("")
+            if let unknown { Text(verbatim: unknown).tag(unknown) }
+            ForEach(AddressCountry.choices, id: \.code) { Text(verbatim: $0.name).tag($0.code) }
+        }
+        .pickerStyle(.menu)
     }
 
     /// A visible caption above each field, like the item page, so a filled field never loses its name.
@@ -363,8 +479,11 @@ struct NewItemSheet: View {
     @State private var confirmsDiscard = false
 
     init(item: VaultItem, onSave: @escaping (VaultItem) -> Void, onKeepDraft: @escaping (VaultItem) -> Void) {
-        _item = State(initialValue: item)
-        _baseline = State(initialValue: item)
+        // A new address starts with the country of this device, so its rows are in the right order before anything is typed.
+        var start = item
+        if start.kind == .address, start.address.country.isEmpty { start.address.country = AddressCountry.device }
+        _item = State(initialValue: start)
+        _baseline = State(initialValue: start)
         self.onSave = onSave
         self.onKeepDraft = onKeepDraft
     }

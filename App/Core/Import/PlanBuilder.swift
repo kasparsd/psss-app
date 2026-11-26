@@ -59,10 +59,11 @@ enum PlanBuilder {
     static let passwordType = "passwords.Password"
     static let noteType = "securenotes.SecureNote"
     static let cardType = "wallet.financial.CreditCard"
+    static let identityType = "identities.Identity"
 
     /// Kinds that become a custom item and are not reported as unknown.
     static let customTypes: Set<String> = [
-        "identities.Identity", "wallet.financial.BankAccountUS", "wallet.computer.Database", "wallet.government.DriversLicense",
+        "wallet.financial.BankAccountUS", "wallet.computer.Database", "wallet.government.DriversLicense",
         "wallet.government.HuntingLicense", "wallet.government.Passport", "wallet.government.SsnUS", "wallet.membership.Membership",
         "wallet.membership.RewardProgram", "wallet.onlineservices.Email.v2", "wallet.computer.UnixServer", "wallet.computer.Router",
         "wallet.computer.License", "wallet.onlineservices.Email", "wallet.onlineservices.GenericAccount", "wallet.onlineservices.FTP",
@@ -117,6 +118,7 @@ enum PlanBuilder {
         case passwordType: kind = websites.isEmpty ? .custom : .login
         case noteType: kind = .note
         case cardType: kind = .card
+        case identityType: kind = .address
         default:
             kind = .custom
             if !customTypes.contains(r.typeName) {
@@ -151,6 +153,8 @@ enum PlanBuilder {
         var blankCodes: [ImportField] = []
         var unreadableValues: [String] = []
         var incompleteDates = Set<String>()
+        // An identity's address object, read apart because its parts become separate fields (owner, 2026-11-26).
+        var addressObject: [String: Any]?
 
         func ingest(_ field: SectionField) {
             if field.name.hasPrefix("TOTP_") {
@@ -169,6 +173,12 @@ enum PlanBuilder {
                 return
             }
             if kind == .card, field.name == "type" || field.kind == "cctype" { seen.insert(field.name); return }
+            if kind == .address, field.name == "address", addressObject == nil, let object = field.value as? [String: Any],
+               Value.looksLikeAddress(object) {
+                seen.insert(field.name)
+                addressObject = object
+                return
+            }
             guard let rendered = render(field, typeName: r.typeName, shortYear: kind == .card && field.name == "expiry") else { return }
             seen.insert(field.name)
             if rendered.unreadable || field.raw {
@@ -194,7 +204,7 @@ enum PlanBuilder {
         }
         sections.forEach(ingest)
 
-        if kind == .card || (kind == .custom && r.typeName != passwordType) {
+        if kind == .card || kind == .address || (kind == .custom && r.typeName != passwordType) {
             let reserved: Set<String> = ["fields", "URLs", "notesPlain", "passwordHistory", "sections", "unknown_details"]
             let flat = secure.filter { !reserved.contains($0.key) }
             for key in flat.keys.sorted() {
@@ -224,9 +234,40 @@ enum PlanBuilder {
             }
         }
 
+        // An identity becomes an address: the full name from first name, initial and last name; the organization from company; the
+        // address object's parts; the email; and the first phone of default, cell, home and business. Everything else, other phones
+        // and the birth date among them, stays a field under its own name.
+        var addressFields: [ImportField] = []
+        var fullName = ""
+        if kind == .address {
+            func take(_ name: String) -> String? {
+                guard let index = customs.firstIndex(where: { $0.name == name && !$0.concealed }) else { return nil }
+                return customs.remove(at: index).value.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            fullName = ["firstname", "initial", "lastname"].compactMap(take).filter { !$0.isEmpty }.joined(separator: " ")
+            let organization = take("company") ?? ""
+            let email = take("email") ?? ""
+            var phone = ""
+            for name in ["defphone", "cellphone", "homephone", "busphone"] { if let found = take(name) { phone = found; break } }
+            func part(_ key: String) -> String { (Value.scalarText(addressObject?[key]) ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+            let country = part("country")
+            let parts: [(String, String)] = [
+                ("Organization", organization), ("Street", part("street")), ("City", part("city")), ("Region", part("state")),
+                ("Postal code", part("zip")), ("Country", AddressCountry.code(for: country) ?? country), ("Email", email), ("Phone", phone)]
+            addressFields = parts.filter { !$0.1.isEmpty }.map { ImportField(.custom, label: $0.0, value: $0.1) }
+            // Keys of the address object that have no field of their own are kept, not dropped.
+            if let object = addressObject {
+                var rest = object
+                for key in ["street", "city", "state", "zip", "country"] { rest[key] = nil }
+                let extra = Value.addressText(rest)
+                if !extra.isEmpty { customs.append(Custom(name: "address", label: "Other address details", section: "Address", value: extra, concealed: false)) }
+            }
+        }
+
         // Labels: the fixed ones first, then custom fields in order, so a custom field never takes a fixed name.
         var emptied = false
         var labels = ImportLabels()
+        for i in addressFields.indices { addressFields[i].label = labels.claim(addressFields[i].label) }
         for i in cardFields.indices where !cardFields[i].label.isEmpty { cardFields[i].label = labels.claim(cardFields[i].label) }
         if var from = validFrom { from.label = labels.claim(from.label); validFrom = from }
         var customFields: [ImportField] = []
@@ -281,6 +322,8 @@ enum PlanBuilder {
         fields += blankCodes
         if !notes.isEmpty { fields.append(ImportField(.notes, value: notes)) }
         if kind == .card { fields += cardFields.filter { [.securityCode, .pin].contains($0.role) } }
+        if kind == .address, !fullName.isEmpty { fields.insert(ImportField(.username, value: fullName), at: 0) }
+        fields += addressFields
         fields += customFields
 
         // Dates. A missing or unusable one is replaced by the other, else by the import time, and the item says so.
