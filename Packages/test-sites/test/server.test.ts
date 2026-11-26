@@ -129,3 +129,23 @@ test('the seed fills the three documented hosts, and reset forgets one host', as
   assert.equal((await web.get('localhost', '/')).status, 200);
   assert.equal((await web.get('localhost', '/nope')).status, 404);
 });
+
+test('checkout, delivery, frame and hostile pages offer the fields they name', async () => {
+  const shop = 'shop.example.localhost';
+  const card = (await web.get(shop, '/checkout')).body;
+  for (const role of ['cc-name', 'cc-number', 'cc-exp', 'cc-csc']) assert.ok(card.includes(`autocomplete="${role}"`), role);
+  assert.match(card, /<form /);
+  const lists = (await web.get(shop, '/checkout?expiry=select&form=none')).body;
+  assert.match(lists, /autocomplete="cc-exp-month"/);
+  assert.match(lists, /autocomplete="cc-exp-year"/);
+  assert.doesNotMatch(lists, /<form /);
+  const delivery = (await web.get(shop, '/delivery')).body;
+  for (const role of ['name', 'address-line1', 'address-level2', 'address-level1', 'postal-code', 'country', 'email', 'tel']) {
+    assert.ok(delivery.includes(`autocomplete="shipping ${role}"`), role);
+  }
+  const frame = (await web.get(shop, '/checkout-frame')).body;
+  assert.ok(frame.includes(`src="//pay.example.localhost:${port}/payment-frame"`));
+  assert.doesNotMatch(frame, /autocomplete="cc-/);
+  assert.match((await web.get('pay.example.localhost', '/payment-frame')).body, /autocomplete="cc-number"/);
+  assert.equal(((await web.get(shop, '/checkout-hostile')).body.match(/data-trap="[a-z-]+"/g) ?? []).length, 9);
+});

@@ -160,6 +160,11 @@ async function route(req: IncomingMessage): Promise<Reply> {
   }
   if (method === 'POST' && path === '/logout') { if (sid) state.sessions.delete(sid); return redirect('/login', { 'set-cookie': 'sid=; Path=/; Max-Age=0' }); }
   if (method === 'GET' && path === '/passkeys') return html(pages.passkeys(ctx(), url.searchParams));
+  if (method === 'GET' && path === '/checkout') return html(pages.checkout(ctx(), url.searchParams));
+  if (method === 'GET' && path === '/delivery') return html(pages.delivery(ctx(), url.searchParams));
+  if (method === 'GET' && path === '/checkout-frame') return html(pages.checkoutFrame(ctx()));
+  if (method === 'GET' && path === '/payment-frame') return html(pages.paymentFrame(ctx(), url.searchParams));
+  if (method === 'GET' && path === '/checkout-hostile') return html(pages.checkoutHostile(ctx()));
   if (method === 'POST' && path === '/reset') { resetHost(host); return redirect('/'); }
   if (method === 'POST' && path === '/reset-all') { resetAll(); return redirect('/'); }
 

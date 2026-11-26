@@ -23,6 +23,17 @@ Every host name is a separate site with its own accounts, sessions and cookies. 
 
 The server verifies what it receives, so a pass means the provider is right: the code must match the format (SHA1, SHA256 or SHA512, 6 to 8 digits, 30 or 60 seconds, one step of drift), and a passkey's challenge, origin, relying party hash, user presence and ES256 signature are checked. Each challenge works once. The home page ends with what the server saw.
 
+Card and address pages (fictional, nothing is submitted). They start empty; a page-load marker and an “Order note” field show whether the page kept its state.
+
+| Page | What it tests |
+| --- | --- |
+| `/checkout` | `cc-name`, `cc-number`, `cc-exp`, `cc-csc`; `?expiry=select` for month and year lists, `?form=none` for fields without a form |
+| `/delivery` | shipping address with region and country lists; `?form=none` |
+| `/checkout-frame` | card fields in a `/payment-frame` from `pay.example.localhost` |
+| `/checkout-hostile` | hidden, transparent, off-screen, tiny, disabled and read-only card number traps beside one visible set |
+
+Safari only runs card and address fill on HTTPS pages, and this server speaks plain HTTP: for a simulator run put a TLS proxy with a throwaway certificate in front of it.
+
 A passkey can be added to an account that has a password only when you are signed in to it. A passkey-only account is created when the email is new.
 
 ## Scripts and agents

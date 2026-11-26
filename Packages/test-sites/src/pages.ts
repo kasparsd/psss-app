@@ -21,7 +21,7 @@ code,pre{font-family:ui-monospace,monospace;word-break:break-all;white-space:pre
 section{margin-top:2rem;padding-top:.5rem;border-top:1px solid #8884}`;
 
 export function layout(ctx: Ctx, title: string, body: string): string {
-  const nav = [['/', 'Home'], ['/signup', 'Sign up'], ['/login', 'Sign in'], ['/account', 'Account'], ['/passkeys', 'Passkeys']]
+  const nav = [['/', 'Home'], ['/signup', 'Sign up'], ['/login', 'Sign in'], ['/account', 'Account'], ['/passkeys', 'Passkeys'], ['/checkout', 'Checkout'], ['/delivery', 'Delivery']]
     .map(([href, label]) => `<a href="${href}">${label}</a>`).join('');
   return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)} · ${esc(ctx.host)}</title><style>${css}</style>
@@ -172,4 +172,68 @@ async function conditional() {
   out('A conditional passkey request is pending. Choose Psss in the keyboard bar or AutoFill.');
   try { await signInWith('', 'conditional'); location.href = '/account'; } catch (e) { out(e.name === 'NotAllowedError' ? 'No passkey was chosen, so the request ended.' : 'Passkey request ended: ' + e.name + ' ' + e.message); }
 }`;
+}
+
+const input = (id: string, label: string, autocomplete: string, extra = '') =>
+  `<label for="${id}">${label}</label><input id="${id}" name="${id}" autocomplete="${autocomplete}"${extra}>`;
+const select = (id: string, label: string, autocomplete: string, options: [string, string][]) =>
+  `<label for="${id}">${label}</label><select id="${id}" name="${id}" autocomplete="${autocomplete}"><option value="">Choose</option>${options.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select>`;
+const months: [string, string][] = Array.from({ length: 12 }, (_, i) => { const m = String(i + 1).padStart(2, '0'); return [m, m]; });
+const years: [string, string][] = Array.from({ length: 12 }, (_, i) => [String(2026 + i), String(2026 + i)]);
+
+function cardFields(query: URLSearchParams): string {
+  const expiry = query.get('expiry') === 'select'
+    ? select('exp-month', 'Expiry month', 'cc-exp-month', months) + select('exp-year', 'Expiry year', 'cc-exp-year', years)
+    : input('exp', 'Expiry (MM/YY)', 'cc-exp', ' inputmode="numeric" maxlength="5"');
+  return input('cardholder', 'Name on card', 'cc-name') + input('cardnumber', 'Card number', 'cc-number', ' inputmode="numeric"')
+    + expiry + input('csc', 'Security code', 'cc-csc', ' inputmode="numeric" maxlength="4"');
+}
+
+const maybeForm = (query: URLSearchParams, button: string, fields: string) => query.get('form') === 'none'
+  ? `<div>${fields}<button type="button">${button}</button></div>`
+  : `<form onsubmit="return false">${fields}<button type="submit">${button}</button></form>`;
+
+/** A marker that changes on every load and a field no filler should touch: both show whether the page kept its state. */
+const kept = `<p class="note">Page load <b id="load"></b></p>${input('note', 'Order note (never filled)', 'off')}
+<script>document.getElementById('load').textContent = Math.random().toString(36).slice(2, 7);</script>`;
+
+export function checkout(ctx: Ctx, query: URLSearchParams): string {
+  return layout(ctx, 'Checkout', `${kept}${maybeForm(query, 'Pay (does nothing)', cardFields(query))}
+<p class="note"><code>?expiry=select</code> uses month and year lists. <code>?form=none</code> leaves out the form element. Nothing is sent.</p>`);
+}
+
+export function delivery(ctx: Ctx, query: URLSearchParams): string {
+  const fields = input('fullname', 'Full name', 'shipping name') + input('organization', 'Company', 'shipping organization')
+    + input('street', 'Street address', 'shipping address-line1') + input('city', 'City', 'shipping address-level2')
+    + select('region', 'Region', 'shipping address-level1', [['RIX', 'Riga'], ['VID', 'Vidzeme'], ['KUR', 'Kurzeme']])
+    + input('postal', 'Postal code', 'shipping postal-code')
+    + select('country', 'Country', 'shipping country', [['EE', 'Estonia'], ['LV', 'Latvia'], ['LT', 'Lithuania']])
+    + input('email', 'Email', 'shipping email', ' type="email"') + input('tel', 'Phone', 'shipping tel', ' type="tel"');
+  return layout(ctx, 'Delivery address', `${kept}${maybeForm(query, 'Continue (does nothing)', fields)}
+<p class="note"><code>?form=none</code> leaves out the form element. Nothing is sent.</p>`);
+}
+
+/** The shop page whose card fields live in a frame from another host, as payment providers do. */
+export function checkoutFrame(ctx: Ctx): string {
+  const src = `//pay.example.localhost:${ctx.port}/payment-frame`;
+  return layout(ctx, 'Checkout with a payment frame', `${kept}
+<iframe src="${esc(src)}" title="Card details" style="width:100%;height:28rem;border:1px solid #8884"></iframe>
+<p class="note">The frame comes from <code>pay.example.localhost</code>. Nothing may be filled into it from this page.</p>`);
+}
+
+export function paymentFrame(ctx: Ctx, query: URLSearchParams): string {
+  return layout(ctx, 'Card details', maybeForm(query, 'Pay (does nothing)', cardFields(query)));
+}
+
+/** Card fields a person cannot see, beside one visible set. Only the visible set may be filled. */
+export function checkoutHostile(ctx: Ctx): string {
+  const trap = (kind: string, style: string, extra = '') =>
+    `<input data-trap="${kind}" autocomplete="cc-number" aria-label="Trap: ${kind}" style="${style}"${extra}>`;
+  return layout(ctx, 'Hostile checkout', `${kept}
+${trap('display-none', 'display:none')}${trap('invisible', 'visibility:hidden')}${trap('transparent', 'opacity:0')}
+${trap('off-screen', 'position:absolute;left:-9999px')}${trap('zero-size', 'width:0;height:0;padding:0;border:0')}
+<div style="opacity:0">${trap('transparent-parent', '')}</div>${trap('tiny', 'width:2px;height:2px;padding:0')}
+${trap('disabled', '', ' disabled')}${trap('read-only', '', ' readonly')}
+${maybeForm(new URLSearchParams(), 'Pay (does nothing)', cardFields(new URLSearchParams()))}
+<p class="note">Fields marked <code>data-trap</code> must stay empty.</p>`);
 }
