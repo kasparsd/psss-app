@@ -35,9 +35,10 @@ struct WelcomeView: View {
             VStack(spacing: 28) {
                 VStack(spacing: 10) {
                     WelcomeIcon()
-                    Text("Welcome to Psss")
+                    Text("Psss for your secrets")
                         .font(.largeTitle.weight(.semibold))
-                    Text("Passwords, passkeys and verification codes that stay on your devices.")
+                        .multilineTextAlignment(.center)
+                    Text("The quickest storage and autofill for your logins and passwords.")
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
@@ -51,16 +52,14 @@ struct WelcomeView: View {
                         comingSoon = String(localized: "Importing a 1Password .1pux export is not built yet.")
                     }
                     choice("Try a sample vault", "sparkles") { onFinish("sample") }
-                    Text("Exports from other apps are not encrypted. Delete the file after importing.")
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.top, 6)
                 }
             }
             .frame(maxWidth: 420)
             .padding(24)
             .frame(maxWidth: .infinity)
         }
+        // Centred in a tall window (iPad, Mac); it still scrolls from the top when large text makes it taller than the window.
+        .defaultScrollAnchor(.center, for: .alignment)
         .background(.background)
         .fileImporter(isPresented: $picking,
                       allowedContentTypes: purpose == .vaultFile ? [.keePassVault, .data] : [.commaSeparatedText, .plainText]) { result in

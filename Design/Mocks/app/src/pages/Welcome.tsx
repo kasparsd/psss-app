@@ -25,44 +25,31 @@ function WelcomeIcon({ size }: { size: number }) {
   );
 }
 
-/** The key symbol the app shows today. */
-const KeyGlyph = () => (
-  <svg className="wl-key" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-    <circle cx="12" cy="7" r="5" /><circle cx="12" cy="6" r="1.3" fill="var(--bg)" />
-    <path d="M10.6 11h2.8v2l1.4 1.2-1.4 1.2 1.4 1.2-2.8 2.8-1.4-1.4z" />
-  </svg>
-);
+function Choices({ mac }: { mac?: boolean }) {
+  // [iPhone and iPad label, Mac label]
+  const list: [string, string][] = [
+    ['Create a vault', 'Create a Vault…'],
+    ['Open a vault file', 'Open a Vault File…'],
+    ['Import from Apple Passwords', 'Import from Apple Passwords…'],
+    ['Import from 1Password', 'Import from 1Password…'],
+    ['Try a sample vault', 'Try a Sample Vault'],
+  ];
+  return (
+    <div className={`wl-choices${mac ? ' mac' : ''}`}>
+      {list.map(([touch, desk], i) => mac
+        ? <button key={touch} className={`mbtn${i === 0 ? ' default' : ''}`}>{desk}</button>
+        : <button key={touch} className={`btn wide${i === 0 ? ' pri' : ''}`}>{touch}</button>)}
+    </div>
+  );
+}
 
-const Choices = () => (
-  <div className="wl-choices">
-    <button className="btn pri wide">+ Create a vault</button>
-    <button className="btn wide">Open a vault file</button>
-    <button className="btn wide">Import from Apple Passwords</button>
-    <button className="btn wide">Import from 1Password</button>
-    <button className="btn wide">Try a sample vault</button>
-    <div className="wl-foot">Exports from other apps are not encrypted. Delete the file after importing.</div>
-  </div>
-);
-
-const MacChoices = () => (
-  <div className="wl-choices mac">
-    <button className="mbtn default">Create a Vault…</button>
-    <button className="mbtn">Open a Vault File…</button>
-    <button className="mbtn">Import from Apple Passwords…</button>
-    <button className="mbtn">Import from 1Password…</button>
-    <button className="mbtn">Try a Sample Vault</button>
-    <div className="wl-foot">Exports from other apps are not encrypted. Delete the file after importing.</div>
-  </div>
-);
-
-/** The welcome screen body. `today` draws the key symbol the app has now. */
-function Welcome({ today, size = 88, mac }: { today?: boolean; size?: number; mac?: boolean }) {
+function Welcome({ size = 88, mac }: { size?: number; mac?: boolean }) {
   return (
     <div className={`wl${mac ? ' mac' : ''}`}>
-      {today ? <KeyGlyph /> : <WelcomeIcon size={size} />}
-      <div className="wl-title">Welcome to Psss</div>
-      <div className="wl-line">Passwords, passkeys and verification codes that stay on your devices.</div>
-      {mac ? <MacChoices /> : <Choices />}
+      <WelcomeIcon size={size} />
+      <div className="wl-title">Psss for your secrets</div>
+      <div className="wl-line">The quickest storage and autofill for your logins and passwords.</div>
+      <Choices mac={mac} />
     </div>
   );
 }
@@ -70,52 +57,46 @@ function Welcome({ today, size = 88, mac }: { today?: boolean; size?: number; ma
 export function WelcomePage() {
   return (
     <Page
-      title="Welcome: the first screen"
-      status={<><strong>Proposal (2026-11-25), not built.</strong> Starts from the owner’s question how to add Psss branding to the onboarding screen. Only the mark changes; words, buttons and order stay as built today.</>}
+      title="Onboarding: the first screen"
+      status={<><strong>Approved by the owner, 2026-11-26; built.</strong> New heading and line under it, and no note under the buttons.</>}
     >
       <Clarity
         items={[
-          ['What is this?', 'The first screen of a new install: no vault yet. It says what Psss is and offers the ways to start.'],
-          ['What changes?', 'The blue key symbol becomes the Psss app icon, the same one the lock screen shows, so the first screen and every unlock look like one app.'],
-          ['What happens next?', 'Each button starts its flow (create, open a file, import, sample). Open a vault file picks the file, adds the vault and shows its unlock screen, “Unlock [name]”, with the password field; the password is not asked inside the add flow (frames on Vaults, section 7).'],
+          ['What is this?', 'The first screen of a new install: no vault yet. It says what Psss is for and offers the ways to start.'],
+          ['Where are things kept, and who holds the key?', 'Not said here. Create a vault says what is made, where it is kept and that Psss cannot recover the password, before anything is committed.'],
+          ['What happens next?', 'Each button starts its flow (create, open a file, import, sample). Importing from 1Password is not built yet and says so.'],
         ]}
       />
 
-      <Section title="1. Today and proposed (iPhone)">
-        <p>Today the screen shows a generic key symbol in the accent colour; nothing on it is Psss’s own. The proposal puts the app icon there, drawn by the app as on the lock screen: it appears showing the name, “psss”, and a moment later hides it as a password field would, resting on the p and three dots. Tapping it types the name again and hides it, a small hint that the icon is a password field. Click the icons to try it.</p>
+      <Section title="The screen">
+        <p>The app icon, the heading, one line and five buttons, centred in the window both ways. Tap the icon to see it type the name. On the Mac the body is the window’s only content until a vault exists.</p>
       </Section>
       <Frames>
-        <Frame phone label="A · Today" caption="The key symbol in the accent colour. Correct, but it could be any password app.">
-          <IPhone><Welcome today /></IPhone>
-        </Frame>
-        <Frame phone label="B · Proposed" caption="The app icon, butter in light and dark mode, 88 pt. It opens on “psss” and hides it to p and three dots; a tap shows the name again. With Reduce Motion the letters change at once.">
+        <Frame phone label="A · iPhone" caption="Create a vault is the one filled button.">
           <IPhone><Welcome /></IPhone>
         </Frame>
       </Frames>
-
-      <Section title="2. iPad and Mac">
-        <p>The same body, centred. On the Mac the buttons are standard push buttons with the default button first, and the titles use title case as Mac buttons do.</p>
-      </Section>
       <Frames>
-        <Frame label="D · iPad" caption="Centred column, same icon and words.">
+        <Frame label="B · iPad" caption="The column is centred across and down, same icon and words.">
           <IPad><div className="wl-ipad"><Welcome /></div></IPad>
         </Frame>
-        <Frame label="E · Mac" caption="The window’s only content until a vault exists. Create a Vault… is the default button (Return).">
+        <Frame label="C · Mac" caption="Create a Vault… is the default button (Return).">
           <MacWindow><div className="wl-mac macui"><Welcome mac size={76} /></div></MacWindow>
         </Frame>
       </Frames>
 
       <Decisions
         items={[
-          { decision: 'The app icon replaces the key symbol, drawn by the app (LockAppIcon), at 88 pt on iPhone and iPad and 76 pt on the Mac.', rejected: 'The key symbol.', why: 'The mark is the brand; the lock screen already shows it, so the first screen matches every unlock.' },
-          { decision: 'It opens on “psss” and hides it to p and three dots, where it rests; a tap types the name again, holds it about a second and hides it.', rejected: 'Resting on the name; a still icon; a loop.', why: 'Hiding the name is what a password field does, so the first thing Psss shows is its idea; ending on the dots invites a tap. The tap does nothing else, so nothing is lost if no one finds it. VoiceOver reads it as an image named Psss, with no button. Reduce Motion changes the letters at once.' },
-          { decision: 'The icon is butter in light and dark mode.', rejected: 'Charcoal in dark mode, as the lock screen draws it today.', why: 'Owner: the bright yellow is the brand; one colour in every look.' },
-          { decision: 'Title stays “Welcome to Psss” in the system font; buttons stay system blue.', rejected: 'The wordmark as the title; butter-coloured buttons.', why: 'Product rules: the brand lives in the mark, not in a custom tint or font. A system-font title reads well with VoiceOver and at large text sizes.' },
+          { decision: 'Heading “Psss for your secrets”; under it “The quickest storage and autofill for your logins and passwords.”', rejected: '“Welcome to Psss” with “Passwords, passkeys and verification codes that stay on your devices.”; a whisper line, a question the buttons answer, the landing page’s slogan and a signed note.', why: 'Owner: “Welcome” sounds impersonal. The old line was also not the whole truth, since a new vault is kept in iCloud Drive by default. “Quickest” is a claim nothing has measured yet; check it before release.' },
+          { decision: 'No note under the buttons about exports from other apps.', rejected: '“Exports from other apps are not encrypted. Delete the file after importing.”', why: 'Owner: not needed on the first screen.' },
+          { decision: 'The app icon at 88 pt (76 pt on the Mac) opens on “psss” and hides it to p and three dots; a tap shows the name again. Butter in light and dark.', rejected: 'The key symbol; resting on the name; a loop.', why: 'Reduce Motion changes the letters at once.' },
+          { decision: 'System font, system blue buttons, a plain background.', rejected: 'The wordmark as the title; butter-coloured buttons; the cover’s dots behind the screen.', why: 'The brand lives in the mark and the words. Five buttons need a plain ground.' },
         ]}
       />
       <History
-        proposal
         entries={[
+          { date: '2026-11-26', text: <>Owner: “is” dropped, so the heading is “Psss for your secrets”. The screen is centred up and down as well as across, after the owner saw it sitting at the top on iPad.</> },
+          { date: '2026-11-26', text: <>Owner: “Welcome” sounds very impersonal. Chosen and built: the heading “Psss for your secrets” with a new line under it, and the note about unencrypted exports is removed. Replaces “Welcome to Psss”. Weighed and not taken: “Psss, keep this between us.”, “Where are your passwords now?” with buttons as answers (recommended at the time), “Secure passwords for the rest of us.” and a signed note from the maker. The key-symbol comparison frame is removed, since the icon is built.</> },
           { date: '2026-11-25', text: <>Open a vault file no longer asks for the file’s password in the add flow: file picker, then the vault is added and its unlock screen is shown (drawn on <a href="#/vault-switcher">Vaults</a>, section 7). No frame here changes; New Vault still sets a password and Import is unchanged.</> },
           { date: '2026-11-25', text: <>Owner: the icon is butter in every colour scheme. Replaces charcoal in dark mode; the dark frame (C) is removed, since the icon no longer changes. The lock screen still draws charcoal in dark mode.</> },
           { date: '2026-11-25', text: <>Owner: rest on the dots, not the name. The icon opens on “psss”, hides it to p and three dots, and a tap shows the name again, as a hint to play with it. Replaces typing “psss” once and resting on the name.</> },

@@ -6,15 +6,18 @@ import { items } from '../data';
 import { PhoneItem } from '../screens/PhoneScreens';
 import { Lock } from './UnlockScreen';
 import { iconU, Mark } from './Logo';
+import { DotField } from './dotField';
 import './AppSwitcher.css';
 
 /**
- * The cover: charcoal filling the window with the logo mark alone in butter (the field outline with p and three dots, resting state),
- * no tile behind it. Nothing from the vault shows through, and it is the same in light and dark mode.
+ * The cover: charcoal filling the window with rows of butter dots in threes and the logo mark alone at the centre (the field outline
+ * with p and three dots, resting state), no tile behind it. Nothing from the vault shows through, and it is the same in light and
+ * dark mode. `seed` stands for the arrangement drawn when Psss was left; `w` and `h` are the window it covers.
  */
-function Cover({ size = 120, flat }: { size?: number; flat?: boolean }) {
+function Cover({ size = 120, flat, seed = 1, w = 284, h = 624, scale = 1 }: { size?: number; flat?: boolean; seed?: number; w?: number; h?: number; scale?: number }) {
   return (
     <div className={`as-cover${flat ? ' flat' : ''}`} role="img" aria-label="Psss cover">
+      <DotField seed={seed} w={w} h={h} mark={size / scale} scale={scale} />
       <Mark u={iconU(size)} mask icon />
     </div>
   );
@@ -41,7 +44,7 @@ function Switcher({ cover }: { cover?: boolean }) {
     <div className="as-wall dt">
       <div className="as-label"><span className="lg-appicon" style={{ width: 24, height: 24 }}><Mark u={iconU(24)} mask icon /></span>Psss</div>
       <div className="as-card">
-        {cover ? <Cover size={80} flat /> : <div className="as-scale"><ListPhone cover={cover} /></div>}
+        {cover ? <Cover size={80} flat scale={186 / 284} /> : <div className="as-scale"><ListPhone cover={cover} /></div>}
       </div>
       <div className="as-hint"><i /></div>
     </div>
@@ -60,13 +63,13 @@ export function AppSwitcher() {
   return (
     <Page
       title="Leaving and coming back"
-      status={<><strong>Built 2026-11-25.</strong> The cover is the butter mark alone on charcoal, no tile (owner’s choice), and goes up only when the app really leaves (option E2, owner’s choice). Found on a real iPhone 17: coming back to Psss briefly showed the list, then the unlock screen, and after unlocking the place and item were lost. The app switcher also showed item names to anyone looking. Built: the window is covered the moment Psss reaches the background, the lock is decided before the first frame on return, and the place and item you had are reopened after an unlock. Frames E1 and E2 show the two options as they were weighed.</>}
+      status={<><strong>Built 2026-11-25; typed dots approved by the owner 2026-11-26.</strong> The cover is the butter mark on charcoal, no tile, over rows of dots in threes (owner’s choices), and goes up only when the app really leaves (option E2, owner’s choice). Found on a real iPhone 17: coming back to Psss briefly showed the list, then the unlock screen, and after unlocking the place and item were lost. The app switcher also showed item names to anyone looking. Built: the window is covered the moment Psss reaches the background, the lock is decided before the first frame on return, and the place and item you had are reopened after an unlock. Frames E1 and E2 show the two options as they were weighed.</>}
     >
       <Clarity
-        intro={<p>This is what a person sees when they leave Psss and come back: a plain charcoal cover with the Psss mark instead of their items, then either the list where they were or the unlock screen.</p>}
+        intro={<p>This is what a person sees when they leave Psss and come back: a charcoal cover with dots and the Psss mark instead of their items, then either the list where they were or the unlock screen.</p>}
         items={[
           ['What is this?', 'A cover over the window while Psss is not the app in front, and a faster, safer return. No new screen to learn.'],
-          ['What is shown?', 'When Psss is not in front (app switcher, Home, another app), its card shows no item names, no field values and no readable text. The cover is charcoal with the Psss mark in butter, the same in light and dark mode. Nothing of the vault shows through.'],
+          ['What is shown?', 'When Psss is not in front (app switcher, Home, another app), its card shows no item names, no field values and no readable text. The cover is charcoal with the Psss mark and rows of faint dots in butter, the same in light and dark mode. Nothing of the vault shows through.'],
           ['Where is the “where you were” note kept?', 'In memory only: the vault, the place and the item you had open. It never holds a field value or the search text, it is never written to disk, and it is gone when the app quits or the vault is removed. Locking forgets nothing else: the note is all that survives.'],
           ['Who holds the key?', 'The vault password, or Face ID or Touch ID if turned on, exactly as today. The cover and the note give no one a way in; the note only says where to go after you unlock.'],
           ['How do they leave?', 'Nothing to dismiss: the cover lifts by itself when Psss is in front again. A person who does not want to be taken back to the item opens another place.'],
@@ -75,12 +78,24 @@ export function AppSwitcher() {
       />
 
       <Section title="A. The cover: what the app switcher shows">
-        <p>iOS takes a picture of the window when the app leaves, to show in the app switcher. Today Psss puts nothing over its content first, so the picture is the item list. The proposal covers the window the moment Psss stops being the active app, and the system then takes its picture of the cover: charcoal filling the window, with the logo mark alone in butter at the centre (the field with the p and three dots). There is no app-icon tile behind it, because the app switcher already shows the app icon above each card. It is the same in light and dark mode.</p>
+        <p>iOS takes a picture of the window when the app leaves, to show in the app switcher. With nothing over the content, that picture is the item list. Psss covers the window the moment it reaches the background, and the system then takes its picture of the cover: charcoal filling the window, rows of faint butter dots in threes, like passwords being typed, and the logo mark at the centre (the field with the p and three dots). The dots fall at random each time Psss is left; nothing from the vault goes into them, nothing is downloaded and there is no setting. There is no app-icon tile behind it, because the app switcher already shows the app icon above each card. It is the same in light and dark mode.</p>
       </Section>
       <Frames>
         <Frame label="A1 · Today: the app switcher" phone caption="Psss’s card shows the list with item names to anyone who looks over a shoulder. This is the problem."><Switcher /></Frame>
-        <Frame label="A2 · The cover: the app switcher" phone caption="Charcoal and the butter mark, no text, no items, nothing of the layout. The app icon above the card already says whose card it is."><Switcher cover /></Frame>
+        <Frame label="A2 · The cover: the app switcher" phone caption="Charcoal, dots and the butter mark, no text, no items, nothing of the layout. The app icon above the card already says whose card it is."><Switcher cover /></Frame>
         <Frame label="A3 · The cover at full size" phone caption="The cover fills the window edge to edge, in light and dark mode alike. It has no controls and says nothing."><ListPhone cover /></Frame>
+      </Frames>
+
+      <Frames>
+        <Frame label="A4 · A new arrangement each time" caption="Each time Psss is left the groups fall differently. The drawing then stays as it is until the cover lifts, so the card in the switcher and the cover you return to match.">
+          <div className="as-week">
+            {[1, 2, 3, 4, 5].map((seed) => (
+              <div className="as-day" key={seed}>
+                <div className="tile"><Cover size={52} flat seed={seed} scale={114 / 284} /></div>
+              </div>
+            ))}
+          </div>
+        </Frame>
       </Frames>
 
       <Section title="B. Coming back within the lock time">
@@ -121,10 +136,10 @@ export function AppSwitcher() {
       </Frames>
 
       <Section title="F. iPad: each window covers itself">
-        <p>With Split View or Stage Manager, each Psss window covers itself when its scene stops being active. Two windows, two covers, each at its own size.</p>
+        <p>With Split View or Stage Manager, each Psss window covers itself when its scene reaches the background. Two windows, two covers, each at its own size.</p>
       </Section>
       <Frames>
-        <Frame label="F · iPad, two windows" caption="A Psss window beside another app (here two Psss windows): each one is covered while it is not the active one."><IPad><div className="as-pad"><div className="pane"><Cover size={140} flat /></div><div className="pane"><Cover size={140} flat /></div></div></IPad></Frame>
+        <Frame label="F · iPad, two windows" caption="Two Psss windows: each one is covered while it is not in front, with its own arrangement. Dots keep their size; a wider window shows more of them."><IPad><div className="as-pad split"><div className="pane"><Cover size={140} flat seed={2} w={570} h={450} /></div><div className="pane"><Cover size={120} flat seed={3} w={308} h={450} /></div></div></IPad></Frame>
       </Frames>
 
       <Section title="G. Mac">
@@ -132,13 +147,13 @@ export function AppSwitcher() {
       </Section>
 
       <Section title="How it’s built">
-        <p>The cover is an ordinary SwiftUI view (the charcoal colour with the mark drawn as a shape, the same drawing as the app’s <code>LockAppIcon</code> mark), laid over the window when the scene stops being active. It is drawn live at whatever size the window is, so there are no images per device or aspect ratio, and iPad windows of any size work. The system takes its picture of whatever is on screen at that moment, which is now the cover. On return, Psss decides whether the lock time has passed before it draws anything, and shows either the list or the unlock screen. The place and item note is a small value kept in memory while the app runs; locking drops the decrypted vault but not the note, and unlocking reads it to reopen the item.</p>
+        <p>The cover is an ordinary SwiftUI view (the charcoal colour, the dots drawn as shapes from a random number picked when the cover goes up, and the mark drawn as a shape, the same drawing as the app’s <code>LockAppIcon</code> mark), laid over the window when the scene reaches the background. It is drawn live at whatever size the window is, so there are no images per device or aspect ratio, and iPad windows of any size work. The system takes its picture of whatever is on screen at that moment, which is now the cover. On return, Psss decides whether the lock time has passed before it draws anything, and shows either the list or the unlock screen. The place and item note is a small value kept in memory while the app runs; locking drops the decrypted vault but not the note, and unlocking reads it to reopen the item.</p>
       </Section>
 
       <Decisions
         items={[
-          { decision: <><strong>Cover on leaving.</strong> A solid cover over the window the moment Psss stops being the active app; no word readable at any size. It is a live view and needs no images per device.</>, rejected: <>an unblurred or lightly blurred copy of the list; a cover with the vault name or the word “Locked”.</>, why: <>The app switcher’s picture can be seen by anyone looking, so it must hold no readable item or name.</> },
-          { decision: <><strong>The cover: the butter mark on charcoal, no tile.</strong> Charcoal (#1F1F23) fills the window and the logo mark alone, in butter (#FFD84D), sits at the centre; the same in light and dark mode.</>, rejected: <>a butter tile (the app icon) on butter; a blurred passthrough cover.</>, why: <>Owner: the switcher already shows the app icon above the card; charcoal with the butter mark reads as Psss without repeating it, and nothing of the vault shows through.</> },
+          { decision: <><strong>Cover on leaving.</strong> A solid cover over the window the moment Psss reaches the background; no word readable at any size. It is a live view and needs no images per device.</>, rejected: <>an unblurred or lightly blurred copy of the list; a cover with the vault name or the word “Locked”.</>, why: <>The app switcher’s picture can be seen by anyone looking, so it must hold no readable item or name.</> },
+          { decision: <><strong>The cover: the butter mark on charcoal over typed dots, no tile (owner, 2026-11-26).</strong> Charcoal (#1F1F23) fills the window, rows of faint butter (#FFD84D) dots in threes fall at random each time Psss is left, and the logo mark sits at the centre with clear space around it; the same in light and dark mode.</>, rejected: <>the mark alone; dots that change once a day; a drifting grid or rings; rotating artworks; a butter tile (the app icon) on butter; a blurred passthrough cover.</>, why: <>Owner: the switcher already shows the app icon above the card; charcoal with the butter mark reads as Psss without repeating it, and nothing of the vault shows through.</> },
           { decision: <><strong>The lock is decided before the first frame.</strong> On return Psss checks the lock time before drawing the list; after the lock time the first thing shown is the unlock screen.</>, rejected: <>checking once the app is fully active, which shows the list for a moment first.</>, why: <>Found on a real iPhone 17: the list flashed, then the unlock screen. A flash of the list is a leak.</> },
           { decision: <><strong>Restore the place and item, not the search.</strong> A memory-only note holds the vault, the place and the item; never field values or the search text; gone at quit. If the item was deleted, you land on its place.</>, rejected: <>restoring the search text; saving the note to disk.</>, why: <>Where you were is useful; what you typed or saw is not worth keeping anywhere that outlives the app.</> },
           { decision: <><strong>E2: the cover only when leaving (owner, 2026-11-25).</strong> The cover goes up when Psss reaches the background (app switcher, Home, another app), not when it only becomes inactive. Control Center, the notification pull-down and call banners show the list behind them, with no flash.</>, rejected: <>E1, the cover on every pull-down (the earlier recommendation).</>, why: <>Owner’s choice: no charcoal flash on a pull-down. The cover is a window of its own shown in the same step that learns the app left, so the picture iOS takes of the leaving app holds the cover.</> },
@@ -148,6 +163,7 @@ export function AppSwitcher() {
 
       <History
         entries={[
+          { date: '2026-11-26', text: <>Owner chose the typed dots, arranged at random each time Psss is left; built. Replaces the mark alone on charcoal. Tried first: dots changing once a day in three styles (a drifting grid, which was recommended; typed; rings). Also weighed: rotating artworks (rights, size, competes with the mark), hourly changes, a changed mark on special days, a personal photo and an online feed.</> },
           { date: '2026-11-25', text: <>Built 2026-11-25; E2 chosen by the owner: the cover only when leaving. The cover is a window of its own above the scene (it also covers an open sheet); the lock is decided at the inactive step after the background; the place and item note is kept after every lock except Lock All Vaults and Remove Vault.</> },
           { date: '2026-11-25', text: <>Owner chose the solid cover, as the butter mark on charcoal with no tile; the blurred cover and the butter tile are removed. Unlock frame matched to the built screen.</> },
           { date: '2026-11-25', text: <>New page, with two covers drawn (solid butter, and a blurred one). Proposal after the owner found, on a real iPhone 17, that returning to Psss shows the list and then the unlock screen, and that the place and item are lost after unlocking.</> },
