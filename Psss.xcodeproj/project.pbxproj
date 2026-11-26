@@ -91,12 +91,33 @@
 			);
 			target = 000000000000000000000055 /* SafariExtension-macOS */;
 		};
+		000000000000000000000080 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				SafariFillSnapshot.swift,
+			);
+			target = 000000000000000000000015 /* CredentialProvider-macOS */;
+		};
+		000000000000000000000081 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				SafariFillSnapshot.swift,
+			);
+			target = 000000000000000000000029 /* CredentialProvider-iOS */;
+		};
+		000000000000000000000082 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				SafariFillSnapshot.swift,
+			);
+			target = 000000000000000000000055 /* SafariExtension-macOS */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		000000000000000000000001 /* App */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = App; sourceTree = "<group>"; };
 		000000000000000000000002 /* Extensions/CredentialProvider */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Extensions/CredentialProvider; sourceTree = "<group>"; };
-		000000000000000000000040 /* App/Core */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = App/Core; sourceTree = "<group>"; };
+		000000000000000000000040 /* App/Core */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (000000000000000000000080 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, 000000000000000000000081 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, 000000000000000000000082 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = App/Core; sourceTree = "<group>"; };
 		000000000000000000000050 /* Extensions/Safari */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Extensions/Safari; sourceTree = "<group>"; };
 		000000000000000000000051 /* Extensions/Browser/src */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (000000000000000000000052 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = Extensions/Browser/src; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */

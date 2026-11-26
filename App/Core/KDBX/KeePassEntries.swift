@@ -465,7 +465,8 @@ enum EntryMapping {
                              validFrom: read(validFromKey), pin: read(pinKey), issuer: read(issuerKey), notes: notes,
                              otpSecret: kind == .login ? otp.secret : "", otpSettings: kind == .login ? otp.settings : .standard,
                              created: times?.child("CreationTime").flatMap { KeePassTime.date($0.text) },
-                             modified: times?.child("LastModificationTime").flatMap { KeePassTime.date($0.text) })
+                             modified: times?.child("LastModificationTime").flatMap { KeePassTime.date($0.text) },
+                             expires: expiryTime(in: times))
         item.wifiSecurity = WiFiSecurity(rawValue: read(wifiSecurityKey)) ?? (isWifi && string(entry, Self.wifiSecurityKey) == nil && secret.isEmpty ? .none : .wpa)
         item.wifiHidden = read(wifiHiddenKey).lowercased() == "yes"
         item.address = PostalAddress(
@@ -500,6 +501,13 @@ enum EntryMapping {
             fields.first(where: { $0.key == key })?.concealed == true ? slot : nil
         })
         return item
+    }
+
+    /// See `VaultItem.expires`. Anything but a plain no in `Expires` counts as yes.
+    private static func expiryTime(in times: XNode?) -> Date? {
+        let flag = times?.child("Expires")?.text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        guard !["", "false", "null"].contains(flag) else { return nil }
+        return times?.child("ExpiryTime").flatMap { KeePassTime.date($0.text) } ?? .distantPast
     }
 
     /// The TOTP secret as Base32 with its digits, period and algorithm, from KeePassXC's `otp` (an otpauth link or a bare

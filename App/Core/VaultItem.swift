@@ -125,6 +125,9 @@ struct VaultItem: Identifiable, Sendable, Codable {
     /// not read from a file, or whose entry has no such time.
     private(set) var created: Date?
     private(set) var modified: Date?
+    /// When the file says the entry expires (`Expires` and `ExpiryTime`), nil when it does not; long past when the time cannot be
+    /// read. This is KeePass's entry expiry, not a card's `expiry`. Owned by the codec like `created`.
+    private(set) var expires: Date?
 
     /// The `otpauth://` link that moves this TOTP secret to another authenticator.
     var totpSetupURL: String? {
@@ -196,7 +199,7 @@ struct VaultItem: Identifiable, Sendable, Codable {
     init(id: UUID = UUID(), kind: ItemKind, title: String = "", account: String = "", website: String = "",
          secret: String = "", expiry: String = "", securityCode: String = "", validFrom: String = "", pin: String = "", issuer: String = "", wifiSecurity: WiFiSecurity = .wpa, wifiHidden: Bool = false,
          notes: String = "", otpSecret: String = "", otpSettings: TOTPSettings = .standard, lastUsed: Date? = nil, useCount: Int = 0,
-         created: Date? = nil, modified: Date? = nil) {
+         created: Date? = nil, modified: Date? = nil, expires: Date? = nil) {
         self.id = id
         self.kind = kind
         self.title = title
@@ -217,6 +220,7 @@ struct VaultItem: Identifiable, Sendable, Codable {
         self.useCount = useCount
         self.created = created
         self.modified = modified
+        self.expires = expires
     }
 }
 
