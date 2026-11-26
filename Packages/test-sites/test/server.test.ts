@@ -1,6 +1,7 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { authenticator, browser, listen } from './helpers.ts';
+import { fillCases } from '../src/fill-cases.ts';
 import { code, parseOptions } from '../src/totp.ts';
 import { seed } from '../src/server.ts';
 
@@ -147,5 +148,20 @@ test('checkout, delivery, frame and hostile pages offer the fields they name', a
   assert.ok(frame.includes(`src="//pay.example.localhost:${port}/payment-frame"`));
   assert.doesNotMatch(frame, /autocomplete="cc-/);
   assert.match((await web.get('pay.example.localhost', '/payment-frame')).body, /autocomplete="cc-number"/);
-  assert.equal(((await web.get(shop, '/checkout-hostile')).body.match(/data-trap="[a-z-]+"/g) ?? []).length, 9);
+  assert.equal(((await web.get(shop, '/checkout-hostile')).body.match(/data-trap="[a-z-]+"/g) ?? []).length, 14);
+  for (const item of fillCases) {
+    const served = await web.get(shop, `/fill-case?name=${item.name}`);
+    assert.equal(served.status, 200, item.name);
+    assert.ok(served.body.endsWith(item.html), item.name);
+  }
+  assert.equal(new Set(fillCases.map((item) => item.name)).size, fillCases.length);
+  assert.equal((await web.get(shop, '/fill-case?name=nope')).status, 404);
+  const split = (await web.get(shop, '/delivery?name=split&street=lines&billing=1')).body;
+  for (const role of ['given-name', 'family-name', 'address-line1', 'address-line2']) {
+    assert.ok(split.includes(`autocomplete="shipping ${role}"`) && split.includes(`autocomplete="billing ${role}"`), role);
+  }
+  assert.match((await web.get(shop, '/delivery?street=box')).body, /<textarea [^>]*autocomplete="shipping street-address"/);
+  const both = (await web.get(shop, '/checkout?address=billing')).body;
+  assert.match(both, /autocomplete="billing postal-code"/);
+  assert.match(both, /autocomplete="cc-number"/);
 });

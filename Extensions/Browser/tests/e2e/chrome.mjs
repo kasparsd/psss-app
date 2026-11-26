@@ -499,8 +499,9 @@ test('hostile vault names are shown as one short line, as text', { skip: false }
   const names = [`Work${String.fromCharCode(0x202e)}gpj.exe`, '<img src=x onerror="window.__pwned=1">', 'Line one\nLine two', 'y'.repeat(4000)];
   setVaults({ vaults: names.map((name, i) => ({ id: `h${i}`, name, location: name })) });
   try {
-    await popup.eval(`location.reload()`);
-    await until(() => popup.eval(`document.getElementById('vaultselect').options.length > 0`), 'the pick list');
+    // The old document answers until the new one is there, and it has a pick list too: wait for the reloaded one.
+    await popup.eval(`window.__before = true; location.reload()`);
+    await until(() => popup.eval(`!window.__before && document.getElementById('vaultselect')?.options.length === ${names.length}`), 'the pick list');
     const rows = await popup.eval(`[...document.querySelectorAll('#vaultselect option')].map((o) => o.textContent)`);
     assert.equal(rows[0], 'Workgpj.exe');
     assert.equal(rows[1], '<img src=x onerror="window.__pwned=1">', 'shown literally');

@@ -193,24 +193,40 @@ const maybeForm = (query: URLSearchParams, button: string, fields: string) => qu
   ? `<div>${fields}<button type="button">${button}</button></div>`
   : `<form onsubmit="return false">${fields}<button type="submit">${button}</button></form>`;
 
+/** One address block. `?name=split` asks for first and last name, `?street=lines` for two street boxes or `?street=box` for a text area. */
+function addressFields(query: URLSearchParams, section: 'shipping' | 'billing'): string {
+  const prefix = section === 'shipping' ? '' : 'billing-';
+  const field = (id: string, label: string, role: string, extra = '') => input(prefix + id, label, `${section} ${role}`, extra);
+  const list = (id: string, label: string, role: string, options: [string, string][]) => select(prefix + id, label, `${section} ${role}`, options);
+  const name = query.get('name') === 'split'
+    ? field('firstname', 'First name', 'given-name') + field('lastname', 'Last name', 'family-name')
+    : field('fullname', 'Full name', 'name');
+  const street = query.get('street') === 'lines'
+    ? field('street', 'Street address', 'address-line1') + field('street2', 'Apartment or suite', 'address-line2')
+    : query.get('street') === 'box'
+      ? `<label for="${prefix}street">Street address</label><textarea id="${prefix}street" name="${prefix}street" autocomplete="${section} street-address" rows="3" style="width:100%"></textarea>`
+      : field('street', 'Street address', 'address-line1');
+  return name + field('organization', 'Company', 'organization') + street + field('city', 'City', 'address-level2')
+    + list('region', 'Region', 'address-level1', [['RIX', 'Riga'], ['VID', 'Vidzeme'], ['KUR', 'Kurzeme']])
+    + field('postal', 'Postal code', 'postal-code')
+    + list('country', 'Country', 'country', [['EE', 'Estonia'], ['LV', 'Latvia'], ['LT', 'Lithuania']])
+    + field('email', 'Email', 'email', ' type="email"') + field('tel', 'Phone', 'tel', ' type="tel"');
+}
+
 /** A marker that changes on every load and a field no filler should touch: both show whether the page kept its state. */
 const kept = `<p class="note">Page load <b id="load"></b></p>${input('note', 'Order note (never filled)', 'off')}
 <script>document.getElementById('load').textContent = Math.random().toString(36).slice(2, 7);</script>`;
 
 export function checkout(ctx: Ctx, query: URLSearchParams): string {
-  return layout(ctx, 'Checkout', `${kept}${maybeForm(query, 'Pay (does nothing)', cardFields(query))}
-<p class="note"><code>?expiry=select</code> uses month and year lists. <code>?form=none</code> leaves out the form element. Nothing is sent.</p>`);
+  const address = query.get('address') === 'billing' ? `<h2>Billing address</h2>${addressFields(query, 'billing')}<h2>Card</h2>` : '';
+  return layout(ctx, 'Checkout', `${kept}${maybeForm(query, 'Pay (does nothing)', address + cardFields(query))}
+<p class="note"><code>?expiry=select</code> uses month and year lists. <code>?address=billing</code> adds a billing address above the card. <code>?form=none</code> leaves out the form element. Nothing is sent.</p>`);
 }
 
 export function delivery(ctx: Ctx, query: URLSearchParams): string {
-  const fields = input('fullname', 'Full name', 'shipping name') + input('organization', 'Company', 'shipping organization')
-    + input('street', 'Street address', 'shipping address-line1') + input('city', 'City', 'shipping address-level2')
-    + select('region', 'Region', 'shipping address-level1', [['RIX', 'Riga'], ['VID', 'Vidzeme'], ['KUR', 'Kurzeme']])
-    + input('postal', 'Postal code', 'shipping postal-code')
-    + select('country', 'Country', 'shipping country', [['EE', 'Estonia'], ['LV', 'Latvia'], ['LT', 'Lithuania']])
-    + input('email', 'Email', 'shipping email', ' type="email"') + input('tel', 'Phone', 'shipping tel', ' type="tel"');
-  return layout(ctx, 'Delivery address', `${kept}${maybeForm(query, 'Continue (does nothing)', fields)}
-<p class="note"><code>?form=none</code> leaves out the form element. Nothing is sent.</p>`);
+  const billing = query.get('billing') === '1' ? `<h2>Billing address</h2>${addressFields(query, 'billing')}<h2>Delivery address</h2>` : '';
+  return layout(ctx, 'Delivery address', `${kept}${maybeForm(query, 'Continue (does nothing)', billing + addressFields(query, 'shipping'))}
+<p class="note"><code>?name=split</code> asks for first and last name, <code>?street=lines</code> or <code>?street=box</code> changes the street boxes, <code>?billing=1</code> puts a billing address first. <code>?form=none</code> leaves out the form element. Nothing is sent.</p>`);
 }
 
 /** The shop page whose card fields live in a frame from another host, as payment providers do. */
@@ -234,6 +250,8 @@ ${trap('display-none', 'display:none')}${trap('invisible', 'visibility:hidden')}
 ${trap('off-screen', 'position:absolute;left:-9999px')}${trap('zero-size', 'width:0;height:0;padding:0;border:0')}
 <div style="opacity:0">${trap('transparent-parent', '')}</div>${trap('tiny', 'width:2px;height:2px;padding:0')}
 ${trap('disabled', '', ' disabled')}${trap('read-only', '', ' readonly')}
+<div style="width:1px;height:1px;overflow:hidden">${trap('clipped', '')}</div><div inert>${trap('inert', '')}</div>
+${trap('clip-path', 'clip-path:inset(50%)')}${trap('fixed-off-screen', 'position:fixed;top:-200px')}${trap('nearly-transparent', 'opacity:0.01')}
 ${maybeForm(new URLSearchParams(), 'Pay (does nothing)', cardFields(new URLSearchParams()))}
 <p class="note">Fields marked <code>data-trap</code> must stay empty.</p>`);
 }

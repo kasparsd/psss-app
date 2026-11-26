@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { site, record, resetHost, resetAll, knownHosts } from './state.ts';
+import { fillCases } from './fill-cases.ts';
 import type { Account } from './state.ts';
 import * as pages from './pages.ts';
 import * as totpLib from './totp.ts';
@@ -165,6 +166,11 @@ async function route(req: IncomingMessage): Promise<Reply> {
   if (method === 'GET' && path === '/checkout-frame') return html(pages.checkoutFrame(ctx()));
   if (method === 'GET' && path === '/payment-frame') return html(pages.paymentFrame(ctx(), url.searchParams));
   if (method === 'GET' && path === '/checkout-hostile') return html(pages.checkoutHostile(ctx()));
+  if (method === 'GET' && path === '/fill-case') {
+    // Bare pages: the case's own markup and styles decide what shows.
+    const found = fillCases.find((item) => item.name === url.searchParams.get('name'));
+    if (found) return html(`<!doctype html><meta charset="utf-8">${found.html}`);
+  }
   if (method === 'POST' && path === '/reset') { resetHost(host); return redirect('/'); }
   if (method === 'POST' && path === '/reset-all') { resetAll(); return redirect('/'); }
 

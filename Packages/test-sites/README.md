@@ -27,10 +27,11 @@ Card and address pages (fictional, nothing is submitted). They start empty; a pa
 
 | Page | What it tests |
 | --- | --- |
-| `/checkout` | `cc-name`, `cc-number`, `cc-exp`, `cc-csc`; `?expiry=select` for month and year lists, `?form=none` for fields without a form |
-| `/delivery` | shipping address with region and country lists; `?form=none` |
+| `/checkout` | `cc-name`, `cc-number`, `cc-exp`, `cc-csc`; `?expiry=select` for month and year lists, `?address=billing` for a billing address above the card, `?form=none` for fields without a form |
+| `/delivery` | shipping address with region and country lists; `?name=split`, `?street=lines` or `?street=box`, `?billing=1` for a billing address first, `?form=none` |
 | `/checkout-frame` | card fields in a `/payment-frame` from `pay.example.localhost` |
-| `/checkout-hostile` | hidden, transparent, off-screen, tiny, disabled and read-only card number traps beside one visible set |
+| `/checkout-hostile` | hidden, transparent, off-screen, tiny, clipped, inert, disabled and read-only card number traps beside one visible set |
+| `/fill-case?name=` | one bare page per way of hiding, misplacing or reshaping a field (`src/fill-cases.ts`), run by `Extensions/Browser/tests/playwright/page-fill.spec.mjs` |
 
 Safari only runs card and address fill on HTTPS pages, and this server speaks plain HTTP: for a simulator run put a TLS proxy with a throwaway certificate in front of it.
 
