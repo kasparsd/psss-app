@@ -916,21 +916,27 @@ struct VaultView: View {
         }
     }
 
-    /// The More tab: a list of the places that are not in the bar, each with how many it holds. A place is one more row, never one more tab.
+    /// The More tab: the places that are not in the bar, drawn as places, not items (owner, 2026-11-26, mock `#/places`): an inset grouped
+    /// list of a symbol in the accent colour, the name and the count, with Recently Deleted in its own group. The list is top-anchored: `defaultScrollAnchor(.bottom)`
+    /// did not rest a short `List` at the foot (checked 2026-11-26), so the platform wins over the mock. A place is one more row, never one more tab. The symbols are the sidebar's.
     private var moreTab: some View {
         NavigationStack(path: $morePath) {
             List {
-                NavigationLink(value: MoreRoute.addresses) {
-                    moreRow("Addresses", "mappin.and.ellipse", "Where you live, work, ship to", count: items.count(where: { $0.kind == .address }))
+                Section {
+                    NavigationLink(value: MoreRoute.addresses) {
+                        moreRow("Addresses", VaultPlace.addresses.symbol, count: items.count(where: { $0.kind == .address }))
+                    }
+                    NavigationLink(value: MoreRoute.wifi) {
+                        moreRow("Wi-Fi", VaultPlace.wifi.symbol, count: items.count(where: { $0.kind == .wifi }))
+                    }
                 }
-                NavigationLink(value: MoreRoute.wifi) {
-                    moreRow("Wi-Fi", "wifi", "Network passwords", count: items.count(where: { $0.kind == .wifi }))
-                }
-                NavigationLink(value: MoreRoute.recentlyDeleted) {
-                    moreRow("Recently Deleted", "trash", "Kept for 30 days", count: deletedEntries.count)
+                Section {
+                    NavigationLink(value: MoreRoute.recentlyDeleted) {
+                        moreRow("Recently Deleted", VaultDestination.recentlyDeleted.symbol, count: deletedEntries.count)
+                    }
                 }
             }
-            .itemListStyle()
+            .listStyle(.insetGrouped)
             .navigationTitle("More")
             .navigationDestination(for: MoreRoute.self) { route in
                 switch route {
@@ -946,19 +952,12 @@ struct VaultView: View {
         }
     }
 
-    private func moreRow(_ title: LocalizedStringKey, _ symbol: String, _ detail: LocalizedStringKey, count: Int) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: symbol)
-                .foregroundStyle(.white)
-                .frame(width: 30, height: 30)
-                .background(Color.gray, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                Text(detail).foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 8)
-            if count > 0 { Text(verbatim: count.formatted()).foregroundStyle(.secondary) }
+    /// A place in the More list. The count is plain secondary text, and absent while the place is empty.
+    private func moreRow(_ title: LocalizedStringKey, _ symbol: String, count: Int) -> some View {
+        LabeledContent {
+            if count > 0 { Text(verbatim: count.formatted()) }
+        } label: {
+            Label(title, systemImage: symbol)
         }
     }
 
