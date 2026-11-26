@@ -424,6 +424,8 @@ struct VaultView: View {
             // AutoFill has just been found on, by the system's prompt or on coming back from Settings. Logins saved while it was
             // off were never sent to the system, so they are sent now, without waiting for the next unlock.
             .onChange(of: autoFill.reading) { old, new in if new == .on, old != .on { registerIdentities(knownEnabled: true) } }
+            // The menu bar saved or reloaded this vault: show what the store holds now, so no old copy of an item is edited.
+            .onReceive(NotificationCenter.default.publisher(for: .vaultChangedOutsideWindow)) { _ in adoptReloadedVault() }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { reloadIfChangedOnDisk() }
             }
@@ -2174,6 +2176,8 @@ private struct ItemDetail: View {
     var body: some View {
         page
             .modifier(HidesRevealedValues(signal: hideSignal) { revealed = [] })
+            // A password changed underneath an editor that has not touched it follows, so Save does not put the old one back.
+            .onChange(of: item.secret) { old, new in if isEditing, draft.secret == old { draft.secret = new } }
             // Starting and ending edit mode hides what was shown, as leaving the item does.
             .onChange(of: isEditing) { revealed = [] }
             .onChange(of: showsFieldMapping) { revealed = [] }

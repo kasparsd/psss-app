@@ -17,6 +17,13 @@
             </array>
         </dict>
     </array>
+    <!-- iPhone and iPad: the Keychain group of the card and address grant for the Safari extension (KeychainSafariFillStore). The Mac
+         app shares this file, has no entitlement for the group and never reads the key. -->
+    <key>PsssSafariFillAccessGroup</key>
+    <string>$(AppIdentifierPrefix)app.psss.safari-fill</string>
+    <!-- Mac: shown under the system's question before the menu bar reads a browser's front tab. -->
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Psss reads the address of the front tab, to show your saved logins for that page.</string>
     <key>NSUbiquitousContainers</key>
     <dict>
         <key>iCloud.app.psss</key>

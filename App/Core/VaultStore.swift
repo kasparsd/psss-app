@@ -42,6 +42,11 @@ protocol VaultStore: AnyObject {
     func apply(_ plan: ImportPlan) throws -> ImportSummary
 }
 
+extension Notification.Name {
+    /// An open vault's items were saved or read again by something other than its window (the menu bar), which then reads them.
+    static let vaultChangedOutsideWindow = Notification.Name("app.psss.vaultChangedOutsideWindow")
+}
+
 enum VaultStoreError: Error, Equatable {
     /// The file changed on disk since it was opened, for example through iCloud or another app.
     case changedOnDisk

@@ -45,6 +45,10 @@ struct PsssApp: App {
                 #if os(macOS)
                 // The browser relay starts once, as soon as the session exists. Later windows find it running.
                 .task { BrowserRelayLauncher.shared.startIfNeeded(session: session) }
+                #if DEBUG
+                // The menu bar prototype: does nothing without -psss-menu-bar or -psss-menu-bar-sample.
+                .task { MenuBarController.shared.startIfRequested(session: session, gate: gate) }
+                #endif
                 #endif
         }
         #if os(macOS)

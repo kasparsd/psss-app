@@ -19,15 +19,34 @@ enum Clipboard {
         #else
         let pasteboard = NSPasteboard.general
         let concealed = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
-        pasteboard.clearContents()
-        pasteboard.declareTypes([.string, concealed], owner: nil)
+        // This Mac only: not offered to the person's other devices.
+        pasteboard.prepareForNewContents(with: .currentHostOnly)
+        pasteboard.addTypes([.string, concealed], owner: nil)
         pasteboard.setString(value, forType: .string)
         pasteboard.setString("", forType: concealed)
         let changeCount = pasteboard.changeCount
+        pending = changeCount
+        // Quitting must not leave the secret behind: the timer below dies with the app.
+        if quitObserver == nil {
+            quitObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { clear(ifStill: pending) }
+            }
+        }
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(seconds))
-            if NSPasteboard.general.changeCount == changeCount { NSPasteboard.general.clearContents() }
+            clear(ifStill: changeCount)
         }
         #endif
     }
+
+    #if os(macOS)
+    /// The change count of the last secret copied.
+    @MainActor private static var pending: Int?
+    @MainActor private static var quitObserver: (any NSObjectProtocol)?
+
+    /// Clears the clipboard only while it still holds that copy.
+    @MainActor private static func clear(ifStill changeCount: Int?) {
+        if NSPasteboard.general.changeCount == changeCount { NSPasteboard.general.clearContents() }
+    }
+    #endif
 }
