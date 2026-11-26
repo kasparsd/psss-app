@@ -753,6 +753,8 @@ final class VaultSession {
 
     /// Where the person was in each vault, kept in memory across a lock (see `ReturnPlaces`).
     let returnPlaces = ReturnPlaces()
+    /// Vaults whose lock screen must not start Face ID or Touch ID by itself, because the person has just locked them. Memory only.
+    private var heldPrompts: Set<UUID> = []
 
     /// Called whenever a vault stops being open, by a lock, Lock All or a removal (not by quitting: the process ends). The browser
     /// relay empties its offer ledger here (`SessionVaultService`).
@@ -799,6 +801,8 @@ final class VaultSession {
     /// order does not change.
     func show(_ id: UUID) {
         guard id != reference?.id, let chosen = VaultReference.activate(id) else { return }
+        // Choosing a vault is asking to open it.
+        heldPrompts.remove(id)
         reference = chosen
         remembered = VaultReference.remembered
         noteShown()
@@ -1028,6 +1032,7 @@ final class VaultSession {
             unreadable.remove(id)
             let opened = KeePassVaultStore(reference: reference, url: url, scoped: scoped, document: document, fileData: data)
             stores[id] = opened
+            heldPrompts.remove(id)
             noteShown()
             // The 30-day purge of Recently Deleted. Off unless the app switched it on, so the AutoFill extension, which opens the
             // vault through this same path, never writes because of it. A failed write is retried the next time the app unlocks.
@@ -1103,6 +1108,9 @@ final class VaultSession {
     func lock(_ id: UUID) {
         guard stores[id] != nil else { return }
         drop(id)
+        heldPrompts.insert(id)
+        // With none left open the whole window locks, onto the shown vault's unlock form.
+        if !isAnyOpen, let shown = reference?.id { heldPrompts.insert(shown) }
         guard id == reference?.id else { return }
         let open = openVaults.map(\.id)
         let order = knownVaults.map(\.id)
@@ -1129,8 +1137,21 @@ final class VaultSession {
     /// Lock All Vaults, chosen by the person: they put everything away, so no place is kept to return to.
     func lockAllByChoice() {
         returnPlaces.forgetAll()
+        holdBiometricPrompts()
         lockAll()
     }
+
+    // MARK: The automatic prompt after a lock
+
+    /// True while vault `id`'s lock screen waits for the person: they locked it and have not left the app, unlocked it or chosen
+    /// it since. The Use Face ID or Touch ID button always asks.
+    func holdsBiometricPrompt(for id: UUID?) -> Bool { id.map(heldPrompts.contains) ?? false }
+
+    /// The person is locking every vault (Lock All Vaults, Lock Now).
+    func holdBiometricPrompts() { heldPrompts.formUnion(knownVaults.map(\.id)) }
+
+    /// The person left the app: the next return asks as usual.
+    func releaseBiometricPrompts() { heldPrompts = [] }
 
     private func drop(_ id: UUID) {
         try? stores[id]?.flush()

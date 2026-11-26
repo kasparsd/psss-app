@@ -346,7 +346,7 @@ Steps affected, in build order, are listed in [vaults](vaults.md#steps-in-order)
 
 ## KeePass lock screen (2026-11-22)
 
-Built (2026-11-23, reworked 2026-11-25): the unlock form described above, the same on iPhone, iPad and Mac. Face ID or Touch ID is asked by itself when the form becomes active and on return to the app, and Use Touch ID or Use Face ID asks again. Forgot Password and Help sit under the row. Not built: a recovery phrase. See [vaults](vaults.md#lock-screen-2026-11-22-redesigned-2026-11-23).
+Built (2026-11-23, reworked 2026-11-25): the unlock form described above, the same on iPhone, iPad and Mac. Face ID or Touch ID is asked by itself when the form becomes active and on return to the app, but not right after the person locks (Lock <name>, Lock All Vaults, Lock Now) until they leave the app and come back or choose the vault, and Use Touch ID or Use Face ID asks again. Forgot Password and Help sit under the row. Not built: a recovery phrase. See [vaults](vaults.md#lock-screen-2026-11-22-redesigned-2026-11-23).
 Rules learned while building it: mock first, help text in one place, never shrink text to fit, and no unlabeled or text-looking actions.
 
 ## Lock policy: follow Apple Passwords (2026-11-22)

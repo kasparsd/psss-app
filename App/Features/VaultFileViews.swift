@@ -272,7 +272,7 @@ struct VaultPasswordView: View {
                 Button("Cancel", action: cancel).disabled(working && !unlockingWithBiometrics).padding(16)
             }
         }
-        .biometricAutoPrompt(prompter: prompter, vault: session.reference?.id, enabled: biometry != nil && !missing && !autoPromptOff) {
+        .biometricAutoPrompt(prompter: prompter, vault: session.reference?.id, enabled: biometry != nil && !missing && !autoPromptOff && !session.holdsBiometricPrompt(for: session.reference?.id)) {
             await askBiometrics()
         }
         .onChange(of: session.reference?.id) { vaultChanged() }
@@ -426,7 +426,7 @@ struct VaultPasswordView: View {
     /// person passes, opens the vault with that evaluated context so the saved key is read without a second prompt. Called by the
     /// automatic prompt and by the Use Touch ID button.
     private func askBiometrics() async {
-        guard let biometry, !missing, !working else { return }
+        guard let biometry, !missing, !working, !prompter.isPrompting else { return }
         notRecognised = false
         switch await prompter.evaluate(reason: String(localized: "Unlock \(vaultName).")) {
         case .evaluated(let context):

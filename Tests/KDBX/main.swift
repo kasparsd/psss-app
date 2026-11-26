@@ -620,6 +620,17 @@ try store.save([login])
 store.markUsed(login.id)
 session.lock()
 expect("lock drops the store", session.store == nil)
+let sessionID = session.reference!.id
+expect("prompt: held after the person locks", session.holdsBiometricPrompt(for: sessionID))
+session.releaseBiometricPrompts()
+expect("prompt: released when the person leaves the app", !session.holdsBiometricPrompt(for: sessionID))
+session.lockAll()
+expect("prompt: an automatic lock holds nothing", !session.holdsBiometricPrompt(for: sessionID))
+session.lockAllByChoice()
+expect("prompt: held after Lock All Vaults", session.holdsBiometricPrompt(for: sessionID))
+try await session.unlock(credentials: .init(password: "s3ssion"))
+expect("prompt: unlocking ends the hold", !session.holdsBiometricPrompt(for: sessionID))
+session.lock()
 do { try await session.unlock(credentials: .init(password: "wrong")); failures += 1; print("FAIL wrong password unlocked") } catch { print("ok   wrong password refused") }
 try await session.unlock(credentials: .init(password: "s3ssion"))
 let reopenedStore = session.store!

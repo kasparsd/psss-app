@@ -138,9 +138,13 @@ struct RootView: View {
         }
         // Coming back from System Settings: the window's scene phase does not always say so on a Mac.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in Task { await autoFill.refreshSettling(); await safariExtension.refresh() } }
+        // The person went to another app: a lock they chose no longer holds Touch ID back when they return.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in session.releaseBiometricPrompts() }
         #endif
         #if os(iOS)
         .background { SceneReader(cover: cover) }
+        // The person left the app (all of it, not one iPad window): a lock they chose no longer holds Face ID back on return.
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in session.releaseBiometricPrompts() }
         #endif
         // Leaving and coming back (docs/experience.md). On iPhone and iPad the cover goes up when the scene reaches the background
         // (not for a pull-down, which only makes it inactive), the lock is decided at the first step back (the inactive that

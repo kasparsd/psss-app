@@ -33,7 +33,7 @@ struct MacSettingsView: View {
 
     var body: some View {
         TabView(selection: $tab) {
-            Form { AppSettingsSections(isSample: sampleOpen) { gate.lock() } }
+            Form { AppSettingsSections(isSample: sampleOpen) { session.holdBiometricPrompts(); gate.lock() } }
                 .formStyle(.grouped)
                 .tabItem { Label("General", systemImage: "gearshape") }
                 .tag(Tab.general)

@@ -42,6 +42,7 @@ struct SettingsSheet: View {
                 if !isSample { AddVaultSection(choice: $addChoice) }
                 AppSettingsSections(isSample: isSample) {
                     close()
+                    session.holdBiometricPrompts()
                     gate.lock()
                 }
             }
