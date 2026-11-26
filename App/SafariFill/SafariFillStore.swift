@@ -68,15 +68,25 @@ extension SafariFillStore {
         try gate.revoking { try delete(matching: nil) }
     }
 
-    /// The grant that may be used now, or nil when there is none. One that may not is deleted by its identifier, so a newer grant
-    /// written in the meantime stays, and the reason is thrown (also when the delete fails: it is refused either way). A store that
-    /// cannot be read throws and deletes nothing. Call it for every request; a returned grant is not good for a later one.
+    /// The grant that may be used now, or nil when there is none. As `inTime`, and a grant whose vault is not in `listedVaults`
+    /// is refused but kept: the list is stored apart from the grant and may be in the middle of a change. Whoever knows that the
+    /// vault was removed deletes it. Call this for every request; a returned grant is not good for a later one.
     func current(clock: some SafariFillClock = SystemSafariFillClock(), listedVaults: Set<UUID>) throws -> SafariFillGrant? {
+        guard let grant = try inTime(clock: clock) else { return nil }
+        guard listedVaults.contains(grant.vault.id) else { throw SafariFillError.vaultNotListed }
+        return grant
+    }
+
+    /// The stored grant when it is whole and in time, whatever its vault, or nil when there is none. The item is read once, and
+    /// that very item is judged: one that may not be used is deleted by its identifier, so a newer grant written in the meantime
+    /// stays, and the reason is thrown (also when the delete fails: it is refused either way). A store that cannot be read throws
+    /// and deletes nothing.
+    func inTime(clock: some SafariFillClock = SystemSafariFillClock()) throws -> SafariFillGrant? {
         guard let item = try read() else { return nil }
         do {
             let grant = try SafariFillGrant.decode(item.data)
             guard grant.grantID == item.grantID else { throw SafariFillError.unreadable }
-            try grant.validate(clock: clock, listedVaults: listedVaults)
+            try grant.validate(clock: clock, listedVaults: [grant.vault.id])
             return grant
         } catch {
             discard(item)

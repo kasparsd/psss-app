@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds and runs the hostless Safari fill tests (docs/plans/ios-safari-fill.md): the grant, its two clocks, the store through a
-# stand-in, the Keychain queries through recorded calls, and what the snapshot takes from a vault. No Keychain or app data is
-# touched. One heavy job at a time on this Mac: see scripts/heavy.sh.
+# stand-in, the Keychain queries through recorded calls, what the snapshot takes from a vault, and what the handler answers. No
+# Keychain or app data is touched. One heavy job at a time on this Mac: see scripts/heavy.sh.
 [ -n "$PSSS_HEAVY_LOCKED" ] || exec "$(dirname "$0")/heavy.sh" "$0" "$@"
 set -e
 cd "$(dirname "$0")/.."
@@ -24,6 +24,14 @@ if grep -hE '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import ' App/SafariFill/*.sw
   exit 1
 fi
 swiftc -typecheck -swift-version 6 App/SafariFill/*.swift
+# The handler reads the app's vault list under the keys the app writes it with.
+for key in vaultReference rememberedVaults forgottenVaultIDs vaultOrder; do
+  if ! grep -qE "static let [a-zA-Z]+Key = \"$key\"" App/Core/KeePassVaultStore.swift ||
+     ! grep -qE "static let [a-zA-Z]+Key = \"$key\"" App/SafariFill/SafariFillProtocol.swift; then
+    echo "test-safari-fill: the vault list key $key differs between the app and the Safari handler" >&2
+    exit 1
+  fi
+done
 
 # The snapshot is tested against a real vault document, built from the same source list as the hostless KDBX tests (read from
 # scripts/test-kdbx.sh, without that script's own test files).

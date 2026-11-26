@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-// Hostless checks for the Safari fill grant (docs/plans/ios-safari-fill.md, slice 1). Run with scripts/test-safari-fill.sh.
+// Hostless checks for the Safari fill grant (docs/plans/ios-safari-fill.md, slices 1 and 2). Run with scripts/test-safari-fill.sh.
 // The store is a stand-in and the Keychain calls are recorded: no Keychain, vault file or app data is touched. All data is
 // fictional. A failure names the case, never a value.
 
@@ -278,7 +278,13 @@ do {
     let whole = SafariFillStoredItem(data: try grant.encoded(), grantID: grant.grantID)
     refused("expired", whole, .expired, now: clock.later(120_000))
     refused("clock change", whole, .clockChanged, now: clock.later(wall: 60_000, continuous: 1_000))
-    refused("removed vault", whole, .vaultNotListed, vaults: [])
+    let unlisted = MemoryStore()
+    unlisted.stored = whole
+    check("an unlisted vault is refused", thrown { _ = try unlisted.current(clock: clock, listedVaults: []) } == .vaultNotListed)
+    check("and its grant kept", unlisted.stored == whole)
+    check("in time whatever its vault", try unlisted.inTime(clock: clock) == grant)
+    check("unlisted and out of time is deleted", thrown { _ = try unlisted.current(clock: clock.later(120_000), listedVaults: []) } == .expired
+          && unlisted.stored == nil)
     refused("garbage", .init(data: Data("garbage".utf8), grantID: grant.grantID), .unreadable)
     refused("truncated", .init(data: whole.data.prefix(40), grantID: grant.grantID), .unreadable)
     refused("over cap", .init(data: Data(count: 70_000), grantID: grant.grantID), .overCap)
@@ -814,6 +820,600 @@ do {
         let message = "\(error) \(String(reflecting: error)) \(error.localizedDescription)"
         check("decode errors quote nothing", !message.contains(secretMarker) && !message.contains("4111"))
     }
+}
+
+// MARK: Handler protocol: origins
+
+do {
+    func allowed(_ origin: String, loopback: Bool = false) -> Bool { SafariFillOrigin.isAllowed(origin, allowsLoopbackHTTP: loopback) }
+    for origin in ["https://shop.example", "https://shop.example:8443", "https://a.b.c.example.", "https://xn--bcher-kva.example",
+                   "https://127.0.0.1", "https://[::1]:9000", "https://[2001:db8::1]", "https://localhost", "https://my_host.example:65535"] {
+        check("origin allowed", allowed(origin))
+    }
+    for origin in ["", "https://", "https:///", "https://:443", "http://shop.example", "ftp://shop.example", "file:///etc/passwd",
+                   "shop.example", "//shop.example", "https:shop.example", "HTTPS://shop.example", "https://Shop.example",
+                   "https://user@shop.example", "https://user:pass@shop.example", "https://@shop.example", "https://shop.example/",
+                   "https://shop.example/pay", "https://shop.example?q=1", "https://shop.example#a", "https://shop.example\\@evil.example",
+                   "https://shop.example ", " https://shop.example", "https://shop.example\n", "https://shop.example\0", "https://shop%2eexample",
+                   "https://b\u{00FC}cher.example", "https://shop\u{202E}.example", "https://.", "https://..", "https://a..b", "https://.a",
+                   "https://shop.example:", "https://shop.example:0", "https://shop.example:080", "https://shop.example:65536",
+                   "https://shop.example:123456", "https://shop.example:1a", "https://shop.example:-1", "https://shop.example:1:2",
+                   "https://[]", "https://[::1", "https://::1", "https://[example]", "https://[::1]x", "https://[::1]]", "null",
+                   "about:blank", "data:text/html,x", "https://" + String(repeating: "a", count: 254),
+                   "https://" + String(repeating: "a.", count: 100_000)] {
+        check("origin refused", !allowed(origin) && !allowed(origin, loopback: true))
+    }
+    check("host of 253", allowed("https://" + String(repeating: "a", count: 253)))
+    for origin in ["https://shop.example:443", "https://127.0.0.1:443", "https://[::1]:443", "https://127.1", "https://2130706433",
+                   "https://0x7f.0.0.1", "https://127.0.0.0x1", "https://127.0.0.01", "https://256.0.0.1", "https://1.2.3.4.",
+                   "https://1.2.3.4.5", "https://shop.123", "https://shop.0x1f", "https://[::ffff:127.0.0.1]", "https://[0::1]x",
+                   "https://[00::1]", "https://[::01]", "https://[1::2::3]", "https://[1:2:3]", "https://[1:2:3:4:5:6:7:8:9]",
+                   "https://[1:2:3:4:5:6:7::8]", "https://[:::]", "https://[:1:2:3:4:5:6:7]", "https://[12345::]", "https://[.]"] {
+        check("a form a browser never writes", !allowed(origin) && !allowed(origin, loopback: true))
+    }
+    check("default HTTP port", !allowed("http://localhost:80", loopback: true) && allowed("http://localhost:443", loopback: true))
+    for origin in ["https://1.2.3.4", "https://255.255.255.255:80", "https://123.example", "https://0x1.example", "https://[::]",
+                   "https://[1:2:3:4:5:6:7:8]", "https://[::ffff:7f00:1]", "https://[fe80::]"] {
+        check("a browser's numeric host", allowed(origin))
+    }
+    for origin in ["http://localhost", "http://localhost:5173", "http://127.0.0.1:8080", "http://[::1]:3000"] {
+        check("loopback HTTP only when allowed", allowed(origin, loopback: true) && !allowed(origin))
+    }
+    for origin in ["http://localhost.evil.example", "http://127.0.0.1.evil.example", "http://127.0.0.2", "http://[::2]", "http://localhost.",
+                   "http://a.localhost", "http://localhost@evil.example", "http://0.0.0.0"] {
+        check("not loopback", !allowed(origin, loopback: true))
+    }
+    check("a build without DEBUG takes no HTTP", !SafariFillOrigin.loopbackHTTPByDefault)
+}
+
+// MARK: Handler protocol: text shown before a release
+
+/// The digits of any script a text still shows.
+func shownDigits(_ text: String) -> Int {
+    text.precomposedStringWithCompatibilityMapping.unicodeScalars.filter { $0.properties.numericType != nil }.count
+}
+
+do {
+    let line = SafariFillText.line
+    for text in ["Travel card", "Visa 2030", "Flat 12, 1 Nowhere Lane", "Riga LV-1010", "1234567", "Caf\u{00E9} \u{4F60}\u{597D}", ""] {
+        check("ordinary text stays", line(text) == text)
+    }
+    check("eight digits are masked", line("12345678") == "\u{2022}\u{2022}\u{2022}\u{2022}5678")
+    check("plain number", line("4111111111111111") == String(repeating: "\u{2022}", count: 12) + "1111")
+    check("spaced", line("Card 4111 1111 1111 1234 spare") == "Card \u{2022}\u{2022}\u{2022}\u{2022} \u{2022}\u{2022}\u{2022}\u{2022} \u{2022}\u{2022}\u{2022}\u{2022} 1234 spare")
+    check("dashed", line("5555-5555-5555-4444") == "\u{2022}\u{2022}\u{2022}\u{2022}-\u{2022}\u{2022}\u{2022}\u{2022}-\u{2022}\u{2022}\u{2022}\u{2022}-4444")
+    func scripted(_ zero: UInt32) -> String {
+        String(String.UnicodeScalarView("4111111111111111".unicodeScalars.map { Unicode.Scalar(zero + $0.value - 48)! }))
+    }
+    var disguises = [scripted(0xFF10), scripted(0x0660), scripted(0x06F0), scripted(0x0966), scripted(0x0E50), scripted(0x1D7CE)]
+    disguises += [
+        "4111.1111.1111.1111", "4111/1111/1111/1111", "4111_1111_1111_1111", "4111,1111;1111|1111", "4111\n1111\r1111\t1111",
+        "4111\u{00A0}1111\u{2009}1111\u{3000}1111", "4111\u{200B}1111\u{200D}1111\u{FEFF}1111", "4111\u{202E}1111\u{2066}1111\u{200F}1111",
+        "4111 - 1111 \u{2013} 1111 \u{2014} 1111", "4111abc1111def1111ghi1111", "n\u{00B0}4111 (exp) 1111 [x] 1111 {y} 1111",
+        "4\u{0301}1\u{0301}1\u{0301}1\u{0301}1111 1111 1111", "4\u{FE0F}\u{20E3}1111111 1111 1111",
+        "\u{2463}\u{2460}\u{2460}\u{2460} \u{2460}\u{2460}\u{2460}\u{2460} \u{2460}\u{2460}\u{2460}\u{2460}",
+        "\u{2074}\u{00B9}\u{00B9}\u{00B9}\u{00B9}\u{00B9}\u{00B9}\u{00B9}\u{00B9}\u{00B9}\u{00B9}\u{00B9}",
+        "\u{56DB}\u{4E00}\u{4E00}\u{4E00}\u{4E00}\u{4E00}\u{4E00}\u{4E00}\u{4E00}\u{4E00}\u{4E00}\u{4E00}",
+        String(repeating: "\u{3251}", count: 8), String(repeating: "\u{00BD}", count: 8), String(repeating: "\u{2491}", count: 8),
+        "4111111" + String(repeating: " ", count: 3000) + "111111111", "4111111" + String(repeating: "x", count: 5000) + "111111111",
+        String(repeating: "\u{200B}", count: 4090) + "4111111111111111", String(repeating: "x", count: 70) + "4111111111111111",
+        "x" + String(repeating: "\u{0301}", count: 500) + "4111111111111111",
+    ]
+    for (index, text) in disguises.enumerated() {
+        let result = line(text)
+        // Past the length that is read, nothing numeric is shown at all.
+        check("disguised number \(index)", shownDigits(result) <= (text.unicodeScalars.count > SafariFillText.maxInput ? 0 : 4))
+    }
+    check("an over-long text shows no digit", shownDigits(line("12 " + String(repeating: "x", count: 5000))) == 0)
+    check("one line", line(" a\u{2028}b\u{2029}c\r\nd\te ") == "a b c d e")
+    check("nothing invisible or reordering", line("a\u{202E}b\u{2067}c\u{200B}d\u{0007}e\u{E000}f\u{FFFC}g\u{E0041}h\u{00AD}i") == "abcdefghi")
+    check("only invisible text is empty", line("\u{200B}\u{202E} \u{FEFF}\u{0301}") == "")
+    check("path text is just text", line("../../etc/passwd") == "../../etc/passwd")
+    for text in [String(repeating: "a", count: 100_000), String(repeating: "\u{1F468}\u{200D}\u{1F469}", count: 500),
+                 "a" + String(repeating: "\u{0301}", count: 100_000), String(repeating: "\u{1100}", count: 5000),
+                 String(repeating: "e\u{0301}\u{0301}\u{0301}\u{0301}", count: 200), String(repeating: "\u{0600}", count: 300) + "a"] {
+        let result = line(text)
+        check("cut short", result.count <= SafariFillText.maxCharacters && result.unicodeScalars.count <= SafariFillText.maxScalars)
+    }
+    // The texts of a row are counted together.
+    let row = SafariFillText.row
+    check("a few digits across a row stay", row(["Flat 12", "Robin", "LV-1010"], 0) == ["Flat 12", "Robin", "LV-1010"])
+    check("a number split across a row", row(["411111", "1111 11", "city 1234"], 0)
+          == ["\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}", "\u{2022}\u{2022}\u{2022}\u{2022} \u{2022}\u{2022}", "city 1234"])
+    check("the last four of a row may span texts", row(["1234567", "8", "9"], 0) == ["\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}67", "8", "9"])
+    check("digits shown elsewhere take the room", row(["4111", "1111"], 4) == ["\u{2022}\u{2022}\u{2022}\u{2022}", "\u{2022}\u{2022}\u{2022}\u{2022}"])
+    check("and count towards the limit", row(["Card 2", "x 3"], 4) == ["Card 2", "x 3"])
+    check("one cut text masks its row", row(["12", String(repeating: "a", count: 5000)], 0)[0] == "\u{2022}\u{2022}")
+    check("exactly 80 is not cut", line(String(repeating: "a", count: 80)) == String(repeating: "a", count: 80))
+    check("81 is cut", line(String(repeating: "a", count: 81)) == String(repeating: "a", count: 79) + "\u{2026}")
+    var generator = SystemRandomNumberGenerator()
+    check("random text never shows more than it may", (0..<3000).allSatisfy { _ in
+        let pool: [Unicode.Scalar] = ["0", "1", "9", " ", "-", ".", "a", "\u{200B}", "\u{202E}", "\u{0301}", "\u{FF14}", "\u{0664}", "\u{2463}", "\u{3251}"]
+        let text = String(String.UnicodeScalarView((0..<Int.random(in: 0...120, using: &generator)).map { _ in pool.randomElement(using: &generator)! }))
+        let digits = shownDigits(line(text))
+        return digits <= (digits > 0 && shownDigits(text) > 7 ? 4 : 7)
+    })
+}
+
+// MARK: Handler protocol: the stored vault list
+
+struct StoredVaults: SafariFillVaultSource {
+    var values: [String: Any] = [:]
+    func object(forKey key: String) -> Any? { values[key] }
+}
+func json(_ value: some Encodable) -> Data { try! JSONEncoder().encode(value) }
+/// Answers as each source in turn, moving on when the active vault is asked for again: what the app changes between two readings.
+final class ChangingVaults: SafariFillVaultSource {
+    private let sources: [StoredVaults]
+    private var readings = 0
+    var onSecond: (() -> Void)?
+    init(_ sources: [StoredVaults]) { self.sources = sources }
+    func object(forKey key: String) -> Any? {
+        if key == SafariFillVaultList.activeKey {
+            readings += 1
+            if readings == 2 { onSecond?() }
+        }
+        return sources[min(max(readings, 1), sources.count) - 1].object(forKey: key)
+    }
+}
+
+do {
+    typealias List = SafariFillVaultList
+    check("no source", thrown { _ = try List(source: nil).vaults() } == .storeUnavailable)
+    check("nothing stored", try List(source: StoredVaults()).vaults().isEmpty)
+
+    // What the app itself writes, through its own code into the test root.
+    let root = URL(fileURLWithPath: ProcessInfo.processInfo.environment["PSSS_TEST_ROOT"]!, isDirectory: true)
+    var first = VaultReference(name: "First", managed: true, bookmark: nil, fileName: "a.kdbx")
+    first.biometricUnlock = true
+    let second = VaultReference(name: "Second", managed: false, bookmark: Data(count: 4000), fileName: "b.kdbx")
+    let third = VaultReference(name: "Third", managed: true, bookmark: nil, fileName: "c.kdbx")
+    let gone = VaultReference(name: "Gone", managed: true, bookmark: nil, fileName: "d.kdbx")
+    for reference in [first, second, gone, third] { reference.persist() }
+    VaultReference.forget(gone.id)
+    VaultReference.activate(second.id)
+    var stored = StoredVaults()
+    for (key, file) in [(List.activeKey, "vault-reference.json"), (List.rememberedKey, "vault-references-remembered.json"),
+                        (List.forgottenKey, "vault-reference-forgotten.json"), (List.orderKey, "vault-order.json")] {
+        stored.values[key] = try Data(contentsOf: root.appendingPathComponent(file))
+    }
+    let decoded = try List(source: stored).vaults()
+    check("matches what the app lists", decoded == VaultReference.all.map { SafariFillListedVault(id: $0.id, name: $0.name) })
+    check("in the fixed order", decoded.map(\.name) == ["First", "Second", "Third"])
+
+    // What a reader can catch while the app switches vaults: the chosen one in neither key, and nothing says it was removed.
+    var between = stored
+    between.values[List.rememberedKey] = json(VaultReference.remembered.filter { $0.id != first.id })
+    let caught = try List(source: between).contents()
+    check("mid-switch it is neither listed nor forgotten", !caught.listed.contains { $0.id == first.id } && !caught.forgotten.contains(first.id))
+    check("a removed one is forgotten", caught.forgotten == [gone.id])
+    let held = MemoryStore()
+    let mine = SafariFillGrant(vault: .init(id: first.id, name: "First"), cards: [sampleCard()], clock: clock)
+    try held.write(mine)
+    let midway = SafariFillHandler(store: held, vaults: List(source: between), clock: clock).reply(to: ["v": 1, "type": "status", "origin": "https://shop.example"])
+    check("mid-switch: nothing shown, grant kept", midway.refusal == nil && (midway.message["cards"] as? [Any])?.isEmpty == true
+          && held.stored?.grantID == mine.grantID)
+
+    let a = UUID(), b = UUID()
+    func entry(_ id: UUID, _ name: String) -> [String: String] { ["id": id.uuidString, "name": name] }
+    let both: [String: Any] = [List.activeKey: json(entry(a, "A")), List.rememberedKey: json([entry(b, "B"), entry(a, "again")])]
+    check("one entry for each identifier", try List(source: StoredVaults(values: both)).vaults().map(\.name) == ["A", "B"])
+    var forgotten = both
+    forgotten[List.forgottenKey] = json([a.uuidString])
+    check("a forgotten vault is not listed", try List(source: StoredVaults(values: forgotten)).vaults().map(\.id) == [b])
+    for order in [Data("junk".utf8), json([b.uuidString, b.uuidString, "x"])] {
+        var values = both
+        values[List.orderKey] = order
+        check("a bad order never loses a vault", try Set(List(source: StoredVaults(values: values)).vaults().map(\.id)) == [a, b])
+    }
+    for key in [List.activeKey, List.rememberedKey, List.forgottenKey] {
+        for bad: Any in [Data("junk".utf8), Data(), Data("{}".utf8 + [0]), "text", 7, [1, 2], Data(count: List.maxBytes + 1),
+                         json([["name": "no identifier"]]), json(["id": "nope", "name": "x"])] {
+            var values = both
+            values[key] = bad
+            check("damaged \(key)", thrown { _ = try List(source: StoredVaults(values: values)).vaults() } == .unreadable)
+        }
+    }
+}
+
+// MARK: Handler protocol: requests and replies
+
+let shop = "https://shop.example"
+let otherVault = UUID()
+/// Values that only a release may carry.
+let secretNumber = "4111111111111111", secretCode = "914"
+let privateValues = [secretNumber, secretCode, "1 Nowhere Lane", "Flat 2", "Northshire", "EX1 2PL", "robin@example.invalid", "+44 0000 000000", "Acme Example"]
+
+func vaultSource(_ vaults: [(UUID, String)] = [(vaultID, "Passwords"), (otherVault, "Work")]) -> SafariFillVaultList {
+    let entries = vaults.map { ["id": $0.0.uuidString, "name": $0.1] }
+    var values: [String: Any] = [:]
+    if let active = entries.first { values[SafariFillVaultList.activeKey] = json(active) }
+    values[SafariFillVaultList.rememberedKey] = json(Array(entries.dropFirst()))
+    return SafariFillVaultList(source: StoredVaults(values: values))
+}
+func handler(_ store: (any SafariFillStore)?, at: TestClock = clock, vaults: SafariFillVaultList = vaultSource()) -> SafariFillHandler {
+    SafariFillHandler(store: store, vaults: vaults, clock: at, allowsLoopbackHTTP: false)
+}
+func statusRequest(_ origin: Any = shop) -> [String: Any] { ["v": 1, "type": "status", "origin": origin] }
+func releaseRequest(_ ref: String, kind: String = "card", roles: Any? = nil, vault: UUID = vaultID, origin: String = shop) -> [String: Any] {
+    ["v": 1, "type": "release", "origin": origin, "vault": vault.uuidString, "kind": kind, "ref": ref,
+     "roles": roles ?? (kind == "card" ? ["cc-name", "cc-number", "cc-exp", "cc-csc"] : ["name", "postal-code"])]
+}
+/// Every reply goes through here: it must be sendable, and a refusal must be nothing but its word.
+func answer(_ handler: SafariFillHandler, _ message: Any?) -> SafariFillHandler.Reply {
+    let reply = handler.reply(to: message)
+    check("the reply is JSON", JSONSerialization.isValidJSONObject(reply.message) && reply.message["v"] as? Int == 1)
+    if let refusal = reply.refusal {
+        check("a refusal is only its word", Set(reply.message.keys) == ["v", "ok", "error"] && reply.message["ok"] as? Bool == false
+              && reply.message["error"] as? String == refusal.rawValue)
+    } else {
+        check("an answer says ok", reply.message["ok"] as? Bool == true && reply.message["error"] == nil)
+    }
+    var printed = "\(reply) \(String(reflecting: reply))"
+    dump(reply, to: &printed)
+    check("a reply prints redacted", privateValues.allSatisfy { !printed.contains($0) } && !printed.contains("Robin"))
+    return reply
+}
+func text(_ reply: SafariFillHandler.Reply) -> String {
+    String(decoding: try! JSONSerialization.data(withJSONObject: reply.message, options: [.sortedKeys, .withoutEscapingSlashes]), as: UTF8.self)
+}
+func rows(_ reply: SafariFillHandler.Reply, _ key: String) -> [[String: Any]] { reply.message[key] as? [[String: Any]] ?? [] }
+func ref(_ reply: SafariFillHandler.Reply, _ key: String, _ index: Int = 0) -> String { rows(reply, key)[index]["ref"] as! String }
+/// Status with the random references taken out, so a digit in an identifier is not read as a leak.
+func withoutRefs(_ reply: SafariFillHandler.Reply) -> String {
+    var result = text(reply)
+    for key in ["cards", "addresses", "vaults"] {
+        for row in rows(reply, key) {
+            for name in ["ref", "id"] { if let value = row[name] as? String { result = result.replacingOccurrences(of: value, with: "-") } }
+        }
+    }
+    return result
+}
+
+do {
+    let store = MemoryStore()
+    let grant = sampleGrant()
+    try store.write(grant)
+    let h = handler(store)
+
+    let status = answer(h, statusRequest())
+    check("status type", status.type == "status" && status.refusal == nil)
+    check("status keys", Set(status.message.keys) == ["v", "ok", "vaults", "cards", "addresses"])
+    check("vaults ready or locked", rows(status, "vaults").map { "\($0["name"]!) \($0["ready"] as! Bool)" } == ["Passwords true", "Work false"])
+    check("card row keys", Set(rows(status, "cards")[0].keys) == ["ref", "title", "brand", "lastFour", "expiry", "hasCode"])
+    let cardRow = rows(status, "cards")[0]
+    check("card row values", cardRow["title"] as? String == "Travel card" && cardRow["brand"] as? String == "Visa"
+          && cardRow["lastFour"] as? String == "1111" && cardRow["expiry"] as? String == "2030-08" && cardRow["hasCode"] as? Bool == true)
+    check("address row keys", Set(rows(status, "addresses")[0].keys) == ["ref", "label", "fullName", "city"])
+    let addressRow = rows(status, "addresses")[0]
+    check("address row values", addressRow["label"] as? String == "Home" && addressRow["fullName"] as? String == "Robin Fictional"
+          && addressRow["city"] as? String == "Exampleton")
+    check("status holds nothing private", (privateValues + ["GB\""]).allSatisfy { !withoutRefs(status).contains($0) })
+    check("a status does not use the grant up", answer(h, statusRequest()).message.count == 5 && store.stored != nil)
+
+    let cardRef = ref(status, "cards"), addressRef = ref(status, "addresses")
+    check("reference carries the grant", SafariFillRef(cardRef)?.grantID == grant.grantID && SafariFillRef(cardRef)?.item == grant.cards[0].id)
+
+    // Release: exactly the roles asked for.
+    func fields(_ reply: SafariFillHandler.Reply) -> [String: String]? { reply.message["fields"] as? [String: String] }
+    let card = answer(h, releaseRequest(cardRef))
+    check("release type", card.type == "release" && Set(card.message.keys) == ["v", "ok", "fields"])
+    check("card release", fields(card) == ["cc-name": "Robin Fictional", "cc-number": secretNumber, "cc-exp": "2030-08", "cc-csc": secretCode])
+    check("only the asked role", fields(answer(h, releaseRequest(cardRef, roles: ["cc-number"]))) == ["cc-number": secretNumber])
+    check("month and year release the expiry", fields(answer(h, releaseRequest(cardRef, roles: ["cc-exp-month", "cc-exp-year"]))) == ["cc-exp": "2030-08"])
+    let whole: [String: String] = [
+        "name": "Robin Fictional", "organization": "Acme Example", "street-address": "1 Nowhere Lane\nFlat 2", "address-level2": "Exampleton",
+        "address-level1": "Northshire", "postal-code": "EX1 2PL", "country": "GB", "email": "robin@example.invalid", "tel": "+44 0000 000000"]
+    let allRoles = Array(SafariFillKind.address.roles.keys)
+    check("address release", fields(answer(h, releaseRequest(addressRef, kind: "address", roles: allRoles))) == whole)
+    for (role, key) in SafariFillKind.address.roles {
+        check("address role \(role)", fields(answer(h, releaseRequest(addressRef, kind: "address", roles: [role]))) == [key: whole[key]!])
+    }
+    for (role, key) in SafariFillKind.card.roles {
+        check("card role \(role)", fields(answer(h, releaseRequest(cardRef, roles: [role]))).map { Set($0.keys) } == [key])
+    }
+
+    // The roles are those the page fill names.
+    let script = try String(contentsOfFile: "Extensions/Browser/src/page-fill.js", encoding: .utf8)
+    func pageRoles(_ name: String) -> Set<String> {
+        guard let start = script.range(of: "const \(name) = {"), let end = script.range(of: "};", range: start.upperBound..<script.endIndex) else { return [] }
+        let block = String(script[start.upperBound..<end.lowerBound])
+        let pattern = try! NSRegularExpression(pattern: "(?m)^\\s*'?([a-z0-9-]+)'?:")
+        return Set(pattern.matches(in: block, range: NSRange(block.startIndex..., in: block)).map { String(block[Range($0.range(at: 1), in: block)!]) })
+    }
+    check("card roles are the page fill's", pageRoles("cardAliases") == Set(SafariFillKind.card.roles.keys))
+    check("address roles are the page fill's", pageRoles("addressAliases") == Set(SafariFillKind.address.roles.keys))
+
+    // Only an entry of the current grant, of the asked kind, in the grant's vault.
+    func refusal(_ message: Any?, _ h: SafariFillHandler = h) -> SafariFillRefusal? { answer(h, message).refusal }
+    check("unknown entry", refusal(releaseRequest(SafariFillRef(grantID: grant.grantID, item: UUID()).text)) == .notFound)
+    check("another grant's reference", refusal(releaseRequest(SafariFillRef(grantID: Data(count: 16), item: grant.cards[0].id).text)) == .notFound)
+    check("a card as an address", refusal(releaseRequest(cardRef, kind: "address")) == .notFound)
+    check("an address as a card", refusal(releaseRequest(addressRef)) == .notFound)
+    check("another listed vault", refusal(releaseRequest(cardRef, vault: otherVault)) == .notFound)
+    check("an unknown vault", refusal(releaseRequest(cardRef, vault: UUID())) == .notFound)
+    check("refusals keep the grant", store.stored != nil)
+    var lower = releaseRequest(cardRef)
+    lower["vault"] = vaultID.uuidString.lowercased()
+    check("a vault identifier in either case", refusal(lower) == nil)
+
+    // A new grant of the very same entries refuses the earlier list.
+    var again = grant
+    again.grantID = Data(repeating: 7, count: 16)
+    try store.write(again)
+    check("earlier grant's reference refused", refusal(releaseRequest(cardRef)) == .notFound && refusal(releaseRequest(addressRef, kind: "address")) == .notFound)
+    check("the new one serves", refusal(releaseRequest(ref(answer(h, statusRequest()), "cards"))) == nil)
+
+    // Strict shape. None of these reads or changes the store.
+    try store.write(grant)
+    let untouched = MemoryStore()
+    untouched.readFails = true
+    let strict = handler(untouched)
+    let good = releaseRequest(cardRef)
+    func with(_ key: String, _ value: Any?, of base: [String: Any] = good) -> [String: Any] { var copy = base; copy[key] = value; return copy }
+    check("good shape reaches the store", refusal(good, strict) == .unavailable)
+    for message: Any? in [nil, "status", 1, [1, 2], NSNull(), Data(), [AnyHashable(1): 2] as [AnyHashable: Any]] {
+        check("not a request", refusal(message, strict) == .invalid)
+    }
+    for version: Any? in [nil, 0, 2, "1", true, 1.5, -1, NSNull(), [1], Double.nan, Double.infinity, Int64.max] {
+        check("another version", refusal(with("v", version), strict) == .unsupported && refusal(with("v", version, of: statusRequest()), strict) == .unsupported)
+    }
+    check("1.0 is 1", refusal(with("v", 1.0), strict) == .unavailable)
+    for type: Any? in [nil, "", "Status", "status ", "vaults", "credential", "card", "unlock", 1, true, ["status"], String(repeating: "s", count: 100_000)] {
+        let reply = answer(strict, with("type", type))
+        check("another type", reply.refusal == .unsupported && reply.type == nil)
+    }
+    for key in ["origin", "vault", "kind", "ref", "roles"] {
+        check("missing \(key)", refusal(with(key, nil), strict) == .invalid)
+        for value: Any in [1, true, NSNull(), [:] as [String: Any], "", String(repeating: "a", count: 100_000), [[:] as [String: Any]]] {
+            check("bad \(key)", refusal(with(key, value), strict) == .invalid)
+        }
+    }
+    check("missing origin in status", refusal(with("origin", nil, of: statusRequest()), strict) == .invalid)
+    for extra in ["vault", "ref", "roles", "extra"] {
+        check("status takes no more", refusal(with(extra, "x", of: statusRequest()), strict) == .invalid)
+    }
+    check("release takes no more", refusal(with("extra", 1), strict) == .invalid)
+    check("a huge dictionary", refusal(Dictionary(uniqueKeysWithValues: (0..<100_000).map { ("k\($0)", $0) }), strict) == .invalid)
+    for kind in ["login", "Card", "cards", "password"] { check("unknown kind", refusal(with("kind", kind), strict) == .invalid) }
+    for bad in ["", "x", cardRef + "a", String(cardRef.dropLast()), cardRef.uppercased(), cardRef.lowercased(),
+                cardRef.replacingOccurrences(of: ".", with: ":"), grant.cards[0].id.uuidString,
+                "+f" + String(cardRef.dropFirst(2)), String(repeating: "\u{00E9}", count: 16) + String(cardRef.dropFirst(32)),
+                String(repeating: ".", count: SafariFillRef.length), "../" + String(cardRef.dropFirst(3))] where bad != cardRef {
+        check("bad reference shape", refusal(with("ref", bad), strict) == .invalid)
+    }
+    for roles: [Any] in [[], ["password"], ["username"], ["current-password"], ["one-time-code"], ["postal-code"], ["cc-number", "email"],
+                         ["cc-number", "cc-number"], ["cc-number", 1], ["CC-NUMBER"], ["cc-pin"], ["cc-type"], [""], ["__proto__"],
+                         Array(repeating: "cc-number", count: 100_000)] {
+        check("roles outside a card", refusal(with("roles", roles), strict) == .invalid)
+    }
+    for roles in [["cc-number"], ["name", "cc-csc"], ["postal-code", "postal-code"], ["notes"]] {
+        check("roles outside an address", refusal(releaseRequest(addressRef, kind: "address", roles: roles), strict) == .invalid)
+    }
+    for origin in ["http://shop.example", "https://user@shop.example", "https://", "https://shop.example/x", "http://localhost"] {
+        check("status origin", refusal(statusRequest(origin), strict) == .forbidden)
+        check("release origin", refusal(releaseRequest(cardRef, origin: origin), strict) == .forbidden)
+    }
+    check("over-long origin", refusal(statusRequest("https://" + String(repeating: "a", count: 400)), strict) == .invalid)
+    var local = handler(store)
+    local.allowsLoopbackHTTP = true
+    check("loopback when the build allows it", refusal(statusRequest("http://localhost:5173"), local) == nil)
+}
+
+// Locked, expired, unreadable.
+do {
+    let store = MemoryStore()
+    let h = handler(store)
+    let anyRef = SafariFillRef(grantID: Data(count: 16), item: UUID()).text
+    func locked(_ reply: SafariFillHandler.Reply) -> Bool {
+        reply.refusal == nil && rows(reply, "cards").isEmpty && rows(reply, "addresses").isEmpty
+            && rows(reply, "vaults").map { $0["ready"] as! Bool } == [false, false]
+    }
+    check("no grant: status shows locked vaults", locked(answer(h, statusRequest())))
+    check("no grant: release", answer(h, releaseRequest(anyRef)).refusal == .locked)
+    check("no vaults at all", rows(answer(handler(store, vaults: SafariFillVaultList(source: StoredVaults())), statusRequest()), "vaults").isEmpty)
+
+    for later in [clock.later(120_000), clock.later(wall: -1, continuous: 1), TestClock(wall: clock.wall + 1000, continuous: 10)] {
+        let grant = sampleGrant()
+        try store.write(grant)
+        let listedRef = ref(answer(h, statusRequest()), "cards")
+        check("released just before", answer(handler(store, at: clock.later(119_999)), releaseRequest(listedRef)).refusal == nil)
+        check("ran out between status and release", answer(handler(store, at: later), releaseRequest(listedRef)).refusal == .locked && store.stored == nil)
+        check("stays refused with an earlier clock", answer(h, releaseRequest(listedRef)).refusal == .locked)
+        try store.write(grant)
+        check("status past the time deletes", locked(answer(handler(store, at: later), statusRequest())) && store.stored == nil)
+    }
+
+    let grant = sampleGrant()
+    let listedRef = SafariFillRef(grantID: grant.grantID, item: grant.cards[0].id).text
+    try store.write(grant)
+    store.deleteFails = true
+    check("an old grant that cannot be deleted is still refused",
+          answer(handler(store, at: clock.later(200_000)), releaseRequest(listedRef)).refusal == .locked
+          && locked(answer(handler(store, at: clock.later(200_000)), statusRequest())))
+    store.deleteFails = false
+
+    // The grant's vault is not listed: never used, and deleted only when the app says it was removed.
+    try store.write(grant)
+    let missing = vaultSource([(otherVault, "Work")])
+    check("not listed: locked and kept", answer(handler(store, vaults: missing), releaseRequest(listedRef)).refusal == .locked
+          && rows(answer(handler(store, vaults: missing), statusRequest()), "cards").isEmpty && store.stored?.grantID == grant.grantID)
+    check("nothing listed: locked and kept", answer(handler(store, vaults: SafariFillVaultList(source: StoredVaults())), releaseRequest(listedRef)).refusal == .locked
+          && store.stored != nil)
+    check("and served once listed again", answer(h, releaseRequest(listedRef)).refusal == nil)
+    var removed = missing.source as! StoredVaults
+    removed.values[SafariFillVaultList.forgottenKey] = json([vaultID.uuidString])
+    check("removed: locked and deleted", answer(handler(store, vaults: SafariFillVaultList(source: removed)), releaseRequest(listedRef)).refusal == .locked
+          && store.stored == nil)
+
+    // The list changes between the two readings.
+    let without = missing.source as! StoredVaults, with = vaultSource().source as! StoredVaults
+    try store.write(grant)
+    check("listed on the second reading", answer(handler(store, vaults: SafariFillVaultList(source: ChangingVaults([without, with]))),
+                                                 releaseRequest(listedRef)).refusal == nil)
+    check("its rows too", rows(answer(handler(store, vaults: SafariFillVaultList(source: ChangingVaults([without, with]))), statusRequest()),
+                               "vaults").count == 2)
+    let broke = StoredVaults(values: [SafariFillVaultList.activeKey: Data("junk".utf8)])
+    check("second reading fails: unavailable and kept",
+          answer(handler(store, vaults: SafariFillVaultList(source: ChangingVaults([without, broke]))), releaseRequest(listedRef)).refusal == .unavailable
+          && store.stored != nil)
+    check("forgotten only on the second reading",
+          answer(handler(store, vaults: SafariFillVaultList(source: ChangingVaults([without, removed]))), releaseRequest(listedRef)).refusal == .locked
+          && store.stored == nil)
+    // A newer grant written after the old one was judged unlisted is not the one deleted.
+    try store.write(grant)
+    var newer = grant
+    newer.grantID = Data(repeating: 9, count: 16)
+    let late = ChangingVaults([without, removed])
+    late.onSecond = { try! store.write(newer) }
+    check("only the judged grant is deleted", answer(handler(store, vaults: SafariFillVaultList(source: late)), releaseRequest(listedRef)).refusal == .locked
+          && store.stored?.grantID == newer.grantID)
+
+    for data in [Data(), Data("junk".utf8), Data(count: SafariFillGrant.maxBytes + 1), Data(#"{"version":9}"#.utf8)] {
+        store.stored = SafariFillStoredItem(data: data, grantID: grant.grantID)
+        check("a damaged grant is locked and deleted", locked(answer(h, statusRequest())) && store.stored == nil)
+    }
+
+    // The Keychain cannot be read: nothing released, nothing deleted.
+    try store.write(grant)
+    store.readFails = true
+    check("unreadable store", answer(h, statusRequest()).refusal == .unavailable && answer(h, releaseRequest(listedRef)).refusal == .unavailable
+          && store.stored != nil)
+    store.readFails = false
+    check("no store", answer(handler(nil), statusRequest()).refusal == .unavailable && answer(handler(nil), releaseRequest(listedRef)).refusal == .unavailable)
+
+    // A newer grant written while a request with an unreadable list judges the old one.
+    for age: Int64 in [1_000, 130_000] {
+        try store.write(grant)
+        let newer = sampleGrant(clock.later(age))
+        store.afterRead = { try! store.write(newer) }
+        check("unreadable list never drops a newer grant",
+              answer(handler(store, at: clock.later(age), vaults: SafariFillVaultList(source: nil)), statusRequest()).refusal == .unavailable
+              && store.stored?.grantID == newer.grantID)
+        try store.write(grant)
+        store.afterRead = { try! store.write(newer) }
+        _ = answer(handler(store, at: clock.later(age)), statusRequest())
+        check("nor does a readable one", store.stored?.grantID == newer.grantID)
+    }
+
+    // The vault list cannot be read: nothing released, a grant in time stays, one out of time goes.
+    for broken in [SafariFillVaultList(source: nil),
+                   SafariFillVaultList(source: StoredVaults(values: [SafariFillVaultList.activeKey: Data("junk".utf8)]))] {
+        try store.write(grant)
+        let b = handler(store, vaults: broken)
+        check("unreadable list", answer(b, statusRequest()).refusal == .unavailable && answer(b, releaseRequest(listedRef)).refusal == .unavailable
+              && store.stored != nil)
+        check("an unreadable list still expires", answer(handler(store, at: clock.later(120_000), vaults: broken), statusRequest()).refusal == .unavailable
+              && store.stored == nil)
+        store.stored = SafariFillStoredItem(data: Data("junk".utf8), grantID: grant.grantID)
+        check("an unreadable list still drops damage", answer(b, statusRequest()).refusal == .unavailable && store.stored == nil)
+    }
+}
+
+// Hostile names, and numbers typed into every text.
+do {
+    let numbers = ["4111111111111111", "5555 5555 5555 4444", "3782-822463-10005",
+                   "\u{FF14}\u{FF11}\u{FF11}\u{FF11}\u{FF11}\u{FF11}\u{FF11}\u{FF11}\u{FF11}\u{FF11}\u{FF11}\u{FF11}\u{FF11}\u{FF11}\u{FF11}\u{FF11}"]
+    let hostileName = "../..\n\u{202E}evil\u{2066}\u{200B}<img src=x onerror=1>\"'\\" + String(repeating: "A", count: 300)
+    for number in numbers {
+        let store = MemoryStore()
+        var grant = sampleGrant()
+        grant.cards[0].title = "\(number) \(hostileName)"
+        grant.cards[0].brand = number
+        grant.cards[0].cardholder = number
+        grant.addresses[0].label = number
+        grant.addresses[0].fullName = "\u{202E}\(number)"
+        grant.addresses[0].city = "city \(number)"
+        grant.vault.name = number
+        try store.write(grant)
+        let reply = answer(handler(store, vaults: vaultSource([(vaultID, "\(number) vault"), (otherVault, hostileName + number)])), statusRequest())
+        var texts: [String] = []
+        for key in ["vaults", "cards", "addresses"] {
+            for row in rows(reply, key) { for name in ["name", "title", "brand", "label", "fullName", "city"] { if let value = row[name] as? String { texts.append(value) } } }
+        }
+        check("every text is there", texts.count == 7)
+        check("every text is masked", texts.allSatisfy { shownDigits($0) <= 4 })
+        check("every text is clean and short", texts.allSatisfy { value in
+            value.count <= 80 && !value.unicodeScalars.contains { $0.properties.generalCategory == .control || $0.properties.generalCategory == .format }
+        })
+        for (key, names, extra) in [("cards", ["title", "brand"], "lastFour"), ("addresses", ["label", "fullName", "city"], "")] {
+            check("a whole row shows at most four", rows(reply, key).allSatisfy { row in
+                (names + [extra]).reduce(0) { $0 + shownDigits(row[$1] as? String ?? "") } <= 4
+            })
+        }
+        let released = answer(handler(store), releaseRequest(ref(reply, "addresses"), kind: "address", roles: ["name", "address-level2"]))
+        check("release fills what is stored", released.message["fields"] as? [String: String]
+              == ["name": grant.addresses[0].fullName, "address-level2": grant.addresses[0].city])
+    }
+
+    // A number shared between the texts of a row.
+    do {
+        let store = MemoryStore()
+        var grant = sampleGrant()
+        grant.cards[0].title = "5555 55"
+        grant.cards[0].brand = "55 5555"
+        grant.addresses[0].label = "4111 11"
+        grant.addresses[0].fullName = "11 1111"
+        grant.addresses[0].city = "111 111"
+        try store.write(grant)
+        let reply = answer(handler(store), statusRequest())
+        check("split across a card row", ["title", "brand"].allSatisfy { shownDigits(rows(reply, "cards")[0][$0] as! String) == 0 })
+        check("split across an address row", ["label", "fullName", "city"].map { shownDigits(rows(reply, "addresses")[0][$0] as! String) } == [0, 0, 4])
+    }
+
+    // Row names.
+    let store = MemoryStore()
+    var grant = sampleGrant()
+    grant.cards = [sampleCard(""), sampleCard("\u{200B}"), sampleCard("")]
+    grant.cards[2].brand = ""
+    grant.cards[2].expiry = nil
+    grant.cards[2].securityCode = nil
+    grant.cards[2].cardholder = ""
+    grant.addresses = [sampleAddress(""), sampleAddress(""), sampleAddress("Office")]
+    grant.addresses[1].fullName = ""
+    grant.addresses[2].fullName = ""
+    grant.addresses[2].city = ""
+    try store.write(grant)
+    let reply = answer(handler(store), statusRequest())
+    check("untitled cards", rows(reply, "cards").map { $0["title"] as! String } == ["Visa", "Visa", "Card"])
+    check("no expiry or code", rows(reply, "cards")[2]["expiry"] == nil && rows(reply, "cards")[2]["hasCode"] as? Bool == false)
+    check("unlabelled addresses", rows(reply, "addresses").map { "\($0["label"]!)|\($0["fullName"]!)" }
+          == ["Robin Fictional|", "Address|", "Office|"])
+    check("never the street", !text(reply).contains("Nowhere"))
+    let bare = answer(handler(store), releaseRequest(ref(reply, "cards", 2)))
+    check("empty values are not released", bare.message["fields"] as? [String: String] == ["cc-number": secretNumber])
+
+    // Many vaults: bounded, and the ready one is shown.
+    let many = (0..<500).map { (UUID(), "v\($0)") } + [(vaultID, "")]
+    let crowd = answer(handler(store, vaults: vaultSource(many)), statusRequest())
+    check("at most 50 vaults, the ready one among them", rows(crowd, "vaults").count == 50
+          && rows(crowd, "vaults").filter { $0["ready"] as! Bool }.map { $0["name"] as! String } == ["Vault"])
+}
+
+// Requests while grants are written, expired and revoked: a release gives the entry it names or nothing.
+do {
+    let store = MemoryStore()
+    let a = sampleGrant()
+    var other = sampleGrant()
+    other.cards[0].id = a.cards[0].id
+    other.cards[0].number = "5555555555554444"
+    let b = other
+    let wrong = Slot<Bool>(), message = releaseRequest(SafariFillRef(grantID: a.grantID, item: a.cards[0].id).text, roles: ["cc-number"])
+    nonisolated(unsafe) let request = message
+    let lock = NSLock()
+    DispatchQueue.concurrentPerform(iterations: 3000) { index in
+        switch index % 5 {
+        case 0: try? store.write(a)
+        case 1: try? store.write(b)
+        case 2: if index % 50 == 2 { try? store.revoke() }
+        default:
+            let reply = handler(store, at: clock.later(index % 11 == 0 ? 130_000 : 1)).reply(to: request)
+            let fine = reply.refusal == .locked || reply.refusal == .notFound
+                || reply.message["fields"] as? [String: String] == ["cc-number": secretNumber]
+            if !fine { lock.withLock { wrong.value = true } }
+        }
+    }
+    check("never another grant's value", wrong.value == nil)
 }
 
 print("safari fill: \(passes) passed, \(failures) failed")
