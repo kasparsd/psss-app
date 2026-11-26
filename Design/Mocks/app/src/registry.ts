@@ -23,6 +23,7 @@ import { BrowserExtension } from './pages/BrowserExtension';
 import { AppSwitcher } from './pages/AppSwitcher';
 import { IosSafariFill } from './pages/IosSafariFill';
 import { AddressItem } from './pages/AddressItem';
+import { SafariExtensionReminder } from './pages/SafariExtensionReminder';
 
 export interface PageEntry {
   slug: string;
@@ -63,4 +64,5 @@ export const pages: PageEntry[] = [
   { slug: 'app-switcher', short: 'Leaving and coming back', title: 'Leaving and coming back', oldFile: '', status: 'Built (2026-11-25)', summary: 'A butter-mark-on-charcoal cover when Psss leaves (so the app switcher shows no items), the lock decided before the first frame on return, and the place and item reopened after unlocking; no cover on pull-downs (E2).', component: AppSwitcher },
   { slug: 'ios-safari-fill', short: 'Cards in Safari (iOS)', title: 'Cards and addresses in Safari (iPhone and iPad)', oldFile: '', status: 'Proposal (2026-11-25), not built', summary: 'A Safari extension popup on iPhone and iPad that fills a saved card or address into a checkout form: how to open it, locked vault, no cards, first-run card.', component: IosSafariFill },
   { slug: 'address-item', short: 'Addresses', title: 'Addresses: a new item kind', oldFile: '', status: 'Proposal (2026-11-25), not built', summary: 'An Address kind beside Login, Card, Note, Custom Item and Wi-Fi Network: where it is added and found, how it is stored in a KeePass entry, its page and editor with country-aware order, the list row, import from 1Password, and edge cases.', component: AddressItem },
+  { slug: 'safari-extension-reminder', short: 'Safari extension reminder', title: 'Safari extension reminder (iPhone, iPad)', oldFile: '', status: 'Proposal (2026-11-26), not built', summary: 'A card on the Cards and Addresses places that says cards and addresses need the Psss extension in Safari, a steps sheet (iOS has no link to the switch), a Settings row, the order after AutoFill, and the Mac card\'s words beside it.', component: SafariExtensionReminder },
 ];
