@@ -404,6 +404,8 @@ struct ItemIdentity: View {
             ItemIcon(item: item, size: 64)
             if let name {
                 TextField("Name", text: name, prompt: Text(verbatim: item.derivedTitle).foregroundStyle(Color.secondary))
+                    // Without this the Mac form draws the field's title, "Name", as a row label beside it.
+                    .labelsHidden()
                     .textFieldStyle(.plain)
                     .font(.title.weight(.semibold))
                     .foregroundStyle(Color.primary)
