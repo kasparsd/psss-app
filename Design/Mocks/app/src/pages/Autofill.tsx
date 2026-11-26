@@ -8,7 +8,7 @@ import { VaultRow, VaultNotice } from '../components/VaultRow';
 import { VaultMenu, type VaultState } from '../components/VaultMenu';
 import { Notice } from '../components/Notice';
 import { BioPrompt } from '../components/BioPrompt';
-import { Caret, FillBtn, Hit, Pills, gitforge, gitforge2, harbor, hosting } from '../components/loginParts';
+import { Caret, InfoBtn, Hit, Pills, gitforge, gitforge2, harbor, hosting } from '../components/loginParts';
 import './autofill.css';
 
 /** One heading above a card, outside the card (plan section 4). */
@@ -80,8 +80,8 @@ const SiteList = ({ mac, one }: { mac?: boolean; one?: boolean }) => (
   <>
     <Head>For This Site</Head>
     <div className="grp">
-      <ListRow item={gitforge} mac={mac} traits="passkey" trailing={<FillBtn main={one} />} />
-      {!one && <ListRow item={harbor} mac={mac} traits={false} sub="gitforge.example" trailing={<FillBtn />} />}
+      <ListRow item={gitforge} mac={mac} traits="passkey" trailing={<InfoBtn name={gitforge.name} />} />
+      {!one && <ListRow item={harbor} mac={mac} traits={false} sub="gitforge.example" trailing={<InfoBtn name={harbor.name} />} />}
     </div>
   </>
 );
@@ -90,12 +90,12 @@ const SearchList = ({ mac }: { mac?: boolean }) => (
   <>
     <Head>For This Site</Head>
     <div className="grp">
-      <ListRow item={gitforge} mac={mac} traits="passkey" sub={<Hit hit="git" after="forge.example" />} trailing={<FillBtn />} />
-      <ListRow item={gitforge2} mac={mac} traits={false} sub={<Hit hit="git" after="forge.example" />} trailing={<FillBtn />} />
+      <ListRow item={gitforge} mac={mac} traits="passkey" sub={<Hit hit="git" after="forge.example" />} trailing={<InfoBtn name={gitforge.name} />} />
+      <ListRow item={gitforge2} mac={mac} traits={false} sub={<Hit hit="git" after="forge.example" />} trailing={<InfoBtn name={gitforge2.name} />} />
     </div>
     <Head>Other Matches</Head>
     <div className="grp">
-      <ListRow item={hosting} mac={mac} traits={false} wrap sub={<>Saved for <Hit hit="git" after="hosting.example" /></>} trailing={<FillBtn />} />
+      <ListRow item={hosting} mac={mac} traits={false} wrap sub={<>Saved for <Hit hit="git" after="hosting.example" /></>} trailing={<InfoBtn name={hosting.name} />} />
     </div>
   </>
 );
@@ -127,7 +127,7 @@ const Unlocking = ({ device, state, keyfile }: { device: Dev; state?: 'idle' | '
 /** Work's logins for the site, after the vault opened (Face ID, or the vault password in the sheet). */
 const WorkList = ({ search = true }: { search?: boolean }) => (
   <Screen device="iphone" title="Choose a Login" vault={<Vr name="Work" />} search={search ? <Field /> : undefined}>
-    <Head>For This Site</Head><div className="grp"><ListRow item={gitforge2} traits={false} trailing={<FillBtn main />} /></div>
+    <Head>For This Site</Head><div className="grp"><ListRow item={gitforge2} traits={false} trailing={<InfoBtn name={gitforge2.name} />} /></div>
   </Screen>
 );
 
@@ -174,9 +174,9 @@ export function Autofill() {
         intro={<p>The system opens this sheet over another app or a web page, in the middle of signing in or saving. The person did not come to browse: they want one login in the field, or a new one saved, and to be back where they were.</p>}
         items={[
           ['Which thing?', 'The AutoFill sheet on iPhone, iPad and Mac, named for the job: “Choose a Login”, “Save Password”, “Choose a Code”. It always names the vault it reads from or saves into, in a Vault row.'],
-          ['What must they give?', 'Usually only Face ID or Touch ID, which the system asks for, then one Fill. A locked vault gets an Unlock button beside the Vault row; when quick unlock is off it shows the app’s lock screen right here: the vault password, and a key file only when the vault uses one.'],
+          ['What must they give?', 'Usually only Face ID or Touch ID, which the system asks for, then one tap on the login. A locked vault gets an Unlock button beside the Vault row; when quick unlock is off it shows the app’s lock screen right here: the vault password, and a key file only when the vault uses one.'],
           ['What can go wrong?', 'The vault is locked, needs its password, or is not available (not downloaded, not found, can’t be read). The notice says which, in the vault’s name, and the Vault row stays so another vault is one tap away..'],
-          ['How do they leave?', 'Fill, Save or Cancel, all returning to the page. Looking, searching and unlocking change nothing in the vault; Psss closes the vault when the sheet closes.'],
+          ['How do they leave?', 'Tapping a login, Save or Cancel, all returning to the page. Looking, searching and unlocking change nothing in the vault; Psss closes the vault when the sheet closes.'],
         ]}
       />
 
@@ -184,11 +184,11 @@ export function Autofill() {
         <p>The sheet fills from one vault at a time; several vaults can be open at once, and the vault select lists open vaults as ready to fill and locked ones as needing unlock. With two or more vaults the Vault row sits at the top of every AutoFill screen (list, values, codes, save). The sheet opens on the logins for the page’s site and the search field has the focus.</p>
       </Section>
       <Frames>
-        <Frame label="A · iPhone, logins for this site" phone caption="The heading is above the card. Rows are the app’s: name over account, and the website when the name is the account (the second row). Fill is bordered; it is filled when exactly one login matches."><Screen device="iphone" title="Choose a Login" vault={<Vr />} search={<Field />}><SiteList /><Foot>Tap a name to fill one value instead, such as only the username.</Foot></Screen></Frame>
-        <Frame label="B · iPhone, searching “git”" phone caption="The Name, Website and Username pills sit directly under the Vault row with no gap above the list; accent when on, dimmed at 0. Results are in two groups, as the app’s list groups rows: “For This Site” and “Other Matches”. A login saved for another site is in Other Matches, its second line says “Saved for githosting.example” (or “No website”), and its button is the same Fill."><Screen device="iphone" title="Choose a Login" vault={<Vr />} pills={<Pills counts={counts} />} search={<Field text="git" />}><SearchList /></Screen></Frame>
+        <Frame label="A · iPhone, logins for this site" phone caption="The heading is above the card. Rows are the app’s: name over account, and the website when the name is the account (the second row). Tapping a row fills the login; the (i) at the end opens its details (frame T). With exactly one login, Return fills it."><Screen device="iphone" title="Choose a Login" vault={<Vr />} search={<Field />}><SiteList /><Foot>Tap a name to fill one value instead, such as only the username.</Foot></Screen></Frame>
+        <Frame label="B · iPhone, searching “git”" phone caption="The Name, Website and Username pills sit directly under the Vault row with no gap above the list; accent when on, dimmed at 0. Results are in two groups, as the app’s list groups rows: “For This Site” and “Other Matches”. A login saved for another site is in Other Matches, its second line says “Saved for githosting.example” (or “No website”), and tapping it fills, as on any row. Rows that would read the same also say what differs (website, else vault, else changed date)."><Screen device="iphone" title="Choose a Login" vault={<Vr />} pills={<Pills counts={counts} />} search={<Field text="git" />}><SearchList /></Screen></Frame>
       </Frames>
       <Frames>
-        <Frame label="C · Mac, one login matches" caption="A sheet over the page’s window: Vault row, the search field, pills directly under it when typing, then the heading and the card. One match, so Fill is the filled button."><Screen device="mac" title="Choose a Login" vault={<Vr mac />} search={<Field />}><SiteList mac one /><Foot>Tap a name to fill one value instead, such as only the username.</Foot></Screen></Frame>
+        <Frame label="C · Mac, one login matches" caption="A sheet over the page’s window: Vault row, the search field, pills directly under it when typing, then the heading and the card. Click a row to fill it; the (i) opens details. With one match, Return fills it."><Screen device="mac" title="Choose a Login" vault={<Vr mac />} search={<Field />}><SiteList mac one /><Foot>Tap a name to fill one value instead, such as only the username.</Foot></Screen></Frame>
         <Frame label="D · iPad, searching" caption="Same sheet; the rows are the iPad list’s rounded rows. The pills touch the search field."><Screen device="ipad" title="Choose a Login" vault={<Vr />} search={<Field text="git" />} pills={<Pills counts={counts} />}><SearchList mac /></Screen></Frame>
       </Frames>
       <Frames>
@@ -223,12 +223,12 @@ export function Autofill() {
       </Frames>
 
       <Section title="3. What to fill">
-        <p>Fill fills the username and the password. Tapping a name opens its values to fill one. A passkey request lists the passkeys first. The single Fill screen is gone: every entry point opens a list.</p>
+        <p>Tapping a row fills the username and the password (owner, 2026-11-26, as in Apple Passwords). The (i) at the end of a row opens its details, where one value can be filled on its own. A passkey request lists the passkeys first. The single Fill screen is gone: every entry point opens a list.</p>
       </Section>
       <Frames>
-        <Frame label="T · iPhone, tap a name for its values" phone caption="Username, password and the verification code, each tapped to fill on its own. The Vault row is on this screen too. Choosing another vault here returns to that vault’s list."><Values /></Frame>
-        <Frame label="U · iPhone, a passkey request" phone caption="“Passkeys for gitforge.example” first, rows with the passkey glyph and Sign In; logins below under “Logins”. No warning paragraph."><Screen device="iphone" title="Sign In" vault={<Vr />}><Head>Passkeys for gitforge.example</Head><div className="grp"><ListRow item={gitforge} traits="passkey" trailing={<FillBtn main label="Sign In" />} /></div><Head>Logins</Head><div className="grp"><ListRow item={harbor} traits={false} sub="gitforge.example" trailing={<FillBtn />} /></div></Screen></Frame>
-        <Frame label="V · iPhone, a verification code" phone caption="The codes for the site, with the same Vault row. The code is the live one; Fill puts it in the field."><Screen device="iphone" title="Choose a Code" vault={<Vr />}><Head>For gitforge.example</Head><div className="grp"><ListRow item={gitforge} traits={false} trailing={<><CodeDigits code="482 913" /><FillBtn main /></>} /></div></Screen></Frame>
+        <Frame label="T · iPhone, the (i): details and one value" phone caption="Opened by the (i). Username, password and the verification code, each tapped to fill on its own; the full details screen (icon, website, vault, changed, Fill Username and Password) is drawn in frame C of the lessons page. The Vault row is on this screen too. Choosing another vault here returns to that vault’s list."><Values /></Frame>
+        <Frame label="U · iPhone, a passkey request" phone caption="“Passkeys for gitforge.example” first, rows with the passkey glyph; tapping a row signs in; logins below under “Logins”. No warning paragraph."><Screen device="iphone" title="Sign In" vault={<Vr />}><Head>Passkeys for gitforge.example</Head><div className="grp"><ListRow item={gitforge} traits="passkey" trailing={<InfoBtn name={gitforge.name} />} /></div><Head>Logins</Head><div className="grp"><ListRow item={harbor} traits={false} sub="gitforge.example" trailing={<InfoBtn name={harbor.name} />} /></div></Screen></Frame>
+        <Frame label="V · iPhone, a verification code" phone caption="The codes for the site, with the same Vault row. The code is the live one; tapping the row puts it in the field."><Screen device="iphone" title="Choose a Code" vault={<Vr />}><Head>For gitforge.example</Head><div className="grp"><ListRow item={gitforge} traits={false} trailing={<><CodeDigits code="482 913" /><InfoBtn name={gitforge.name} /></>} /></div></Screen></Frame>
       </Frames>
 
       <Section title="4. Saving">
@@ -286,7 +286,7 @@ export function Autofill() {
             why: <>The same rows as the app’s list. A heading inside the card read as a row.</>,
           },
           {
-            decision: <>Fill is the same on every result; there is no Fill… and no confirmation. Results are grouped like the app’s list: “For This Site” (website matches), then “Other Matches” (matched by name or search, saved for another site or without a website), an empty group omitted. Other Matches rows keep a second line, “Saved for githosting.example” or “No website”. Fill is the same everywhere; the group heading and the row’s “Saved for …” line say it’s another site.</>,
+            decision: <>Tapping a row fills, the same on every result; there is no Fill… and no confirmation (the labeled Fill button was replaced by row tap and an (i), 2026-11-26). Results are grouped like the app’s list: “For This Site” (website matches), then “Other Matches” (matched by name or search, saved for another site or without a website), an empty group omitted. Other Matches rows keep a second line, “Saved for githosting.example” or “No website”. Fill is the same everywhere; the group heading and the row’s “Saved for …” line say it’s another site.</>,
             rejected: <>“Fill…” with an ask-first confirmation (Fill Anyway).</>,
             why: <>The owner: one button, no extra step. The second line is now the safety signal against a lookalike site.</>,
           },
@@ -340,6 +340,7 @@ export function Autofill() {
       <History
         proposal
         entries={[
+          { date: '2026-11-26', text: <>Owner: tapping a row picks it and fills, as in Apple Passwords; an (i) at the end of each row opens the login’s details inside the sheet (<a href="#/autofill-lessons">lessons page</a>, frames B and C). Replaces the labeled Fill button (and Sign In and Use Code buttons) at the end of every row in frames A to D, H, I, U and V; the heading and the search are unchanged.</> },
           { date: '2026-11-25', text: <>Built that way, mock follows. The picker shows the closed padlock only on a locked vault and nothing on an open one (before, the current vault carried an open padlock); frame E’s heading is “For This Site” like the other frames, and its notice reads “Passwords has none for this site” (the page’s host is not repeated, as in the app). With several vaults open, AutoFill suggestions are kept per vault, and a vault not opened since the app launched drops out of the suggestions until it is opened (an open item in the roadmap). Replaces the open padlock, “For cloudnest.example” and the host in the notice.</> },
           { date: '2026-11-25', text: <>Several vaults can be open at once (owner): the Vault select lists open vaults as ready to fill and locked ones as needing unlock (the notice says which), and choosing a vault no longer locks the other one. No frame redrawn. Replaces “one current vault per device”, where choosing a vault made it the app’s vault and locked the open one.</> },
           { date: '2026-11-25', text: <>Fill… and its confirmation are replaced by grouped results with a uniform Fill, at the owner’s request: “For This Site” (website matches), then “Other Matches” (matched by name or search, saved for another site or with no website), each of those rows keeping “Saved for githosting.example” or “No website” as the lookalike-site signal. Frame B and the site list’s heading (“For This Site”, was “For gitforge.example”) redrawn; the “Fill… asks first” footer is gone. The browser popup has the same groups.</> },

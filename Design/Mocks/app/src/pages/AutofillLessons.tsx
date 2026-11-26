@@ -3,7 +3,7 @@ import { Against, Clarity, Decisions, Frame, Frames, History, Page, Section } fr
 import { IPhone } from '../components/devices';
 import { ItemIcon, ListRow } from '../components/Rows';
 import { Nav } from '../screens/PhoneScreens';
-import { FillBtn } from '../components/loginParts';
+import { FillBtn, InfoBtn } from '../components/loginParts';
 import { EyeIcon, SearchIcon } from '../icons';
 import type { Item } from '../data';
 import './autofill.css';
@@ -25,6 +25,8 @@ const site = 'auth.e-klase.lv';
 const Head = ({ children }: { children: ReactNode }) => <div className="afl-h">{children}</div>;
 const SearchPill = () => <div className="afl-pin"><div className="sfield"><SearchIcon />Search</div></div>;
 
+const Info = ({ it }: { it: Item }) => <InfoBtn name={it.name} />;
+
 function Picker({ proposed }: { proposed?: boolean }) {
   const lines: ReactNode[] = proposed
     ? [<>071114-25629 · <span style={{ whiteSpace: 'nowrap' }}>auth.e-klase.lv</span></>, <>071114-25629 · <span style={{ whiteSpace: 'nowrap' }}>e-klase.lv</span></>, undefined]
@@ -35,15 +37,15 @@ function Picker({ proposed }: { proposed?: boolean }) {
       <div className="pbody afl-body">
         <Head>For This Site</Head>
         <div className="grp">
-          {[ek1, ek2, ek3].map((it, i) => <ListRow key={it.id} item={it} traits={false} wrap sub={lines[i]} trailing={<FillBtn />} />)}
+          {[ek1, ek2, ek3].map((it, i) => <ListRow key={it.id} item={it} traits={false} wrap sub={lines[i]} trailing={proposed ? <Info it={it} /> : <FillBtn />} />)}
           {proposed && <div className="afl-new">New Login…</div>}
         </div>
         {proposed && (
           <>
             <Head>Other</Head>
             <div className="grp">
-              <ListRow item={ableton} traits={false} wrap sub={<>kaspars@example.com · <span style={{ whiteSpace: 'nowrap' }}>No website</span></>} trailing={<FillBtn />} />
-              <ListRow item={airb} traits={false} wrap sub={<>kaspars@example.com · <span style={{ whiteSpace: 'nowrap' }}>Saved for airbaltic.com</span></>} trailing={<FillBtn />} />
+              <ListRow item={ableton} traits={false} wrap sub={<>kaspars@example.com · <span style={{ whiteSpace: 'nowrap' }}>No website</span></>} trailing={<Info it={ableton} />} />
+              <ListRow item={airb} traits={false} wrap sub={<>kaspars@example.com · <span style={{ whiteSpace: 'nowrap' }}>Saved for airbaltic.com</span></>} trailing={<Info it={airb} />} />
             </div>
           </>
         )}
@@ -130,14 +132,14 @@ export function AutofillLessons() {
   return (
     <Page
       title="AutoFill picker: lessons from Apple Passwords"
-      status={<><strong>Proposal (2026-11-26), not built.</strong> From three screenshots of Apple Passwords’ iOS 26 AutoFill sheet, its detail view and Safari’s system list. Frames A and B put our picker beside the proposed one; C and D are the screens inside the sheet; E to G are the system’s list, where only part of the text is ours. Nothing here changes the approved picker until the owner picks.</>}
+      status={<><strong>Partly approved by the owner, 2026-11-26.</strong> Approved: tapping a row fills it, an (i) at the end opens the details in the sheet, and rows that read the same say what differs (frames B and C); the system’s own list stays as it is. Still open and not to be built: “Other” always listed and “New Login…” (frames B and D). From three screenshots of Apple Passwords’ iOS 26 AutoFill sheet, its detail view and Safari’s system list. Frames A and B put our picker beside the proposed one; C and D are the screens inside the sheet; E to G are the system’s list, where only part of the text is ours. The approved picker is <a href="#/autofill">the AutoFill page</a>.</>}
     >
       <Clarity
         intro={<p>The person is in the middle of signing in. The system opens our sheet, or its own short list, and they want the right login in the field, and to know it is for the right site.</p>}
         items={[
           ['Which thing?', 'The AutoFill sheet (“Choose a Login”) and, before it, the system’s own list in Safari and the keyboard bar. The sheet says which site it is for and which vault it reads.'],
-          ['What must they give?', 'One tap: Fill. Nothing is typed. Looking at a login’s details or creating a new one is optional and changes nothing until Save and Fill.'],
-          ['What can go wrong?', 'Two saved logins read the same, so the wrong one is filled. The sheet fixes that in its own rows; in the system’s list we can only fix it by changing what we register (frames F and G, to be tested on a device).'],
+          ['What must they give?', 'One tap on the login. Nothing is typed. Looking at a login’s details or creating a new one is optional and changes nothing until Save and Fill.'],
+          ['What can go wrong?', 'Two saved logins read the same, so the wrong one is filled. The sheet fixes that in its own rows; the system’s own list stays as it is (owner, 2026-11-26).'],
           ['How do they leave?', 'Cancel, always labeled. Details and New Login have Back.'],
         ]}
       />
@@ -147,7 +149,7 @@ export function AutofillLessons() {
           <li><strong>Names the site.</strong> A line above the title: “Choose a password to use for “auth.e-klase.lv”.” Not copied (owner, 2026-11-26): our heading stays as it is.</li>
           <li><strong>Suggested, then Other.</strong> Matches first; every other login below in A to Z order; the search field floats at the foot (iOS 26). We already have the two groups and the foot search, but show the second group only after typing.</li>
           <li><strong>The site’s icon</strong> at the start of every row. We have this: the brand icon asset catalog, <code>ItemIcon</code>.</li>
-          <li><strong>One row, one meaning.</strong> The bold line is the username, the second line the domain, and the row fills when tapped. A small (i) opens the item in place, read-only. We keep a labeled Fill button and let the name open the item (see “Against Apple’s guidance”).</li>
+          <li><strong>One row, one meaning.</strong> The bold line is the username, the second line the domain, and the row fills when tapped. A small (i) opens the item in place, read-only. Adopted (owner, 2026-11-26): the labeled Fill button is gone.</li>
           <li><strong>Create New Password…</strong> as the last row of the Suggested group, plus a + in the bar. We would add one labeled row, “New Login…”.</li>
           <li><strong>Apple has the same duplicate problem.</strong> Its own Suggested group shows two identical rows (same icon, username and domain); only the group badge differs. Telling duplicates apart is our chance to do better, not something to copy.</li>
         </ul>
@@ -157,22 +159,22 @@ export function AutofillLessons() {
         <p>The same three E-Klase logins: two for the same username (one saved for <code>auth.e-klase.lv</code>, one for <code>e-klase.lv</code>), and one for a second child.</p>
       </Section>
       <Frames>
-        <Frame label="A · Today" phone caption={<>Heading “For This Site”, rows with Fill, search at the foot. The first two rows read exactly the same, so the person cannot choose. Other logins appear only after typing. {built}</>}>
+        <Frame label="A · Today" phone caption={<>Heading “For This Site”, rows with a labeled Fill button, search at the foot. The first two rows read exactly the same, so the person cannot choose. Other logins appear only after typing. {built}</>}>
           <Picker />
         </Frame>
-        <Frame label="B · Proposed" phone caption={<>The heading stays as built. Rows that would read the same get what differs added to the second line: the website, else the vault, else “Changed 14 Dec 2023”. “New Login…” closes the group. “Other” lists every other login always, each with “Saved for …” or “No website”, as built for search results. Search stays at the foot. {newTag}</>}>
+        <Frame label="B · Approved: row tap and (i). Open: Other, New Login…" phone caption={<>The heading stays as built. Tapping a row fills; the (i) at the end opens its details (accessibility label “Details for E-Klase”, tooltip “Show Details”). Rows that would read the same get what differs added to the second line: the website, else the vault, else “Changed 14 Dec 2023” (approved). “New Login…” and an always-listed “Other” group are still open: not approved, not built. Search stays at the foot. {newTag}</>}>
           <Picker proposed />
         </Frame>
       </Frames>
 
       <Section title="3. Inside the sheet: see one login, create one">
-        <p>Apple’s (i) opens the whole item without leaving the sheet. Ours is the screen the name already opens (“fill one value”); it gains the facts a person uses to tell logins apart. No Edit, no Share, no Notes: the sheet reads, it does not manage.</p>
+        <p>Apple’s (i) opens the whole item without leaving the sheet. Ours is the screen the name used to open (“fill one value”), now opened by the (i); it gains the facts a person uses to tell logins apart. No Edit, no Share, no Notes: the sheet reads, it does not manage.</p>
       </Section>
       <Frames>
-        <Frame label="C · Tap a name: the login" phone caption={<>Icon, name, username, password hidden with the Show eye (the owner-approved exception), website, vault, last changed. Fill Username and Password stays the one prominent button; the per-value Use buttons remain below it. Built today: the name and the Use rows. Proposed: icon, website, vault, changed. {newTag}</>}>
+        <Frame label="C · The (i): the login" phone caption={<>Icon, name, username, password hidden with the Show eye (the owner-approved exception), website, vault, last changed. Fill Username and Password stays the one prominent button; the per-value Use buttons remain below it. Approved (owner, 2026-11-26): icon, website, vault and changed date are added to the values screen. {newTag}</>}>
           <Details />
         </Frame>
-        <Frame label="D · New Login…" phone caption={<>Website is filled in from the page and cannot be left empty. The password can be typed or generated (the site’s password rules apply, as in the save sheet). One button names what happens: “Save and Fill”. The line under it says where it goes. Built today as a separate save sheet after sign-up; not reachable from this list. {newTag}</>}>
+        <Frame label="D · New Login… (open, not approved)" phone caption={<>Open, do not build. Website is filled in from the page and cannot be left empty. The password can be typed or generated (the site’s password rules apply, as in the save sheet). One button names what happens: “Save and Fill”. The line under it says where it goes. Built today as a separate save sheet after sign-up; not reachable from this list. {newTag}</>}>
           <NewLogin />
         </Frame>
       </Frames>
@@ -184,10 +186,10 @@ export function AutofillLessons() {
         <Frame label="E · Today" phone caption={<>Two items, same username, same site: two rows that read the same. The system does not show the title, and the tap fills whichever item the row’s record identifier names. {built}</>}>
           <Sys rows={[['071114-25629', 'password for e-klase.lv — Psss', true], ['071114-25629', 'password for e-klase.lv — Psss', true], ['160716-25638', 'password for e-klase.lv — Psss']]} />
         </Frame>
-        <Frame label="F · Option 1: add the title, only for duplicates" phone caption={<>Register <code>user</code> as “username · title” only when two items on one site share a username. The returned credential still carries the real username, so the field gets “071114-25629”. Needs a device test (does the system filter by typed text, merge rows, show the string whole?). {newTag}</>}>
+        <Frame label="F · Option 1 (not taken)" phone caption={<>Register <code>user</code> as “username · title” only when two items on one site share a username. The returned credential still carries the real username, so the field gets “071114-25629”. Needs a device test (does the system filter by typed text, merge rows, show the string whole?). {newTag}</>}>
           <Sys rows={[['071114-25629 · E-Klase', 'password for e-klase.lv — Psss'], ['071114-25629 · E-Klase (old)', 'password for e-klase.lv — Psss'], ['160716-25638', 'password for e-klase.lv — Psss']]} />
         </Frame>
-        <Frame label="G · Option 2: one row, our list decides" phone caption={<>Register one identity for each site and username. When two items share them, the tap answers “needs interaction” and opens our sheet (frame B), where the rows can be told apart. One more tap for duplicates, no wrong password, and every string is documented API. {newTag}</>}>
+        <Frame label="G · Option 2 (not taken)" phone caption={<>Register one identity for each site and username. When two items share them, the tap answers “needs interaction” and opens our sheet (frame B), where the rows can be told apart. One more tap for duplicates, no wrong password, and every string is documented API. {newTag}</>}>
           <Sys rows={[['071114-25629', 'password for e-klase.lv — Psss'], ['160716-25638', 'password for e-klase.lv — Psss']]} />
         </Frame>
       </Frames>
@@ -209,10 +211,10 @@ export function AutofillLessons() {
 
       <Section title="6. Ranked by value">
         <ol>
-          <li><strong>Tell duplicates apart</strong> in our rows (frame B) and in the system list (frame G first, F if G’s extra tap is too much). It is the owner’s complaint, and Apple’s own list has it too. Small change: <code>RowLine</code> and <code>SharedVault.identities</code>.</li>
-          <li><strong>The login’s details in the sheet</strong> (frame C): website, vault, changed date, icon. Reuses the values screen.</li>
-          <li><strong>“Other” always listed</strong> (frame B). Apple does this; it removes the need to know to type. Cost: every username is on screen after Face ID. Same as the app’s own list.</li>
-          <li><strong>New Login…</strong> (frame D). Useful when a login does not exist yet; needs the editor, password generator and vault write in the extension, so it is the largest piece. The save sheet already does most of it.</li>
+          <li><strong>Tell duplicates apart</strong> in our rows (frame B): approved. In the system list (frames F and G): not taken, the registration stays as it is. It is the owner’s complaint, and Apple’s own list has it too. Built in <code>RowLine</code>.</li>
+          <li><strong>The login’s details in the sheet</strong> (frame C), opened by the (i): website, vault, changed date, icon. Approved. Reuses the values screen.</li>
+          <li><strong>“Other” always listed</strong> (frame B), open. Apple does this; it removes the need to know to type. Cost: every username is on screen after Face ID. Same as the app’s own list.</li>
+          <li><strong>New Login…</strong> (frame D), open. Useful when a login does not exist yet; needs the editor, password generator and vault write in the extension, so it is the largest piece. The save sheet already does most of it.</li>
         </ol>
       </Section>
 
@@ -221,14 +223,13 @@ export function AutofillLessons() {
           <li>Site icon: <code>ItemIcon</code> and the brand-icon catalog, the same in the picker and the app.</li>
           <li>Two groups, “For This Site” and “Other Matches”, with “Saved for …” and “No website”; today “Other Matches” shows only after typing.</li>
           <li>Search field at the foot on iPhone (iOS 26 placement), under the Vault row on iPad and Mac.</li>
-          <li>The name opens the item’s values (username, password, code, card fields) with Fill Username and Password and a Use button per value.</li>
+          <li>Until 2026-11-26 the name opened the item’s values (username, password, code, card fields) with Fill Username and Password and a Use button per value; the (i) opens them now, and the row fills.</li>
           <li>The record identifier is <code>vault/item</code>; our provider never reads the identity’s <code>user</code>.</li>
           <li>Save and generate sheets (iOS 26.2) with the Vault row, as on <a href="#/autofill">the AutoFill page</a>.</li>
         </ul>
       </Section>
 
       <Against>
-        <li><strong>The (i) button.</strong> Apple’s row fills when tapped and the (i) shows the item. We keep a labeled Fill button at the end of the row and let the name open the item, so one extra icon-only control would crowd it and the project rule is visible, labeled actions. Recommendation, not a requirement: if the owner wants Apple’s exact pattern, the row would fill on tap and the (i) would carry an accessibility label and tooltip, which the HIG permits for a detail disclosure.</li>
         <li><strong>The + and X buttons.</strong> iOS 26 uses glass icon buttons for dismiss and create. We keep the text “Cancel” and a labeled “New Login…” row.</li>
         <li><strong>The Passwords app footnote.</strong> It links into the app that owns the sheet. An extension cannot open its app, so we do not copy it.</li>
         <li><strong>Group and Contributed By.</strong> Shared groups do not exist in our vaults; the Vault row and the vault line cover where a login lives.</li>
@@ -238,14 +239,15 @@ export function AutofillLessons() {
         items={[
           { decision: <>Add what differs to the second line of a row whose name and username match another row’s: website, else vault, else changed date.</>, why: <>Apple’s list shows two identical rows; two E-Klase logins for one username are normal for families.</> },
           { decision: <>The heading stays as built; no line naming the site.</>, rejected: <>Apple’s “Choose a password to use for “site”” line.</>, why: <>Owner, 2026-11-26: leave it as it is.</> },
-          { decision: <>Keep Fill, Cancel and a labeled New Login… as visible text; add no (i), + or X.</>, why: <>Project rule: important actions visible and labeled; recommendation to the owner, see above.</> },
-          { decision: <>In the system list, try frame G first (one identity per site and username, duplicates open our sheet), and test frame F and the service identifier’s <code>displayName</code> on a device before building either.</>, why: <>G uses only documented behaviour; F and <code>displayName</code> depend on how the system draws the list, which no document describes.</> },
+          { decision: <>Tapping a row picks it and fills; an (i) at the end of each row (the standard detail button, accent colour) opens the login’s details in the sheet, read-only, with the accessibility label “Details for &lt;name&gt;” and the tooltip “Show Details”. The labeled Fill button goes away. Cancel stays as visible text; no + or X.</>, rejected: <>A labeled Fill button on every row, with the name opening the item.</>, why: <>Owner, 2026-11-26: as in Apple Passwords. The HIG allows the icon-only detail disclosure button, and it carries a label and tooltip. The project rule on visible, labeled actions is met by the row itself being the action.</> },
+          { decision: <>Safari’s own system password list stays as it is: no change to what we register.</>, why: <>Owner, 2026-11-26. Frames F and G are not taken.</> },
+          { decision: <>Open, not approved, not to be built: an always-listed “Other” group, and “New Login…” in the sheet.</>, why: <>Waiting for the owner.</> },
         ]}
       />
 
       <Section title="Open questions">
         <ul>
-          <li><strong>Device test, one build.</strong> Register for one site: (a) <code>user</code> “name · title”, (b) <code>displayName</code> “Title”, (c) two identical identities. Look at Safari’s list and the keyboard bar, tap each, type into the field first, and see what lands in the field. Not possible in the simulator’s Passwords-free list.</li>
+          <li><strong>System list device test.</strong> Not needed: the owner left Safari’s list as it is (2026-11-26).</li>
           <li><strong>“Other” always shown.</strong> Is every username on screen acceptable, or only after a tap on the search? The owner’s call.</li>
           <li><strong>New Login… in the extension.</strong> Memory and time for a vault write from the list; the save sheet already does it after sign-up.</li>
         </ul>
@@ -254,6 +256,7 @@ export function AutofillLessons() {
       <History
         proposal
         entries={[
+          { date: '2026-11-26', text: <>Owner decisions: tapping a row fills it, with an (i) at the end that opens the details (replaces the labeled Fill button; the “Against” note on the (i) became a decision); rows that read the same say what differs; Safari’s system list stays as it is (frames F and G not taken); “Other” always listed and “New Login…” stay open. Status changed from proposal to partly approved.</> },
           { date: '2026-11-26', text: <>Owner: do not add the site line (“Choose a login for “site””) to the sheet; the heading stays as built. Removed it from frame B and the ranking.</> },
           { date: '2026-11-26', text: <>Page added as a proposal after the owner’s Apple Passwords screenshots: the sheet’s site line, Other group, in-sheet details and New Login…, and the system list’s duplicate username problem with the API facts. Replaces nothing; <a href="#/autofill">the AutoFill page</a> stays the approved picker.</> },
         ]}

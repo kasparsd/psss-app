@@ -1,4 +1,5 @@
 import type { Item } from '../data';
+import { InfoIcon } from '../icons';
 
 /* Drawing parts the AutoFill picker page and the browser extension page share: sample logins, the match line, the pills and Fill. */
 
@@ -24,6 +25,11 @@ export const Pills = ({ counts, on = [] }: { counts: [string, number][]; on?: st
 
 export const FillBtn = ({ label = 'Fill', main }: { label?: string; main?: boolean }) => (
   <button className={`btn${main ? ' pri' : ''}`}>{label}</button>
+);
+
+/** The (i) at the end of a picker row: the standard detail button, accent colour, no border. Tapping the row fills; this opens the login’s details. */
+export const InfoBtn = ({ name = "Gitforge" }: { name?: string }) => (
+  <button className="ibtn flat" aria-label={`Details for ${name}`} title="Show Details"><InfoIcon /></button>
 );
 
 export const Caret = () => <span aria-hidden style={{ display: 'inline-block', width: 2, height: '1.1em', background: 'var(--accent)', verticalAlign: 'text-bottom', marginLeft: 1 }} />;
