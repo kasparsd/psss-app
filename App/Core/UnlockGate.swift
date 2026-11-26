@@ -47,6 +47,9 @@ enum LockTiming: Int, CaseIterable, Identifiable {
 
     var id: Int { rawValue }
 
+    /// The timing chosen in Settings (`lockTiming`), for code that is not a view.
+    static var chosen: LockTiming { (UserDefaults.standard.object(forKey: "lockTiming") as? Int).flatMap(LockTiming.init(rawValue:)) ?? .oneMinute }
+
     /// How long without any keyboard or mouse input locks an app that stays open (Mac). "Immediately" is about leaving the app, so
     /// it never locks someone who is reading or typing: it waits a minute, as Apple Passwords does.
     var idleLimit: TimeInterval { TimeInterval(max(rawValue, LockTiming.oneMinute.rawValue)) }
@@ -79,6 +82,17 @@ final class UnlockGate {
 
     var isUnlocked: Bool { state == .unlocked }
 
+    /// Runs on every lock, before the caller goes on; `wasUnlocked` is false when it was locked already. The app closes its vaults
+    /// here (`AppLock`), so a lock holds with no window open. The AutoFill extension sets none.
+    @ObservationIgnored var onLock: ((_ wasUnlocked: Bool) -> Void)?
+
+    private func close(notice: String? = nil) {
+        let wasUnlocked = isUnlocked
+        lockNotice = notice
+        state = .locked
+        onLock?(wasUnlocked)
+    }
+
     /// Call for every key press and mouse event in the app.
     func noteInput(now: Date = .now) { lastInput = now }
 
@@ -87,8 +101,7 @@ final class UnlockGate {
     @discardableResult
     func lockIfIdle(after timing: LockTiming, now: Date = .now) -> Bool {
         guard isUnlocked, now.timeIntervalSince(lastInput) >= timing.idleLimit else { return false }
-        lockNotice = nil
-        state = .locked
+        close()
         return true
     }
 
@@ -118,10 +131,7 @@ final class UnlockGate {
     /// arrives while the screen is already up. Unlocking and any lock without a notice clear it, so it never outlives its cause.
     var lockNotice: String?
 
-    func lock(notice: String? = nil) {
-        lockNotice = notice
-        state = .locked
-    }
+    func lock(notice: String? = nil) { close(notice: notice) }
 
     /// Call when the scene is leaving: on iPhone and iPad when it reaches the background (a pull-down such as Control Center only
     /// makes it inactive and does not count), on the Mac when it stops being active. Starts the lock-timing clock.
@@ -133,10 +143,9 @@ final class UnlockGate {
     /// locked when the person comes back.
     func didEnterBackground(after timing: LockTiming, now: Date = .now) {
         didLeave(now: now)
-        if timing == .immediately, isUnlocked {
-            lockNotice = nil
-            state = .locked
-        }
+        guard timing == .immediately else { return }
+        // Locked already: a vault still being opened must not finish behind the lock.
+        if isUnlocked { close() } else { onLock?(false) }
     }
 
     /// The lock decision when the scene comes back: locks if it was away at least the chosen timing, and ends the clock. Called at
@@ -146,8 +155,7 @@ final class UnlockGate {
     func decideOnReturn(after timing: LockTiming, now: Date = .now) -> Bool {
         defer { leftAt = nil }
         guard let leftAt, isUnlocked, now.timeIntervalSince(leftAt) >= TimeInterval(timing.rawValue) else { return false }
-        lockNotice = nil
-        state = .locked
+        close()
         return true
     }
 

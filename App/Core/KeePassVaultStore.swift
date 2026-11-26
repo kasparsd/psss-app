@@ -816,6 +816,7 @@ final class VaultSession {
     /// was asked for and is off; nothing is written then. The vaults that were open stay open.
     func create(name: String, credentials: KDBXCredentials, items: [VaultItem] = [], location: VaultLocation = .thisDevice) async throws {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? String(localized: "Passwords") : name
+        let locksBefore = lockCount
         let folder: URL?
         switch location {
         case .iCloudDrive:
@@ -825,6 +826,8 @@ final class VaultSession {
             folder = nil
         }
         let document = try await Task.detached { try KDBX.create(name: name, credentials: credentials) }.value
+        // Checked after the last wait and before anything is written, so trying again makes no second vault.
+        guard lockCount == locksBefore else { throw VaultStoreError.lockedMeanwhile }
         document.upsert(items)
         let data = try KDBX.save(document)
         var reference: VaultReference
@@ -948,6 +951,7 @@ final class VaultSession {
     /// `accepted` runs once the person has been accepted and the saved key is in hand, just before the vault is opened with
     /// it, so the lock screen can show that the vault is opening. It does not run for a cancelled or failed prompt.
     func unlockWithBiometrics(evaluated: EvaluatedContext? = nil, accepted: () -> Void = {}) async throws {
+        let locksBefore = lockCount
         syncReference()
         guard let reference, reference.biometricUnlock else { throw BiometricKeyError.invalidated }
         let key: Data
@@ -960,7 +964,7 @@ final class VaultSession {
         // Any other error from `load` (lockout, biometry unavailable, a failed read) leaves the key and the setting alone.
         accepted()
         do {
-            try await unlock { data in try KDBX.open(data, transformedKey: key) }
+            try await unlock(since: locksBefore) { data in try KDBX.open(data, transformedKey: key) }
         } catch KDBXError.wrongCredentials {
             // The key really is stale. Off for now; the next password unlock saves a fresh one and turns it back on.
             setBiometric(false, stale: true)
@@ -988,8 +992,9 @@ final class VaultSession {
 
     /// `credentials` is what a password unlock used: once the vault has opened with them, the reference says whether a key file
     /// was part of that, before the store (and Setup) read it. A Face ID unlock passes none and changes nothing.
-    private func unlock(recording credentials: KDBXCredentials? = nil,
+    private func unlock(recording credentials: KDBXCredentials? = nil, since locks: Int? = nil,
                         opening open: @escaping @Sendable (Data) throws -> KDBXDocument) async throws {
+        let locksBefore = locks ?? lockCount
         syncReference()
         guard var reference else { throw VaultStoreError.fileMissing }
         // A vault has one store. Two would be two writers of one file, each with its own idea of what the file holds.
@@ -1011,6 +1016,8 @@ final class VaultSession {
             guard FileManager.default.fileExists(atPath: url.path) || (try? VaultFiles.read(url)) != nil else { throw VaultStoreError.fileMissing }
             let data = try VaultFiles.read(url)
             let document = try await Task.detached { try open(data) }.value
+            // The app locked while the key was being derived (sleep, a locked screen, Lock Now): the vault stays locked.
+            guard lockCount == locksBefore else { throw VaultStoreError.lockedMeanwhile }
             // The vault may have been removed, or opened some other way, while the key derivation ran.
             let id = reference.id
             guard stores[id] == nil, knownVaults.contains(where: { $0.id == id }) else {
@@ -1103,6 +1110,10 @@ final class VaultSession {
 
     // MARK: Locking
 
+    /// Counts every lock of all vaults, also one that found none open. An unlock or a new vault that was under way when one
+    /// happened gives up (`VaultStoreError.lockedMeanwhile`).
+    @ObservationIgnored private var lockCount = 0
+
     /// Writes pending changes and drops the keys and the decrypted data of one vault. The other open vaults stay open. When it was
     /// the shown vault and another is open, that one is shown instead (the next in the fixed order, else the one before).
     func lock(_ id: UUID) {
@@ -1126,6 +1137,7 @@ final class VaultSession {
 
     /// Locks every vault: the app-wide lock (auto-lock, sleep, quit, Lock All Vaults). Which vault is shown does not change.
     func lockAll() {
+        lockCount += 1
         for id in Array(stores.keys) { drop(id) }
     }
 
@@ -1240,6 +1252,7 @@ extension VaultStoreError {
         case .itemUnavailable: String(localized: "This item is no longer available. Close the mapping and open the item again.")
         case .invalidFieldMapping(let message): message
         case .editedFieldsChanged: String(localized: "One or more fields changed since you started editing. Cancel and open Edit again to see their latest values.")
+        case .lockedMeanwhile: String(localized: "Psss locked before this finished. Try again.")
         case .iCloudUnavailable: String(localized: "iCloud Drive is off for Psss, so the vault was not created there. Turn it on in Settings, or keep the vault on this device only.")
         }
     }

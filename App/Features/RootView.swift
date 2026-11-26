@@ -6,7 +6,7 @@ import SwiftUI
 ///
 /// The gate and the session: `gate.isUnlocked` means "some vault is open". It is set by every unlock (`markUnlocked`), and it
 /// falls when the last vault locks (the observer below), however that happened; `gate.lock()` is the one call that locks every
-/// vault, and the observer on the gate does the locking.
+/// vault. `AppLock` closes them as part of the lock, so none of this depends on a window.
 struct RootView: View {
     /// Owned by the app, so the Mac Settings window reads the same lock state and vault as this window.
     let gate: UnlockGate
@@ -26,7 +26,6 @@ struct RootView: View {
     @State private var landing: VaultLanding?
     @AppStorage("lockTiming") private var lockTiming = LockTiming.oneMinute.rawValue
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(IncomingCodeRequests.self) private var incomingCodes
     @Environment(SettingsRequests.self) private var settingsRequests
     #if os(macOS)
     @Environment(\.openSettings) private var openSettings
@@ -98,9 +97,9 @@ struct RootView: View {
         .environment(session)
         .environment(autoFill)
         .environment(safariExtension)
-        // Locking drops the keys and the decrypted vaults, after writing anything pending.
+        // The vaults are closed by the lock itself (`AppLock`), window or not. Here only what this window holds.
         .onChange(of: gate.isUnlocked) { _, unlocked in
-            if unlocked { Task { await autoFill.refresh(); await safariExtension.refresh() } } else { session.lockAll(); sample = SampleVaultStore(); incomingCodes.clear() }
+            if unlocked { Task { await autoFill.refresh(); await safariExtension.refresh() } } else { sample = SampleVaultStore() }
         }
         // The last vault locked by itself (Lock <name>): the gate follows, so the window and the gate agree.
         .onChange(of: session.isAnyOpen) { _, any in if !any, gate.isUnlocked, vaultSource == Self.keePassSource { gate.lock() } }
@@ -119,27 +118,8 @@ struct RootView: View {
         // app becomes active.
         .task { await autoFill.refresh(); await safariExtension.refresh() }
         #if os(macOS)
-        // Like Apple Passwords, a sleeping display or a locked screen locks the vault.
-        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.screensDidSleepNotification)) { _ in gate.lock() }
-        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)) { _ in gate.lock() }
-        .onReceive(DistributedNotificationCenter.default().publisher(for: Notification.Name("com.apple.screenIsLocked"))) { _ in gate.lock() }
-        // Like Apple Passwords, no typing or clicking for the lock timing locks every vault, in front or not. The local monitor sees
-        // each key and mouse event of this app (all its windows); a timer checks the clock.
-        .task {
-            let monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel, .mouseMoved]) { event in
-                gate.noteInput()
-                return event
-            }
-            defer { if let monitor { NSEvent.removeMonitor(monitor) } }
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(5))
-                if gate.lockIfIdle(after: timing) { session.flushAll() }
-            }
-        }
         // Coming back from System Settings: the window's scene phase does not always say so on a Mac.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in Task { await autoFill.refreshSettling(); await safariExtension.refresh() } }
-        // The person went to another app: a lock they chose no longer holds Touch ID back when they return.
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in session.releaseBiometricPrompts() }
         #endif
         #if os(iOS)
         .background { SceneReader(cover: cover) }

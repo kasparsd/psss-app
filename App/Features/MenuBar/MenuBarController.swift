@@ -7,8 +7,8 @@ import SwiftUI
 /// front. Debug builds only, and only with the launch argument `-psss-menu-bar` (the real vaults) or `-psss-menu-bar-sample` (the
 /// compiled-in sample vault, nothing of the person's is touched).
 ///
-/// The app's lock triggers live in the window's view, so they stop with the last window. The panel therefore watches sleep, screen
-/// lock, idle time and time away itself, and every lock it makes also drops the open vaults.
+/// `AppLock` locks for sleep, a locked screen and idle time and closes the vaults. The panel watches the same to close itself and
+/// forget what it holds, and times its own absences.
 @MainActor
 final class MenuBarController: NSObject {
     static let shared = MenuBarController()

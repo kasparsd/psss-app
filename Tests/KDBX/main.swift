@@ -609,6 +609,66 @@ if run(["which", "keepassxc-cli"]).status == 0 {
     print("skip keepassxc interop: keepassxc-cli not installed")
 }
 
+#if HOSTLESS_UNLOCKGATE
+// Every lock closes every vault with no window involved (AppLock). Needs AppLock.swift in the sources.
+@MainActor func appLockChecks() async throws {
+    let session = VaultSession()
+    session.forget()
+    try await session.create(name: "App lock test", credentials: .init(password: "l0ck"), items: [custom])
+    let gate = UnlockGate()
+    var dropped = 0
+    let appLock = AppLock(gate: gate, session: session, whenLocked: { dropped += 1 })
+    let t0 = Date(timeIntervalSince1970: 1_000_000)
+    let locks: [(String, @MainActor () -> Void)] = [
+        ("Lock Now", { gate.lock() }),
+        ("lock with a notice", { gate.lock(notice: "changed") }),
+        ("lock time idle", { gate.noteInput(now: t0); gate.lockIfIdle(after: .oneMinute, now: t0 + 61) }),
+        ("return after the lock time", { gate.didLeave(now: t0); gate.decideOnReturn(after: .oneMinute, now: t0 + 61) }),
+        ("background with Immediately", { gate.didEnterBackground(after: .immediately, now: t0) })
+    ]
+    for (index, (name, lock)) in locks.enumerated() {
+        try await session.unlock(credentials: .init(password: "l0ck"))
+        gate.markUnlocked()
+        expect("app lock, \(name): open before", session.isAnyOpen)
+        lock()
+        expect("app lock, \(name): gate locked and vaults closed at once", !gate.isUnlocked && !session.isAnyOpen && session.store == nil)
+        check("app lock, \(name): the rest is dropped once", "\(dropped)", "\(index + 1)")
+    }
+    // A vault left open behind a locked gate is closed by the next lock, which drops nothing else.
+    try await session.unlock(credentials: .init(password: "l0ck"))
+    gate.lock()
+    expect("app lock: a lock of a locked gate closes what is open", !session.isAnyOpen)
+    check("app lock: and drops nothing else", "\(dropped)", "\(locks.count)")
+    // Nothing locks while the time has not run out.
+    try await session.unlock(credentials: .init(password: "l0ck"))
+    gate.markUnlocked(); gate.noteInput(now: t0); gate.lockIfIdle(after: .fiveMinutes, now: t0 + 100)
+    expect("app lock: open while the lock time has not run out", session.isAnyOpen && gate.isUnlocked)
+    // A lock while the key is being derived: the vault stays locked.
+    gate.lock()
+    do {
+        try await session.unlock(credentials: .init(password: "l0ck"), savingQuickUnlockKey: false) { _ in
+            DispatchQueue.main.sync { MainActor.assumeIsolated { gate.lock() } }
+        }
+        expect("app lock: an unlock overtaken by a lock fails", false)
+    } catch VaultStoreError.lockedMeanwhile { expect("app lock: an unlock overtaken by a lock fails", true) }
+    expect("app lock: and leaves nothing open", !session.isAnyOpen)
+    try await session.unlock(credentials: .init(password: "l0ck"))
+    expect("app lock: the next unlock works", session.isAnyOpen)
+    // The same while a new vault is being made: nothing is written.
+    gate.lock()
+    let known = session.knownVaults.count
+    let making = Task { try await session.create(name: "Overtaken", credentials: .init(password: "l0ck")) }
+    await Task.yield()
+    gate.lock()
+    do { try await making.value; expect("app lock: creating overtaken by a lock fails", false) }
+    catch VaultStoreError.lockedMeanwhile { expect("app lock: creating overtaken by a lock fails", true) }
+    expect("app lock: and adds and opens no vault", session.knownVaults.count == known && !session.isAnyOpen)
+    session.forget()
+    withExtendedLifetime(appLock) {}
+}
+try await appLockChecks()
+#endif
+
 // MARK: Session and store
 
 let session = VaultSession()

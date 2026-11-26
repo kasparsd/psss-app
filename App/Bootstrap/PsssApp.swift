@@ -8,12 +8,15 @@ struct PsssApp: App {
     @FocusedValue(\.startAddVault) private var startAddVault
     @FocusedValue(\.deleteSelection) private var deleteSelection
     // One of each for the whole app: the vault window and the Mac Settings window read the same lock state and vault.
-    @State private var gate = UnlockGate()
-    @State private var session = VaultSession()
+    private static let codes = IncomingCodeRequests()
+    /// Closes the vaults on every lock, whether or not a window is open.
+    private static let appLock = AppLock(gate: UnlockGate(), session: VaultSession(), whenLocked: { codes.clear() })
+    @State private var gate = PsssApp.appLock.gate
+    @State private var session = PsssApp.appLock.session
     @State private var autoFill = AutoFillStatus.live()
     @State private var safariExtension = SafariExtensionStatus.live()
     @State private var settingsRequests = SettingsRequests()
-    @State private var incomingCodes = IncomingCodeRequests()
+    @State private var incomingCodes = PsssApp.codes
 
     init() {
         // Earlier builds may have left real logins in a plain-text file in the App Group. Delete it.
@@ -26,6 +29,8 @@ struct PsssApp: App {
         #elseif os(macOS)
         // The window has its own sidebar of places, so the system's "Show Tab Bar" and "Show All Tabs" would only confuse.
         NSWindow.allowsAutomaticWindowTabbing = false
+        // Sleep, a locked screen and the lock time are watched from launch, not by a window.
+        Task { @MainActor in Self.appLock.watchTheMac() }
         #endif
         // Removes the login-keychain items an earlier local build left behind. Does nothing except in a provisioned Mac app.
         BiometricKey.removeLeftoverLoginItems()

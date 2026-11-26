@@ -59,6 +59,8 @@ enum VaultStoreError: Error, Equatable {
     case unreadable
     /// A vault was to be kept in iCloud Drive, which is off for Psss or not signed in. Nothing was written.
     case iCloudUnavailable
+    /// The app locked while a vault was being opened or created, so nothing was opened or written.
+    case lockedMeanwhile
 }
 
 /// The compiled-in sample vault. It lives in memory only: what the person adds or edits while trying it is gone when the

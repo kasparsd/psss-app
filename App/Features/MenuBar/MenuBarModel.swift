@@ -223,12 +223,10 @@ final class MenuBarModel {
     // MARK: Opening and closing
 
     private var timing: LockTiming {
-        (UserDefaults.standard.object(forKey: "lockTiming") as? Int).flatMap(LockTiming.init(rawValue:)) ?? .oneMinute
+        .chosen
     }
 
     func willOpen(appIsActive: Bool) {
-        // A lock made elsewhere with no window open leaves the stores open; nothing may stay open behind a lock.
-        if sample == nil, !gate.isUnlocked, session.isAnyOpen { session.lockAll() }
         if sample == nil, !appIsActive, gate.decideOnReturn(after: timing) {
             session.lockAll()
             forgetEverything()
@@ -338,8 +336,7 @@ final class MenuBarModel {
         return true
     }
 
-    /// Also follows locks made elsewhere (the window, ⌘L, Settings, the browser): whatever closed, what was kept for it goes. When
-    /// the gate locks, every vault is closed here too, since the window that would do it may be gone.
+    /// Also follows locks made elsewhere (the window, ⌘L, Settings, sleep, the lock time): whatever closed, what was kept for it goes.
     func followLocks() {
         let open = Set(session.openVaults.map(\.id))
         let wasUnlocked = gate.isUnlocked
@@ -350,7 +347,6 @@ final class MenuBarModel {
             Task { @MainActor in
                 guard let self else { return }
                 if self.sample == nil, wasUnlocked, !self.gate.isUnlocked {
-                    self.session.lockAll()
                     self.forgetEverything()
                 }
                 let closed = open.subtracting(self.session.openVaults.map(\.id))
@@ -397,10 +393,12 @@ final class MenuBarModel {
         case .evaluated(let context):
             unlocking = true
             defer { unlocking = false }
-            let before = prepareUnlock()
+            let before = locks
             do {
                 try await session.unlockWithBiometrics(evaluated: EvaluatedContext(context: context))
                 didUnlock(unless: before)
+            } catch VaultStoreError.lockedMeanwhile {
+                // The locked panel is the answer.
             } catch {
                 failure = String(localized: "That didn’t open \(reference.name). Enter the vault password.")
             }
@@ -415,20 +413,16 @@ final class MenuBarModel {
         unlocking = true
         defer { unlocking = false }
         let entered = password
-        let before = prepareUnlock()
+        let before = locks
         do {
             try await session.unlock(credentials: KDBXCredentials(password: entered))
             didUnlock(unless: before)
+        } catch VaultStoreError.lockedMeanwhile {
+            password = ""
         } catch {
             password = ""
             failure = String(localized: "That didn’t open \(reference.name). Check Caps Lock and your keyboard language. If this vault uses a key file, unlock it in Psss.")
         }
-    }
-
-    /// Behind a locked app nothing may be open: an open store would accept any password.
-    private func prepareUnlock() -> Int {
-        if !gate.isUnlocked { session.lockAll() }
-        return locks
     }
 
     private func didUnlock(unless before: Int) {
