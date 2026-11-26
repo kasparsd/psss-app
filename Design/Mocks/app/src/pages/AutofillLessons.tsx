@@ -32,7 +32,6 @@ function Picker({ proposed }: { proposed?: boolean }) {
   return (
     <IPhone>
       <Nav left={<button className="btn glass">Cancel</button>} mid={<strong>Choose a Login</strong>} />
-      {proposed && <div className="afl-ask">Choose a login for “{site}”.</div>}
       <div className="pbody afl-body">
         <Head>For This Site</Head>
         <div className="grp">
@@ -145,7 +144,7 @@ export function AutofillLessons() {
 
       <Section title="1. What Apple Passwords does, and what we copy">
         <ul>
-          <li><strong>Names the site.</strong> A line above the title: “Choose a password to use for “auth.e-klase.lv”.” Our sheet only says “For This Site”, so the person cannot check a lookalike address.</li>
+          <li><strong>Names the site.</strong> A line above the title: “Choose a password to use for “auth.e-klase.lv”.” Not copied (owner, 2026-11-26): our heading stays as it is.</li>
           <li><strong>Suggested, then Other.</strong> Matches first; every other login below in A to Z order; the search field floats at the foot (iOS 26). We already have the two groups and the foot search, but show the second group only after typing.</li>
           <li><strong>The site’s icon</strong> at the start of every row. We have this: the brand icon asset catalog, <code>ItemIcon</code>.</li>
           <li><strong>One row, one meaning.</strong> The bold line is the username, the second line the domain, and the row fills when tapped. A small (i) opens the item in place, read-only. We keep a labeled Fill button and let the name open the item (see “Against Apple’s guidance”).</li>
@@ -161,7 +160,7 @@ export function AutofillLessons() {
         <Frame label="A · Today" phone caption={<>Heading “For This Site”, rows with Fill, search at the foot. The first two rows read exactly the same, so the person cannot choose. Other logins appear only after typing. {built}</>}>
           <Picker />
         </Frame>
-        <Frame label="B · Proposed" phone caption={<>A line under the title names the site (body size, secondary colour). Rows that would read the same get what differs added to the second line: the website, else the vault, else “Changed 14 Dec 2023”. “New Login…” closes the group. “Other” lists every other login always, each with “Saved for …” or “No website”, as built for search results. Search stays at the foot. {newTag}</>}>
+        <Frame label="B · Proposed" phone caption={<>The heading stays as built. Rows that would read the same get what differs added to the second line: the website, else the vault, else “Changed 14 Dec 2023”. “New Login…” closes the group. “Other” lists every other login always, each with “Saved for …” or “No website”, as built for search results. Search stays at the foot. {newTag}</>}>
           <Picker proposed />
         </Frame>
       </Frames>
@@ -211,7 +210,6 @@ export function AutofillLessons() {
       <Section title="6. Ranked by value">
         <ol>
           <li><strong>Tell duplicates apart</strong> in our rows (frame B) and in the system list (frame G first, F if G’s extra tap is too much). It is the owner’s complaint, and Apple’s own list has it too. Small change: <code>RowLine</code> and <code>SharedVault.identities</code>.</li>
-          <li><strong>Name the site in the sheet</strong> (frame B, the line under the title). The lookalike check without reading the heading. One <code>Text</code> line.</li>
           <li><strong>The login’s details in the sheet</strong> (frame C): website, vault, changed date, icon. Reuses the values screen.</li>
           <li><strong>“Other” always listed</strong> (frame B). Apple does this; it removes the need to know to type. Cost: every username is on screen after Face ID. Same as the app’s own list.</li>
           <li><strong>New Login…</strong> (frame D). Useful when a login does not exist yet; needs the editor, password generator and vault write in the extension, so it is the largest piece. The save sheet already does most of it.</li>
@@ -239,7 +237,7 @@ export function AutofillLessons() {
       <Decisions
         items={[
           { decision: <>Add what differs to the second line of a row whose name and username match another row’s: website, else vault, else changed date.</>, why: <>Apple’s list shows two identical rows; two E-Klase logins for one username are normal for families.</> },
-          { decision: <>Name the site in a line under the title.</>, why: <>It is the person’s check that the sheet is for the page they are on.</> },
+          { decision: <>The heading stays as built; no line naming the site.</>, rejected: <>Apple’s “Choose a password to use for “site”” line.</>, why: <>Owner, 2026-11-26: leave it as it is.</> },
           { decision: <>Keep Fill, Cancel and a labeled New Login… as visible text; add no (i), + or X.</>, why: <>Project rule: important actions visible and labeled; recommendation to the owner, see above.</> },
           { decision: <>In the system list, try frame G first (one identity per site and username, duplicates open our sheet), and test frame F and the service identifier’s <code>displayName</code> on a device before building either.</>, why: <>G uses only documented behaviour; F and <code>displayName</code> depend on how the system draws the list, which no document describes.</> },
         ]}
@@ -256,6 +254,7 @@ export function AutofillLessons() {
       <History
         proposal
         entries={[
+          { date: '2026-11-26', text: <>Owner: do not add the site line (“Choose a login for “site””) to the sheet; the heading stays as built. Removed it from frame B and the ranking.</> },
           { date: '2026-11-26', text: <>Page added as a proposal after the owner’s Apple Passwords screenshots: the sheet’s site line, Other group, in-sheet details and New Login…, and the system list’s duplicate username problem with the API facts. Replaces nothing; <a href="#/autofill">the AutoFill page</a> stays the approved picker.</> },
         ]}
       />
