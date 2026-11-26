@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Against, Clarity, Decisions, Frame, Frames, History, Page, Section } from '../components/page';
-import { ItemIcon } from '../components/Rows';
+import { Chevron, CodePill, ItemIcon, ListRow } from '../components/Rows';
 import { FieldRow } from '../components/FieldRow';
 import { CopyHost } from '../components/copy';
 import { VaultMenu, passwordsVault, workVault } from '../components/VaultMenu';
 import { PopChevrons } from '../components/PopUpRow';
-import { EyeIcon, EyeOffIcon, SearchIcon } from '../icons';
+import { BackIcon, EyeIcon, EyeOffIcon, SearchIcon } from '../icons';
 import { byId, items, type Field, type Item } from '../data';
 import './mbm.css';
 
@@ -95,32 +95,49 @@ const hostOf = (web: string) => web.trim().toLowerCase().replace(/^[a-z]+:\/\//,
 /** A saved site covers itself and its own subdomains, never its parent (the app’s SiteMatch rules, shortened). */
 const covers = (saved: string, host: string) => !!saved && (host === saved || (saved.includes('.') && host.endsWith(`.${saved}`)));
 
-/** One item: its row, and under it when selected every value with its own button. */
-function ItemBlock({ item, on, paste, front, otherSite, revealed, onPick, onPaste, onShow }: {
-  item: Item; on: boolean; paste: boolean; front: Front; otherSite?: string; revealed: Set<string>; onPick: () => void; onPaste: (label: string) => void; onShow: () => void;
+/** The item’s own page inside the panel, as on iPhone: Back, who it is, every value with its own button. */
+function ItemPage({ item, paste, front, otherSite, revealed, onBack, onPaste, onShow }: {
+  item: Item; paste: boolean; front: Front; otherSite?: string; revealed: Set<string>; onBack: () => void; onPaste: (label: string) => void; onShow: () => void;
 }) {
+  // A two-finger swipe to the right goes back, the page following the fingers (the app uses the system’s swipe tracking).
+  const root = useRef<HTMLDivElement>(null);
+  const latest = useRef(onBack);
+  latest.current = onBack;
+  useEffect(() => {
+    const el = root.current;
+    if (!el) return;
+    let by = 0, rest = 0;
+    const settle = () => { by = 0; el.style.transform = ''; };
+    const wheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+      // The browser must not take the swipe for its own history.
+      e.preventDefault();
+      by = Math.max(0, by - e.deltaX);
+      el.style.transform = by ? `translateX(${by}px)` : '';
+      window.clearTimeout(rest);
+      if (by > 140) { settle(); latest.current(); } else rest = window.setTimeout(settle, 160);
+    };
+    el.addEventListener('wheel', wheel, { passive: false });
+    return () => { window.clearTimeout(rest); el.removeEventListener('wheel', wheel); };
+  }, []);
   return (
-    <div className={`mbm-item${on ? ' sel' : ''}`}>
-      <button className="mbm-pick" aria-expanded={on} onClick={onPick}>
+    <div className="mbm-detail" ref={root}>
+      <div className="mbm-who">
+        <button className="mbtn mbm-back" onClick={onBack} title="Esc or ←"><BackIcon />Back</button>
         <ItemIcon item={item} />
-        <span className="grow"><span className="trunc">{item.name}</span><span className="s trunc">{item.account}</span></span>
-        <span className="s" aria-hidden>{on ? '⌄' : '›'}</span>
-      </button>
-      {on && (
-        <div className="mbm-detail">
-          {otherSite && <div className="mbm-note">Saved for <strong>{otherSite}</strong>, not the page in front.</div>}
-          <div className="icard">
-            {fieldsOf(item).map((f) => (
-              <FieldRow key={`${item.id}-${f.label}`} {...f} shown={revealed.has(`${item.id}-${f.label}`)}
-                onShown={(shown) => { const key = `${item.id}-${f.label}`; if (shown) revealed.add(key); else revealed.delete(key); }}
-                action={!paste || f.label === 'Website' ? undefined : (
-                  <button className="mbtn" onClick={(e) => { e.stopPropagation(); onPaste(f.label); }} aria-label={`Paste ${f.label.toLowerCase()} into ${front}`} title={`Paste into ${front}`}>Paste</button>
-                )} />
-            ))}
-          </div>
-          <button className="mbtn" onClick={onShow}>Show in Psss</button>
-        </div>
-      )}
+        <h3 className="trunc">{item.name}</h3>
+      </div>
+      {otherSite && <div className="mbm-note">Saved for <strong>{otherSite}</strong>, not the page in front.</div>}
+      <div className="icard">
+        {fieldsOf(item).map((f) => (
+          <FieldRow key={`${item.id}-${f.label}`} {...f} shown={revealed.has(`${item.id}-${f.label}`)}
+            onShown={(shown) => { const key = `${item.id}-${f.label}`; if (shown) revealed.add(key); else revealed.delete(key); }}
+            action={!paste || f.label === 'Website' ? undefined : (
+              <button className="mbtn" onClick={(e) => { e.stopPropagation(); onPaste(f.label); }} aria-label={`Paste ${f.label.toLowerCase()} into ${front}`} title={`Paste into ${front}`}>Paste</button>
+            )} />
+        ))}
+      </div>
+      <button className="mbtn" onClick={onShow}>Show in Psss</button>
     </div>
   );
 }
@@ -164,8 +181,9 @@ function newGen(set: GenSettings = defaults): Gen {
 const Slider = ({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (n: number) => void }) => (
   <label className="mbm-slider"><span>{label}</span><input type="range" min={min} max={max} value={value} onChange={(e) => onChange(Number(e.target.value))} /><span className="mbm-num">{value}</span></label>
 );
-const Check = ({ label, on, onChange }: { label: string; on: boolean; onChange: (on: boolean) => void }) => (
-  <label className="mbm-check"><input type="checkbox" checked={on} onChange={(e) => onChange(e.target.checked)} />{label}</label>
+/** A toggle in a grouped form: its label, and the system switch at the trailing end. */
+const Toggle = ({ label, on, onChange }: { label: string; on: boolean; onChange: (on: boolean) => void }) => (
+  <div className="mbm-toggle"><span>{label}</span><button type="button" className={`mbm-sw${on ? ' on' : ''}`} role="switch" aria-checked={on} aria-label={label} onClick={() => onChange(!on)}><i /></button></div>
 );
 function Segments<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: [T, string][]; onChange: (v: T) => void }) {
   return (
@@ -185,7 +203,7 @@ function Generate({ gen, onGen, paste, startAt, onPaste, onCopy, onSave }: { gen
   }, [startAt]);
   const weak = (more: string) => <div className="mbm-note alert">Weaker than the recommended password. A machine trying a trillion guesses a second would need about 25 years. {more}</div>;
   const block = (kind: GenKind, title: string, noun: string, controls?: ReactNode) => (
-    <section className="mbm-genblock" data-kind={kind} aria-label={title}>
+    <section className="mbm-group mbm-genblock" data-kind={kind} aria-label={title}>
       <div className="mbm-genhead">
         <div className="mbm-head">{title}</div>
         <button className="mbtn" onClick={() => onCopy(noun)} aria-label={`Copy ${title}`}>Copy</button>
@@ -199,17 +217,19 @@ function Generate({ gen, onGen, paste, startAt, onPaste, onCopy, onSave }: { gen
   );
   return (
     <div className="mbm-body" ref={top}>
-      <div className="s">Nothing here is saved until you save it.</div>
       {block('strong', 'Strong Password', 'Password')}
       {block('random', 'Random Characters', 'Password', <>
         <Slider label="Characters" value={s.random} min={12} max={64} onChange={(random) => change('random', { random })} />
-        <div className="mbm-checks"><Check label="Numbers" on={s.numbers} onChange={(numbers) => change('random', { numbers })} /><Check label="Symbols" on={s.symbols} onChange={(symbols) => change('random', { symbols })} /></div>
+        <Toggle label="Numbers" on={s.numbers} onChange={(numbers) => change('random', { numbers })} />
+        <Toggle label="Symbols" on={s.symbols} onChange={(symbols) => change('random', { symbols })} />
         {s.random * Math.log2(48 + (s.numbers ? 8 : 0) + (s.symbols ? 6 : 0)) < 71 && weak('Make it longer.')}
       </>)}
       {block('words', 'Words', 'Password', <>
         <Slider label="Words" value={s.words} min={4} max={7} onChange={(words) => change('words', { words })} />
-        <Segments<Separator> label="Separator" value={s.separator} options={[['-', 'Hyphen'], [' ', 'Space'], ['.', 'Period'], ['', 'None']]} onChange={(separator) => change('words', { separator })} />
-        <div className="mbm-checks"><Check label="Capitals" on={s.capitals} onChange={(capitals) => change('words', { capitals })} /><Check label="Number" on={s.wordNumber} onChange={(wordNumber) => change('words', { wordNumber })} /><Check label="Symbol" on={s.wordSymbol} onChange={(wordSymbol) => change('words', { wordSymbol })} /></div>
+        <label className="mbm-toggle"><span>Separator</span><select className="mbm-select" value={s.separator} onChange={(e) => change('words', { separator: e.target.value as Separator })}><option value="-">Hyphen</option><option value=" ">Space</option><option value=".">Period</option><option value="">None</option></select></label>
+        <Toggle label="Capitals" on={s.capitals} onChange={(capitals) => change('words', { capitals })} />
+        <Toggle label="Number" on={s.wordNumber} onChange={(wordNumber) => change('words', { wordNumber })} />
+        <Toggle label="Symbol" on={s.wordSymbol} onChange={(wordSymbol) => change('words', { wordSymbol })} />
         {s.words < 6 && weak('Add a word.')}
       </>)}
       {block('pin', 'PIN', 'PIN', <Slider label="Digits" value={s.pin} min={4} max={12} onChange={(pin) => change('pin', { pin })} />)}
@@ -256,24 +276,24 @@ function NewLogin({ vault, site, draft, onDraft, onCopy, onShow, readOnly, faile
     );
   }
   return (
-    <form className="mbm-body" onSubmit={(e) => { e.preventDefault(); if (can && !already) set({ saved: true }); }}>
-      {failed && <div className="mbm-note alert" role="alert">Couldn’t save to {vault}. Nothing was changed. <button type="button" className="mbtn" disabled={!can} onClick={() => set({ saved: true })}>Try Again</button></div>}
-      <div className="icard">
+    <form className="mbm-body mbm-newlogin" onSubmit={(e) => { e.preventDefault(); if (can && !already) set({ saved: true }); }}>
+      {failed && <div className="mbm-group mbm-failed" role="alert"><span>Couldn’t save to {vault}. Nothing was changed.</span><button type="button" className="mbtn" disabled={!can} onClick={() => set({ saved: true })}>Try Again</button></div>}
+      <div className="mbm-group mbm-fields">
         <label className="mapfield"><span className="l">Name</span><input className="mbm-in" value={draft.name ?? ''} placeholder={host || 'Name or website'} onChange={(e) => set({ name: e.target.value })} /></label>
         <label className="mapfield"><span className="l">Website</span><input className="mbm-in" value={web} placeholder="Optional" onChange={(e) => set({ web: e.target.value })} /></label>
         <label className="mapfield"><span className="l">Username</span><input className="mbm-in" value={user} placeholder="Optional" onChange={(e) => set({ user: e.target.value })} /></label>
         <div className="mapfield"><span className="l">Password</span><input className="mbm-in mbm-pwin" aria-label="Password" type={shown ? 'text' : 'password'} value={password} placeholder="Required" onChange={(e) => set({ password: e.target.value })} />
           <button type="button" className="eye" aria-label={shown ? 'Hide password' : 'Show password'} title={shown ? 'Hide password' : 'Show password'} onClick={() => set({ shown: !shown })}>{shown ? <EyeOffIcon /> : <EyeIcon />}</button></div>
-        <div className="mapfield"><div className="l" /><button type="button" className="mbtn" onClick={() => set({ password: make('strong', newGen().set), shown: true })}>Use a Strong Password</button></div>
+        <div className="mapfield"><button type="button" className="mbtn" onClick={() => set({ password: make('strong', newGen().set), shown: true })}>Use a Strong Password</button></div>
       </div>
-      <div className="s">Saved in {vault} ({where}). Add a code, notes or other fields in Psss.</div>
+      <div className="s mbm-footnote">Saved in {vault} ({where}). Add a code, notes or other fields in Psss.</div>
       {readOnly && <div className="mbm-note alert" role="alert">{vault} is read-only, so nothing can be saved to it. Choose another vault.</div>}
       {!!password && !named && <div className="s">Enter a name or a website.</div>}
       {already && <div className="mbm-note">{label} already has this password.</div>}
       {same && !already && !!password && <div className="s">Replaces the password of {label}. The old one stays under Previous passwords.</div>}
-      <div className="mbm-row2">
+      <div className="mbm-group mbm-save">
         {same && !already
-          ? <><button className="mbtn default" disabled={!can}>Update {label}</button><button type="button" className="mbtn" disabled={!can} onClick={() => set({ saved: true })}>Save as New</button></>
+          ? <><button type="button" className="mbtn" disabled={!can} onClick={() => set({ saved: true })}>Save as New</button><button className="mbtn default" disabled={!can}>Update {label}</button></>
           : <button className="mbtn default" disabled={!can || already}>Save Login</button>}
       </div>
     </form>
@@ -306,6 +326,8 @@ export interface PanelProps {
   /** Start with the vault menu open. */
   menu?: boolean;
   query?: string;
+  /** Start with this item’s page open. */
+  detail?: number;
   /** Scroll Generate to this kind. */
   genAt?: GenKind;
   saved?: boolean;
@@ -357,6 +379,8 @@ export function Panel(p: PanelProps) {
   const [query, setQuery] = useState(p.query ?? '');
   /** The id of the item the person picked; unset until then. */
   const [sel, setSel] = useState<number>();
+  /** The item whose page is open in the Search tab. */
+  const [opened, setOpened] = useState(p.detail);
   /** Values the eye has shown, kept until a lock. */
   const revealed = useRef(new Set<string>());
   const [done, setDone] = useState<string>();
@@ -416,7 +440,7 @@ export function Panel(p: PanelProps) {
   const go = (t: Tab) => { if (t !== tab) forget(); setTab(t); setDone(undefined); setMenu(false); };
   const switchVault = (name: VaultName, search = '') => {
     if (name !== vault) forget();
-    setVault(name); setMenu(false); setSel(undefined); setQuery(search); setDone(undefined);
+    setVault(name); setMenu(false); setSel(undefined); setOpened(undefined); setQuery(search); setDone(undefined);
   };
   const show = () => p.onOpen?.('Psss');
   /** Starts a new login, asking first when an unsaved one would be replaced. */
@@ -425,22 +449,36 @@ export function Panel(p: PanelProps) {
   const lock = () => {
     setOpen({ Passwords: false, Work: false }); setDrafts({ Passwords: emptyDraft, Work: emptyDraft }); setIncomings({});
     revealed.current.clear();
-    setGen(newGen(gen.set)); setQuery(''); setSel(undefined); setDone(undefined); forget();
+    setGen(newGen(gen.set)); setQuery(''); setSel(undefined); setOpened(undefined); setDone(undefined); forget();
+  };
+
+  const shownItem = tab === 'search' && isOpen ? vaultItems[vault].find((i) => i.id === opened) : undefined;
+  const openItem = (id: number) => { setSel(id); setOpened(id); setDone(undefined); };
+  const back = () => { setSel(opened); setOpened(undefined); setDone(undefined); };
+  const copyMain = (item: Item, e: KeyboardEvent) => {
+    const label = e.shiftKey ? 'Username' : e.altKey ? 'Verification code' : mainField(item);
+    if (fieldsOf(item).some((f) => f.label === label)) act(label);
   };
 
   const keys = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === 'Escape') { if (menu) setMenu(false); else onClose?.(); return; }
+    if (e.key === 'Escape') { if (menu) setMenu(false); else if (shownItem) back(); else onClose?.(); return; }
     if (e.metaKey && e.key.toLowerCase() === 'l') { e.preventDefault(); lock(); return; }
     if (tab !== 'search' || !isOpen || menu) return;
+    if (shownItem) {
+      if (e.key === 'ArrowLeft') { e.preventDefault(); back(); }
+      else if (e.key === 'Enter' && e.target === e.currentTarget) { e.preventDefault(); copyMain(shownItem, e); }
+      return;
+    }
     const field = e.currentTarget.querySelector<HTMLInputElement>('.mbm-search input');
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    // → opens the selected item once the cursor is at the end of the search.
+    if (e.key === 'ArrowRight' && e.target === field && field?.selectionStart === query.length && flat[at]) {
+      e.preventDefault(); openItem(flat[at].id);
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault(); field?.focus({ preventScroll: true }); setDone(undefined);
       setSel(flat[Math.max(0, Math.min(flat.length - 1, at + (e.key === 'ArrowDown' ? 1 : -1)))]?.id);
     } else if (e.key === 'Enter' && e.target === field && flat[at]) {
       e.preventDefault();
-      const item = flat[at];
-      const label = e.shiftKey ? 'Username' : e.altKey ? 'Verification code' : mainField(item);
-      if (fieldsOf(item).some((f) => f.label === label)) act(label);
+      copyMain(flat[at], e);
     }
   };
   const root = useRef<HTMLDivElement>(null);
@@ -454,7 +492,7 @@ export function Panel(p: PanelProps) {
   useEffect(() => {
     if (!used.current) return;
     const list = root.current?.querySelector<HTMLElement>('.mbm-list');
-    const item = list?.querySelector<HTMLElement>('.mbm-item.sel');
+    const item = list?.querySelector<HTMLElement>('.mrow.sel');
     if (!list || !item) return;
     if (at === 0) { list.scrollTop = 0; return; }
     const box = list.getBoundingClientRect(), r = item.getBoundingClientRect();
@@ -475,7 +513,7 @@ export function Panel(p: PanelProps) {
   const [seen, setSeen] = useState({ front, page });
   if (seen.front !== front || (page && seen.page !== page)) {
     setSeen({ front, page });
-    if (seen.front !== front || seen.page) { setQuery(''); setSel(undefined); setDone(undefined); }
+    if (seen.front !== front || seen.page) { setQuery(''); setSel(undefined); setOpened(undefined); setDone(undefined); }
   }
 
   const needsVault = tab === 'search' || tab === 'new';
@@ -515,6 +553,9 @@ export function Panel(p: PanelProps) {
         </div>
       )
       : <NewLogin key={vault} vault={vault} site={page} draft={draft} onDraft={setDraft} onCopy={copied} onShow={show} readOnly={p.readOnly} failed={p.saveFailed} />;
+  } else if (shownItem) {
+    const other = page && siteOf(shownItem) && siteOf(shownItem) !== page ? siteOf(shownItem) : undefined;
+    body = <ItemPage key={shownItem.id} item={shownItem} paste={paste} front={front} otherSite={other} revealed={revealed.current} onBack={back} onPaste={act} onShow={show} />;
   } else {
     let n = -1;
     body = (
@@ -542,15 +583,19 @@ export function Panel(p: PanelProps) {
               <div className="mbm-head">{g.head}</div>
               {g.list.map((item) => {
                 n += 1;
-                const i = n;
-                const other = page && siteOf(item) && siteOf(item) !== page ? siteOf(item) : undefined;
-                return <ItemBlock key={item.id} item={item} on={i === at} paste={paste} front={front} otherSite={other} revealed={revealed.current} onPick={() => { setSel(item.id); setDone(undefined); }} onPaste={act} onShow={show} />;
+                return <ListRow key={item.id} item={item} mac selected={n === at} onClick={() => openItem(item.id)} traits="passkey" trailing={<>
+                  {/* The code is its own button; the rest of the row opens the item. */}
+                  {item.code && <span onClickCapture={() => copied('Verification code')}><CodePill code={item.code} /></span>}
+                  <Chevron />
+                </>} />;
               })}
             </div>
           ))}
           {!flat.length && !!q && (
             <div className="mbm-center">
-              <div>Nothing in {vault} matches “{query}”.</div>
+              <span className="mbm-glyph" aria-hidden><SearchIcon /></span>
+              <div className="t">No Results</div>
+              <div className="s">Nothing in {vault} matches “{query}”.</div>
               {(['Passwords', 'Work'] as VaultName[]).filter((v) => v !== vault && open[v]).map((v) => {
                 const n = vaultItems[v].filter((i) => `${i.name} ${i.account} ${siteOf(i) ?? ''}`.toLowerCase().includes(q)).length;
                 return n ? <button key={v} className="mbtn default" onClick={() => switchVault(v, query)}>Show {n} in {v}</button> : null;
@@ -634,7 +679,7 @@ const Still = (p: PanelProps) => {
 
 export function MacMenuBar() {
   return (
-    <Page title="Mac menu bar: quick search" status={<><strong>Approved by the owner, 2026-11-26: phase 1 copies and shows logins for the browser page. Not built.</strong> Companion page: <a href="#/mac-background">background running, Dock and login</a>.</>}>
+    <Page title="Mac menu bar: quick search" status={<><strong>Approved by the owner, 2026-11-26: phase 1 copies and shows logins for the browser page. Not shipped; a debug prototype exists.</strong> Search as a list and item page was approved the same day. Companion page: <a href="#/mac-background">background running, Dock and login</a>.</>}>
       <Clarity items={[
         ['Which thing?', 'A Psss panel under a menu bar item, also opened from any app with ⌃⌘P. The vault it works in is named at the top and can be changed there.'],
         ['What must they give?', 'Touch ID or the vault password when locked. For the page in Safari or Chrome, one macOS permission per browser. In Firefox and Zen, the Psss extension. Both are optional.'],
@@ -648,14 +693,20 @@ export function MacMenuBar() {
       </Section>
       <Prototype />
 
+      <Section title="Drawn with the system’s parts">
+        <p>The panel is the system’s glass window with no outline of its own. It uses the system search field, the app’s list rows with sections and the system selection, the item page as a grouped form behind a Back button, grouped forms for Generate and New Login, the system empty states, and quiet text buttons at the bottom.</p>
+      </Section>
+
       <Section title="Search (the first tab)">
-        <p>The first item is open, showing every value. A row or its copy icon copies the value; the website opens in the browser. In a browser the logins for the page come first.</p>
+        <p>The rows are the app’s own list rows. A login with a verification code shows it live in its row, and clicking the code copies it. The first one is selected, so Return copies its password at once. A click, or →, opens that item’s page in the panel, as on iPhone; Back, Esc, ← or a swipe to the right returns. In a browser the logins for the page come first.</p>
       </Section>
       <Frames>
-        <Frame label="A browser, page known" caption="Logins for the page come first, the first one open."><Still /></Frame>
+        <Frame label="A browser, page known" caption="Logins for the page come first, the first one selected."><Still /></Frame>
+        <Frame label="A login’s page" caption="A row or its copy icon copies the value; the website opens in the browser."><Still detail={201} front="Slack" /></Frame>
+        <Frame label="A card’s page" caption="Cards use the same rows."><Still detail={6} front="Slack" /></Frame>
         <Frame label="An app in front" caption="A login with the app’s name as a word comes first, under a heading that says why."><Still front="Slack" /></Frame>
         <Frame label="Searching without a page" caption="Logins first, then cards."><Still front="Slack" query="north" /></Frame>
-        <Frame label="A card" caption="Cards use the same rows."><Still front="Slack" query="everyday" /></Frame>
+        <Frame label="A card" caption="Brand under the name, last four digits and expiry at the end, as in the app."><Still front="Slack" query="everyday" /></Frame>
         <Frame label="A note" caption="Every item type is found, with every value of its page."><Still front="Slack" query="wi-fi" /></Frame>
         <Frame label="Nothing found" caption="Offers a new login."><Still query="zzz" /></Frame>
         <Frame label="Found in another open vault" caption="One button shows that vault’s results."><Still front="Slack" bothOpen query="north" vault="Work" /></Frame>
@@ -714,10 +765,12 @@ export function MacMenuBar() {
           <tbody>
             <tr><td>⌃⌘P</td><td>Opens or closes the panel, on the screen that has the keyboard</td></tr>
             <tr><td>↑ ↓</td><td>Select an item; VoiceOver says its name and account</td></tr>
+            <tr><td>→ or click</td><td>Open the item’s page</td></tr>
             <tr><td>Return, ⇧Return, ⌥Return</td><td>Copy the password (or card number), the username, the code</td></tr>
             <tr><td>⌘1, ⌘2, ⌘3</td><td>Search, Generate, New Login (not in the mock: the browser takes these keys)</td></tr>
             <tr><td>⌘L</td><td>Lock</td></tr>
-            <tr><td>Escape</td><td>Close the vault menu, else the panel</td></tr>
+            <tr><td>Escape</td><td>Close the vault menu, else leave the item’s page, else close the panel</td></tr>
+            <tr><td>←, or swipe right</td><td>Leave the item’s page. The swipe is two fingers on a trackpad, following the Mac’s “Swipe between pages” setting</td></tr>
           </tbody>
         </table>
         <p>Tabs and the vault switcher are the system’s segmented control and pop-up button, with their own keyboard and VoiceOver behaviour. The panel does not rely on Tab reaching every button.</p>
@@ -729,7 +782,7 @@ export function MacMenuBar() {
       <Frames>
         <Frame label="Not asked yet" caption="Psss says what macOS will ask before it asks, including that macOS words it more broadly than what Psss does."><Still access="ask" /></Frame>
         <Frame label="Refused"><Still access="denied" /></Frame>
-        <Frame label="Searching on a page" caption="A login saved for another site says so above its values."><Still query="north" /></Frame>
+        <Frame label="A login for another site" caption="Its page says so above its values."><Still detail={201} /></Frame>
         <Frame label="Nothing saved for the page" caption="Nothing is selected, so Return copies nothing until an item is chosen."><Still site="harborshop.example" /></Frame>
       </Frames>
 
@@ -766,7 +819,7 @@ export function MacMenuBar() {
       </Section>
       <Frames>
         <Frame label="Paste offered" caption="A line above the list offers to turn Paste on."><Still front="Terminal" offerPaste /></Frame>
-        <Frame label="Paste on" caption="Paste sits beside the copy icon on every value that can be entered."><Still paste front="Terminal" /></Frame>
+        <Frame label="Paste on" caption="Paste sits beside the copy icon on every value that can be entered."><Still paste front="Terminal" detail={202} /></Frame>
         <Frame label="The front app changed" caption="Opened over Terminal; Slack came to the front before the paste. Psss checks again just before pasting.">
           <Desk app="Slack" open front={<FrontApp app="Slack" site="" />}><Panel front="Terminal" paste moved /></Desk>
         </Frame>
@@ -819,8 +872,8 @@ export function MacMenuBar() {
         { decision: 'Closing the panel keeps the tab, search, open item, shown values, drafts and generated values until a lock or Quit. A different app or page starts its search and selection afresh.', rejected: 'Starting on Search with everything hidden on every opening.' },
         { decision: 'Three tabs: Search, Generate, New Login. Search is first the first time. Settings… is a button at the bottom that opens the Settings window.', rejected: 'A Settings tab repeating some switches; one list with footer buttons for every action.' },
         { decision: 'The vault switcher is always shown.', rejected: 'Only with two or more vaults, as in the AutoFill picker.' },
-        { decision: 'The selected item opens in place with the item page’s field rows (hidden values stay hidden until the eye); one item is open at a time.', rejected: 'A row of action buttons without the values.' },
-        { decision: 'Generate shows every kind at once, with sliders for counts, checkboxes and segmented controls for the rest.', rejected: 'A Type menu that shows one kind at a time.' },
+        { decision: 'Rows are the app’s list rows. A click or → opens the item’s page in the panel, with Back, Esc, ← or a swipe to the right to return; hidden values stay hidden until the eye. Return copies from the list without opening it.', rejected: 'Values opening under the row, which did not look like they belonged to it; a row of action buttons without the values.' },
+        { decision: 'Generate shows every kind at once as grouped form sections, with sliders for counts, switches, a pop-up for the separator and a segmented control for the key format.', rejected: 'A Type menu that shows one kind at a time.' },
         { decision: 'Phase 1 copies and shows logins for the page. Paste comes later.' },
         { decision: 'The page comes from Apple Events in Safari and Chromium browsers, and from the Psss extension in Firefox and Zen.', rejected: 'Reading window titles or the screen; an extension for every browser.' },
         { decision: 'A browser without the extension gets one card that opens psss.app/#browser-name. Not Now ends it for that browser.' },
@@ -832,6 +885,12 @@ export function MacMenuBar() {
       ]} />
 
       <History entries={[
+        { date: '2026-11-26', text: 'Owner: the item page starts with one line holding Back, a small icon and the name (replacing Back on its own line above a large icon and centred name), to save height.' },
+        { date: '2026-11-26', text: 'Owner: a login with a verification code shows the code in its list row with a button that copies it (replacing a code glyph, with the code only on the item’s page). Removed “Nothing here is saved until you save it.” from Generate as redundant.' },
+        { date: '2026-11-26', text: 'Owner approved the list and item page and asked for swiping back: a two-finger swipe to the right returns to the list. The prototype app now works this way.' },
+        { date: '2026-11-26', text: 'Proposed after the owner asked for the iPhone way: the app’s list rows, and a row opens the item’s page with Back (replacing the open card inside the list, and showing the first item’s values on opening).' },
+        { date: '2026-11-26', text: 'Owner: the values did not look like they belonged to the row above. The open item is now one card holding its row, values and Show in Psss (replacing a highlighted row with a separate box under it).' },
+        { date: '2026-11-26', text: 'Owner: the first native prototype did not look like a Mac app, so the panel is restyled with the system’s parts: glass window without an outline (replacing an outlined panel on a flat fill), system search field, list with sections (replacing hand-built blocks with disclosure chevrons), grouped forms for Generate and New Login, switches (replacing checkboxes), a separator pop-up (replacing four segments), Save as New before the default Update button, system empty states with “No Results”, and borderless footer buttons.' },
         { date: '2026-11-26', text: 'Owner approved the page as drawn, with the choices made while settling the review findings. Paste stays a later step.' },
         { date: '2026-11-26', text: 'Second check: a picked item stays picked when the page answers late; a waiting login stays with its vault; a half-typed vault password is cleared on closing or switching; unavailable and password-only vaults keep that state; a state and frame for an extension without tab access; a lock keeps generator settings (replacing a reset to defaults); Symbol for Words; shown values survive tab changes; a saved site also matches its subdomains; Try Again saves; Quit removes the menu bar item.' },
         { date: '2026-11-26', text: 'Review findings settled: New Login gained Name, an eye, update, already-saved, read-only and failed states and Copy Password after saving (replacing exact-text matching and a password you could not get back); drafts are per vault and replacing one asks; all item values and types; the app’s generator ranges and warning; one copy line instead of the pill; lock on opening; Lock or Lock All (replacing Lock <vault>); locked and unavailable vault states; waiting for the page; keyboard table; Firefox and the two windows in the prototype.' },
