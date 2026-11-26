@@ -2,7 +2,7 @@ import { Against, Approved, Clarity, Decisions, Frame, Frames, History, Page, Se
 import { DeviceProvider, DeviceView, PageDeviceSwitch } from '../components/DeviceSwitcher';
 import { PhoneAll, PhoneCodes, PhoneSearch } from '../screens/PhoneScreens';
 import { renderDevice } from '../screens/render';
-import { MoreSidebar, OptionA, OptionB, OptionC, Strip, addresses, five, many, stripTabs as t, wifi } from './PlacesMore';
+import { MoreSidebar, OptionA, OptionB, OptionBPlace, OptionC, Strip, addresses, five, many, stripTabs as t, wifi } from './PlacesMore';
 
 const bar3 = [t.all, t.codes, t.cards];
 const bar4 = [t.all, t.codes, t.cards, t.more];
@@ -14,7 +14,7 @@ export function Places() {
         title="Places: All, Codes, Cards, More"
         status={
           <>
-            <strong>2026-11-26: the owner chose option A for the iPhone More tab</strong> (a plain list of places, bottom-anchored); it is section 3; the decisions are in section 7.{' '}
+            <strong>2026-11-26: the owner chose option B for the iPhone More tab</strong> (tapping More opens a popover of places above the bar), overriding the earlier choice of A, a page of places; it is section 3; the decisions are in section 7.{' '}
             <Approved on="2026-11-24" /> The three places, the tab bar and the Codes list were approved on 2026-11-23; what changed on 2026-11-24 (no pill row, no All / Codes / Cards control on Mac and iPad, a Recently used group in Codes) was approved on that day. Filter and sort are on <a href="#/filter-and-sort">Filter and sort</a>, list rows on <a href="#/list-rows">List rows</a>, Cards on <a href="#/cards-tab">Cards tab</a>, the item page and the Mac and iPad toolbars on <a href="#/item-page">Item page, Edit and toolbar</a>.
           </>
         }
@@ -80,31 +80,34 @@ export function Places() {
 
         <Section title="3. iPhone: the More tab" />
         <div className="prose">
-          <p>More is a tab that opens a page of the places that are not in the bar. The owner found that the old page opened its list at the top of the screen, far from the thumb, and that its rows (a grey tile, a name, a grey line, a count) looked like vault items. Option A, chosen on 2026-11-26, keeps the tab and the page and changes what the page looks like and where its list sits.</p>
+          <p>Tapping More opens a small popover of the places that are not in the bar, right above it, where the thumb already is. Choosing a place makes More the selected tab and shows that place as its page, so there is something to return to; the tab keeps its name, More. Tapping More again, while a place shows, opens the popover to switch. Tapping outside closes it and changes nothing. Chosen by the owner on 2026-11-26 (option B).</p>
         </div>
         <Frames>
-          <Frame phone label="A · three places (light)" caption="Inset grouped list. A plain symbol in the accent colour, the name, the count as plain text, a chevron. No tile, no subtitle. The list sits right above the tab bar and the large title stays at the top. Recently Deleted stands in its own group, the way Mail separates Trash.">
-            <div className="mt-light"><OptionA places={[addresses, wifi]} /></div>
+          <Frame phone label="B · three places (light)" caption="Tap More: a popover above the bar, its arrow on the tab. A symbol, the name and the count as plain text; Recently Deleted set apart under a gap. The page underneath stays as it was (here All) and is not dimmed; a tap outside closes the popover.">
+            <OptionB />
           </Frame>
-          <Frame phone label="A · five places (light)" caption="Five places as they could be once Notes and Custom Items have places of their own (examples, not decided). The group grows upward from the tab bar; the first row is a short reach from the More tab.">
-            <div className="mt-light"><OptionA places={five} /></div>
+          <Frame phone label="B · after choosing Addresses (light)" caption="Addresses is now More's page: its list, with the title Addresses. The tab reads More and is selected, so the person sees where they are; tapping it again opens the popover to switch to Wi-Fi or Recently Deleted. A place is one tap and one choice away, and the last one chosen is remembered while the app is open.">
+            <OptionBPlace />
           </Frame>
-          <Frame phone label="A · many places (light)" caption="Eleven rows, more than the screen holds (the names are examples); the rows clipped under the title are one swipe away. The page opens scrolled to its foot, so Recently Deleted and the rows nearest the bar need no scrolling.">
-            <div className="mt-light"><OptionA places={many} /></div>
+          <Frame phone label="B · five places (light)" caption="With more places (examples, not decided) the popover grows upward from the bar and keeps the same rows. Past what the screen holds it scrolls.">
+            <OptionB places={five} />
           </Frame>
-          <Frame phone label="A · five places (dark)" caption="The same page in dark mode: the symbols take the system accent, the group is the system dark grouped background.">
-            <div className="mt-dark"><OptionA places={five} /></div>
+          <Frame phone label="B · three places (dark)" caption="The same popover in dark mode.">
+            <OptionB dark />
           </Frame>
         </Frames>
-        <p className="prose muted">Rejected, drawn so the reasons can be checked:</p>
+        <p className="prose muted">Built first, then replaced by B, and rejected, drawn so the reasons can be checked:</p>
         <Frames>
-          <Frame phone label="B · a menu above the bar (rejected)" caption="Tapping More opens a menu of places right above the tab bar, over a dimmed All page. Drawn as an iOS menu: names left, symbols right, Recently Deleted set apart. The page underneath is still All, and More is lit while the menu is open.">
-            <OptionB />
+          <Frame phone label="A · a page of places (replaced)" caption="Chosen on 2026-11-26 and built the same day: an inset grouped list of places on a More page, large title at the top, Recently Deleted in its own group. The owner saw it on a device and disliked it: the page is a stop between the tap and the place, the tab shows nothing of its own, and (built top-anchored, because the platform would not rest a short list at the foot) the list sat far from the thumb. The bottom-anchored drawing below is what had been asked for.">
+            <div className="mt-light"><OptionA places={[addresses, wifi]} /></div>
+          </Frame>
+          <Frame phone label="A · many places (replaced)" caption="Eleven rows, more than the screen holds, on the replaced page.">
+            <div className="mt-light"><OptionA places={many} /></div>
           </Frame>
           <Frame phone label="C · a title menu (rejected)" caption="Tapping the title, All with a chevron, opens a native menu of places under it (toolbarTitleMenu). The menu is a real popup, but it drops from the top: the finger travels as far as the old list, and the title says All while the menu lists places that are not All.">
             <OptionC />
           </Frame>
-          <Frame label="For comparison: the sidebar on iPad and Mac" caption="The places are plain rows: a symbol, a name, a count, in a list headed by the vault. This is the look A takes to the phone. Nothing here changes.">
+          <Frame label="For comparison: the sidebar on iPad and Mac" caption="The places are plain rows: a symbol, a name, a count, in a list headed by the vault. The popover lists the same rows. Nothing here changes.">
             <MoreSidebar />
           </Frame>
         </Frames>
@@ -114,7 +117,7 @@ export function Places() {
           <p>The bar is always All, Codes, Cards and More, whatever the vault holds. More is a list of the other places, so a new place is one more row, never one more tab.</p>
         </div>
         <Strip label="Before More" tabs={bar3} tab="all" note="All, Codes and Cards, and the search button apart at the end." />
-        <Strip label="Chosen: a More tab of our own" tabs={bar4} tab="more" note="Always there and always the same. It opens a list: Addresses, Wi-Fi, Recently Deleted, and whatever comes next." />
+        <Strip label="Chosen: a More tab of our own" tabs={bar4} tab="more" note="Always there and always the same. Tapping it opens a popover of places: Addresses, Wi-Fi, Recently Deleted, and whatever comes next." />
         <Strip label="Considered: Wi-Fi as its own tab" tabs={[t.all, t.codes, t.cards, t.wifi]} tab="wifi" note="One tap shorter for Wi-Fi, but the next place (identities, bank accounts) needs another tab, and a fifth tab is where the bar stops fitting." />
         <Strip label="Rejected: a Recently Deleted tab that appears when needed" tabs={[t.all, t.codes, t.cards, t.wifi, t.trash]} tab="all" note="The whole bar changes the moment something is deleted or the last item leaves Recently Deleted. Apple: do not hide tab bar buttons." />
 
@@ -127,7 +130,7 @@ export function Places() {
             <li><strong>Do not hide or disable tabs; keep the bar visible.</strong> Having tabs available in some cases and not others makes the app seem unstable, and hiding the bar makes people forget where they are. A tab that opens a menu keeps the bar visible but never shows a page of its own.</li>
             <li><strong>Preserving state.</strong> A tab bar lets people switch between sections “preserving the current navigation state within each section” (Apple's words, paraphrased). A menu has no section to return to, so More would have no selected state of its own.</li>
             <li><strong>Badges</strong> are for critical information only. <strong>iOS 26:</strong> the bar floats above content on a Liquid Glass background and can carry a trailing search tab, which ours does.</li>
-            <li><strong>Menus on a tab.</strong> The SwiftUI reference lists <code>TabContent.contextMenu(menuItems:)</code> (press and hold) and <code>TabContent.popover(isPresented:attachmentAnchor:arrowEdge:content:)</code>, each from iOS 18. So B would not need a custom tab bar on paper, but how they behave on the iPhone bar is not documented: a popover adapts to a sheet in a compact width unless told otherwise, and a tap on a tab selects it first. B was not prototyped.</li>
+            <li><strong>Menus on a tab.</strong> The SwiftUI reference lists <code>TabContent.contextMenu(menuItems:)</code> (press and hold) and <code>TabContent.popover(isPresented:attachmentAnchor:arrowEdge:content:)</code>, each from iOS 18. B uses the popover with <code>presentationCompactAdaptation(.popover)</code>, because a popover adapts to a sheet in a compact width otherwise, and no custom tab bar. How it behaves on the iPhone bar is recorded in the History below and in <code>docs/experience.md</code>.</li>
           </ul>
         </div>
 
@@ -206,19 +209,18 @@ export function Places() {
               why: <>The bar stays the same for everyone and nothing is hidden or disabled. The cost is one more tap to reach Wi-Fi than a tab would take; Codes and Cards, the places used at a moment’s notice, keep their tabs.</>,
             },
             {
-              decision: <><strong>11. A: More stays a tab that shows a page, and the page looks like places, not items (owner, 2026-11-26).</strong> Inset grouped list, plain accent symbols, name, count, chevron; no subtitles, no tiles; Recently Deleted in its own group at the foot.</>,
-              rejected: <>keeping the tiles and subtitles (they are what makes the rows look like items); a different name for the tab (the tab is only the doorway; the rows were the confusion).</>,
-              why: <>It fixes the look the owner called confusing with standard controls, keeps the tab selected so the person knows where they are, and keeps one way to reach a place. The list matches the sidebar on iPad and Mac, so a place looks the same everywhere.</>,
+              decision: <><strong>11. B: tapping More opens a popover of places above the bar; the chosen place is More's page (owner, 2026-11-26).</strong> Symbol, name and count, Recently Deleted set apart. More stays selected with the place under it, its label stays “More”, and tapping it again reopens the popover. Tap outside to close.</>,
+              rejected: <>A, a page of places (built and replaced the same day: an extra stop, and a list far from the thumb); a custom tab bar; the popover turning into a sheet on iPhone.</>,
+              why: <>The owner prefers the places a tap and a thumb away over a page of their own, and keeps the selected state to return to. One way to reach a place, the same rows as the sidebar on iPad and Mac.</>,
             },
             {
-              decision: <><strong>12. The list sits at the bottom of the page, right above the bar, and a long list opens scrolled to its foot.</strong> The large title stays at the top. <strong>Built differently:</strong> <code>defaultScrollAnchor(.bottom)</code> on a <code>List</code> does not rest a short list at the foot (checked on the iPhone 17 simulator, 2026-11-26), and the only ways to force it are custom scroll layout. The built list is at the top, under the large title, as in Apple's own apps; the frames above still show the owner's bottom-anchored idea and are kept so the owner can decide whether a custom layout is worth it.</>,
-              rejected: <>a list at the top, as before (the travel the owner reported); a floating card of places (a custom control, and a second look for the same list).</>,
-              why: <>A short list lands where the thumb already is. It is not what Apple's apps do (they top-anchor lists), so the gap between the title and the list is a departure from convention; it is the owner's request, and it is cheap to undo. Recently Deleted is last in every list, as on the sidebar, even though it is then nearest the thumb: the order stays the same everywhere.</>,
+              decision: <><strong>12. Voice and keys.</strong> The tab is read as “More” in every state. The popover rows are buttons whose labels carry the count (“Addresses, 5 items”).</>,
+              why: <>Apple's guidance wants a tab to keep its name; the count belongs to the row, not the tab.</>,
             },
             {
-              decision: <><strong>13. B, a menu above the bar, is rejected.</strong></>,
-              rejected: <>B as the replacement for the page.</>,
-              why: <>Apple's tab bar guideline is for navigation, not actions, and a menu is closer to an action; More would have no page and so no selected state to return to, and VoiceOver would announce a tab that opens a menu. The platform has the pieces (tab popover, tab context menu, from iOS 18) but how they behave on the iPhone bar is unverified, and a popover may become a sheet. If it is ever revisited, the next step is a device prototype of <code>TabContent.popover</code>, not a custom tab bar.</>,
+              decision: <><strong>13. The list is no longer bottom-anchored.</strong> The popover is the thing that sits above the bar, so the question of resting a short list at the foot of a page is gone.</>,
+              rejected: <>custom scroll layout to force the old idea (A) onto the page.</>,
+              why: <>The popover is already at the thumb and is a standard control.</>,
             },
             {
               decision: <><strong>14. C, a title menu, is rejected as the way into More.</strong> It is a native control, but it drops from the top.</>,
@@ -229,8 +231,7 @@ export function Places() {
         />
 
         <Against>
-          <li>A departs from Apple's habit in one place: the bottom-anchored list under a large title (decision 12). Everything else is a standard inset grouped list with SF Symbols in the accent colour, as in Files and Mail.</li>
-          <li>More itself is the overflow pattern Apple asks apps to avoid. It was chosen on 2026-11-24 for room to grow; A makes it cheaper to use and does not remove it. Replacing More with a sidebar-adaptable tab bar is the guideline's own alternative and is not planned. Symbols for Notes, Custom Items and the other example rows are stand-ins; the real ones are chosen from SF Symbols when each place is built.</li>
+          <li><strong>B is against Apple's guidance, by the owner's decision (2026-11-26).</strong> Apple's tab bar guideline reads “Use a tab bar to support navigation, not to provide actions”, and a tab that opens a menu behaves more like an action than a destination; Apple also says to avoid overflow tabs. The owner chose it knowing this, to keep places a tap from the thumb. The pieces are standard (<code>TabContent.popover</code>, an iOS 18 API) and the tab bar is the system's; the departure is in what tapping More does first. Replacing More with a sidebar-adaptable tab bar is the guideline's own alternative and is not planned. Symbols for Notes, Custom Items and the other example rows are stand-ins; the real ones are chosen from SF Symbols when each place is built.</li>
           <li>Two type sizes inside the device. Tab labels are normally the smaller system tab-bar size; the mock keeps body size per the project rule. In the app, use the system tab bar as it is: it is a standard control, and the rule is about our own text.</li>
           <li>Codes shown in the clear in a list. Not against guidance, but a choice: anyone looking over a shoulder sees them. They are valid for seconds and useless without the password, and Apple Passwords shows them the same way.</li>
           <li>Otherwise none: a standard tab bar with a search-role tab on iPhone, a sidebar on iPad and Mac, labeled tabs, no actions in the bar.</li>
@@ -245,6 +246,7 @@ export function Places() {
 
         <History
           entries={[
+          { date: '2026-11-26', text: <>The owner chose B over A for the iPhone More tab, after seeing A built: tapping More opens a popover of places above the bar, and the place chosen becomes More's page, with More still selected. Replaces A (a page of places, section 3) as the chosen design, and replaces the old B drawing (a menu over a dimmed All page, with a menu-style list) with a popover that does not dim the page and an after-choosing frame. A stays drawn as replaced, with the reason. Decisions 11 to 13 rewritten; the Apple-guidance note moved to Against.</> },
           { date: '2026-11-26', text: <>Built on the iPhone: the plain list of places (inset grouped, accent symbols, counts, Recently Deleted apart) matches the A frames; the bottom anchoring does not (decision 12): the build is top-anchored because the platform's scroll anchor does not move a short list. Frames kept as drawn, pending the owner's word.</> },
           { date: '2026-11-26', text: <>The owner chose option A for the iPhone More tab; merged the More tab page here (it was <code>#/more-tab</code>). Replaces the old More list (grey tiles, subtitle under each name, count, chevron, list at the top of the screen) drawn on Wi-Fi and Recently Deleted. B (a menu above the bar) and C (a title menu) stay drawn as rejected. The bottom-bar strips and the More tab decision moved here from <a href="#/wifi-place">Wi-Fi and Recently Deleted</a>. The Recently Deleted table row now says it is a row in More, not an entry of the Filter menu.</> },
           { date: '2026-11-25', text: <>Owner: icon on the left, row-size header, no own chevron; the pull-down is replaced by the right-click menu (built that way, mock follows). The Mac and iPad sidebar frames show it.</> },

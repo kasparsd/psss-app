@@ -92,14 +92,41 @@ const menuRows = (rows: Place[], withDeleted = true) => (
   </>
 );
 
-export function OptionB() {
+/** B, chosen: tapping More opens a popover above the tab bar. Rows are a symbol, the name and the count; Recently Deleted is set apart. */
+export function OptionB({ places = [addresses, wifi], dark }: { places?: Place[]; dark?: boolean }) {
   return (
-    <div className="mt-light">
+    <div className={dark ? 'mt-dark' : 'mt-light'}>
       <IPhone tab="more" tabs={bar}>
         <AllBehind>
-          <div className="mt-dim" />
-          <div className="mt-menu" role="menu">{menuRows([addresses, { name: 'Notes', sym: <NoteG />, n: 12 }, { name: 'Custom Items', sym: <CustomG />, n: 7 }, wifi])}</div>
+          <div className="mt-pop" role="dialog" aria-label="More">
+            {places.map((p) => (
+              <div key={p.name} className="mt-pi"><span className="mt-sym">{p.sym}</span><span className="grow">{p.name}</span>{p.n ? <span style={{ color: 'var(--lab2)' }}>{p.n}</span> : null}</div>
+            ))}
+            <div className="mt-psep" />
+            <div className="mt-pi"><span className="mt-sym"><Trash /></span><span className="grow">Recently Deleted</span><span style={{ color: 'var(--lab2)' }}>3</span></div>
+            <div className="mt-arrow" />
+          </div>
         </AllBehind>
+      </IPhone>
+    </div>
+  );
+}
+
+const addressRows = ['Home', 'Studio', 'Parents', 'Office', 'Cabin'];
+
+/** B, after a choice: More is selected (its label stays “More”) and the chosen place is its page. Tapping More again opens the popover. */
+export function OptionBPlace({ dark }: { dark?: boolean }) {
+  return (
+    <div className={dark ? 'mt-dark' : 'mt-light'}>
+      <IPhone tab="more" tabs={bar}>
+        <div className="lt"><div className="t">Addresses <span className="s" style={{ fontWeight: 400 }}>· 5</span></div></div>
+        <div className="pbody tabpad">
+          <div className="grp">
+            {addressRows.map((n) => (
+              <div key={n} className="mt-row"><span className="grow trunc">{n}</span><Chevron /></div>
+            ))}
+          </div>
+        </div>
       </IPhone>
     </div>
   );

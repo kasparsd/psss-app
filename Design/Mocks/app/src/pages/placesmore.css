@@ -18,7 +18,14 @@
 .mt-sym{display:inline-flex;width:24px;height:24px;color:var(--accent);flex:none}
 .mt-sym svg{width:24px;height:24px}
 
-/* B: a menu above the tab bar */
+/* B: a popover above the tab bar, arrow on the More tab */
+.mt-pop{position:absolute;right:76px;bottom:96px;width:244px;border-radius:14px;background:var(--glass);box-shadow:var(--shadow);z-index:4;padding:4px 0;backdrop-filter:blur(20px)}
+.mt-pop .mt-pi{display:flex;align-items:center;gap:12px;padding:0 16px;min-height:44px}
+.mt-pop .mt-pi+.mt-pi{border-top:1px solid var(--sep)}
+.mt-pop .mt-psep{height:8px;background:var(--field);margin:2px 0}
+.mt-pop .mt-sym{color:var(--lab)}
+.mt-pop .mt-arrow{position:absolute;bottom:-8px;right:34px;width:18px;height:18px;background:var(--glass);transform:rotate(45deg);border-radius:3px;z-index:-1}
+/* B (old): a menu above the tab bar */
 .mt-dim{position:absolute;inset:0;background:var(--dim);z-index:1}
 .mt-menu{position:absolute;right:56px;bottom:84px;width:212px;border-radius:16px;background:var(--glass);box-shadow:var(--shadow);z-index:4;padding:6px 0;backdrop-filter:blur(20px)}
 .mt-menu .mt-mi{display:flex;align-items:center;gap:8px;padding:9px 16px}
