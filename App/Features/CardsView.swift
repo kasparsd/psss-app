@@ -14,6 +14,9 @@ struct CardsView: View {
     @State private var recent: [VaultItem.ID]?
     /// The selected row, with its section, so a card in the group and in the list below is selected once.
     @State private var picked: SectionedRowID?
+    #if os(iOS)
+    @State private var showsSafariSteps = false
+    #endif
 
     init(items: [VaultItem], selection: Binding<VaultItem.ID?>? = nil, add: @escaping () -> Void) {
         self.items = items
@@ -43,6 +46,9 @@ struct CardsView: View {
         }
         // The same list style, background and row as All and Codes.
         .itemListStyle()
+        #if os(iOS)
+        .modifier(PlaceReminders(showsSteps: $showsSafariSteps))
+        #endif
         .overlay {
             if cards.isEmpty {
                 ContentUnavailableView {
@@ -69,6 +75,10 @@ struct CardsView: View {
 
     @ViewBuilder
     private func rows(_ ordered: (recent: [VaultItem], live: [VaultItem], expired: [VaultItem])) -> some View {
+        #if os(iOS)
+        // The reminder cards lead the place, above its title on iPad. An empty place shows its own empty state alone.
+        if !cards.isEmpty { PlaceReminderRow { showsSafariSteps = true } }
+        #endif
         if selection != nil {
             ListTitleLine(title: "Cards", count: countText)
         }

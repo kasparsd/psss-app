@@ -4,7 +4,7 @@ import UIKit
 #endif
 
 // The AutoFill reminder, as the owner approved it on 2026-11-23 (Design/Mocks/autofill-setup.html, section 2, option A): a card at
-// the top of the list while AutoFill is off, the same on iPhone, iPad and Mac, including in a new empty vault. The vault screen
+// the top of the list (on iPhone and iPad also of the Cards and Addresses places) while AutoFill is off, the same on iPhone, iPad and Mac, including in a new empty vault. The vault screen
 // only hosts these views. What they say and when they show is decided in App/Core/AutoFillReminder.swift.
 //
 // Plain content, never an alert, a badge or a notification. Two text sizes: the headline is body size in bold, and everything
@@ -101,17 +101,42 @@ struct ReminderCard<Buttons: View>: View {
     }
 }
 
-/// The one line that says the card will come back and where AutoFill stays meanwhile. It goes away by itself, and OK closes it sooner.
+/// The one line that says the card will come back and where AutoFill stays meanwhile.
 struct AutoFillLaterNotice: View {
     @Environment(AutoFillStatus.self) private var autoFill
 
     var body: some View {
-        let copy = AutoFillCopy(device: .current)
+        LaterNotice(message: AutoFillCopy(device: .current).laterNotice, isShown: autoFill.laterNoticeShown) {
+            autoFill.dismissLaterNotice()
+        }
+    }
+}
+
+#if os(iOS)
+/// The same after Later on the Safari extension card: when it comes back and where the steps stay.
+struct SafariExtensionLaterNotice: View {
+    @Environment(SafariExtensionStatus.self) private var extensionStatus
+
+    var body: some View {
+        LaterNotice(message: SafariExtensionCopy.laterNotice, isShown: extensionStatus.laterNoticeShown) {
+            extensionStatus.dismissLaterNotice()
+        }
+    }
+}
+#endif
+
+/// A reminder's line after Later. It goes away by itself, and OK closes it sooner.
+private struct LaterNotice: View {
+    let message: String
+    let isShown: Bool
+    let dismiss: () -> Void
+
+    var body: some View {
         Group {
-            if autoFill.laterNoticeShown {
+            if isShown {
                 HStack(spacing: 12) {
-                    Text(copy.laterNotice).fixedSize(horizontal: false, vertical: true)
-                    Button("OK") { autoFill.dismissLaterNotice() }
+                    Text(message).fixedSize(horizontal: false, vertical: true)
+                    Button("OK") { dismiss() }
                         .buttonStyle(.borderless)
                 }
                 .padding(.vertical, 8)
@@ -122,40 +147,43 @@ struct AutoFillLaterNotice: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 12)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
-                .onAppear { AccessibilityNotification.Announcement(copy.laterNotice).post() }
+                .onAppear { AccessibilityNotification.Announcement(message).post() }
                 .task {
-                    try? await Task.sleep(for: .seconds(6))
-                    autoFill.dismissLaterNotice()
+                    // Cancelled when the person switches away: the notice then stays for when they come back.
+                    guard (try? await Task.sleep(for: .seconds(6))) != nil else { return }
+                    dismiss()
                 }
             }
         }
-        .animation(.default, value: autoFill.laterNoticeShown)
+        .animation(.default, value: isShown)
     }
 }
 
-/// Setup's AutoFill section: the state as plain text in a group of its own, and the action in a separate row. The action is the
-/// card's: the system's prompt once, then Settings.
+/// Settings' AutoFill section, one group (owner, 2026-11-26): the state as plain text in the first row, the action in the row
+/// under it, and what the action means in the footer. The action is the card's: the system's prompt once, then Settings.
 struct AutoFillSetupSection: View {
     @Environment(AutoFillStatus.self) private var autoFill
 
     var body: some View {
         let copy = AutoFillCopy(device: .current)
         let reading = autoFill.reading
-        Section("AutoFill") {
-            if let status = copy.setupStatus(reading) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(status)
-                    if let detail = copy.setupDetail(reading) { Text(detail).foregroundStyle(.secondary) }
-                }
-                .accessibilityElement(children: .combine)
-            } else {
-                ProgressView()
-            }
-        }
-        .task { await autoFill.refresh() }
         Section {
+            Group {
+                if let status = copy.setupStatus(reading) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(status)
+                        if let detail = copy.setupDetail(reading) { Text(detail).foregroundStyle(.secondary) }
+                    }
+                    .accessibilityElement(children: .combine)
+                } else {
+                    ProgressView()
+                }
+            }
+            .task { await autoFill.refresh() }
             Button(copy.buttonLabel(autoFill.action)) { Task { await autoFill.performAction() } }
                 .disabled(autoFill.working)
+        } header: {
+            Text("AutoFill")
         } footer: {
             if let footer = copy.setupFooter(reading, promptUsed: autoFill.memory.promptUsed) { Text(footer) }
         }

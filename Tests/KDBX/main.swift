@@ -4056,14 +4056,16 @@ func reminderDisplay(_ vault: AutoFillVault, _ reading: AutoFillReading, _ memor
 await autoFillReminderChecks()
 
 @MainActor func safariExtensionReminderChecks() async {
-    func shows(_ reading: SafariExtensionReading, autoFill: AutoFillReading = .on, memory: SafariExtensionMemory = SafariExtensionMemory(),
-               at now: Date = Date(), works: Bool = true) -> Bool {
-        SafariExtensionReminder(reading: reading, memory: memory, autoFill: autoFill, now: now, extensionWorks: works).showsCard
+    func shows(_ reading: SafariExtensionReading, autoFill: AutoFillReading = .on, confirming: Bool = false,
+               memory: SafariExtensionMemory = SafariExtensionMemory(), at now: Date = Date(), works: Bool = true) -> Bool {
+        SafariExtensionReminder(reading: reading, memory: memory, autoFill: autoFill, autoFillConfirming: confirming, now: now,
+                                extensionWorks: works).showsCard
     }
     let laterAt = Date(timeIntervalSince1970: 1_800_000_000), week = AutoFillReminder.snoozeInterval
     expect("safari extension: the card is off until the extension works", !SafariExtensionReminder.extensionWorks && !SafariExtensionReminder(reading: .off, memory: SafariExtensionMemory(), autoFill: .on).showsCard)
     expect("safari extension: shows while the extension is off and AutoFill is on", shows(.off))
     expect("safari extension: not while AutoFill is not on (one card at a time)", ![AutoFillReading.off, .notRead, .unreadable].contains { shows(.off, autoFill: $0) })
+    expect("safari extension: not while the AutoFill confirmation is on screen", !shows(.off, confirming: true))
     expect("safari extension: nothing when it is on, unread or unreadable", ![SafariExtensionReading.on, .notRead, .unreadable].contains { shows($0) })
     expect("safari extension: Later hides it until the interval has passed", !shows(.off, memory: SafariExtensionMemory(snoozedAt: laterAt), at: laterAt)
         && !shows(.off, memory: SafariExtensionMemory(snoozedAt: laterAt), at: laterAt.addingTimeInterval(week - 1))
@@ -4073,6 +4075,17 @@ await autoFillReminderChecks()
     expect("safari extension: off keeps the snooze", memory.snoozedAt == laterAt)
     memory.observe(.on)
     expect("safari extension: on clears the snooze", memory.snoozedAt == nil)
+
+    check("safari extension: the title", SafariExtensionCopy.title, "Fill cards and addresses in Safari")
+    for device in [AutoFillDevice.iPhone, .iPad] {
+        check("safari extension: the iOS body", SafariExtensionCopy.body(device), "Passwords already fill through AutoFill. Cards and addresses need the Psss extension in Safari.")
+        check("safari extension: the iOS button", SafariExtensionCopy.buttonLabel(device), "How to Turn It On")
+    }
+    check("safari extension: the Mac body", SafariExtensionCopy.body(.mac), "Passwords already fill through AutoFill. Cards, addresses, new logins and generated passwords in Safari need the Psss extension.")
+    check("safari extension: the Mac button", SafariExtensionCopy.buttonLabel(.mac), "Open Safari Settings…")
+    check("safari extension: Settings, not seen", SafariExtensionCopy.settingsStatus(.off) ?? "", "Not seen yet")
+    check("safari extension: Settings, seen", SafariExtensionCopy.settingsStatus(.on) ?? "", "Used in Safari")
+    expect("safari extension: Settings claims nothing before a reading", SafariExtensionCopy.settingsStatus(.notRead) == nil && SafariExtensionCopy.settingsFooter(.notRead) == nil)
 
     final class Saved: @unchecked Sendable { var memory: SafariExtensionMemory? }
     struct Stub: SafariExtensionSystem {
@@ -4086,6 +4099,40 @@ await autoFillReminderChecks()
     check("safari extension: reads off", "\(status.reading)", "off")
     status.snooze()
     expect("safari extension: Later is remembered", saved.memory?.snoozedAt == laterAt)
+    expect("safari extension: Later raises its notice", status.laterNoticeShown)
+    status.dismissLaterNotice()
+    expect("safari extension: the notice goes away", !status.laterNoticeShown)
+
+    // The "seen" note, on a stand-in store: the real App Group is never touched.
+    final class Flags: SafariExtensionSeenStore, @unchecked Sendable {
+        var values: [String: Bool] = [:]
+        func bool(forKey key: String) -> Bool { values[key] ?? false }
+        func set(_ value: Bool, forKey key: String) { values[key] = value }
+    }
+    let flags = Flags()
+    expect("safari extension: not seen until recorded", !SafariExtensionSeen(store: flags).read())
+    expect("safari extension: no App Group reads as not seen", !SafariExtensionSeen(store: nil).read())
+
+    // iPhone and iPad end to end: AutoFill comes on, its confirmation is dismissed, the card shows, then the extension runs.
+    let autoFillSystem = FakeAutoFillSystem()
+    autoFillSystem.enabled = false
+    let autoFill = AutoFillStatus(system: autoFillSystem, store: InMemoryAutoFillMemory())
+    let seen = SafariExtensionStatus(system: SeenSafariExtensionSystem(seen: { SafariExtensionSeen(store: flags).read() }), extensionWorks: true)
+    func cardShows() -> Bool { seen.reminder(after: autoFill.reminder(for: .real)).showsCard }
+    await autoFill.refresh()
+    await seen.refresh()
+    check("safari extension: not seen reads off", "\(seen.reading)", "off")
+    expect("safari extension: waits while the AutoFill card shows", !cardShows())
+    autoFillSystem.enabled = true
+    await autoFill.refresh()
+    expect("safari extension: waits for the confirmation's Done", autoFill.reminder(for: .real).display == .confirmation && !cardShows())
+    autoFill.dismissConfirmation()
+    expect("safari extension: shows after Done", cardShows())
+    SafariExtensionSeen(store: flags).record()
+    await seen.refresh()
+    check("safari extension: seen reads on", "\(seen.reading)", "on")
+    expect("safari extension: once seen, no card", !cardShows())
+
     let standIn = SafariExtensionStatus.live()
     await standIn.refresh()
     check("safari extension: the hostless default cannot read the real state", "\(standIn.reading)", "unreadable")

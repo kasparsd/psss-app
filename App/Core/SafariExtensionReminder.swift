@@ -4,11 +4,12 @@ import Observation
 import SafariServices
 #endif
 
-// The Safari extension reminder (Mac only, 2026-11-24): a card in the vault list, like the AutoFill card, while the bundled Safari
-// extension is switched off. iPhone and iPad have no Safari extension (they use system AutoFill alone, see docs/browser-extension.md),
-// so there the system reads nothing and the card never shows.
+// The Safari extension reminder (mock `#/safari-extension-reminder`, approved 2026-11-26): a card like the AutoFill one while the
+// Psss extension in Safari is not on. The Mac asks Safari and shows the card in the vault list. iPhone and iPad cannot ask: the
+// extension leaves a "seen" note (`SafariExtensionSeen`) the first time it runs, and the card, on the Cards and Addresses places,
+// shows until then. Nothing shows on a platform whose extension does not work yet (`SafariExtensionReminder.extensionWorks`).
 //
-// Same three layers as AutoFillReminder.swift: pure rules, the two system calls behind a protocol, and an observable object the
+// Same three layers as AutoFillReminder.swift: pure rules, the system calls behind a protocol, and an observable object the
 // views read.
 
 /// What Safari says about the Psss extension.
@@ -38,32 +39,72 @@ struct SafariExtensionMemory: Codable, Equatable, Sendable {
 
 /// Whether the card shows, from what is known now. Pure.
 struct SafariExtensionReminder: Equatable, Sendable {
-    /// The card stays off until the extension does something for a real vault. Today the Safari handler answers every credential
-    /// request `unsupported` (docs/architecture.md, S0), so asking people to turn it on would send them to a switch that changes
-    /// nothing. Flip this when the handler relays to the unlocked app and the extension has run in a signed Safari.
+    #if os(macOS)
+    /// Off until the Mac extension does something for a real vault in a signed Safari: the handler relays to the running app, but
+    /// that has not been run, so asking people to turn it on could send them to a switch that changes nothing. Flip this when it
+    /// has run in a signed Safari (docs/browser-extension.md).
     static let extensionWorks = false
+    #else
+    /// Off because iPhone and iPad have no Safari extension. Flip this when the iOS web extension target ships, fills cards and
+    /// addresses, and its handler calls `SafariExtensionSeen().record()`. Until then neither the card nor the Settings row shows.
+    static let extensionWorks = false
+    #endif
 
     var reading: SafariExtensionReading
     var memory: SafariExtensionMemory
     /// What the system says about AutoFill. One card at a time: the extension card waits until AutoFill is on, because AutoFill is
     /// what the person came for and the extension only adds to it.
     var autoFill: AutoFillReading
+    /// The "AutoFill is on" confirmation is on screen. The extension card waits for its Done.
+    var autoFillConfirming = false
     var now = Date()
     var extensionWorks = Self.extensionWorks
 
     var showsCard: Bool {
-        extensionWorks && autoFill == .on && reading == .off && !memory.isSnoozed(at: now)
+        extensionWorks && autoFill == .on && !autoFillConfirming && reading == .off && !memory.isSnoozed(at: now)
     }
 }
 
-/// The words of the card.
+/// The words of the card, of the extension's row in Settings and of the Later notice.
 enum SafariExtensionCopy {
-    static var title: String { String(localized: "Turn on the Safari extension") }
-    static var body: String {
-        String(localized: "To generate passwords and save new logins on sign-up pages, turn on Psss in Safari Settings under Extensions, then allow it on websites.")
+    static var title: String { String(localized: "Fill cards and addresses in Safari") }
+
+    /// The Mac extension also saves new logins and generates passwords, so its sentence names them.
+    static func body(_ device: AutoFillDevice) -> String {
+        device == .mac
+            ? String(localized: "Passwords already fill through AutoFill. Cards, addresses, new logins and generated passwords in Safari need the Psss extension.")
+            : String(localized: "Passwords already fill through AutoFill. Cards and addresses need the Psss extension in Safari.")
     }
-    static var openLabel: String { String(localized: "Open Safari Settings…") }
+
+    /// The Mac opens the page in Safari Settings. iOS has no link to the switch, so its button opens the steps.
+    static func buttonLabel(_ device: AutoFillDevice) -> String {
+        device == .mac ? String(localized: "Open Safari Settings…") : String(localized: "How to Turn It On")
+    }
+
     static var laterLabel: String { String(localized: "Later") }
+
+    // MARK: iPhone and iPad
+
+    static var laterNotice: String { String(localized: "Psss will remind you in a week. The steps stay in Settings, Safari Extension.") }
+
+    static var settingsRow: String { String(localized: "Safari Extension") }
+
+    /// The status at the end of the Settings row. "Used in Safari" is all that is known: it ran once. Nil before the first reading.
+    static func settingsStatus(_ reading: SafariExtensionReading) -> String? {
+        switch reading {
+        case .on: String(localized: "Used in Safari")
+        case .off: String(localized: "Not seen yet")
+        case .notRead, .unreadable: nil
+        }
+    }
+
+    static func settingsFooter(_ reading: SafariExtensionReading) -> String? {
+        switch reading {
+        case .on: String(localized: "Psss has run in Safari. If cards and addresses stop filling, check that it is still on: Settings › Apps › Safari › Extensions.")
+        case .off: String(localized: "Fills cards and addresses in Safari. Passwords fill through AutoFill and don’t need it.")
+        case .notRead, .unreadable: nil
+        }
+    }
 }
 
 // MARK: - The outside
@@ -77,6 +118,15 @@ protocol SafariExtensionSystem: Sendable {
 
 struct UnavailableSafariExtensionSystem: SafariExtensionSystem {
     func isEnabled() async -> Bool? { nil }
+    func openSettings() async -> Bool { false }
+}
+
+/// iPhone and iPad: there is no way to ask Safari, so the extension's own note is the reading. Seen is on, not seen is off.
+struct SeenSafariExtensionSystem: SafariExtensionSystem {
+    var seen: @Sendable () -> Bool = { SafariExtensionSeen().read() }
+
+    func isEnabled() async -> Bool? { seen() }
+    /// iOS has no link to the extension's switch: the app shows the steps instead.
     func openSettings() async -> Bool { false }
 }
 
@@ -123,13 +173,19 @@ struct DefaultsSafariExtensionMemory {
 final class SafariExtensionStatus {
     private(set) var reading: SafariExtensionReading = .notRead
     private(set) var memory: SafariExtensionMemory
+    /// iPhone and iPad show a line after Later: when the card comes back and where the steps stay. It goes away by itself.
+    private(set) var laterNoticeShown = false
+    /// `SafariExtensionReminder.extensionWorks` of this platform. With it off, nothing about the extension shows.
+    let extensionWorks: Bool
 
     @ObservationIgnored private let system: any SafariExtensionSystem
     @ObservationIgnored private let save: (SafariExtensionMemory) -> Void
     @ObservationIgnored private let clock: @Sendable () -> Date
 
     init(system: any SafariExtensionSystem, memory: SafariExtensionMemory = SafariExtensionMemory(),
-         save: @escaping (SafariExtensionMemory) -> Void = { _ in }, clock: @escaping @Sendable () -> Date = { Date() }) {
+         save: @escaping (SafariExtensionMemory) -> Void = { _ in }, clock: @escaping @Sendable () -> Date = { Date() },
+         extensionWorks: Bool = SafariExtensionReminder.extensionWorks) {
+        self.extensionWorks = extensionWorks
         self.system = system
         self.memory = memory
         self.save = save
@@ -137,19 +193,26 @@ final class SafariExtensionStatus {
     }
 
     static func live() -> SafariExtensionStatus {
-        #if os(macOS) && !HOSTLESS_TESTS
-        let store = DefaultsSafariExtensionMemory()
-        return SafariExtensionStatus(system: LiveSafariExtensionSystem(), memory: store.load(), save: store.save)
-        #else
+        #if HOSTLESS_TESTS
         return SafariExtensionStatus(system: UnavailableSafariExtensionSystem())
+        #else
+        #if os(macOS)
+        let system = LiveSafariExtensionSystem()
+        #else
+        let system = SeenSafariExtensionSystem()
+        #endif
+        let store = DefaultsSafariExtensionMemory()
+        return SafariExtensionStatus(system: system, memory: store.load(), save: store.save)
         #endif
     }
 
-    func reminder(autoFill: AutoFillReading) -> SafariExtensionReminder {
-        SafariExtensionReminder(reading: reading, memory: memory, autoFill: autoFill, now: clock())
+    /// The card's rule, given what the AutoFill card is doing.
+    func reminder(after autoFill: AutoFillReminder) -> SafariExtensionReminder {
+        SafariExtensionReminder(reading: reading, memory: memory, autoFill: autoFill.reading,
+                                autoFillConfirming: autoFill.display == .confirmation, now: clock(), extensionWorks: extensionWorks)
     }
 
-    /// At launch and whenever the app becomes active: Safari has no change notification.
+    /// At launch, after unlock and whenever the app becomes active: there is no change notification.
     func refresh() async {
         let enabled = await system.isEnabled()
         reading = switch enabled {
@@ -168,7 +231,10 @@ final class SafariExtensionStatus {
         var updated = memory
         updated.snoozedAt = clock()
         update(updated)
+        laterNoticeShown = true
     }
+
+    func dismissLaterNotice() { laterNoticeShown = false }
 
     private func update(_ updated: SafariExtensionMemory) {
         guard updated != memory else { return }

@@ -13,6 +13,9 @@ struct AddressesView: View {
     @State private var rank: [VaultItem.ID: Int]
     @State private var recent: [VaultItem.ID]?
     @State private var picked: SectionedRowID?
+    #if os(iOS)
+    @State private var showsSafariSteps = false
+    #endif
 
     init(items: [VaultItem], selection: Binding<VaultItem.ID?>? = nil, add: @escaping () -> Void) {
         self.items = items
@@ -42,6 +45,9 @@ struct AddressesView: View {
             }
         }
         .itemListStyle()
+        #if os(iOS)
+        .modifier(PlaceReminders(showsSteps: $showsSafariSteps))
+        #endif
         .overlay {
             if addresses.isEmpty {
                 ContentUnavailableView {
@@ -67,6 +73,10 @@ struct AddressesView: View {
 
     @ViewBuilder
     private func rows(_ ordered: (recent: [VaultItem], all: [VaultItem])) -> some View {
+        #if os(iOS)
+        // The reminder cards lead the place, above its title on iPad. An empty place shows its own empty state alone.
+        if !addresses.isEmpty { PlaceReminderRow { showsSafariSteps = true } }
+        #endif
         if selection != nil { ListTitleLine(title: "Addresses", count: countText) }
         if ordered.recent.isEmpty {
             ForEach(ordered.all) { row($0, in: .all, group: ordered.all) }

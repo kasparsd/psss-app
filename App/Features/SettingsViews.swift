@@ -73,6 +73,7 @@ struct AppSettingsSections: View {
         }
         AutoFillSetupSection()
         #if os(iOS)
+        SafariExtensionSetupSection()
         // iOS does not say which app opens a site's setup link, so this is a standing line, not a status.
         Section {
             Text("To open a site's “set up authenticator” link in Psss, choose Psss under Settings, Passwords, Verification Codes, Set Up Codes In.")

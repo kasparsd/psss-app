@@ -115,7 +115,8 @@ struct RootView: View {
         } : nil)
         #endif
         .task { if !vaultSource.isEmpty { await gate.didBecomeActive(after: timing, prompt: usesDeviceAuth) } }
-        // AutoFill has no change notification, so it is read at launch, after unlock and whenever the app becomes active.
+        // AutoFill and the Safari extension have no change notification, so both are read at launch, after unlock and whenever the
+        // app becomes active.
         .task { await autoFill.refresh(); await safariExtension.refresh() }
         #if os(macOS)
         // Like Apple Passwords, a sleeping display or a locked screen locks the vault.
@@ -151,6 +152,7 @@ struct RootView: View {
                 gate.decideOnReturn(after: timing)
                 #if os(iOS)
                 cover.hide()
+                Task { await safariExtension.refresh() }
                 #endif
                 Task { await autoFill.refreshSettling() }
                 if !vaultSource.isEmpty { Task { await gate.didBecomeActive(after: timing, prompt: usesDeviceAuth) } }
