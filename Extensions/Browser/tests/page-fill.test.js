@@ -417,3 +417,281 @@ test('a payment frame is reported only when no card field is outside frames, and
   assert.equal(seen(frame({ src: 'http://[bad' })), false);
   assert.equal(seen(frame({ title: 'Card details' }), field('cc-number')), false);
 });
+
+// Field names made of several words, other languages and folding (the extended step of describe).
+// The target is the only field whose name is not exact; the others give the address (or card) its anchor.
+const guess = (role, options) => {
+  const target = new Input(options);
+  const base = [];
+  if (role !== 'postal-code') base.push(new Input({ name: 'zip' }));
+  if (role !== 'address-line1' && role !== 'street-address') base.push(new Input({ name: 'address' }));
+  const result = fill(page([form(...base, target)]), 'address');
+  return { value: target.value, filled: plain(result.filled) };
+};
+const guessed = (role, options) => {
+  const found = guess(role, options);
+  assert.ok(found.value && found.filled.includes(role), role + ' ' + JSON.stringify(options));
+};
+const refused = (options) => {
+  const street = new Input({ name: 'address' }), zip = new Input({ name: 'zip' }), target = new Input(options);
+  fill(page([form(street, zip, target)]), 'address');
+  assert.ok(street.value && zip.value, 'the rest of the address is filled ' + JSON.stringify(options).slice(0, 80));
+  assert.equal(target.value, '', JSON.stringify(options).slice(0, 80));
+};
+const labelled = (text) => ({ labels: [{ textContent: text }] });
+const cardNumber = (options) => {
+  const target = new Input(options);
+  fill(page([form(target)]), 'card');
+  return target.value;
+};
+const withNumber = (options) => {
+  const target = new Input(options);
+  fill(page([form(new Input({ name: 'cardnumber' }), target)]), 'card');
+  return target.value;
+};
+
+test('names made of several words give a role when every extra word is only context', () => {
+  guessed('postal-code', { name: 'billing_address_postcode' });
+  guessed('postal-code', { name: 'checkout[shipping_address][zip]' });
+  guessed('address-level2', { name: 'ctl00$Main$txtCity' });
+  guessed('postal-code', labelled('Postcode (required)'));
+  guessed('postal-code', labelled('ZIP / Postal code'));
+  guessed('address-level2', labelled('Town / City'));
+  guessed('address-level1', labelled('State / Province'));
+  guessed('postal-code', { placeholder: 'Postal code' });
+  guessed('address-level2', { placeholder: 'City *' });
+  guessed('postal-code', { id: 'billingPostalCode' });
+  guessed('address-line1', { name: 'shippingAddress1' });
+  guessed('address-level2', { attributes: { 'aria-label': 'Your city' } });
+  guessed('tel', labelled('Mobile phone'));
+  assert.equal(cardNumber(labelled('Card number * (16 digits)')), '4242424242424242');
+  assert.equal(cardNumber({ placeholder: 'Credit card number' }), '4242424242424242');
+  assert.equal(cardNumber({ name: 'payment_card_number' }), '4242424242424242');
+  assert.equal(withNumber({ labels: [{ textContent: 'Expiry date MM/YY' }] }), '08/30');
+  assert.equal(withNumber({ placeholder: 'Card verification code' }), '987');
+  assert.equal(withNumber({ name: 'ctl00_txtCardExpiry' }), '08/30');
+});
+
+test('names with a word that makes them something else give no role', () => {
+  for (const name of ['gift_card_number', 'loyalty_card_number', 'user_name', 'ip_address', 'house_number', 'order_state']) {
+    refused({ name });
+    refused({ placeholder: name.replace(/_/g, ' ') });
+  }
+  assert.equal(cardNumber({ name: 'gift_card_number' }), '');
+  assert.equal(cardNumber({ labels: [{ textContent: 'Loyalty card number' }] }), '');
+  assert.equal(cardNumber({ name: 'user_card_number' }), '');
+  // A name that holds no alias at the end, or only noise.
+  refused({ name: 'billing_notes' });
+  refused({ name: 'billing' });
+  refused({ placeholder: 'required' });
+  refused({ placeholder: 'MM / YY' });
+  refused({ name: 'zipper' });
+});
+
+test('trailing noise words and the first bracket or star are ignored', () => {
+  for (const text of ['Postcode required', 'Postcode optional', 'Postcode field', 'Postcode input value', 'Postcode * required', 'Postcode (e.g. LV-1010)',
+    'Postcode*', 'txtPostcode', 'Postcode mandatory']) {
+    guessed('postal-code', labelled(text));
+  }
+  // Only the text before the first bracket counts.
+  refused({ placeholder: '(Postcode)' });
+  refused({ placeholder: '*Postcode' });
+  guessed('postal-code', labelled('Postcode (not your city)'));
+});
+
+test('a source of more than six words says nothing, and a prefix must be context or the same role', () => {
+  guessed('postal-code', { name: 'billing_shipping_delivery_mailing_payment_zip' });
+  refused({ name: 'billing_shipping_delivery_mailing_payment_customer_zip' });
+  guessed('postal-code', labelled('Please type in the postal code'.split(' ').slice(-2).join(' ')));
+  refused(labelled('Please type in your zip code of residence'));
+  refused(labelled('Enter the zip code'));
+  guessed('address-level1', labelled('Province / State'));
+  refused(labelled('Zip / City'));
+});
+
+test('sources that name different roles give none, and those that agree give one', () => {
+  refused({ name: 'billing_zip', id: 'shipping_city' });
+  refused({ name: 'billing_zip', placeholder: 'City' });
+  refused({ name: 'billing_zip', labels: [{ textContent: 'Billing town' }] });
+  guessed('postal-code', { name: 'billing_zip', placeholder: 'Postal code', labels: [{ textContent: 'ZIP' }] });
+  guessed('postal-code', { name: 'foo', placeholder: 'Postal code' });
+  refused({ name: 'foo', placeholder: 'Postal code', labels: [{ textContent: 'Billing town' }] });
+});
+
+test('a guessed field loses to a declared one, never overrides autocomplete and is skipped when off', () => {
+  const declared = field('postal-code'), street = field('address-line1'), maybe = new Input({ name: 'billing_zip' });
+  const unnamed = new Input({ name: 'billing_city' });
+  fill(page([form(street, declared, maybe, unnamed)]), 'address');
+  assert.deepEqual([street.value, declared.value, maybe.value, unnamed.value], ['Example Street 12, Flat 3', 'LV-1010', '', '']);
+  const off = new Input({ name: 'billing_zip', autocomplete: 'off' }), zip = new Input({ name: 'zip' }), road = new Input({ name: 'address' });
+  fill(page([form(road, zip, off)]), 'address');
+  assert.equal(off.value, '');
+  // An autocomplete role the page declares is never replaced by the name.
+  const code = field('postal-code', { name: 'city' }), line = field('address-line1');
+  fill(page([form(line, code)]), 'address');
+  assert.equal(code.value, 'LV-1010');
+});
+
+test('card names in other languages and with extra words give the card roles, and guesses are undeclared', () => {
+  const set = {
+    number: new Input({ name: 'billing[card_number]' }), name: new Input({ placeholder: 'Name on card (as printed)' }),
+    expiry: new Input({ labels: [{ textContent: 'Card expiry date' }], maxLength: 5 }), code: new Input({ name: 'card_cvv_code' })
+  };
+  fill(page([form(...Object.values(set))]), 'card');
+  assert.deepEqual(values(set), ['4242424242424242', 'Alex Sample', '08/30', '987']);
+  // A declared rival of the same role wins over a guessed one.
+  const first = new Input({ name: 'billing_card_number' }), second = field('cc-number');
+  fill(page([form(first, second)]), 'card');
+  assert.deepEqual([first.value, second.value], ['', '4242424242424242']);
+});
+
+test('every language names a card field and an address field', () => {
+  const cards = {
+    de: ['Kartennummer', 'Karteninhaber', 'Gültig bis', 'Sicherheitscode'], fr: ['Numéro de carte', 'Titulaire de la carte', 'Date d’expiration', 'Cryptogramme'],
+    es: ['Número de tarjeta', 'Titular de la tarjeta', 'Fecha de caducidad', 'Código de seguridad'],
+    it: ['Numero di carta', 'Intestatario della carta', 'Data di scadenza', 'Codice di sicurezza'],
+    nl: ['Kaartnummer', 'Kaarthouder', 'Vervaldatum', 'Beveiligingscode'], pl: ['Numer karty', 'Właściciel karty', 'Data ważności', 'Kod CVV'],
+    pt: ['Número do cartão', 'Titular do cartão', 'Data de validade', 'Código de segurança'],
+    lv: ['Kartes numurs', 'Vārds uz kartes', 'Derīgs līdz', 'Drošības kods']
+  };
+  const roles = ['cc-number', 'cc-name', 'cc-exp', 'cc-csc'];
+  for (const [language, labels] of Object.entries(cards)) {
+    const set = labels.map((text) => new Input({ labels: [{ textContent: text }] }));
+    const result = plain(fill(page([form(...set)]), 'card').filled);
+    // The security code goes only beside the number, in a group of nothing but the card.
+    assert.deepEqual(result, roles, language);
+    assert.equal(set[0].value, '4242424242424242', language);
+    // A hint after the words does not change them.
+    assert.equal(cardNumber({ placeholder: labels[0] + ' (16)' }), '4242424242424242', language);
+  }
+  const addresses = {
+    de: ['Postleitzahl', 'address-level2', 'Ort', 'Straße', 'E-Mail-Adresse'], fr: ['Code postal', 'address-level2', 'Ville', 'Adresse', 'Adresse e-mail'],
+    es: ['Código postal', 'address-level2', 'Ciudad', 'Dirección', 'Correo electrónico'],
+    it: ['Codice postale', 'address-level2', 'Città', 'Indirizzo', 'Indirizzo email'],
+    nl: ['Postcode', 'address-level2', 'Woonplaats', 'Straat', 'E-mailadres'], pl: ['Kod pocztowy', 'address-level2', 'Miasto', 'Ulica', 'Adres e-mail'],
+    pt: ['Código postal', 'address-level2', 'Cidade', 'Endereço', 'Correio eletrónico'],
+    lv: ['Pasta indekss', 'address-level2', 'Pilsēta', 'Iela', 'E-pasts']
+  };
+  for (const [language, [postal, , city, street, email]] of Object.entries(addresses)) {
+    const set = [street, postal, city, email].map((text) => new Input({ labels: [{ textContent: text }] }));
+    const result = plain(fill(page([form(...set)]), 'address').filled).sort();
+    assert.deepEqual(result, ['address-level2', 'address-line1', 'email', 'postal-code'], language);
+    assert.equal(set[1].value, 'LV-1010', language);
+    // And with an extra word and a bracketed hint, so the word step reads it.
+    const hinted = [street, postal, city].map((text) => new Input({ placeholder: 'Billing ' + text + ' (required)' }));
+    assert.deepEqual(plain(fill(page([form(...hinted)]), 'address').filled).sort(), ['address-level2', 'address-line1', 'postal-code'], language);
+  }
+});
+
+test('names fold accents and letters like ß, ł, ø, æ and œ, and what folds to nothing never matches', () => {
+  guessed('address-level2', { attributes: { 'aria-label': 'Città' }, name: '' });
+  guessed('address-line1', { name: 'Straße' });
+  guessed('address-line1', { name: 'STRASSE' });
+  guessed('address-level2', { id: 'PILSĒTA' });
+  guessed('postal-code', { name: 'Kod pocztowy'.toUpperCase() });
+  guessed('address-level1', { name: 'Wojewodztwo' });
+  guessed('address-level1', { labels: [{ textContent: 'Województwo' }] });
+  guessed('postal-code', { labels: [{ textContent: 'ＺＩＰ' }] });
+  guessed('postal-code', { name: 'Code postaĺ'.replace('́', '') });
+  // Folding itself: ß is ss, ł is l, ø is o, æ is ae and œ is oe.
+  assert.equal(cardNumber({ name: 'Numéro de carte' }), '4242424242424242');
+  assert.equal(cardNumber({ name: 'Numéro de carte' }), '4242424242424242');
+  for (const name of ['郵便番号', '住所', 'Почтовый индекс', 'Ταχυδρομικός Κώδικας', '', '___']) {
+    refused({ name });
+    refused({ labels: [{ textContent: name }] });
+  }
+});
+
+test('login mode is not extended: a placeholder or a long name gives no role', () => {
+  const run = (...before) => {
+    const secret = new Input({ type: 'password', name: 'password' });
+    page([form(...before, secret)]).psssFillPage({ username: 'alex@example.net', 'current-password': 'synthetic-password' }, 'login', origin);
+    return [...before.map((input) => input.value), secret.value];
+  };
+  // As before: a box with only a placeholder is the account when it is the only one.
+  assert.deepEqual(run(new Input({ placeholder: 'Email' })), ['alex@example.net', 'synthetic-password']);
+  // user_name is the login's own alias.
+  assert.deepEqual(run(new Input({ name: 'user_name' })), ['alex@example.net', 'synthetic-password']);
+  // A name only the word step would call a postcode is still unnamed, so two unnamed boxes leave the account unknown.
+  assert.deepEqual(run(new Input({ placeholder: 'Email' }), new Input({ name: 'billing_address_postcode' })), ['', '', 'synthetic-password']);
+  assert.deepEqual(run(new Input({ name: 'ctl00$txtCity' }), new Input({ name: 'gift_card_number' })), ['', '', 'synthetic-password']);
+  assert.deepEqual(run(new Input({ name: 'Straße' }), new Input({ placeholder: 'Account' })), ['', '', 'synthetic-password']);
+});
+
+test('foreign security code words are held to the generic rule in both steps', () => {
+  const words = ['Security code', 'Sicherheitscode', 'Código de seguridad', 'Code de sécurité', 'Codice di sicurezza', 'Beveiligingscode', 'Kod bezpieczeństwa',
+    'Drošības kods'];
+  for (const word of [...words, ...words.map((text) => 'Your ' + text.toLowerCase())]) {
+    // Close to the number and inside a group of nothing but the card: filled.
+    const near = new Input({ labels: [{ textContent: word }] }), number = field('cc-number');
+    fill(page([form(number, near)]), 'card');
+    assert.equal(near.value, '987', word);
+    // A heading between them makes it another form's box.
+    const code = new Input({ labels: [{ textContent: word }] }), top = field('cc-number');
+    const heading = new Box({ tagName: 'H2' });
+    fill(page([form(top, heading, code)]), 'card');
+    assert.equal(top.value, '4242424242424242', word);
+    assert.equal(code.value, '', word);
+  }
+  // A word that names the card is not generic: it stays filled beside the number.
+  for (const word of ['Card security code', 'CVV', 'Kartenprüfnummer', 'Cryptogramme', 'Kod CVV', 'Controlegetal']) {
+    const code = new Input({ labels: [{ textContent: word }] }), top = field('cc-number');
+    fill(page([form(top, new Box({ tagName: 'H2' }), code)]), 'card');
+    assert.equal(code.value, '987', word);
+  }
+});
+
+test('a hostile label gives no role and no error, within the deadline', () => {
+  const texts = [
+    '‮' + 'A'.repeat(100000) + '‬', 'x'.repeat(100000), 'zip '.repeat(25000), '../../../etc/passwd', 'x\n\u0085../\n..\\y',
+    '‮edoc latsop‬', 'a(' + 'b'.repeat(100000), '*'.repeat(100000), ('billing ').repeat(20000) + 'zip', '(zip)'.repeat(30000),
+    '𐀀'.repeat(60000), 'Ｚ'.repeat(100000), 'ǅ'.repeat(50000) + 'zip'
+  ];
+  for (const text of texts) {
+    const started = Date.now();
+    const content = [form(new Input({ name: 'address' }), new Input({ name: 'zip' }), new Input({ name: text.slice(0, 5000), id: text, placeholder: text,
+      labels: [{ textContent: text }], attributes: { 'aria-label': text } }))];
+    assert.doesNotThrow(() => fill(page(content), 'address'));
+    assert.doesNotThrow(() => fill(page(content), 'card'));
+    assert.ok(Date.now() - started < 2000, text.slice(0, 10));
+    refused({ name: text.slice(0, 200), labels: [{ textContent: text }], placeholder: text });
+  }
+  // A label ending in zip after a long run of context words is still too long to trust.
+  refused(labelled('billing '.repeat(20000) + 'zip'));
+  // A path and a newline in a name are only words.
+  refused({ name: '../zip' + '\n'.repeat(3) + 'billing' });
+});
+
+test('"Card name" is the cardholder, never the address name', () => {
+  for (const options of [labelled('Card name'), { name: 'card_name' }]) {
+    const named = new Input(options), set = addressSet();
+    fill(page([form(named, ...Object.values(set))]), 'address');
+    assert.equal(named.value, '', JSON.stringify(options));
+    assert.equal(set.name.value, 'Alex Sample');
+    const holder = new Input(options);
+    fill(page([form(new Input({ name: 'cardnumber' }), holder)]), 'card');
+    assert.equal(holder.value, 'Alex Sample', JSON.stringify(options));
+  }
+});
+
+test('a person-name box takes only person context words, never layout words', () => {
+  for (const name of ['street_name', 'address_name', 'home_name', 'work_name', 'new_name', 'default_name', 'postal_name', 'line_name',
+    'field_name', 'form_name', 'input_name', 'data_name', 'details_name', 'street_first_name', 'address_last_name']) {
+    refused({ name });
+  }
+  for (const text of ['Street name', 'Address name', 'Home name', 'Details name']) refused(labelled(text));
+  guessed('name', { name: 'shipping_name' });
+  guessed('name', labelled('Your name'));
+  guessed('given-name', { name: 'billing_first_name' });
+  guessed('given-name', { name: 'txtFirstName' });
+  guessed('family-name', { name: 'ctl00$Main$txtLastName' });
+});
+
+test('words that mean something else in another language give no role', () => {
+  for (const text of ['firma', 'departement', 'portable', 'correo', 'Firma', 'Département', 'Portable', 'Correo']) {
+    refused(labelled(text));
+    refused({ name: text });
+  }
+  guessed('email', labelled('Correo electrónico'));
+  guessed('organization', labelled('Firmenname'));
+});

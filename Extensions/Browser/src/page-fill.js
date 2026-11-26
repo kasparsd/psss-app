@@ -12,32 +12,190 @@ function psssFillPage(fields, mode, expectedOrigin) {
     'current-password': ['password', 'currentpassword', 'loginpassword'],
     'one-time-code': ['otp', 'totp', 'verificationcode', 'onetimecode']
   };
+  // Each list is English first, then German, French, Spanish, Italian, Dutch, Polish, Portuguese and Latvian, folded (no accents).
+  // Words that mean two things in a checkout (nombre, nome, cp, cap, rue) are left out.
+  const words = (text) => text.split(/\s+/).filter(Boolean);
   const cardAliases = {
-    'cc-number': ['cardnumber', 'cardno', 'creditcardnumber', 'ccnumber', 'ccnum'],
-    'cc-name': ['nameoncard', 'cardholder', 'cardholdername', 'ccname'],
-    'cc-exp': ['expiry', 'expiration', 'expirationdate', 'expirydate', 'validthru', 'ccexp'],
-    'cc-exp-month': ['expirymonth', 'expirationmonth', 'ccexpmonth', 'expmonth'],
-    'cc-exp-year': ['expiryyear', 'expirationyear', 'ccexpyear', 'expyear'],
+    'cc-number': ['cardnumber', 'cardno', 'creditcardnumber', 'ccnumber', 'ccnum', 'cardnum', ...words(`
+      kartennummer kreditkartennummer kartennr kreditkartennr
+      numerodecarte numerocarte numerodelacarte numerodecartebancaire
+      numerodetarjeta numerotarjeta numerodelatarjeta
+      numerodicarta numerocarta numerodellacarta
+      kaartnummer creditcardnummer kaartnr
+      numerkarty numerkartykredytowej nrkarty
+      numerodocartao numerocartao numerodecartao
+      kartesnumurs kartesnr bankaskartesnumurs kreditkartesnumurs`)],
+    'cc-name': ['nameoncard', 'cardholder', 'cardholdername', 'ccname', 'cardholdersname', 'cardname', ...words(`
+      karteninhaber karteninhabername nameaufderkarte namedeskarteninhabers
+      titulairedelacarte nomsurlacarte nomdutitulaire nomdutitulairedelacarte
+      titulardelatarjeta nombreenlatarjeta nombredeltitular
+      intestatariodellacarta nomesullacarta titolaredellacarta
+      kaarthouder naamopkaart naamopdekaart naamkaarthouder naamvandekaarthouder
+      wlascicielkarty posiadaczkarty imieinazwiskonakarcie imieinazwiskowlascicielakarty
+      titulardocartao nomenocartao nomedotitular
+      kartesturetajs kartesipasnieks vardsuzkartes`)],
+    'cc-exp': ['expiry', 'expiration', 'expirationdate', 'expirydate', 'validthru', 'ccexp', 'expdate', 'ccexpdate', 'cardexpiry',
+      'cardexpiration', 'cardexp', ...words(`
+      gultigbis ablaufdatum gultigkeitsdatum verfallsdatum
+      datedexpiration dateexpiration datedecheance
+      fechadecaducidad fechadeexpiracion fechadevencimiento caducidad vencimiento validohasta
+      datadiscadenza scadenza
+      vervaldatum geldigtot
+      datawaznosci terminwaznosci waznado
+      datadevalidade datadeexpiracao validade validoate
+      derigslidz derigumatermins`)],
+    'cc-exp-month': ['expirymonth', 'expirationmonth', 'ccexpmonth', 'expmonth', ...words(`
+      ablaufmonat
+      moisdexpiration
+      mesdeexpiracion mesdecaducidad mesdevencimiento
+      mesediscadenza
+      vervalmaand
+      miesiacwaznosci miesiacwygasniecia
+      mesdevalidade mesdeexpiracao
+      derigumamenesis`)],
+    'cc-exp-year': ['expiryyear', 'expirationyear', 'ccexpyear', 'expyear', ...words(`
+      ablaufjahr
+      anneedexpiration
+      anodeexpiracion anodecaducidad anodevencimiento
+      annodiscadenza
+      vervaljaar
+      rokwaznosci rokwygasniecia
+      anodevalidade anodeexpiracao
+      derigumagads`)],
     'cc-csc': ['cvv', 'cvc', 'cvv2', 'cvc2', 'cvvcode', 'cvccode', 'cccsc', 'cardcvv', 'cardcvc', 'cardsecuritycode',
-      'cardverification', 'cardverificationcode', 'cardverificationvalue', 'securitycode']
+      'cardverification', 'cardverificationcode', 'cardverificationvalue', ...words(`
+      securitycode
+      sicherheitscode kartenprufnummer
+      codedesecurite cryptogramme cryptogrammevisuel
+      codigodeseguridad
+      codicedisicurezza
+      beveiligingscode controlegetal
+      kodbezpieczenstwa kodcvv kodcvc
+      codigodeseguranca
+      drosibaskods cvvkods cvckods`)]
   };
+  // Boxes called only this (in any of these languages) are what sign-in checks and captchas are called too.
+  const genericCodes = words(`securitycode sicherheitscode codigodeseguridad codedesecurite codicedisicurezza beveiligingscode
+    kodbezpieczenstwa drosibaskods codigodeseguranca`);
   const addressAliases = {
-    name: ['name', 'fullname', 'recipient', 'recipientname'],
-    'given-name': ['firstname', 'givenname', 'fname'],
-    'family-name': ['lastname', 'familyname', 'surname', 'lname'],
-    organization: ['organization', 'organisation', 'company', 'companyname'],
-    'street-address': ['streetaddress'],
-    'address-line1': ['address', 'address1', 'addressline1', 'addr1', 'street', 'street1'],
-    'address-line2': ['address2', 'addressline2', 'addr2', 'street2', 'apartment', 'apt', 'suite', 'apartmentsuite'],
-    'address-level2': ['city', 'town', 'towncity', 'locality'],
-    'address-level1': ['state', 'province', 'stateprovince', 'region', 'county'],
-    'postal-code': ['postalcode', 'postcode', 'postal', 'zip', 'zipcode'],
-    country: ['country', 'countrycode'],
-    'country-name': ['countryname'],
-    email: ['email', 'emailaddress'],
-    tel: ['tel', 'telephone', 'phone', 'phonenumber', 'mobile']
+    name: ['name', 'fullname', 'recipient', 'recipientname', ...words(`
+      vollername vollstandigername
+      nomcomplet
+      nombrecompleto nombreyapellidos
+      nomecompleto nominativo
+      volledigenaam
+      imieinazwisko
+      pilnsvards vardsuzvards`)],
+    'given-name': ['firstname', 'givenname', 'fname', ...words(`
+      vorname
+      prenom
+      primernombre
+      voornaam
+      imie
+      primeironome
+      vards`)],
+    'family-name': ['lastname', 'familyname', 'surname', 'lname', ...words(`
+      nachname familienname
+      nomdefamille nomfamille
+      apellido apellidos
+      cognome
+      achternaam familienaam
+      nazwisko
+      apelido sobrenome
+      uzvards`)],
+    organization: ['organization', 'organisation', 'company', 'companyname', ...words(`
+      firmenname unternehmen
+      societe entreprise nomdelentreprise
+      empresa compania nombredelaempresa
+      azienda societa ragionesociale
+      bedrijf bedrijfsnaam
+      nazwafirmy
+      nomedaempresa
+      uznemums uznemumanosaukums kompanija organizacija`)],
+    'street-address': ['streetaddress', ...words(`
+      strasseundhausnummer
+      direccioncompleta
+      indirizzocompleto
+      straatenhuisnummer
+      ulicainumerdomu
+      moradacompleta
+      pilnaadrese`)],
+    'address-line1': ['address', 'address1', 'addressline1', 'addr1', 'street', 'street1', ...words(`
+      adresse adresse1 adresszeile1 strasse strasse1 anschrift
+      direccion direccion1 calle
+      indirizzo indirizzo1
+      adres adres1 adresregel1 straat straatnaam
+      ulica
+      endereco endereco1 morada logradouro
+      adrese adrese1 adresesrinda1 iela`)],
+    'address-line2': ['address2', 'addressline2', 'addr2', 'street2', 'apartment', 'apt', 'suite', 'apartmentsuite', ...words(`
+      adresse2 adresszeile2 adresszusatz
+      complementdadresse
+      direccion2
+      indirizzo2
+      adres2 adresregel2
+      endereco2 complemento
+      adrese2 adresesrinda2 dzivoklis`)],
+    'address-level2': ['city', 'town', 'towncity', 'locality', ...words(`
+      ort stadt wohnort
+      ville commune
+      ciudad localidad poblacion municipio
+      citta comune localita
+      plaats stad woonplaats
+      miasto miejscowosc
+      cidade
+      pilseta`)],
+    'address-level1': ['state', 'province', 'stateprovince', 'region', 'county', ...words(`
+      bundesland bundesstaat kanton
+      provincia comunidadautonoma
+      provincie
+      wojewodztwo
+      distrito
+      regions`)],
+    'postal-code': ['postalcode', 'postcode', 'postal', 'zip', 'zipcode', ...words(`
+      postleitzahl plz
+      codepostal
+      codigopostal
+      codicepostale
+      kodpocztowy
+      pastaindekss pastakods`)],
+    country: ['country', 'countrycode', ...words(`
+      land
+      pays
+      pais
+      paese nazione
+      kraj
+      valsts`)],
+    'country-name': ['countryname', ...words(`
+      landesname landnaam
+      nomdupays
+      nombredelpais
+      nomedelpaese
+      nazwakraju
+      nomedopais
+      valstsnosaukums`)],
+    email: ['email', 'emailaddress', 'emailadresse', ...words(`
+      adresseemail adressemail courriel
+      correoelectronico
+      indirizzoemail postaelettronica
+      emailadres
+      adresemail
+      enderecodeemail correioeletronico correioelectronico
+      epasts epastaadrese`)],
+    tel: ['tel', 'telephone', 'phone', 'phonenumber', 'mobile', ...words(`
+      telefon telefonnummer handy handynummer mobiltelefon
+      numerodetelephone
+      telefono movil numerodetelefono
+      cellulare numeroditelefono
+      telefoonnummer telefoon mobielnummer mobiel
+      numertelefonu
+      telefone telemovel celular numerodetelefone
+      talrunis talrunanumurs`)]
   };
-  const normalize = (value) => String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  // Folded as a browser would match a name: accents and compatibility forms removed, a few letters spelled out.
+  const plain = (value) => String(value ?? '').normalize('NFKD').toLowerCase().replace(/\p{M}/gu, '')
+    .replace(/ß/g, 'ss').replace(/ł/g, 'l').replace(/ø/g, 'o').replace(/æ/g, 'ae').replace(/œ/g, 'oe');
+  const normalize = (value) => plain(value).replace(/[^a-z0-9]/g, '');
 
   // A page can be built to make every look slow. Past this, a card or address fill writes nothing more.
   const deadline = Date.now() + 2000;
@@ -218,7 +376,66 @@ function psssFillPage(fields, mode, expectedOrigin) {
   };
   const seen = (input) => !input.matches(':disabled') && !input.readOnly && rendered(input);
 
-  const describe = (input, aliases) => {
+  // Roles a name made of several words can give (billing_address_postcode, "ZIP / Postal code"). Only card and address roles take
+  // part, never the sign-in ones.
+  const inferable = (role) => Object.hasOwn(cardAliases, role) || Object.hasOwn(addressAliases, role);
+  const tables = new WeakMap();
+  const aliasRoles = (aliases) => {
+    if (!tables.has(aliases)) {
+      const table = new Map();
+      for (const role of Object.keys(aliases).filter(inferable)) {
+        for (const alias of aliases[role]) table.set(alias, new Set([...(table.get(alias) ?? []), role]));
+      }
+      tables.set(aliases, table);
+    }
+    return tables.get(aliases);
+  };
+  const noise = new Set(['required', 'optional', 'mandatory', 'field', 'input', 'txt', 'value',
+    'mm', 'yy', 'yyyy', 'mmyy', 'mmyyyy', 'jj', 'aa', 'aaaa', 'mmjj', 'mmaa']);
+  // Words that may stand before the one that names the field: where it is, whose it is, how the page's builder names boxes.
+  const around = new Set(['billing', 'shipping', 'delivery', 'mailing', 'payment', 'card', 'credit', 'customer', 'contact', 'recipient',
+    'checkout', 'your', 'my', 'primary', 'default', 'new', 'home', 'work', 'address', 'addr', 'street', 'line', 'postal', 'main', 'content',
+    'form', 'frm', 'fld', 'field', 'input', 'txt', 'tb', 'tbx', 'ddl', 'data', 'info', 'details']);
+  // The words of one source: cut at a bracket or star (a hint or a required mark), at most 200 characters, camelCase split.
+  const wordsOf = (text) => {
+    const whole = String(text ?? '');
+    const stop = whole.search(/[(*]/);
+    const piece = (stop < 0 ? whole : whole.slice(0, stop)).slice(0, 200).replace(/(\p{Ll})(\p{Lu})/gu, '$1 $2');
+    const found = plain(piece).split(/[^a-z0-9]+/).filter(Boolean);
+    while (found.length && noise.has(found.at(-1))) found.pop();
+    return found.length > 6 ? [] : found;
+  };
+  // A person's name takes fewer words before it than a place does: street_name, home_name and form_name are not a person.
+  const personRoles = new Set(['name', 'given-name', 'family-name', 'cc-name']);
+  const aroundPerson = new Set(['billing', 'shipping', 'delivery', 'mailing', 'recipient', 'customer', 'contact', 'your', 'my', 'card', 'credit',
+    'payment', 'checkout', 'primary', 'main', 'txt', 'tb', 'tbx']);
+  // The role the longest run of words at the end of a source names, when every word before it only adds context.
+  const roleOfWords = (found, table) => {
+    for (let start = 0; start < found.length; start++) {
+      const run = found.slice(start).join('');
+      const roles = table.get(run);
+      if (!roles) continue;
+      if (roles.size !== 1) return undefined;
+      const [role] = roles;
+      const allowed = personRoles.has(role) ? aroundPerson : around;
+      const clear = found.slice(0, start).every((word) => allowed.has(word) || /^ctl\d+$/.test(word) || table.get(word)?.has(role));
+      return clear ? { role, run } : undefined;
+    }
+    return undefined;
+  };
+  // Every source that names a role must name the same one.
+  const inferRole = (sources, aliases) => {
+    tick();
+    const table = aliasRoles(aliases);
+    const named = sources.map((text) => roleOfWords(wordsOf(text), table)).filter(Boolean);
+    const roles = new Set(named.map(({ role }) => role));
+    if (roles.size !== 1) return undefined;
+    const [role] = roles;
+    return { role, runs: named.map(({ run }) => run) };
+  };
+
+  // With `extended`, a name that is not exact is also read word by word. Logins never do.
+  const describe = (input, aliases, extended = false) => {
     const tokens = String(input.autocomplete ?? '').toLowerCase().trim().split(/\s+/).filter(Boolean);
     if (tokens.at(-1) === 'webauthn') tokens.pop();
     const field = tokens.at(-1);
@@ -229,11 +446,19 @@ function psssFillPage(fields, mode, expectedOrigin) {
       return { input, role: validContext ? field : undefined, group, declared: validContext, ambiguous: !validContext };
     }
     if (field === 'off') return { input, group };
-    const labels = [input.name, input.id, input.getAttribute('aria-label'), ...[...(input.labels ?? [])].map((label) => label.textContent)];
-    const names = labels.map(normalize);
+    const sources = [input.name, input.id, input.getAttribute('aria-label'), ...[...(input.labels ?? [])].map((label) => label.textContent)];
+    const names = sources.map(normalize);
     const matched = Object.keys(aliases).filter((role) => aliases[role].some((alias) => names.includes(alias)));
     // "Security code" alone is also what sign-in checks and captchas are called.
-    const generic = matched[0] === 'cc-csc' && !names.some((name) => name !== 'securitycode' && aliases['cc-csc'].includes(name));
+    const generic = matched[0] === 'cc-csc' && !names.some((name) => !genericCodes.includes(name) && aliases['cc-csc'].includes(name));
+    if (!matched.length && extended) {
+      const guess = inferRole([...sources, input.placeholder], aliases);
+      // A guess is never declared, and never marks the field ambiguous (sign-in rules read that).
+      if (guess) {
+        return { input, role: guess.role, group, declared: false, inferred: true, ambiguous: false,
+          generic: guess.role === 'cc-csc' && guess.runs.every((run) => genericCodes.includes(run)) };
+      }
+    }
     return { input, role: matched.length === 1 ? matched[0] : undefined, group, generic, ambiguous: matched.length > 1 };
   };
   const inputTypes = 'input:not([type]), input[type=text], input[type=email], input[type=tel], input[type=password], input[type=number], input[type=month], select';
@@ -270,7 +495,7 @@ function psssFillPage(fields, mode, expectedOrigin) {
     const [own, theirs] = branches(entry, anchor);
     if ([...own, ...theirs].some(apart)) return false;
     if ([own, theirs].some((branch) => branch.length && headed(branch.at(-1)))) return false;
-    return !own.length || !within(own.at(-1), 'input[type=password]').some((input) => !describe(input, cardAliases).role);
+    return !own.length || !within(own.at(-1), 'input[type=password]').some((input) => !describe(input, cardAliases, true).role);
   };
   // A box only labelled like a security code (a captcha, a sign-in check) must sit close to the card number.
   const closeCode = (entry, anchor, list) => {
@@ -289,7 +514,7 @@ function psssFillPage(fields, mode, expectedOrigin) {
     const group = (ancestors(a.input) ?? []).find((node) => theirs.includes(node));
     if (!group) return false;
     if (within(group, 'input:not([type=hidden]), select, textarea')
-      .some((input) => !describe(input, cardAliases).role?.startsWith('cc-'))) return false;
+      .some((input) => !describe(input, cardAliases, true).role?.startsWith('cc-'))) return false;
     if (within(group, 'h1, h2, h3, h4, h5, h6, legend, fieldset, [role=heading], [role=group], img, svg, canvas, picture, iframe, video, hr')
       .length) return false;
     const length = (node) => String(dom(node, 'Node', 'textContent') ?? '').replace(/\s/g, '').length;
@@ -330,7 +555,7 @@ function psssFillPage(fields, mode, expectedOrigin) {
     // The page may have rearranged itself since the last look.
     chains.clear();
     openModals = undefined;
-    const found = query(inputTypes + ', textarea').slice(0, 2000).map((input) => { tick(); return describe(input, aliases); });
+    const found = query(inputTypes + ', textarea').slice(0, 2000).map((input) => { tick(); return describe(input, aliases, true); });
     const candidates = found.filter(wanted);
     if (candidates.length > MAX_FIELDS) return [];
     const shown = new Set(candidates.filter(({ input }) => seen(input)));
