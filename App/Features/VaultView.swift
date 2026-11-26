@@ -1264,11 +1264,9 @@ struct VaultView: View {
             }
         }
         if showsAddOrDeleteAll {
-            #if os(iOS)
-            // Sort and Filter share one capsule; Add (or Delete All…) stands in its own beside it (owner, 2026-11-24). The Mac draws
-            // it that way by itself.
-            ToolbarSpacer(.fixed, placement: .primaryAction)
-            #endif
+            // Sort and Filter share one capsule; Add (or Delete All…) stands in its own at the trailing edge of the list column,
+            // next to the item column's Edit, so adding and editing sit together (owner, 2026-11-26).
+            ToolbarSpacer(.flexible, placement: .primaryAction)
             ToolbarItem(placement: .primaryAction) { addOrDeleteAll.disabled(isEditingInPlace) }
         }
     }
@@ -1334,7 +1332,7 @@ struct VaultView: View {
         // No title in the bar: each section's header names its vault (owner, 2026-11-25, mock `#/vault-switcher` H to J).
         .columnTitleInList(true)
         // The foot, pinned to the bottom: Add Vault and the Settings gear (the gear is not in a toolbar, on Mac or iPad).
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        .safeAreaBar(edge: .bottom, spacing: 0) {
             VaultSidebarFoot(showsAdd: store is KeePassVaultStore, add: { addChoice = $0 }, openSettings: showSettings)
                 .disabled(isEditingInPlace)
         }

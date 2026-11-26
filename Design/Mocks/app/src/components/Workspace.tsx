@@ -124,6 +124,7 @@ function VaultHeader({ name, open, locked, sel, onClick, onContext }: { name: st
 /**
  * The sidebar's foot, pinned to the bottom of the sidebar on Mac and iPad (a bottom bar; on iPad the safe-area inset of the sidebar list), not a row of the list (owner, 2026-11-25):
  * the labeled Add Vault control with its menu (the three ways to add a vault), and at its trailing end an icon-only gear that opens app Settings (Mac: the Settings window, as ⌘, does; iPad: the Settings sheet).
+ * Both are the system’s glass buttons, as in the toolbar (a capsule and a circle), with no divider or bar behind them.
  * The gear is in the sidebar, not in a window toolbar, so Apple's note against settings buttons in a toolbar does not apply. It has the accessibility label and the tooltip “Settings”.
  */
 function SidebarFoot({ open, onToggle }: { open: boolean; onToggle: () => void }) {
@@ -137,7 +138,7 @@ function SidebarFoot({ open, onToggle }: { open: boolean; onToggle: () => void }
           </div>
         )}
       </div>
-      <button className="sfgear" aria-label="Settings" data-tip="Settings"><GearIcon /></button>
+      <button className="ibtn sfgear" aria-label="Settings" data-tip="Settings"><GearIcon /></button>
     </div>
   );
 }
@@ -340,8 +341,7 @@ export function Workspace({ device, init = {}, empty = false, extra, custom }: {
             {!showSide && <button className="ibtn" aria-label="Show sidebar" data-tip="Show sidebar" onClick={() => setShowSide(true)}><SidebarIcon /></button>}
             {!mac && !showSide && <button className="ibtn" aria-label="Settings" data-tip="Settings"><GearIcon /></button>}
             {!mac && !showSide && <span onClick={() => setCapMenu(!capMenu)}><VaultCapsule open={capMenu} menu={<VaultMenu single={!twoVaults} current={vault} open={openNames} onPick={() => setCapMenu(false)} />} /></span>}
-            <span className="sp" />
-            {/* Sort and Filter share one capsule: both change how the list is shown. + Add stands apart. */}
+            {/* Sort and Filter share one capsule: both change how the list is shown. + Add stands apart, at the trailing edge, next to Edit. */}
             <span className="viewopts">
             {(q || sortable(side)) && <SortMenu value={sort} onChange={setSort} open={init.sortOpen} />}
             {(sortable(side) || !showSide) && !inDeleted && (
@@ -355,6 +355,7 @@ export function Workspace({ device, init = {}, empty = false, extra, custom }: {
               />
             )}
             </span>
+            <span className="sp" />
             <button className="btn glass">+ Add</button>
           </div>
           <div className="lh">{listTitle}<span> · {total} {noun}{total === 1 ? '' : 's'}</span>{line && <div className="s">{line}</div>}</div>

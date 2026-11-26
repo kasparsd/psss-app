@@ -150,9 +150,10 @@ struct OtherVaultPlaces: View {
     }
 }
 
-/// The sidebar's foot, pinned to the bottom with `.safeAreaInset(edge: .bottom)`: the labeled Add Vault menu (the three ways to
-/// add a vault) and at the trailing end the icon-only Settings gear. The gear is in the sidebar, not in the window's toolbar, and
-/// has the accessibility label and tooltip "Settings".
+/// The sidebar's foot, pinned to the bottom with `.safeAreaBar(edge: .bottom)`: the labeled Add Vault menu (the three ways to
+/// add a vault) and at the trailing end the icon-only Settings gear, as the system's glass buttons like the ones in the toolbar,
+/// with no divider or bar behind them. The gear is in the sidebar, not in the window's toolbar, and has the accessibility label
+/// and tooltip "Settings".
 struct VaultSidebarFoot: View {
     /// False for the sample vault, which has no vaults to add to.
     var showsAdd = true
@@ -160,36 +161,31 @@ struct VaultSidebarFoot: View {
     let openSettings: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            Divider()
-            HStack(spacing: 8) {
-                if showsAdd {
-                    Menu {
-                        ForEach(AddVaultChoice.all) { choice in Button(choice.menuTitle) { add(choice) } }
-                    } label: {
-                        Label("Add Vault", systemImage: "plus")
-                    }
-                    .menuIndicator(.hidden)
-                    #if os(macOS)
-                    .menuStyle(.borderlessButton)
-                    #endif
-                    .fixedSize()
-                    .help("Add a vault: create one, open a file, or import")
+        HStack(spacing: 8) {
+            if showsAdd {
+                Menu {
+                    ForEach(AddVaultChoice.all) { choice in Button(choice.menuTitle) { add(choice) } }
+                } label: {
+                    Label("Add Vault", systemImage: "plus")
                 }
-                Spacer(minLength: 0)
-                Button(action: openSettings) {
-                    Label("Settings", systemImage: "gearshape").labelStyle(.iconOnly)
-                }
-                #if os(macOS)
-                .buttonStyle(.borderless)
-                #endif
-                .accessibilityLabel(Text("Settings"))
-                .help("Settings")
+                .menuStyle(.button)
+                .menuIndicator(.hidden)
+                .buttonBorderShape(.capsule)
+                .fixedSize()
+                .help("Add a vault: create one, open a file, or import")
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            Spacer(minLength: 0)
+            Button(action: openSettings) {
+                Label("Settings", systemImage: "gearshape").labelStyle(.iconOnly)
+            }
+            .buttonBorderShape(.circle)
+            .accessibilityLabel(Text("Settings"))
+            .help("Settings")
         }
-        .background(.bar)
+        .buttonStyle(.glass)
+        .controlSize(.large)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
         // Stays at the bottom, behind the on-screen keyboard (iPad, typing in the unlock form beside the sidebar), instead of
         // being lifted over it.
         .ignoresSafeArea(.keyboard, edges: .bottom)
@@ -254,7 +250,7 @@ struct LockedVaultWindow: View {
             // A few collapsed headers always fit: no elastic scrolling, so the headers cannot be pushed up under the title bar.
             .scrollBounceBehavior(.basedOnSize)
             .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 320)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+            .safeAreaBar(edge: .bottom, spacing: 0) {
                 VaultSidebarFoot(add: { addChoice = $0 }, openSettings: showSettings)
             }
             #if os(macOS)
