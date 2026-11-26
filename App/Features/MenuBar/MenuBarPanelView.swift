@@ -2,50 +2,87 @@
 import AppKit
 import SwiftUI
 
-/// The panel: the vault switcher and three tabs on top, the tab's content, one status line, and the app's own actions at the
+/// The panel: the vault switcher and three tabs on top, the tab's content with the Copied pill over it, and the app's own actions at the
 /// bottom (mock `#/menu-bar`). Built from the system's lists, forms and fields; the window supplies the glass behind them.
 struct MenuBarPanelView: View {
     @Bindable var model: MenuBarModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
             if model.hasVault { header }
             content.frame(maxWidth: .infinity, maxHeight: .infinity)
-            if let status = model.status {
-                Text(status).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal).padding(.vertical, 8)
-            }
+                // Over the tab for two seconds, so nothing moves when it appears.
+                .overlay(alignment: .bottom) {
+                    if let offer = model.pill.offer { CopiedPill(message: offer.message).allowsHitTesting(false) }
+                }
+                .animation(reduceMotion ? .easeInOut(duration: 0.2) : .snappy, value: model.pill.offer)
             Divider()
             footer
         }
         .frame(width: MenuBarController.panelSize.width, height: MenuBarController.panelSize.height)
-        // Escape leaves an item's page first, then closes.
-        .onExitCommand { if model.tab == .search, model.opened != nil { model.back() } else { model.close(false) } }
+        // Kept on top, the panel moves by any empty part of it, also while another app is in front.
+        .contentShape(Rectangle())
+        .gesture(WindowDragGesture(), isEnabled: model.keptOnTop)
+        .allowsWindowActivationEvents(true)
         .background { shortcuts }
     }
 
     private var header: some View {
-        VStack(alignment: .leading) {
-            if model.sample != nil {
-                LabeledContent("Vault") { Text("Sample vault") }
-            } else {
-                Picker("Vault", selection: Binding(get: { model.vaultID }, set: { model.choose($0) })) {
-                    ForEach(model.session.knownVaults, id: \.id) { vault in
-                        Text(model.session.isOpen(vault.id) ? vault.name : String(localized: "\(vault.name) (locked)")).tag(vault.id)
-                    }
-                }
-                .pickerStyle(.menu)
-            }
+        VStack(alignment: .leading, spacing: 10) {
+            vaultRow
             Picker("Section", selection: Binding(get: { model.tab }, set: { model.show($0) })) {
                 Text("Search").tag(MenuBarTab.search)
+                Text("Add").tag(MenuBarTab.add)
                 Text("Generate").tag(MenuBarTab.generate)
-                Text("New Login").tag(MenuBarTab.newLogin)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            .buttonSizing(.flexible)
             if model.shortcutTaken { Text("⌃⌘P is used by another app.").foregroundStyle(.secondary) }
         }
-        .padding([.horizontal, .top])
-        .padding(.bottom, 8)
+        .padding(.horizontal, MenuBarController.inset)
+        // No space below: each tab's content starts `inset` under the tabs.
+        .padding(.top)
+    }
+
+    /// “Vault:” at the left; the app's vault menu and Lock at the right.
+    private var vaultRow: some View {
+        HStack(spacing: 8) {
+            Text("Vault") + Text(verbatim: ":")
+            Spacer(minLength: 12)
+            SwiftUI.Group {
+                if let reference = model.reference {
+                    // The name with the vault glyph, as in the AutoFill picker and the browser popup.
+                    VaultSwitcher(session: model.session, style: .name, context: .extension, choose: { model.choose($0) })
+                    let state = model.session.state(of: reference)
+                    if !state.isAvailable {
+                        Image(systemName: state.symbol).foregroundStyle(.orange)
+                            .accessibilityLabel(Text(verbatim: state.spoken))
+                            .help(Text(verbatim: state.spoken))
+                    }
+                } else {
+                    Menu {
+                        Button {} label: {
+                            Text(verbatim: model.vaultName)
+                            Image(systemName: "checkmark")
+                        }
+                    } label: {
+                        HStack(spacing: 6) { Image(systemName: VaultSwitcher.symbol); Text(verbatim: model.vaultName) }
+                    }
+                    .fixedSize()
+                }
+            }
+            .buttonStyle(.bordered)
+            .foregroundStyle(.primary)
+            if model.sample != nil {
+                Button("Lock") {}.disabled(true).help("The sample vault can’t be locked.").fixedSize()
+            } else if model.openCount > 0 {
+                Button(model.openCount > 1 ? "Lock All" : "Lock") { model.lockByChoice() }.help("⌘L").fixedSize()
+            }
+        }
+        // A long vault name is cut short rather than pushing the row wider than the panel.
+        .lineLimit(1)
     }
 
     @ViewBuilder
@@ -59,24 +96,29 @@ struct MenuBarPanelView: View {
         } else if model.store == nil {
             MenuBarLockedView(model: model, openApp: openApp)
         } else if model.tab == .search {
-            MenuBarSearchView(model: model, openApp: openApp)
+            MenuBarSearchView(model: model)
         } else {
-            MenuBarNewLoginView(model: model, openApp: openApp).id(model.vaultID)
+            MenuBarAddView(model: model).id("\(model.vaultID)-\(model.addKind.rawValue)")
         }
     }
 
     private var footer: some View {
-        HStack(spacing: 16) {
-            Button("Open Psss") { openApp() }
-            Button("Settings…") { openSettings() }
-            Spacer()
-            if model.openCount > 0 {
-                Button(model.openCount > 1 ? "Lock All" : "Lock") { model.lockByChoice() }.help("⌘L")
+        HStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Toggle("Keep on Top", isOn: $model.keptOnTop)
+                    .toggleStyle(.button)
+                    .help("Keeps this panel above other windows")
+                Button(model.itemOnScreen ? "Show in Psss" : "Open Psss") { openApp() }
             }
-            Button("Quit") { NSApp.terminate(nil) }
+            Spacer(minLength: 8)
+            HStack(spacing: 12) {
+                Button("Settings…") { openSettings() }
+                Button("Quit") { NSApp.terminate(nil) }
+            }
+            .buttonStyle(.borderless)
         }
-        .buttonStyle(.borderless)
-        .padding(.horizontal)
+        .lineLimit(1)
+        .padding(.horizontal, MenuBarController.inset)
         .padding(.vertical, 10)
     }
 
@@ -85,20 +127,14 @@ struct MenuBarPanelView: View {
         Group {
             Button("") { if model.openCount > 0 { model.lockByChoice() } }.keyboardShortcut("l", modifiers: .command)
             Button("") { model.show(.search) }.keyboardShortcut("1", modifiers: .command)
-            Button("") { model.show(.generate) }.keyboardShortcut("2", modifiers: .command)
-            Button("") { model.show(.newLogin) }.keyboardShortcut("3", modifiers: .command)
+            Button("") { model.show(.add) }.keyboardShortcut("2", modifiers: .command)
+            Button("") { model.show(.generate) }.keyboardShortcut("3", modifiers: .command)
         }
         .opacity(0)
         .accessibilityHidden(true)
     }
 
-    /// Brings Psss forward, with a new window when none is open.
-    private func openApp() {
-        model.close(true)
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.activates = true
-        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration)
-    }
+    private func openApp() { MenuBarController.openApp(from: model) }
 
     private func openSettings() {
         model.close(true)
@@ -140,31 +176,39 @@ struct MenuBarLockedView: View {
                 Button("Open Psss", action: openApp).buttonStyle(.borderedProminent)
             }
         } else {
-            VStack(spacing: 12) {
-                Text("\(model.vaultName) is locked").font(.title2.weight(.semibold))
-                if model.away { Text("The lock time passed while you were away.").foregroundStyle(.secondary) }
-                if model.canUseBiometrics {
-                    Button("Unlock with Touch ID") { Task { await model.unlockWithBiometrics() } }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                        .disabled(model.unlocking)
-                    Text("or enter the vault password").foregroundStyle(.secondary)
+            // The unlock form the main window shows beside its sidebar: the icon, “Unlock <vault>”, the password, then Unlock and
+            // Use Touch ID, with every message under the buttons.
+            GeometryReader { proxy in
+                ScrollView {
+                    UnlockStack(minHeight: proxy.size.height) {
+                        LockHeader(vaultName: model.vaultName, opening: model.unlocking, showsTitle: false)
+                        UnlockForm(vaultName: model.vaultName, password: $model.password, focused: $passwordFocused,
+                                   biometry: model.canUseBiometrics ? BiometryKind.current : nil, working: model.unlocking,
+                                   canUnlock: !model.password.isEmpty,
+                                   unlock: { Task { await model.unlockWithPassword() } },
+                                   useBiometrics: { Task { await model.unlockWithBiometrics() } }) {
+                            notice
+                        } keyFile: {
+                            EmptyView()
+                        }
+                    }
+                    .padding(.horizontal, MenuBarController.inset)
                 }
-                HStack {
-                    SecureField("Vault password", text: $model.password)
-                        .textFieldStyle(.roundedBorder)
-                        .focused($passwordFocused)
-                        .onSubmit { Task { await model.unlockWithPassword() } }
-                    Button("Unlock") { Task { await model.unlockWithPassword() } }.disabled(model.password.isEmpty || model.unlocking)
-                }
-                .frame(maxWidth: 300)
-                if model.unlocking { ProgressView().controlSize(.small) }
-                if let failure = model.failure { Text(failure).fixedSize(horizontal: false, vertical: true) }
+                .scrollBounceBehavior(.basedOnSize)
             }
-            .multilineTextAlignment(.center)
-            .padding(24)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onAppear { if !model.canUseBiometrics { passwordFocused = true } }
+            .onAppear { passwordFocused = true }
+        }
+    }
+
+    @ViewBuilder private var notice: some View {
+        if model.unlocking {
+            LockNotice(kind: .progress, text: model.password.isEmpty ? String(localized: "Opening your vault…") : String(localized: "Checking your vault password…"))
+        } else if let failure = model.failure {
+            LockNotice(kind: .warning, text: failure)
+        } else if model.changedVault == model.vaultID {
+            LockNotice(kind: .info, text: String(localized: "The vault was changed by another app or device and needs your vault password again."))
+        } else if model.away {
+            LockNotice(kind: .info, text: String(localized: "The lock time passed while you were away."))
         }
     }
 }

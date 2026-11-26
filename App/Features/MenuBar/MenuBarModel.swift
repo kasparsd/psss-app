@@ -4,7 +4,7 @@ import ApplicationServices
 import LocalAuthentication
 import SwiftUI
 
-enum MenuBarTab: Hashable { case search, generate, newLogin }
+enum MenuBarTab: Hashable { case search, add, generate }
 
 /// The browsers macOS can be asked for the front tab's address.
 struct MenuBarBrowser: Sendable {
@@ -62,7 +62,7 @@ final class MenuBarModel {
     let prompter = BiometricPrompter()
     /// Closes the panel. True when Psss itself is about to come forward, which is not time away.
     @ObservationIgnored var close: (_ openingApp: Bool) -> Void = { _ in }
-    @ObservationIgnored private var panelOpen = false
+    @ObservationIgnored private(set) var panelOpen = false
     /// Counts locks, so an unlock that was under way when one happened is undone.
     @ObservationIgnored private var locks = 0
 
@@ -77,12 +77,26 @@ final class MenuBarModel {
     var swipe: CGFloat?
     /// Which code button in the list says “Copied”.
     let codes = CodeCopyState()
+    /// The vault that locked because its password changed elsewhere, so its lock screen can say why until it is unlocked.
+    private(set) var changedVault: UUID?
     /// Counts returns to the list, so the search field takes the keyboard again.
     private(set) var returns = 0
     /// Counts changes to the vault's items, which the store does not announce itself.
     private(set) var revision = 0
-    var revealed: Set<String> = []
-    var status: String?
+    private(set) var revealed: Set<String> = []
+    @ObservationIgnored private var hiders: [String: Task<Void, Never>] = [:]
+    /// The panel stays above other windows until the menu bar item or the shortcut closes it.
+    var keptOnTop = false {
+        didSet {
+            guard keptOnTop != oldValue else { return }
+            for key in revealed.union(hiders.keys.filter { !$0.hasPrefix("draft-") }) { scheduleHiding(key) }
+            for vault in drafts.keys { scheduleHidingDraft(vault) }
+            keptOnTopChanged()
+        }
+    }
+    @ObservationIgnored var keptOnTopChanged: () -> Void = {}
+    /// The app's Copied pill, which the panel draws over the bottom of the tab.
+    let pill = CopiedPillModel()
     var shortcutTaken = false
     /// Counts openings, so the view can give the search field the keyboard each time.
     private(set) var openings = 0
@@ -114,6 +128,13 @@ final class MenuBarModel {
         /// False when repeating it could only do something else, such as making a new login.
         var retry = true
     }
+
+    // Add: the type panels or one type's form, and what is typed for the types other than Login, one for each vault and type.
+    private(set) var addKind = ItemKind.login
+    private(set) var formOpen = false
+    private var newItems: [String: VaultItem] = [:]
+    /// What was last saved there, until Add Another.
+    private(set) var addedItems: [String: VaultItem] = [:]
 
     // Generate.
     var settings: [MenuBarGenerated: GeneratorSettings] = [
@@ -159,12 +180,20 @@ final class MenuBarModel {
 
     func type(_ text: String) {
         guard text != query else { return }
-        query = text; selection = nil; opened = nil; status = nil; chosen = true
+        query = text; selection = nil; opened = nil; pill.clear(); chosen = true
     }
 
-    func pick(_ id: UUID) { selection = id; status = nil; chosen = true }
+    func pick(_ id: UUID) { selection = id; pill.clear(); chosen = true }
 
     func open(_ id: UUID) { pick(id); swipe = nil; opened = id }
+
+    /// Leaves an item's page without choosing it: the list comes back and the search field takes the keyboard again.
+    func dropPage() {
+        swipe = nil
+        guard opened != nil else { return }
+        opened = nil
+        returns += 1
+    }
 
     func back() {
         guard let id = opened else { return }
@@ -177,7 +206,8 @@ final class MenuBarModel {
     func choose(_ id: UUID) {
         guard id != reference?.id else { return }
         forgetAttempt()
-        query = ""; selection = nil; opened = nil; status = nil; saveFailure = nil
+        query = ""; selection = nil; pill.clear(); saveFailure = nil
+        dropPage()
         session.show(id)
         revision += 1
         // The other vault's file may have changed since it was last read.
@@ -187,7 +217,7 @@ final class MenuBarModel {
     func show(_ tab: MenuBarTab) {
         if tab != self.tab { forgetAttempt() }
         self.tab = tab
-        status = nil
+        pill.clear()
     }
 
     // MARK: Opening and closing
@@ -206,11 +236,11 @@ final class MenuBarModel {
         }
         let front = NSWorkspace.shared.frontmostApplication
         let id = front?.bundleIdentifier ?? ""
-        if id != frontID { query = ""; selection = nil; opened = nil; lastPage = nil }
+        if id != frontID { query = ""; selection = nil; dropPage(); lastPage = nil }
         chosen = false
         frontID = id
         frontName = id == Bundle.main.bundleIdentifier ? "" : front?.localizedName ?? ""
-        status = nil
+        pill.clear()
     }
 
     func didOpen() {
@@ -226,7 +256,7 @@ final class MenuBarModel {
         swipe = nil
         password = ""
         failure = nil
-        status = nil
+        pill.clear()
         prompter.cancel()
         // The lock time counts again from here.
         if !appIsActive, !openingApp { gate.didLeave() }
@@ -240,18 +270,18 @@ final class MenuBarModel {
             if try await store.reloadIfChanged() { itemsChanged() }
             return true
         } catch KDBXError.wrongCredentials {
-            let notice = String(localized: "The vault was changed by another app or device and needs your vault password again.")
-            if session.openVaults.count > 1, let id = reference?.id {
+            let id = store.reference.id
+            changedVault = id
+            if session.openVaults.count > 1 {
                 // Only this vault locks; the other open vaults and their unsaved logins stay.
                 session.lock(id)
                 session.show(id)
                 drafts[id] = nil
                 waiting[id] = nil
-                forgetAttempt()
-                query = ""; selection = nil; opened = nil; revealed = []; saveFailure = nil
-                failure = notice
+                forgetAdded(id)
+                forgetSecrets()
             } else {
-                gate.lock(notice: notice)
+                gate.lock(notice: String(localized: "The vault was changed by another app or device and needs your vault password again."))
                 session.lockAll()
                 forgetEverything()
             }
@@ -267,7 +297,22 @@ final class MenuBarModel {
         NotificationCenter.default.post(name: .vaultChangedOutsideWindow, object: nil)
     }
 
-    func appLeft() { gate.didLeave() }
+    func appLeft() {
+        gate.didLeave()
+        // Items edited in the window are drawn again in a panel kept on top.
+        revision += 1
+    }
+
+    func refresh() { revision += 1 }
+
+    /// Psss is about to come forward from a panel kept on top: the clock a touch just started must not lock on arrival.
+    func comingForward() {
+        guard sample == nil, gate.isUnlocked, !NSApp.isActive else { return }
+        if gate.decideOnReturn(after: timing == .immediately ? .oneMinute : timing) {
+            session.lockAll()
+            forgetEverything()
+        }
+    }
 
     // MARK: Locking
 
@@ -309,8 +354,10 @@ final class MenuBarModel {
                     self.forgetEverything()
                 }
                 let closed = open.subtracting(self.session.openVaults.map(\.id))
+                // Unlocked again, here or in the window: the reason for its lock is over.
+                if let id = self.changedVault, self.gate.isUnlocked, self.session.isOpen(id) { self.changedVault = nil }
                 if !closed.isEmpty {
-                    for id in closed { self.drafts[id] = nil; self.waiting[id] = nil }
+                    for id in closed { self.drafts[id] = nil; self.waiting[id] = nil; self.forgetAdded(id) }
                     self.forgetSecrets()
                 }
                 self.followLocks()
@@ -321,11 +368,15 @@ final class MenuBarModel {
     private func forgetEverything() {
         locks += 1
         drafts = [:]; waiting = [:]
+        newItems = [:]; addedItems = [:]; formOpen = false
         forgetSecrets()
     }
 
     private func forgetSecrets() {
-        query = ""; selection = nil; opened = nil; swipe = nil; revealed = []; status = nil; saveFailure = nil
+        query = ""; selection = nil; revealed = []; pill.clear(); saveFailure = nil
+        // A draft of a vault that stays open keeps its timer; a locked vault's draft is already gone.
+        for key in hiders.keys.filter({ !$0.hasPrefix("draft-") }) { hiders.removeValue(forKey: key)?.cancel() }
+        dropPage()
         forgetAttempt()
         regenerateAll()
     }
@@ -353,7 +404,7 @@ final class MenuBarModel {
             } catch {
                 failure = String(localized: "That didn’t open \(reference.name). Enter the vault password.")
             }
-        case .cancelled: if panelOpen { failure = String(localized: "Touch ID was cancelled.") }
+        case .cancelled: break
         case .notRecognised, .unavailable: failure = String(localized: "Touch ID did not work. Enter the vault password.")
         }
     }
@@ -389,6 +440,7 @@ final class MenuBarModel {
         }
         gate.markUnlocked()
         away = false
+        if changedVault == reference?.id { changedVault = nil }
         selection = nil
         forgetAttempt()
         // Closed in the meantime: the lock time counts from now.
@@ -398,15 +450,21 @@ final class MenuBarModel {
     // MARK: Copying
 
     func copy(_ value: String, as label: String, from item: UUID? = nil) {
+        // A view may still hold an item of a vault that has locked since it was drawn.
+        if item != nil, store == nil { return }
         Clipboard.copy(value)
         if let item { store?.markUsed(item) }
-        status = String(localized: "\(label) copied. The clipboard clears in 60 seconds.")
+        // A field's name comes from the file.
+        var name = DisplayText.safe(label)
+        if name.count > 20 { name = name.prefix(19) + "…" }
+        pill.show(String(localized: "\(name) copied. Clears in 60 s."))
     }
 
     /// A code copied from its button in the list, which puts it on the clipboard itself.
     func codeCopied(_ item: VaultItem) {
         store?.markUsed(item.id)
-        status = String(localized: "\(String(localized: "Verification code")) copied. The clipboard clears in 60 seconds.")
+        // The code button has already told VoiceOver “Copied”.
+        pill.show(String(localized: "\(String(localized: "Verification code")) copied. Clears in 60 s."), announce: false)
     }
 
     // MARK: The page
@@ -464,7 +522,7 @@ final class MenuBarModel {
         page = new
         guard new != .reading, new != .notBrowser else { return }
         let key = new.host ?? ""
-        if let lastPage, lastPage != key, !chosen { query = ""; selection = nil; opened = nil }
+        if let lastPage, lastPage != key, !chosen { query = ""; selection = nil; dropPage() }
         lastPage = key
     }
 
@@ -504,7 +562,16 @@ final class MenuBarModel {
             return draft
         }
         // A field writing its text back while a lock takes it away must not bring the draft back.
-        set { if store != nil { drafts[vaultID] = newValue; saveFailure = nil } }
+        set {
+            guard store != nil else { return }
+            let wasShown = drafts[vaultID]?.shown == true
+            // The eye is not a change, so it leaves a failure and its Try Again.
+            var old = draft
+            old.shown = newValue.shown
+            if newValue != old { saveFailure = nil }
+            drafts[vaultID] = newValue
+            if newValue.shown != wasShown { scheduleHidingDraft(vaultID) }
+        }
     }
 
     /// Starts a new login, asking first when an unsaved one would be replaced.
@@ -518,7 +585,8 @@ final class MenuBarModel {
             drafts[vaultID] = new
             waiting[vaultID] = nil
         }
-        show(.newLogin)
+        openForm(.login)
+        show(.add)
     }
 
     /// The saved logins for the draft's site and username, the exact site first.
@@ -561,6 +629,136 @@ final class MenuBarModel {
         } catch {
             saveFailure = SaveFailure(message: String(localized: "Couldn’t save to \(vaultName). Nothing was changed."), updating: updating)
         }
+    }
+
+    // MARK: Adding the other types
+
+    private var newKey: String { "\(vaultID)-\(addKind.rawValue)" }
+
+    func openForm(_ kind: ItemKind) {
+        addKind = kind
+        formOpen = true
+        pill.clear()
+        saveFailure = nil
+    }
+
+    /// Back to the type panels. A saved item is done with; anything unsaved stays.
+    func leaveForm() {
+        if addKind == .login {
+            if drafts[vaultID]?.saved == true { drafts[vaultID] = nil }
+        } else {
+            addAnother()
+        }
+        formOpen = false
+        pill.clear()
+        saveFailure = nil
+    }
+
+    /// Something typed for this type is not saved yet.
+    func hasUnsaved(_ kind: ItemKind) -> Bool {
+        if kind == .login { return drafts[vaultID]?.isDirty == true || waiting[vaultID] != nil }
+        guard var item = newItems["\(vaultID)-\(kind.rawValue)"] else { return false }
+        // An address starts with this device's country, which nobody typed.
+        if item.address.country == AddressCountry.device { item.address.country = "" }
+        return item.hasContent
+    }
+
+    /// An item's page, or a just saved item, is showing: the app button then says “Show in Psss”.
+    var itemOnScreen: Bool {
+        guard store != nil else { return false }
+        switch tab {
+        case .search: return opened != nil
+        case .add: return formOpen && (addKind == .login ? drafts[vaultID]?.saved == true && waiting[vaultID] == nil : added != nil)
+        case .generate: return false
+        }
+    }
+
+    var newItem: VaultItem {
+        get {
+            if let item = newItems[newKey] { return item }
+            var item = VaultItem(kind: addKind)
+            // As the app's new-item sheet starts an address.
+            if addKind == .address { item.address.country = AddressCountry.device }
+            return item
+        }
+        set {
+            guard store != nil else { return }
+            // Some fields write their value back as they appear; only a change takes a failure message away.
+            if newValue.hasChanges(from: newItem) { saveFailure = nil }
+            newItems[newKey] = newValue
+        }
+    }
+
+    var added: VaultItem? { addedItems[newKey] }
+
+    func addAnother() { addedItems[newKey] = nil }
+
+    func saveNewItem() async {
+        let key = newKey, vault = vaultID, item = newItem
+        guard !saving, store != nil, item.canSave else { return }
+        saving = true
+        defer { saving = false }
+        saveFailure = nil
+        // Locked or switched while reading: nothing is written.
+        guard await reload(), vault == vaultID, let store else { return }
+        do {
+            let saved = item.savedForm
+            try store.save([saved])
+            itemsChanged()
+            newItems[key] = nil
+            addedItems[key] = saved
+        } catch {
+            saveFailure = SaveFailure(message: String(localized: "Couldn’t save to \(vaultName). Nothing was changed."), updating: nil)
+        }
+    }
+
+    /// Drops what was typed for one vault, as it locks.
+    private func forgetAdded(_ vault: UUID) {
+        newItems = newItems.filter { !$0.key.hasPrefix(vault.uuidString) }
+        addedItems = addedItems.filter { !$0.key.hasPrefix(vault.uuidString) }
+    }
+
+    // MARK: Kept on top
+
+    /// Shows or hides a value on an item's page.
+    func toggleShown(_ key: String) {
+        if revealed.remove(key) == nil { revealed.insert(key) }
+        scheduleHiding(key)
+    }
+
+    /// While the panel is on top, a shown value hides again by itself.
+    private func scheduleHiding(_ key: String) {
+        hiders.removeValue(forKey: key)?.cancel()
+        guard keptOnTop, revealed.contains(key) else { return }
+        hiders[key] = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(30))
+            if !Task.isCancelled { self?.revealed.remove(key) }
+        }
+    }
+
+    /// The same for the password shown in New Login.
+    private func scheduleHidingDraft(_ vault: UUID) {
+        let key = "draft-\(vault)"
+        hiders.removeValue(forKey: key)?.cancel()
+        guard keptOnTop, drafts[vault]?.shown == true else { return }
+        hiders[key] = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(30))
+            if !Task.isCancelled { self?.drafts[vault]?.shown = false }
+        }
+    }
+
+    /// A click, key or scroll in a panel kept on top counts as using Psss: the time away starts again, unless it had already run
+    /// out. With “Immediately” it gets the minute the app's own idle lock gives.
+    /// True when the time away had run out and this touch locked instead.
+    func panelTouched() -> Bool {
+        guard sample == nil, keptOnTop, gate.isUnlocked, !NSApp.isActive else { return false }
+        if gate.decideOnReturn(after: timing == .immediately ? .oneMinute : timing) {
+            session.lockAll()
+            forgetEverything()
+            return true
+        }
+        gate.didLeave()
+        return false
     }
 
     // MARK: Generating

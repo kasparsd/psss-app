@@ -342,13 +342,18 @@ final class CopiedPillModel {
     private(set) var count = 0
     private var timer: Task<Void, Never>?
 
-    /// Shows `message` for about two seconds. VoiceOver hears it once.
-    func show(_ message: String, symbol: String = "checkmark.circle.fill") {
+    func clear() {
+        timer?.cancel()
+        offer = nil
+    }
+
+    /// Shows `message` for about two seconds. VoiceOver hears it once, unless `announce` is false because it was already told.
+    func show(_ message: String, symbol: String = "checkmark.circle.fill", announce: Bool = true) {
         timer?.cancel()
         let offer = Offer(message: message, symbol: symbol)
         self.offer = offer
         count += 1
-        AccessibilityNotification.Announcement(message).post()
+        if announce { AccessibilityNotification.Announcement(message).post() }
         timer = Task { [weak self] in
             try? await Task.sleep(for: Self.visibleFor)
             guard !Task.isCancelled, let self, self.offer?.id == offer.id else { return }
@@ -358,7 +363,7 @@ final class CopiedPillModel {
 }
 
 /// The pill itself: a checkmark and a short sentence on glass. Shared by every copy on an item page, so they all look and move alike.
-private struct CopiedPill: View {
+struct CopiedPill: View {
     let message: String
     var symbol = "checkmark.circle.fill"
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

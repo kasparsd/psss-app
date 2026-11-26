@@ -6,8 +6,10 @@ import SwiftUI
 struct MenuBarSearchField: NSViewRepresentable {
     let text: String
     let prompt: String
-    /// Takes the keyboard each time this changes.
-    let focus: Int
+    /// Takes the keyboard each time either changes: opening the panel selects the text, coming back from an item keeps the caret
+    /// at its end.
+    let openings: Int
+    let returns: Int
     /// False while an item's page covers the list.
     let active: Bool
     let change: (String) -> Void
@@ -32,16 +34,26 @@ struct MenuBarSearchField: NSViewRepresentable {
         if field.stringValue != text { field.stringValue = text }
         field.placeholderString = prompt
         field.setAccessibilityLabel(prompt)
-        guard active, context.coordinator.focused != focus else { return }
-        context.coordinator.focused = focus
+        guard active else {
+            // The hidden field must not keep the keyboard.
+            if field.currentEditor() != nil { Task { @MainActor in field.window?.makeFirstResponder(nil) } }
+            return
+        }
+        let seen = context.coordinator.seen
+        guard seen?.openings != openings || seen?.returns != returns else { return }
+        let back = seen != nil && seen?.openings == openings
+        context.coordinator.seen = (openings, returns)
         // After the panel has become key.
-        Task { @MainActor in field.window?.makeFirstResponder(field) }
+        Task { @MainActor in
+            field.window?.makeFirstResponder(field)
+            if back { field.currentEditor()?.selectedRange = NSRange(location: (field.stringValue as NSString).length, length: 0) }
+        }
     }
 
     @MainActor
     final class Coordinator: NSObject, NSSearchFieldDelegate {
         var parent: MenuBarSearchField
-        var focused: Int?
+        var seen: (openings: Int, returns: Int)?
 
         init(_ parent: MenuBarSearchField) { self.parent = parent }
 
@@ -137,7 +149,6 @@ struct MenuBarField: Identifiable {
 
 struct MenuBarSearchView: View {
     @Bindable var model: MenuBarModel
-    let openApp: () -> Void
 
     private struct Group: Identifiable {
         let title: String
@@ -217,7 +228,7 @@ struct MenuBarSearchView: View {
                 .allowsHitTesting(shown == nil)
                 .accessibilityHidden(shown != nil)
             if let shown {
-                MenuBarItemPage(model: model, item: shown, openApp: openApp)
+                MenuBarItemPage(model: model, item: shown)
                     .id(shown.id)
                     .offset(x: swiped * width)
                     .transition(.move(edge: .trailing))
@@ -225,14 +236,14 @@ struct MenuBarSearchView: View {
         }
         .clipped()
         .animation(model.swipe == nil ? .snappy(duration: 0.22) : nil, value: shown?.id)
-        // The hidden search field must not keep the keyboard.
-        .onChange(of: model.opened) { _, id in if id != nil { NSApp.keyWindow?.makeFirstResponder(nil) } }
+        // The open item was deleted or has gone from the vault.
+        .onChange(of: shown == nil, initial: true) { _, gone in if gone, model.opened != nil { model.dropPage() } }
     }
 
     private func list(groups: [Group], flat: [VaultItem], selected: VaultItem?, noneForPage: Bool) -> some View {
         VStack(spacing: 8) {
             MenuBarSearchField(text: model.query, prompt: String(localized: "Search \(model.vaultName)"),
-                               focus: model.openings + model.returns, active: model.opened == nil,
+                               openings: model.openings, returns: model.returns, active: model.opened == nil,
                                change: { model.type($0) },
                                move: { step in
                                    guard !flat.isEmpty else { return }
@@ -242,7 +253,7 @@ struct MenuBarSearchView: View {
                                open: { if let selected { model.open(selected.id) } },
                                submit: { modifiers in if let selected { model.copyMain(of: selected, modifiers: modifiers) } },
                                cancel: { model.close(false) })
-                .padding(.horizontal)
+                .padding([.horizontal, .top], MenuBarController.inset)
             if flat.isEmpty, !query.isEmpty {
                 nothingFound
             } else {
@@ -381,54 +392,72 @@ struct MenuBarItemRow: View {
     }
 }
 
-/// An item's own page over the list: Back, who it is, every value with its own copy button, and the way into the app.
+/// One line for Back and what is on screen, to leave the height for what follows. A second, hidden Back keeps the middle in the
+/// middle until a long name needs the room.
+struct MenuBarTopLine<Icon: View>: View {
+    let title: String
+    let help: LocalizedStringKey
+    let back: () -> Void
+    @ViewBuilder let icon: Icon
+
+    var body: some View {
+        HStack(spacing: 10) {
+            button.help(help).frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 8) {
+                icon
+                Text(title).font(.headline).lineLimit(2).multilineTextAlignment(.center).accessibilityAddTraits(.isHeader)
+            }
+            .layoutPriority(1)
+            button.hidden().accessibilityHidden(true).frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .padding([.horizontal, .top], MenuBarController.inset)
+    }
+
+    private var button: some View {
+        Button(action: back) { Label("Back", systemImage: "chevron.backward") }.fixedSize()
+    }
+}
+
+/// An item's own page over the list: Back, who it is, and every value with its own copy button.
 struct MenuBarItemPage: View {
     @Bindable var model: MenuBarModel
     let item: VaultItem
-    let openApp: () -> Void
 
     /// Says so when the login was saved for a site other than the one in front.
     private var otherSite: String? {
         guard let host = model.page.host, item.kind == .login, !item.website.isEmpty, !SharedVault.matches(item, host: host) else { return nil }
         if item.concealedFields?.contains("website") == true { return String(localized: "Saved for another website, not the page in front.") }
         let saved: String = SiteMatch.normalizedHost(item.website)
+        guard !saved.isEmpty else { return String(localized: "Saved for another website, not the page in front.") }
         return String(localized: "Saved for \(saved), not the page in front.")
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // One line for Back and who this is, to leave the height for the values.
-            HStack(spacing: 10) {
-                Button { model.back() } label: { Label("Back", systemImage: "chevron.backward") }
-                    .help("Esc or ←")
-                ItemIcon(item: item)
-                Text(item.displayTitle).font(.headline).lineLimit(1).truncationMode(.middle).accessibilityAddTraits(.isHeader)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal)
+            MenuBarTopLine(title: item.displayTitle, help: "Esc or ←", back: { model.back() }) { ItemIcon(item: item) }
             Form {
                 Section {
                     if let otherSite { Text(otherSite) }
-                    ForEach(MenuBarField.of(item)) { MenuBarFieldRow(model: model, item: item, field: $0) }
-                }
-                Section {
-                    Button("Show in Psss", action: openApp)
+                    ForEach(MenuBarField.of(item)) { field in
+                        let key = "\(item.id)-\(field.label)"
+                        MenuBarFieldRow(item: item, field: field, shown: model.revealed.contains(key),
+                                        toggle: { model.toggleShown(key) },
+                                        copy: { if let value = field.currentValue(of: item) { model.copy(value, as: field.label, from: item.id) } })
+                    }
                 }
             }
             .formStyle(.grouped)
             .scrollContentBackground(.hidden)
+            // The form brings its own space above the first section.
+            .contentMargins(.top, 0, for: .scrollContent)
         }
         .background { keys }
     }
 
-    /// Return copies as it does in the list, and ← goes back. The app is not in front and no field has the keyboard here.
+    /// ← goes back. Return and Escape are handled by the panel, which can tell Shift and Option apart.
     private var keys: some View {
         SwiftUI.Group {
-            Button("") { model.copyMain(of: item, modifiers: []) }.keyboardShortcut(.return, modifiers: [])
-            Button("") { model.copyMain(of: item, modifiers: .shift) }.keyboardShortcut(.return, modifiers: .shift)
-            Button("") { model.copyMain(of: item, modifiers: .option) }.keyboardShortcut(.return, modifiers: .option)
             Button("") { model.back() }.keyboardShortcut(.leftArrow, modifiers: [])
-            Button("") { model.back() }.keyboardShortcut(.cancelAction)
         }
         .opacity(0)
         .accessibilityHidden(true)
@@ -438,6 +467,7 @@ struct MenuBarItemPage: View {
 extension MenuBarModel {
     /// Return copies the password or card number, with Shift the username, with Option the verification code.
     func copyMain(of item: VaultItem, modifiers: NSEvent.ModifierFlags) {
+        guard store != nil else { return }
         let fields = MenuBarField.of(item)
         let field: MenuBarField?
         if modifiers.contains(.shift) {
@@ -448,61 +478,56 @@ extension MenuBarModel {
             let main = item.kind == .creditCard ? String(localized: "Card number") : String(localized: "Password")
             field = fields.first { $0.label == main } ?? fields.first { $0.secret } ?? fields.first
         }
-        if let field, let value = field.currentValue(of: item) { copy(value, as: field.label, from: item.id) }
+        // A code goes the way its button does, so the row says “Copied” too.
+        if let field, field.isCode { codes.copy(item) { codeCopied(item) } }
+        else if let field, let value = field.currentValue(of: item) { copy(value, as: field.label, from: item.id) }
     }
 }
 
 /// Label above value. The row copies, except a web address, which opens; the eye stays its own button.
 struct MenuBarFieldRow: View {
-    @Bindable var model: MenuBarModel
     let item: VaultItem
     let field: MenuBarField
-
-    private var key: String { "\(item.id)-\(field.label)" }
-    private var shown: Bool { model.revealed.contains(key) }
+    let shown: Bool
+    let toggle: () -> Void
+    let copy: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
+        // A field's name comes from the file.
+        let name = DisplayText.safe(field.label)
+        return HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(field.label).foregroundStyle(.secondary)
+                Text(verbatim: name).foregroundStyle(.secondary).lineLimit(1)
                 HStack(spacing: 6) {
                     if field.isCode {
                         TimelineView(.periodic(from: .now, by: 1)) { context in
-                            Text(TOTP.code(secret: item.otpSecret, settings: item.otpSettings, at: context.date) ?? "").monospacedDigit()
+                            CodeDigits(code: TOTP.code(secret: item.otpSecret, settings: item.otpSettings, at: context.date) ?? "")
                         }
                     } else if let link = field.link, !field.secret {
-                        Link(field.value, destination: link).lineLimit(1)
+                        Link(destination: link) { Text(field.value).lineLimit(1).truncationMode(.middle) }
                     } else if field.secret, !shown {
                         Text(String(repeating: "\u{2022}", count: 10)).accessibilityLabel("Hidden")
                     } else {
                         Text(field.value).monospaced(field.secret).lineLimit(6)
                     }
                     if field.secret {
-                        Button {
-                            if shown { model.revealed.remove(key) } else { model.revealed.insert(key) }
-                        } label: {
+                        Button(action: toggle) {
                             Image(systemName: shown ? "eye.slash" : "eye")
                         }
                         .buttonStyle(.borderless)
-                        .help(shown ? "Hide \(field.label)" : "Show \(field.label)")
-                        .accessibilityLabel(shown ? "Hide \(field.label)" : "Show \(field.label)")
+                        .help(shown ? "Hide \(name)" : "Show \(name)")
+                        .accessibilityLabel(shown ? "Hide \(name)" : "Show \(name)")
                     }
                 }
             }
             Spacer()
             Button(action: copy) { Image(systemName: "doc.on.doc") }
                 .buttonStyle(.borderless)
-                .help("Copy \(field.label)")
-                .accessibilityLabel("Copy \(field.label)")
+                .help("Copy \(name)")
+                .accessibilityLabel("Copy \(name)")
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 6)
         .contentShape(Rectangle())
         .onTapGesture(perform: copy)
-    }
-
-    private func copy() {
-        if let value = field.currentValue(of: item) { model.copy(value, as: field.label, from: item.id) }
     }
 }
 #endif

@@ -71,7 +71,7 @@ Debug builds carry a prototype of the menu bar panel (`App/Features/MenuBar`), o
 open -n build/signed-dd/Build/Products/Debug/Psss.app --args -psss-menu-bar-sample
 ```
 
-Use `-psss-menu-bar` instead for your real vaults. The ring in the menu bar and ⌃⌘P open the panel. Logins for the page work in Safari and Chrome after “Allow in …”. Not in the prototype: Paste, the extension card, page matching in other browsers, key files in the panel, and the Dock and login settings. Its Apple Events entitlement is in every Mac configuration, so it blocks a release until the feature ships.
+Use `-psss-menu-bar` instead for your real vaults. The logo (the p and three dots in a field) in the menu bar and ⌃⌘P open the panel. Logins for the page work in Safari and Chrome after “Allow in …”. Not in the prototype: Paste, the extension card, page matching in other browsers, key files in the panel, and the Dock and login settings. Its Apple Events entitlement is in every Mac configuration, so it blocks a release until the feature ships.
 
 ## The Psss folder in iCloud Drive
 
