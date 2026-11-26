@@ -3,6 +3,8 @@ import { Clarity, Decisions, Frame, Frames, History, Page, Section } from '../co
 import { IPad, IPhone } from '../components/devices';
 import { Notice } from '../components/Notice';
 import { VaultRow } from '../components/VaultRow';
+import { BioPrompt } from '../components/BioPrompt';
+import { CheckIcon } from '../icons';
 import { Mark } from './Logo';
 import { FillBtn } from '../components/loginParts';
 import { cardItems, type Item } from '../data';
@@ -19,8 +21,8 @@ const In = ({ label, value, on, half }: { label: string; value?: string; on?: bo
   </div>
 );
 
-/** A checkout page. `filled` shows what Fill wrote; `cvv` marks the security code field focused or filled. */
-function Checkout({ form, filled, cvv }: { form: Form; filled?: boolean; cvv?: 'focus' | 'filled' }) {
+/** A checkout page. `filled` shows what Fill wrote; `cvv` marks the security code field focused or filled; `missed` names a field Fill left empty. */
+function Checkout({ form, filled, cvv, missed }: { form: Form; filled?: boolean; cvv?: 'focus' | 'filled'; missed?: 'expiry' | 'phone' }) {
   if (form === 'none') {
     return <div className="isf-page"><div className="t">Newsletter</div><In label="Your email" /><div className="isf-lbl">Sign up for our weekly offers.</div></div>;
   }
@@ -34,7 +36,7 @@ function Checkout({ form, filled, cvv }: { form: Form; filled?: boolean; cvv?: '
         <In label="Street address" value={filled ? '12 Harbour Road' : undefined} />
         <div className="isf-row2"><In label="Postal code" value={filled ? 'LV-1010' : undefined} /><In label="City" value={filled ? 'Riga' : undefined} /></div>
         <In label="Email" value={filled ? 'sam@harbor.example' : undefined} />
-        <In label="Phone" value={filled ? '+371 2000 0000' : undefined} />
+        <In label="Phone" value={filled && missed !== 'phone' ? '+371 2000 0000' : undefined} />
       </div>
     );
   }
@@ -42,7 +44,7 @@ function Checkout({ form, filled, cvv }: { form: Form; filled?: boolean; cvv?: '
     <div className="isf-page"><div className="t">Pay · Harbor Shop</div>
       <In label="Name on card" value={filled ? 'Sam Rivers' : undefined} />
       <In label="Card number" value={filled ? '4929 3741 0268 4417' : undefined} />
-      <div className="isf-row2"><In label="Expiry" value={filled ? '08/28' : undefined} /><In label="Security code" on={cvv === 'focus'} value={cvv === 'filled' ? '•••' : undefined} /></div>
+      <div className="isf-row2"><In label="Expiry" value={filled && missed !== 'expiry' ? '08/28' : undefined} /><In label="Security code" on={cvv === 'focus'} value={cvv === 'filled' ? '•••' : undefined} /></div>
     </div>
   );
 }
@@ -50,10 +52,10 @@ function Checkout({ form, filled, cvv }: { form: Form; filled?: boolean; cvv?: '
 const Back = () => <div className="isf-lbl" style={{ padding: '0 16px 4px', color: 'var(--accent)' }}>◀ Safari</div>;
 
 /** Safari on iPhone (iOS 27.2): the page, the compact address bar with the page menu button at its left, and (when asked) the page menu, Psss's popup sheet or Safari's own question. */
-function SafariPhone({ form = 'card', filled, cvv, menu, sheet, ask, url = 'harborshop.example' }: { form?: Form; filled?: boolean; cvv?: 'focus' | 'filled'; menu?: boolean; sheet?: ReactNode; ask?: boolean; url?: string }) {
+function SafariPhone({ form = 'card', filled, cvv, missed, menu, sheet, ask, url = 'harborshop.example' }: { form?: Form; filled?: boolean; cvv?: 'focus' | 'filled'; missed?: 'expiry' | 'phone'; menu?: boolean; sheet?: ReactNode; ask?: boolean; url?: string }) {
   return (
     <IPhone>
-      <Checkout form={form} filled={filled} cvv={cvv} />
+      <Checkout form={form} filled={filled} cvv={cvv} missed={missed} />
       <div className="isf-safari">
         <span className="isf-circ" aria-hidden>‹</span>
         <div className="isf-cap"><span className={`isf-pm${menu ? ' on' : ''}`} role="img" aria-label="Page menu"><b /><i /></span><span className="isf-url">{url}</span><span aria-hidden>↻</span></div>
@@ -131,6 +133,44 @@ const PHeadLocked = () => (
   </div>
 );
 
+/** The header when the popup has no vault list to show: the page may not be filled, or Psss could not answer. */
+const PHeadBare = () => (
+  <div className="isf-h">
+    <span className="isf-mark" aria-label="Psss"><Mark u={0.3} mask /></span>
+    <span className="sp" />
+    <span className="isf-done">Done</span>
+  </div>
+);
+/** The header with another vault chosen; `menu` draws the web select open (names only, as on the Mac popup). */
+const PHeadVault = ({ name, menu }: { name: string; menu?: boolean }) => (
+  <div className="isf-h">
+    <span className="isf-mark" aria-label="Psss"><Mark u={0.3} mask /></span>
+    <span className="sp" />
+    <span style={{ position: 'relative', display: 'inline-flex' }}>
+      <VaultRow name={name} state="unlocked" variant="compact" />
+      {menu && (
+        <div className="isf-sel" role="menu">
+          {['Passwords', 'Work'].map((v) => <div key={v} className="isf-opt" role="menuitemradio" aria-checked={v === name}><span className="chk">{v === name && <CheckIcon />}</span>{v}</div>)}
+        </div>
+      )}
+    </span>
+    <span className="isf-done">Done</span>
+  </div>
+);
+
+/** A Psss screen reached from Safari: centred words, with the system's way back above. */
+const AppScreen = ({ title, text, children, overlay }: { title: string; text: string; children?: ReactNode; overlay?: ReactNode }) => (
+  <IPhone>
+    <Back />
+    <div className="isf-pad" style={{ flex: 1, justifyContent: 'center', alignItems: 'center', textAlign: 'center', padding: 24 }}>
+      <div className="t">{title}</div>
+      <div>{text}</div>
+      {children}
+    </div>
+    {overlay}
+  </IPhone>
+);
+
 const Gh = ({ children }: { children: ReactNode }) => <div className="isf-grp-h">{children}</div>;
 
 const cards = cardItems.filter((c) => !c.expired).slice(0, 2);
@@ -177,14 +217,14 @@ export function IosSafariFill() {
   return (
     <Page
       title="Cards and addresses in Safari (iPhone and iPad)"
-      status={<><strong>Approved by the owner, 2026-11-26.</strong> Not built yet. The owner’s top priority: iOS has no third-party AutoFill for cards or addresses, so Psss adds a Safari extension whose popup fills a card or an address into the checkout form. Safari’s words and behaviour were checked in the iOS 27.2 simulator; a real iPhone and the iPad still need a check. Two owner decisions shape it: after unlocking in Psss, Safari receives only a copy of one vault’s cards and addresses, never the vault’s key; and the security code fills with the card’s other fields in one tap.</>}
+      status={<><strong>Approved by the owner, 2026-11-26: frames 0 to 7b and 9, and the popup states 10 to 21.</strong> The extension target and its handler are built and left out of Release; the popup and the app side are not built. The owner’s top priority: iOS has no third-party AutoFill for cards or addresses, so Psss adds a Safari extension whose popup fills a card or an address into the checkout form. Safari’s words and behaviour were checked in the iOS 27.2 simulator; a real iPhone and the iPad still need a check. Two owner decisions shape it: after unlocking in Psss, Safari receives only a copy of one vault’s cards and addresses, never the vault’s key; and the security code fills with the card’s other fields in one tap.</>}
     >
       <Clarity
         intro={<p>On a checkout page the person opens Psss from Safari’s page menu, picks a card or an address and taps Fill. The popup is a small web page in a sheet that Safari draws; the card data comes from the vault, is shown only as network, last four digits and expiry, and goes into the page only on that tap.</p>}
         items={[
           ['Which thing?', 'The Psss extension in Safari on iPhone and iPad. It fills one saved card, or one saved address (name, street, city, postal code, email, phone), into the page in front of the person. It does not save, generate or fill logins here: system AutoFill does that.'],
-          ['What must they give?', 'The extension turned on in Settings (once), one tap on Psss in Safari’s page menu, one tap on Fill. A locked vault first needs Open Psss, Open on Safari’s question, Face ID in Psss and the way back.'],
-          ['What can go wrong?', 'The vault is locked, there are no cards, the page has no card or address fields Psss recognizes, or its card fields sit inside the payment provider’s own frame. Each notice says what to do.'],
+          ['What must they give?', 'The extension turned on in Settings (once), one tap on Psss in Safari’s page menu, one tap on Fill. A locked vault first needs Open Psss, Open on Safari’s question, Face ID or the vault password in Psss, and the way back.'],
+          ['What can go wrong?', 'The vault is locked, there are no cards, the page has no card or address fields Psss recognizes, or its card fields sit inside the payment provider’s own frame. Or Safari has not allowed the page, the page is not HTTPS or changed, the list was out of date, only part or nothing was filled, or Psss could not share with Safari (frames 10 to 18b), and there may be no vault yet (20). Each notice says what happened and what to do.'],
           ['Where does it live?', 'Cards and addresses stay in the vault, in iCloud Drive or where the person put it. Nothing is uploaded. The page receives only the values of the fields that are filled, on the tap.'],
           ['Who holds the key?', 'Psss. Face ID opens the vault in Psss, as everywhere. Safari then receives only a copy of that one vault’s cards (with saved security codes) and addresses, kept in the Keychain on this device. It gets no vault key and cannot open the vault or read passwords, passkeys, verification codes or notes (owner, 2026-11-26).'],
           ['How do they leave?', 'Done, or swipe the sheet down. Looking and filling change nothing in the vault. Turning it off: Settings › Apps › Safari › Extensions › Psss.'],
@@ -210,14 +250,14 @@ export function IosSafariFill() {
         <Frame phone label="2 · A card form, with an address too" caption="The page has card and address fields, so there are two groups, cards first. Each heading says the kind, because “For This Page” alone would not. An expired card is left out of the list (it stays in the app).">
           <SafariPhone sheet={<><PHead /><CardList /><AddressList /></>} />
         </Frame>
-        <Frame phone label="3a · After Fill, no security code saved" caption="The form is filled with name, number and expiry. The security code field is focused and the popup says to tap it and enter the code. Safari raises the number keyboard while the popup is open, but drops it when the popup closes.">
-          <SafariPhone filled cvv="focus" sheet={<><PHead /><Result code="none" /><button className="btn wide">Done</button></>} />
+        <Frame phone label="3a · After Fill, no security code saved" caption="The form is filled with name, number and expiry; the sentence names only what was written (part filled: frame 15a). The security code field is focused and the popup says to tap it and enter the code. Done at the top closes the sheet. Safari raises the number keyboard while the popup is open, but drops it when the popup closes.">
+          <SafariPhone filled cvv="focus" sheet={<><PHead /><Result code="none" /></>} />
         </Frame>
         <Frame phone label="3a, after Done · Keyboard down" caption="The sheet is closed. The focus ring stays on the security code field, but the keyboard has gone down: the person taps the field to bring it back.">
           <SafariPhone filled cvv="focus" />
         </Frame>
         <Frame phone label="3b · After Fill, security code saved" caption="Owner decision, 2026-11-26: one Fill writes the card’s name, number, expiry and saved security code together. There is no separate Fill Security Code tap. The code is never shown in the popup, and the tap on Fill is the deliberate action.">
-          <SafariPhone filled cvv="filled" sheet={<><PHead /><Result code="stored" /><button className="btn wide">Done</button></>} />
+          <SafariPhone filled cvv="filled" sheet={<><PHead /><Result code="stored" /></>} />
         </Frame>
       </Frames>
 
@@ -226,13 +266,13 @@ export function IosSafariFill() {
         <p><strong>If a device test shows Face ID works from the extension</strong>, the notice carries <em>Unlock with Face ID</em> beside the vault select, as on the Mac, and the trip to Psss (4a·2 to 4c) is not needed. Not drawn: it is a possibility, not the plan.</p>
       </Section>
       <Frames>
-        <Frame phone label="4a · Passwords is locked" caption="A notice in the vault-notice style with one labeled button. The cards stay hidden. Open Psss only opens the app; nothing is unlocked by it.">
-          <SafariPhone sheet={<><PHeadLocked /><Notice kind="info" action={OpenPsss}>Passwords is locked. Open Psss to unlock it with Face ID.</Notice></>} />
+        <Frame phone label="4a · Passwords is locked" caption="A notice in the vault-notice style with one labeled button. The cards stay hidden. Open Psss only opens the app; nothing is unlocked by it. The same words for every locked vault, whether it opens with Face ID, Touch ID or its password.">
+          <SafariPhone sheet={<><PHeadLocked /><Notice kind="info" action={OpenPsss}>Passwords is locked. Open Psss to unlock it.</Notice></>} />
         </Frame>
         <Frame phone label="4a·2 · Safari asks" caption="After Open Psss the popup closes and Safari asks over the checkout page. Open goes to Psss. Cancel leaves the page as it was. Safari draws the question and its words.">
           <SafariPhone ask />
         </Frame>
-        <Frame phone label="4b · In Psss, after Face ID" caption="Psss says that the vault is unlocked and what to do next, and nothing else new. The status bar’s ◀ Safari link is the system’s.">
+        <Frame phone label="4b · In Psss, after unlocking" caption="Psss says that the vault is unlocked and what to do next, and nothing else new. The status bar’s ◀ Safari link is the system’s.">
           <IPhone>
             <Back />
             <div className="isf-pad" style={{ flex: 1, justifyContent: 'center', alignItems: 'center', textAlign: 'center', padding: 24 }}>
@@ -253,13 +293,13 @@ export function IosSafariFill() {
         <Frame phone label="5 · No cards in Passwords" caption="Shown on a card form when the current vault has none. One way on: the labeled button. With two vaults the line also says to choose another vault.">
           <SafariPhone sheet={<><PHead /><Notice kind="info" title="No cards in Passwords" action={OpenPsss}>Add a card in Psss. Or choose another vault above.</Notice></>} />
         </Frame>
-        <Frame phone label="6 · A delivery form" caption="Only address fields on the page, so only the Addresses group. Fill writes name, street, city, postal code, email and phone into the fields that exist and leaves the rest alone. An address is an item that does not exist yet in the vault (see Depends on).">
+        <Frame phone label="6 · A delivery form" caption="Only address fields on the page, so only the Addresses group. Fill writes every field Psss recognizes: name, company, street, city, region, postal code, country, email and phone. Separate first and last name fields are filled only from a two-word name (owner, 2026-11-26). Other fields are left alone. The address item is described under Depends on.">
           <SafariPhone form="address" sheet={<><PHead /><AddressList title="Addresses for This Page" /></>} />
         </Frame>
         <Frame phone label="7a · No card or address fields" caption="The words say what was looked for. There is no search field and no “fill anyway”, see Decisions.">
-          <SafariPhone form="none" url="harborshop.example/news" sheet={<><PHead /><Notice kind="info">Psss found no card or address fields on this page.</Notice></>} />
+          <SafariPhone form="none" sheet={<><PHead /><Notice kind="info">Psss found no card or address fields on this page.</Notice></>} />
         </Frame>
-        <Frame phone label="7b · Card fields inside a payment frame" caption="Many shops show the card form from their payment provider inside a frame of its own. Psss fills the page itself, not other sites’ frames, so it says so. What to do instead: the card’s page in Psss (Copy). Whether fields in frames can be filled safely is a separate decision (docs/autofill.md).">
+        <Frame phone label="7b · Card fields inside a payment frame" caption="Many shops show the card form from their payment provider inside a frame of its own. Psss fills the page itself, not other sites’ frames, so it says so. What to do instead: the card’s page in Psss (Copy). This is a guess made from outside the frame; when Psss is unsure it shows the words of 7a. Whether fields in frames can be filled safely is a separate decision (docs/autofill.md). Open Psss only opens the app, for copying; it does not ask to share with Safari.">
           <SafariPhone form="frame" sheet={<><PHead /><Notice kind="info" title="Card fields are in a payment frame">This page’s card form belongs to its payment provider, so Psss can’t fill it. Open Psss to copy the number.</Notice><button className="btn wide">Open Psss</button></>} />
         </Frame>
       </Frames>
@@ -268,6 +308,9 @@ export function IosSafariFill() {
         <p>The extension is off until the person allows it. The card that says so, its steps sheet and the Settings row are on <a href="#/safari-extension-reminder">Safari extension reminder</a>; they replace frame 8, the first-run card, which is no longer drawn here.</p>
       </Section>
       <Frames>
+        <Frame phone label="8 · First-run card: replaced" caption="Nothing to build from this number.">
+          <div className="dt isf-note">Replaced by <a href="#/safari-extension-reminder">Safari extension reminder</a> (2026-11-26).</div>
+        </Frame>
         <Frame label="9 · iPad: a popover from the toolbar" caption="On iPad Safari shows an extension button (puzzle piece) in the toolbar and the popup opens as a popover under it, with the same content as the iPhone sheet. Same rows, same notices, same Done.">
           <IPad>
             <div className="isf-ipad">
@@ -282,6 +325,88 @@ export function IosSafariFill() {
         </Frame>
       </Frames>
 
+      <Section title="6. The page cannot be filled">
+        <p>No message shows how long Safari may fill, and Safari gets cards and addresses only. On iPad the same words and buttons show in the popover of frame 9, so there are no separate iPad frames.</p>
+      </Section>
+      <Frames>
+        <Frame phone label="10 · Safari has not allowed the page" caption="Safari refuses to let Psss read the page in front. The popup has no list, so no vault select. It does not send the person to a Settings path that has not been checked, and never asks to allow all websites. Not seen in the simulator, which asked nothing; the wording needs a real iPhone.">
+          <SafariPhone sheet={<><PHeadBare /><Notice kind="warning" title="Safari hasn’t allowed Psss on this page">Nothing was filled. Close this, open Psss again, and allow it if Safari asks.</Notice></>} />
+        </Frame>
+        <Frame phone label="11 · The page is not HTTPS" caption="The popup checks the address before asking Psss for anything, and the handler refuses it too. No Open Psss button: the message should not lead to typing a card into this page.">
+          <SafariPhone url="Not Secure" sheet={<><PHeadBare /><Notice kind="warning" title="This page isn’t secure">Psss fills only pages that use HTTPS. Nothing was filled.</Notice></>} />
+        </Frame>
+        <Frame phone label="12 · The page changed before Fill" caption="Between the list and the tap on Fill, the tab went to another site, or another tab came to the front. The popup checks before asking for the values and again before writing.">
+          <SafariPhone url="pay.harbor.example" sheet={<><PHead /><Notice kind="warning" title="The page changed">Nothing was filled. Close this and open Psss again.</Notice></>} />
+        </Frame>
+        <Frame phone label="13 · Fill is no longer allowed (frame 4a again)" caption="The list was showing, but by the tap on Fill Psss no longer lets Safari fill: the vault was locked, or the permission ran out. The popup replaces the list with frame 4a’s notice, starting with “Nothing was filled.”">
+          <SafariPhone sheet={<><PHeadLocked /><Notice kind="info" action={OpenPsss}>Nothing was filled. Passwords is locked. Open Psss to unlock it.</Notice></>} />
+        </Frame>
+        <Frame phone label="13b · The list was out of date at Fill" caption="The card or address tapped is no longer in what Safari was given (for example Psss was unlocked again since the list was drawn). The popup asks for the list again, shows it and says to tap again. If the chosen vault is no longer ready, it shows its locked notice instead.">
+          <SafariPhone sheet={<><PHead /><Notice kind="warning">Nothing was filled. Tap Fill again.</Notice><CardList /></>} />
+        </Frame>
+      </Frames>
+
+      <Section title="7. Nothing or only part was filled">
+        <p>The popup learns which fields were written, never their values, and builds the sentence from that: the fields in the form in the page’s order, then the fields that have a saved value and a place on the page but were not written. A field the page does not have is not mentioned. A card whose number the page does not keep gets nothing else, so it shows frame 14.</p>
+      </Section>
+      <Frames>
+        <Frame phone label="14 · Nothing was filled" caption="The fields were hidden, read-only, too short, gone, or did not keep the value. The same words for an address, with its name. Open Psss here only opens the app, to copy from the item; it does not ask to share with Safari.">
+          <SafariPhone sheet={<><PHead /><Notice kind="warning" title="Nothing was filled" action={OpenPsss}>This page’s fields didn’t take Everyday Visa. Open Psss to copy the details.</Notice></>} />
+        </Frame>
+        <Frame phone label="15a · Part of a card" caption="Here the expiry list on the page had no matching choice. One missed field says “it”, several say “them”. Done at the top closes the sheet.">
+          <SafariPhone filled cvv="filled" missed="expiry" sheet={<><PHead /><Notice kind="warning" title="Partly filled Everyday Visa">Name on card, card number and security code are in the form. Expiry was not filled. Type it on the page.</Notice></>} />
+        </Frame>
+        <Frame phone label="15b · Part of an address" caption="Here the phone field was too short for the saved number, so it was left empty rather than cut.">
+          <SafariPhone form="address" filled missed="phone" sheet={<><PHead /><Notice kind="warning" title="Partly filled Home">Name, street address, postal code, city and email are in the form. Phone was not filled. Type it on the page.</Notice></>} />
+        </Frame>
+      </Frames>
+
+      <Section title="8. Psss could not share, or was already open" />
+      <Frames>
+        <Frame phone label="16a · In Psss: could not share" caption="Shown instead of frame 4b when Psss could not save the copy for Safari. The vault stays unlocked in Psss. Try Again saves the copy once more; Done goes to the vault.">
+          <AppScreen title="Couldn’t share with Safari" text="Passwords is unlocked, but Safari can’t fill from it.">
+            <button className="btn pri wide">Try Again</button>
+            <button className="btn plain">Done</button>
+          </AppScreen>
+        </Frame>
+        <Frame phone label="16b · In Safari: Psss can’t answer" caption="Psss in Safari cannot read what the app saved or the vault list, or gets a reply it does not understand. No vault name or select, because there is no list. No error codes.">
+          <SafariPhone sheet={<><PHeadBare /><Notice kind="warning" title="Psss can’t fill right now" action={OpenPsss}>Nothing was filled. Open Psss, then try again in Safari.</Notice></>} />
+        </Frame>
+        <Frame phone label="17a · Psss was already open" caption="After Open Psss, an unlocked Psss asks for Face ID again before Safari gets anything. Face ID starts by itself; the system draws it. A device with Touch ID says Touch ID. Success shows frame 4b.">
+          <AppScreen title="Fill from Passwords in Safari" text="Use Face ID to let Safari fill its cards and addresses." overlay={<BioPrompt bio="Face ID" reason="" />} />
+        </Frame>
+        <Frame phone label="17b · Face ID cancelled or failed" caption="Nothing was given to Safari. One button asks again; Cancel goes to the vault. The ◀ Safari link still works.">
+          <AppScreen title="Fill from Passwords in Safari" text="Use Face ID to let Safari fill its cards and addresses.">
+            <button className="btn pri wide">Use Face ID</button>
+            <button className="btn plain">Cancel</button>
+          </AppScreen>
+        </Frame>
+      </Frames>
+
+      <Section title="9. Another vault">
+        <p>Safari has the cards and addresses of one vault at a time. Choosing another vault shows that it is locked; nothing from the first vault is shown under its name. Unlocking the second one replaces what Safari had, so the first then shows as locked.</p>
+      </Section>
+      <Frames>
+        <Frame phone label="18a · Choosing another vault" caption="Passwords is ready. The vault select is a plain web list with names only, as in the Mac popup.">
+          <SafariPhone sheet={<><PHeadVault name="Passwords" menu /><CardList /></>} />
+        </Frame>
+        <Frame phone label="18b · Work is locked" caption="Open Psss goes to Work’s unlock, with Face ID, Touch ID or its password; the words are the same for each. Choosing Passwords again shows its cards at once, as long as Safari may still fill from it.">
+          <SafariPhone sheet={<><PHeadVault name="Work" /><Notice kind="info" action={OpenPsss}>Work is locked. Open Psss to unlock it.</Notice></>} />
+        </Frame>
+      </Frames>
+
+      <Section title="10. No vault yet, and the first load">
+        <p>On iPad the same content shows in the popover.</p>
+      </Section>
+      <Frames>
+        <Frame phone label="20 · No vault set up yet" caption="Psss answers with an empty vault list: no vault has been created or opened, or every one was removed. No vault select. Open Psss only opens the app, which offers to create or open a vault; there is nothing to share yet.">
+          <SafariPhone sheet={<><PHeadBare /><Notice kind="info" title="No vault yet" action={OpenPsss}>Open Psss to create or open a vault. Then come back to Safari and try again.</Notice></>} />
+        </Frame>
+        <Frame phone label="21 · Waiting for the first answer" caption="Shown from the moment the popup asks until Psss answers. The first answer took about 8 seconds in the simulator, later ones were immediate. The answer replaces this with the list, a locked notice or frame 20. If the request fails, or nothing comes back and the popup stops waiting, it shows frame 16b; an answer that arrives after that is ignored. Done leaves at any time.">
+          <SafariPhone sheet={<><PHeadBare /><Notice kind="progress">Loading cards and addresses…</Notice></>} />
+        </Frame>
+      </Frames>
+
       <Section title="Depends on">
         <div className="isf-note">
           <ul style={{ margin: 0, paddingLeft: 18 }}>
@@ -293,8 +418,44 @@ export function IosSafariFill() {
         </div>
       </Section>
 
+      <Section title="Decisions" />
       <Decisions
         items={[
+          {
+            decision: <><strong>Owner, 2026-11-26:</strong> every locked vault says “&lt;Vault&gt; is locked. Open Psss to unlock it.” (4a, 13, 18b).</>,
+            rejected: <>“with Face ID” in the popup; telling Safari how each vault unlocks.</>,
+            why: <>The popup is not told whether a vault uses Face ID, Touch ID or only its password, and these words are true for all three.</>,
+          },
+          {
+            decision: <>A failed Fill says “Nothing was filled” or names what was and was not filled. A lock noticed on the tap starts with the same words (13). A list that is out of date is loaded again with “Nothing was filled. Tap Fill again.” (13b).</>,
+            rejected: <>closing the popup silently; a raw error word; reloading the list without saying why.</>,
+            why: <>The person has to know whether to check the form before paying.</>,
+          },
+          {
+            decision: <>Open Psss after nothing was filled or on a payment frame (14, 7b) only opens the app, for copying. It does not start sharing with Safari.</>,
+          },
+          {
+            decision: <>“Safari hasn’t allowed Psss” and “This page isn’t secure” have no button of their own: Safari’s Done is the way out. Release builds fill HTTPS pages only.</>,
+            rejected: <>Open Psss on an insecure page; a Settings path that has not been checked on a device.</>,
+          },
+          {
+            decision: <>An already open Psss asks for Face ID again before Safari gets the copy (17a, 17b). When sharing fails, Psss offers Try Again and Done (16a).</>,
+            rejected: <>giving Safari the copy at once.</>,
+            why: <>Any web page can ask Psss to open; the check makes sure the person means it.</>,
+          },
+          {
+            decision: <>With no vault, the popup says “No vault yet” and offers Open Psss, which only opens the app (20).</>,
+            rejected: <>an empty list; “Passwords is locked” for a vault that does not exist.</>,
+          },
+          {
+            decision: <>While waiting for the first answer, a spinner and “Loading cards and addresses…” (21). After 20 seconds, a number never shown to the person, the popup stops waiting and shows 16b; a later answer is ignored.</>,
+            rejected: <>a blank sheet; waiting with no end.</>,
+            why: <>Nothing else ends the wait if no answer comes back. 20 seconds is about twice the slowest first answer seen (9.5 s in the simulator on a busy Mac).</>,
+          },
+          {
+            decision: <>No result in the popup has a large Done button (3a, 3b, 15a, 15b): Safari’s Done at the top is the one way to close.</>,
+            rejected: <>a second, large Done under the result.</>,
+          },
           {
             decision: <>Cards are filled with one tap on Fill: cardholder, number, expiry and a saved security code go in together (owner, 2026-11-26). With no code saved, the field is focused and the popup says “Tap the security code field and enter the code from your card.”</>,
             rejected: <>a separate <strong>Fill Security Code</strong> tap after the first Fill (the earlier draft: it kept the code behind its own deliberate action, docs/items.md); a separate Fill on each field.</>,
@@ -306,7 +467,7 @@ export function IosSafariFill() {
             why: <>A card number written into a field Psss did not identify can land in a hidden input, a lookalike form or a script’s field, and a fake checkout could ask for it. Recognized fields on the page itself are the safety rule. The single-field route in the iOS text-insertion sheet (docs/autofill.md) covers a mislabeled form, where the person aims the value.</>,
           },
           {
-            decision: <>A locked vault sends the person to Psss: notice with a labeled Open Psss button, Face ID in the app, a line saying to go back to Safari and tap Psss again. Face ID inside the popup is only a possibility if a device test shows it works.</>,
+            decision: <>A locked vault sends the person to Psss: notice with a labeled Open Psss button, unlocking in the app, a line saying to go back to Safari and tap Psss again. Face ID inside the popup is only a possibility if a device test shows it works.</>,
             rejected: <>a Face ID button as the main path (an extension handler most likely cannot raise it); a button that says Unlock but opens an app.</>,
             why: <>The button says what it does. It has to be a tap in the popup, because iOS allows opening the app only from one.</>,
           },
@@ -343,6 +504,9 @@ export function IosSafariFill() {
 
       <History
         entries={[
+          { date: '2026-11-26', text: <>The owner approved frames 20 (no vault yet) and 21 (first load) as drawn, with a 20 second wait before 16b that is never shown, and removed the large Done button from 3a and 3b, as already on 15a and 15b, because it doubled Safari’s Done.</> },
+          { date: '2026-11-26', text: <>The owner approved frames 10 to 19 with changes. Every locked vault now says “Open Psss to unlock it.” (replacing “with Face ID” in 4a, 13 and 18b), so frame 19, the vault that needs its password, no longer differed and was merged into 18b. Frame 13 now starts with “Nothing was filled.”; 13b was added for a list that is out of date at Fill; the large Done button left 15a and 15b. Open Psss on 7b and 14 only opens the app; names are split only for two-word names; release builds fill HTTPS only. Frames 20 (no vault yet) and 21 (first load) were drawn as new proposals.</> },
+          { date: '2026-11-26', text: <>Added proposals awaiting approval, frames 10 to 19, because the build plan listed states the approved page did not draw: Safari not allowing the page, not HTTPS, page changed, permission gone before Fill (frame 4a again), nothing or part filled, Psss could not share (app and popup), Face ID when Psss was already open, a second locked vault, and a vault that needs its password. Captions of 3a, 4a, 6 and 7b now follow what the code can do (sentence built from what was written; every recognized address field, replacing the shorter list; payment frame is a guess that falls back to 7a). Frame 8 is shown as replaced. No frame or message shows a time limit, so the plan’s suggested “for two minutes” line was not used (owner’s decision).</> },
           { date: '2026-11-26', text: <>After the device spike the owner replaced the vault key in Safari with a copy of one vault’s cards and addresses (memory limit; iCloud Drive and picked files not proven); added the Settings page with the owner’s description (0), Safari’s “Open this page in “Psss”?” (4a·2) and the keyboard going down after the popup closes; frame 3a now says to tap the code field (was “Enter the security code from your card.”), and the ᴀA menu and old toolbar became the iOS 27.2 page menu and address bar.</> },
           { date: '2026-11-26', text: <>Owner approved frame 4b without a line saying Safari now has access.</> },
           { date: '2026-11-26', text: <>Owner decisions. (1) No screen, button or message shows a time limit: frame 4b lost its line saying how long the vault stays open for Safari, because the limit stays but is not something the person has to manage. (2) “A short read permission” became what it is: the extension holds the vault’s key and can open the whole vault, while filling only cards and addresses; a cards-and-addresses-only copy was rejected and the risk of a leaked key accepted. (3) Frame 8, the first-run card, was removed; <a href="#/safari-extension-reminder">Safari extension reminder</a> replaces it.</> },

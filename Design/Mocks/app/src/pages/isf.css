@@ -51,4 +51,9 @@
 .isf-pop{position:absolute;top:44px;right:56px;width:340px;background:var(--screen);border-radius:16px;box-shadow:var(--shadow);padding:12px;display:flex;flex-direction:column;gap:10px;z-index:5}
 .isf-pop:before{content:"";position:absolute;top:-6px;right:20px;width:14px;height:14px;background:var(--screen);transform:rotate(45deg)}
 .isf-note{border:1px dashed var(--sep);border-radius:10px;padding:8px 10px;color:var(--lab2)}
-.isf-safari .isf-circ{width:34px;height:34px}
+.isf-safari .isf-circ{width:30px;height:30px}
+.isf-safari{padding-inline:8px;gap:6px}
+/* The popup's vault select, open */
+.isf-sel{position:absolute;right:0;top:calc(100% + 4px);min-width:180px;background:var(--glass);backdrop-filter:blur(20px);border-radius:14px;box-shadow:var(--shadow);padding:6px;z-index:40}
+.isf-opt{display:flex;align-items:center;gap:8px;padding:6px 8px}
+.isf-opt .chk{width:14px;height:14px;display:inline-grid;place-items:center}
