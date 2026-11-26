@@ -84,7 +84,7 @@ struct PlaceReminders: ViewModifier {
                     SafariExtensionLaterNotice()
                 }
             }
-            .sheet(isPresented: $showsSteps) { SafariExtensionStepsSheet() }
+            .sheet(isPresented: $showsSteps) { SafariExtensionStepsSheet(openedFromCard: true) }
     }
 }
 #endif

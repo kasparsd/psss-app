@@ -113,7 +113,7 @@ struct AutoFillLaterNotice: View {
 }
 
 #if os(iOS)
-/// The same after Later on the Safari extension card: when it comes back and where the steps stay.
+/// The same after Later on the Safari extension card: when it comes back.
 struct SafariExtensionLaterNotice: View {
     @Environment(SafariExtensionStatus.self) private var extensionStatus
 

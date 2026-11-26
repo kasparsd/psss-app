@@ -85,7 +85,7 @@ enum SafariExtensionCopy {
 
     // MARK: iPhone and iPad
 
-    static var laterNotice: String { String(localized: "Psss will remind you in a week. The steps stay in Settings, Safari Extension.") }
+    static var laterNotice: String { String(localized: "Psss will remind you in a week.") }
 
     static var settingsRow: String { String(localized: "Safari Extension") }
 
@@ -173,7 +173,7 @@ struct DefaultsSafariExtensionMemory {
 final class SafariExtensionStatus {
     private(set) var reading: SafariExtensionReading = .notRead
     private(set) var memory: SafariExtensionMemory
-    /// iPhone and iPad show a line after Later: when the card comes back and where the steps stay. It goes away by itself.
+    /// iPhone and iPad show a line after Later: when the card comes back. It goes away by itself.
     private(set) var laterNoticeShown = false
     /// `SafariExtensionReminder.extensionWorks` of this platform. With it off, nothing about the extension shows.
     let extensionWorks: Bool

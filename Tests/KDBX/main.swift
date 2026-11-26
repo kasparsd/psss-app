@@ -4100,6 +4100,7 @@ await autoFillReminderChecks()
     status.snooze()
     expect("safari extension: Later is remembered", saved.memory?.snoozedAt == laterAt)
     expect("safari extension: Later raises its notice", status.laterNoticeShown)
+    check("safari extension: the notice names the week", SafariExtensionCopy.laterNotice, "Psss will remind you in a week.")
     status.dismissLaterNotice()
     expect("safari extension: the notice goes away", !status.laterNoticeShown)
 

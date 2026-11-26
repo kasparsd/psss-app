@@ -9,6 +9,8 @@ import SwiftUI
 /// two ways to reach it.
 struct SafariExtensionStepsSheet: View {
     @Environment(\.dismiss) private var dismiss
+    /// Opened from the reminder card, not from Settings: only then is there a card to say something about (owner, 2026-11-26).
+    var openedFromCard = false
 
     var body: some View {
         NavigationStack {
@@ -28,8 +30,12 @@ struct SafariExtensionStepsSheet: View {
                     SafariPageMenuPicture()
                     Text("A drawing of Safari’s page menu. The real one is Safari’s and differs a little between iOS versions.")
                         .foregroundStyle(.secondary)
-                    Text("Psss can’t open that page of Settings for you, so these are the steps. This card goes away once Psss has run in Safari.")
+                    Text("Psss can’t open that page of Settings for you, so these are the steps.")
                         .foregroundStyle(.secondary)
+                    if openedFromCard {
+                        Text("This card goes away once Psss has run in Safari.")
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)

@@ -220,12 +220,12 @@ export function SafariExtensionReminder() {
           ['What can go wrong?', 'The person turns it on but Safari still asks per site (the steps say Ask also works); the extension is turned off later (the card does not come back, see Decisions); the steps differ a little on another iOS version (the picture says it is drawn).'],
           ['Where does it live?', 'The card is at the top of the Cards and Addresses places, where a person who wants to fill a card has just looked. The same steps are always in Settings › Safari Extension. The “seen” note is a flag in the App Group the app and the extension share; it holds no vault data.'],
           ['Who holds the key?', 'Nothing here touches the vault key. Face ID, the vault password and the two-minute read permission are on the Safari page.'],
-          ['How do they leave?', 'Later hides the card for a week, as the AutoFill card does, and says where the steps stay (Settings). Done closes the steps sheet. Nothing is changed or stored by looking.'],
+          ['How do they leave?', 'Later hides the card for a week, as the AutoFill card does, and says so. The steps stay in Settings. Done closes the steps sheet. Nothing is changed or stored by looking.'],
         ]}
       />
 
       <Section title="1. The card on iPhone: Cards and Addresses">
-        <p>The card is the AutoFill card’s: the same shape, the same two buttons, plain content at the top of the list that scrolls away with it. Later shows a line for a few seconds, with OK: “Psss will remind you in a week. The steps stay in Settings, Safari Extension.” It sits on the places that hold what the extension fills, and not on All, where it would be above a long list of logins it does not concern. Addresses is under More on iPhone, so the card shows there once the person opens it.</p>
+        <p>The card is the AutoFill card’s: the same shape, the same two buttons, plain content at the top of the list that scrolls away with it. Later shows a line for a few seconds, with OK: “Psss will remind you in a week.” It sits on the places that hold what the extension fills, and not on All, where it would be above a long list of logins it does not concern. Addresses is under More on iPhone, so the card shows there once the person opens it.</p>
       </Section>
       <Frames>
         <Frame phone label="A · iPhone, Cards" caption="First thing in the list, above Recently used. The title says what it gives; the body says passwords already work and what needs the extension. One filled button that opens steps, one plain Later.">
@@ -243,7 +243,7 @@ export function SafariExtensionReminder() {
         <Frame phone label="C · The steps sheet" caption="Title in the bar, Done at the trailing end (the system’s sheet). One sentence says what the extension is for and that passwords do not need it, then the three steps in Settings. All text is body size; the group names are secondary colour.">
           <CardsPhone dimmed top={<SafariCard />}><StepsSheet /></CardsPhone>
         </Frame>
-        <Frame phone label="D · The same sheet, scrolled" caption="The second way: the page menu in Safari, Manage Extensions, with a drawn picture. The last line says Psss cannot open that Settings page for the person, and when the card goes away.">
+        <Frame phone label="D · The same sheet, scrolled" caption="The second way: the page menu in Safari, Manage Extensions, with a drawn picture. The last line says Psss cannot open that Settings page for the person and, because this sheet was opened from the card, when the card goes away. Opened from Settings, it ends after “these are the steps.”">
           <CardsPhone dimmed top={<SafariCard />}><StepsSheet at="safari" /></CardsPhone>
         </Frame>
       </Frames>
@@ -357,6 +357,7 @@ export function SafariExtensionReminder() {
         proposal
         entries={[
           { date: '2026-11-26', text: <>Built, switched off until the iOS extension exists. Changed to match what the system draws: the Settings row is an accent-colour button row without a chevron (a chevron means a pushed page; this opens the sheet), replacing the primary-colour navigation row; the steps sheet has no grabber. Added: the words of the line after Later; the AutoFill confirmation also shows on Cards and Addresses. Frame J now draws only the built Mac card; the old Mac words (“Turn on the Safari extension…”) are gone from the app.</> },
+          { date: '2026-11-26', text: <>Owner: the line after Later reads only “Psss will remind you in a week.” (it also said where the steps stay in Settings). The sheet’s last sentence about the card shows only when opened from the card, since from Settings there may be no card.</> },
           { date: '2026-11-26', text: <>Owner approved. Settings row reads “Used in Safari” instead of “Working”; the steps keep the site permission on Ask (was All Websites › Allow); an empty place shows no card; one card at a time on the Mac too.</> },
           { date: '2026-11-26', text: <>New page, from the owner’s direction: the extension leaves a “seen” note for the app and the card shows only until then; How to Turn It On opens a steps sheet because iOS has no link to the switch; the card sits on Cards and Addresses and in a Settings row; AutoFill first. Replaces the first-run card with inline steps (frame 8 of <a href="#/ios-safari-fill">Cards and addresses in Safari</a>) and the Mac-only reminder as the only reminder; the Mac card’s words are proposed to match.</> },
         ]}
