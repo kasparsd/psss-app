@@ -773,5 +773,23 @@ do {
     expect("no logins: a hostile vault name is one line without bidi controls", !hostileVault.contains("\n") && !hostileVault.unicodeScalars.contains { $0.value == 0x202E }, true)
 }
 
+// The address a website row opens in the browser.
+func opens(_ stored: String, _ url: String?, custom: Bool = false) {
+    same("web address of \(stored.debugDescription)\(custom ? " (custom field)" : "")", SiteMatch.webAddress(stored, requiresScheme: custom)?.absoluteString, url)
+}
+opens("example.com", "https://example.com")
+opens(" example.com/login?next=1 ", "https://example.com/login?next=1")
+opens("www.example.com:8443", "https://www.example.com:8443")
+opens("http://example.com", "http://example.com")
+opens("HTTPS://Example.com/a", "HTTPS://Example.com/a")
+opens("https://example.com", "https://example.com", custom: true)
+opens("example.com", nil, custom: true)
+opens("report.pdf", nil, custom: true)
+for junk in ["", "My bank", "https://", "javascript:alert(1)", "file:///etc/passwd", "ftp://example.com", "ssh://example.com", "androidapp://com.example",
+             "mailto:me@example.com", "tel:12345", "https://user@example.com", "https://example.com\\@evil.test", "example.com\nevil.test", "exa\u{202E}mple.com"] {
+    opens(junk, nil)
+    opens(junk, nil, custom: true)
+}
+
 if failures > 0 { print("\n\(failures) FAILED"); exit(1) }
 print("\nall site matching checks passed")

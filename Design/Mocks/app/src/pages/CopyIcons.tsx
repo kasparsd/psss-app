@@ -12,7 +12,7 @@ export function CopyIcons() {
       >
         <Clarity
           items={[
-            ['What happens?', <>On an item's page a tap or click anywhere on a field's row copies it. The row's copy icon turns into a checkmark for a moment and a pill near the bottom says what was copied: “Password copied”. The icon stays as the visible sign that the row copies.</>],
+            ['What happens?', <>On an item's page a tap or click anywhere on a field's row copies it, except a web address, which opens in the browser. The row's copy icon turns into a checkmark for a moment and a pill near the bottom says what was copied: “Password copied”. The icon stays as the visible sign that the row copies.</>],
             ['What else?', <>Hidden values show eight dots and an eye right after them; the eye never copies. Copies stay on the device and are cleared after 60 seconds; the line under the first group says so, with its info button.</>],
             ['What can go wrong?', 'They copy a field they did not mean to (the pill names what was copied, and it leaves the clipboard after 60 seconds). They reveal a password by accident (the eye is its own target, and a value hides again when the item is left).'],
           ]}
@@ -50,7 +50,7 @@ export function CopyIcons() {
         <Decisions
           items={[
             {
-              decision: <><strong>1. The whole field row copies.</strong> A tap or click anywhere on a row that has a copy icon copies that field, with the same checkmark, pill and haptic. The copy icon stays. The eye stays its own button. Rows without a copy icon do nothing. On Mac the row highlights under the pointer.</>,
+              decision: <><strong>1. The whole field row copies.</strong> A tap or click anywhere on a row that has a copy icon copies that field (a web address opens instead, decision 8), with the same checkmark, pill and haptic. The copy icon stays. The eye stays its own button. Rows without a copy icon do nothing. On Mac the row highlights under the pointer.</>,
               rejected: <>the icon as the only way (decided 2026-11-23, to avoid a hidden gesture); removing the icon once the row copies; the word “Copy” on every row.</>,
               why: <>A whole row is an easier target than a 17 pt glyph, and with the icon kept the gesture is not hidden. The risk the icon-only rule guarded against, copying by accident while aiming for the eye, is handled by keeping the eye's own target.</>,
             },
@@ -80,6 +80,11 @@ export function CopyIcons() {
               decision: <><strong>7. Where a field's action sits.</strong> At the trailing end of its own row, on the same line as the value, right-aligned with the same inset as the row's leading padding. This covers copy icons and info buttons in rows. Editor actions follow the same rule (see <a href="#/item-page">Item page, Edit and toolbar</a>).</>,
               why: <>The owner's rule: one place to look for a field's action, and rows that line up on both edges. A labelled button that acts on a whole field with no value to copy (Set Up Code…) sits under that field instead.</>,
             },
+            {
+              decision: <><strong>8. A web address opens.</strong> A tap or click on the Website row, or on a stored field that starts with http:// or https://, opens it in the default browser. The value is in the accent colour. The copy icon stays and copies. Touch and hold (right-click on Mac) offers “Open in Browser” and “Copy Website”. Only web addresses open; anything else, and a protected value, copies as before.</>,
+              rejected: <>copying on tap like every other row; a separate Open button beside the copy icon.</>,
+              why: <>Going to the site is what a person most often wants from its address, and copying stays one tap away.</>,
+            },
           ]}
         />
 
@@ -90,6 +95,7 @@ export function CopyIcons() {
 
         <History
           entries={[
+          { date: '2026-11-26', text: <>Owner: a web address row opens in the browser instead of copying; the value is drawn as a link, the copy icon stays, and touch and hold or right-click offers Open in Browser and Copy. Replaces copying on a tap on the Website row.</> },
           { date: '2026-11-25', text: <>Owner: icon on the left, row-size header, no own chevron; the pull-down is replaced by the right-click menu (built that way, mock follows). The Mac and iPad sidebar frames show it.</> },
           { date: '2026-11-25', text: <>Shared Mac and iPad window: the sidebar now ends in a foot pinned to the bottom, with Add Vault and an icon-only Settings gear (opens the Settings window on the Mac, the Settings sheet on iPad); on iPad the gear left the sidebar toolbar and Add Vault is no longer the last row of the list. Replaces the iPad sidebar toolbar gear and the Add Vault list row in every frame of this page. See <a href="#/vault-switcher">Vaults</a>.</> },
           { date: '2026-11-25', text: <>Review fixes to the shared Mac and iPad window: the Mac window is a Mac surface throughout, so its buttons are macOS push buttons (Unlock, Use Touch ID, Forgot Password, Copy Setup Link, Show QR Code), its switches are Mac switches, and its text is two sizes, the title (17 px) and the body (13 px), instead of 17, 22 and 13; the toolbar capsules keep the macOS 26 look. The Passwords vault shows 214 items in the sidebar count and the list heading, as Settings does, and the traffic lights are no longer hidden behind the sidebar. Replaces the iOS button styles in the Mac window and the count of 19.</> },

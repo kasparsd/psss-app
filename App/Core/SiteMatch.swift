@@ -64,6 +64,23 @@ enum SiteMatch {
         return !matches(stored: stored, requested: requested)
     }
 
+    /// The address a stored value opens in the browser, or nil when it is not a web address. Only `http` and `https` are ever
+    /// opened (a vault file may hold `file:`, `javascript:` or another app's scheme), and only for a plain host
+    /// (`normalizedHost`), so an address with user info or a backslash opens nothing. A bare host opens over HTTPS, unless
+    /// `requiresScheme`: a custom field holding "report.pdf" is not an address.
+    static func webAddress(_ text: String, requiresScheme: Bool = false) -> URL? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.unicodeScalars.contains(where: { $0.properties.generalCategory == .control || $0.properties.generalCategory == .format }),
+              !normalizedHost(trimmed).isEmpty else { return nil }
+        let lower = trimmed.lowercased()
+        let hasScheme = lower.hasPrefix("http://") || lower.hasPrefix("https://")
+        if !hasScheme, requiresScheme || trimmed.contains("://") { return nil }
+        guard let url = URL(string: hasScheme ? trimmed : "https://" + trimmed),
+              url.scheme?.lowercased() == "http" || url.scheme?.lowercased() == "https",
+              normalizedHost(url.absoluteString) == normalizedHost(trimmed) else { return nil }
+        return url
+    }
+
     // MARK: Parsing
 
     /// The authority part (host, optional port, no path) of a URL or bare host, or nil when the input has no network host.

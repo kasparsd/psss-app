@@ -2497,7 +2497,9 @@ private struct ItemDetail: View {
                         copied: copied == id,
                         notice: notice,
                         copyable: id != .wifiSecurity && id != .wifiHidden,
-                        copy: { copy(value, as: id, name: String(localized: label)) })
+                        copy: { copy(value, as: id, name: String(localized: label)) },
+                        link: id == .value(.website) ? SiteMatch.webAddress(value) : nil,
+                        opened: used)
     }
 
     private func copy(_ value: String, as id: FieldID, name: String) {

@@ -28,8 +28,9 @@ export function FieldRow({ label, value, secret, mask = DOTS, shown: shown0 = fa
   const [shown, setShown] = useState(shown0);
   const [copied, setCopied] = useState(copied0);
   const notify = useCopied();
-  // The whole row copies; the eye stays its own target.
+  // The whole row copies, except a web address, whose row opens it in the browser; the eye stays its own target.
   const tap = !noCopy;
+  const link = tap && !secret && label === 'Website';
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
@@ -42,12 +43,12 @@ export function FieldRow({ label, value, secret, mask = DOTS, shown: shown0 = fa
   const lower = label.toLowerCase();
 
   return (
-    <div className={`frow${tap ? ' tap' : ''}${tap && copied ? ' down' : ''}`} onClick={tap ? copy : undefined}>
+    <div className={`frow${tap ? ' tap' : ''}${tap && copied ? ' down' : ''}`} onClick={tap && !link ? copy : undefined}>
       <div className="fbody">
         <div className="s">{label}</div>
         <div className="vrow">
           {display ?? (
-            <span className={`fval${secret && shown ? ' revealed mono' : ''}`} key={shown ? 'v' : 'm'}>
+            <span className={`fval${secret && shown ? ' revealed mono' : ''}${link ? ' link' : ''}`} key={shown ? 'v' : 'm'}>
               {secret && !shown ? mask : value}
             </span>
           )}

@@ -72,6 +72,34 @@ extension View {
     }
 }
 
+/// The row of a web address (owner, 2026-11-26): a tap or click anywhere on it opens the address in the browser instead of copying,
+/// and holding it (right-click on Mac) offers both. The copy icon stays and copies, as on every other row.
+private struct OpensWebAddress: ViewModifier {
+    /// The field's name as the menu writes it: "Copy Website".
+    let name: String
+    let open: () -> Void
+    let copy: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .copiesOnTap(open)
+            .contextMenu {
+                Button("Open in Browser", systemImage: "safari", action: open)
+                Button("Copy \(name)", systemImage: "doc.on.doc", action: copy)
+            }
+    }
+}
+
+/// The VoiceOver side of a link: the trait and the activate action, only where there is something to open.
+private struct ActsAsLink: ViewModifier {
+    let open: (() -> Void)?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let open { content.accessibilityAddTraits(.isLink).accessibilityAction(.default, open) } else { content }
+    }
+}
+
 /// `copiesOnTap` where there is something to copy, the row as it is where there is not.
 struct CopiesWhen: ViewModifier {
     let enabled: Bool
@@ -171,8 +199,21 @@ struct FieldRow: View {
     /// False for a fact that is not worth copying (a Wi-Fi network's security): no icon, no tap-to-copy.
     var copyable = true
     let copy: () -> Void
+    /// The address this row opens when tapped. Nil for every row that copies when tapped, see `SiteMatch.webAddress`.
+    var link: URL? = nil
+    /// Called after the address was opened.
+    var opened: () -> Void = {}
 
+    @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// A protected value never opens: it would put the hidden address on screen in the browser.
+    private var openable: URL? { hidden ? nil : link }
+
+    private func open(_ url: URL) {
+        openURL(url)
+        opened()
+    }
 
     private var isHidden: Bool { hidden && !revealed && !value.isEmpty }
 
@@ -184,15 +225,27 @@ struct FieldRow: View {
         (isHidden ? Text(verbatim: masked) : value.isEmpty ? Text("Empty") : Text(verbatim: shown))
             // A protected value that is shown is set in the monospaced face; the dots and plain fields (username, website) are not.
             .font(hidden && !isHidden ? .secretValue : .body)
+            // The accent colour says that this value is a link.
+            .foregroundStyle(openable == nil ? Color.primary : Color.accentColor)
             .contentTransition(.opacity)
             // The eight dots never wrap, at any text size: they stay on one line with the eye. A shown value wraps as it needs.
             .lineLimit(isHidden ? 1 : nil)
             .fixedSize(horizontal: isHidden, vertical: true)
             .textSelection(.disabled)
             .accessibilityLabel(isHidden ? Text("Hidden") : value.isEmpty ? Text("Empty") : Text(verbatim: shown))
+            // Only a link gets a trait and an action: an empty action on every value would swallow VoiceOver's activate.
+            .modifier(ActsAsLink(open: openable.map { url in { open(url) } }))
     }
 
     var body: some View {
+        if let url = openable {
+            row.modifier(OpensWebAddress(name: verbatimLabel ?? String(localized: label), open: { open(url) }, copy: copy))
+        } else {
+            row.modifier(CopiesWhen(enabled: !value.isEmpty && copyable, action: copy))
+        }
+    }
+
+    private var row: some View {
         HStack(alignment: .center, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 (verbatimLabel.map { Text(verbatim: $0) } ?? Text(label)).foregroundStyle(.secondary)
@@ -206,7 +259,6 @@ struct FieldRow: View {
             if !value.isEmpty, copyable { CopyIconButton(name: name, copied: copied, action: copy) }
         }
         .animation(revealAnimation, value: revealed)
-        .modifier(CopiesWhen(enabled: !value.isEmpty && copyable, action: copy))
     }
 }
 
@@ -252,7 +304,7 @@ struct OtherStoredFields: View {
             FieldRow(label: "Field", value: field.value, shown: field.value, verbatimLabel: name, hidden: field.concealed,
                      revealed: Binding(get: { revealed.contains(field.id) }, set: {
                          if $0 { revealed.insert(field.id) } else { revealed.remove(field.id) }
-                     }), copied: copied == field.id) {
+                     }), copied: copied == field.id, copy: {
                 Clipboard.copy(field.value)
                 used()
                 copied = field.id
@@ -262,7 +314,7 @@ struct OtherStoredFields: View {
                     try? await Task.sleep(for: .seconds(1.5))
                     if !Task.isCancelled { copied = nil }
                 }
-            }
+            }, link: SiteMatch.webAddress(field.value, requiresScheme: true), opened: used)
         }
         .modifier(HidesRevealedValues(signal: hideSignal) { revealed = [] })
         .onChange(of: fields) { revealed = [] }

@@ -175,6 +175,7 @@ table.cmp td,table.cmp th{border-top:1px solid var(--rule);padding:6px 12px 6px 
 .frow .fbody{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:2px}
 .frow .fval{display:block;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
 .frow .fval.revealed{animation:reveal .22s ease-out}
+.frow .fval.link{color:var(--accent)}
 @keyframes reveal{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
 .frow .vrow{display:flex;align-items:center;gap:2px;flex-wrap:wrap}
 .eye{border:0;background:none;color:var(--accent);cursor:pointer;padding:3px 6px;border-radius:6px;display:inline-flex;align-items:center;position:relative}

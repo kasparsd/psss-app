@@ -294,7 +294,8 @@ struct RecentlyDeletedDetail: View {
                         revealed: Binding(get: { revealed.contains(key) },
                                           set: { if $0 { revealed.insert(key) } else { revealed.remove(key) } }),
                         copied: copied == key,
-                        copy: { copy(value, as: key, name: String(localized: label)) })
+                        copy: { copy(value, as: key, name: String(localized: label)) },
+                        link: key == .website ? SiteMatch.webAddress(value) : nil)
     }
 
     private func copy(_ value: String, as key: FieldKey, name: String) {
