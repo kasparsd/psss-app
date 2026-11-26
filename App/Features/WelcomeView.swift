@@ -42,7 +42,6 @@ struct WelcomeView: View {
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
-                .padding(.top, 24)
 
                 VStack(spacing: 10) {
                     choice("Create a vault", "plus", prominent: true) { pendingImport = []; creating = true }
