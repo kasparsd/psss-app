@@ -1,0 +1,46 @@
+/* iPhone: the More tab. Drawn for this mock page only. */
+.mt-dark{color-scheme:dark;
+--screen:#000;--card:#1c1c1e;--sep:rgba(84,84,88,.65);--lab:#fff;--lab2:rgba(235,235,245,.6);
+--accent:#0a84ff;--accent-bg:rgba(10,132,255,.2);--accent-sel:rgba(10,132,255,.32);--red:#ff453a;
+--bezel:#3a3a3c;--field:rgba(120,120,128,.28);--glass:rgba(58,58,60,.9);--shadow:0 6px 24px rgba(0,0,0,.6);--dim:rgba(0,0,0,.5)}
+.mt-light{color-scheme:light;
+--screen:#f2f2f7;--card:#fff;--sep:rgba(60,60,67,.18);--lab:#000;--lab2:rgba(60,60,67,.62);
+--accent:#007aff;--accent-bg:rgba(0,122,255,.12);--accent-sel:rgba(0,122,255,.2);--red:#ff3b30;
+--bezel:#1c1c1e;--field:rgba(120,120,128,.14);--glass:rgba(255,255,255,.85);--shadow:0 6px 24px rgba(0,0,0,.18);--dim:rgba(0,0,0,.32)}
+
+/* A: places, not items. Inset grouped, plain accent symbols, no tile, no subtitle. */
+.mt-body{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;padding:0 16px 96px}
+.mt-body.top{justify-content:flex-start}
+.mt-group{background:var(--card);border-radius:12px;margin-bottom:16px;flex:none}
+.mt-group:last-child{margin-bottom:0}
+.mt-row{display:flex;align-items:center;gap:12px;padding:0 14px;min-height:44px;position:relative}
+.mt-row+.mt-row:before{content:"";position:absolute;top:0;left:50px;right:0;height:1px;background:var(--sep)}
+.mt-sym{display:inline-flex;width:24px;height:24px;color:var(--accent);flex:none}
+.mt-sym svg{width:24px;height:24px}
+
+/* Today, as built: grey tile, subtitle */
+.mt-tile{width:30px;height:30px;border-radius:8px;background:#8e8e93;color:#fff;display:grid;place-items:center;flex:none}
+.mt-tile span{display:inline-flex;width:18px;height:18px}
+
+/* B: a menu above the tab bar */
+.mt-dim{position:absolute;inset:0;background:var(--dim);z-index:1}
+.mt-menu{position:absolute;right:56px;bottom:84px;width:212px;border-radius:16px;background:var(--glass);box-shadow:var(--shadow);z-index:4;padding:6px 0;backdrop-filter:blur(20px)}
+.mt-menu .mt-mi{display:flex;align-items:center;gap:8px;padding:9px 16px}
+.mt-menu .mt-mi+.mt-mi{border-top:1px solid var(--sep)}
+.mt-menu .mt-mi .mt-sym{color:var(--lab);width:20px;height:20px}
+.mt-menu .mt-mi .mt-sym svg{width:20px;height:20px}
+.mt-menu .mt-sep{height:6px;background:var(--field);margin:4px 0}
+.mt-menu.top{top:84px;bottom:auto;left:50%;right:auto;transform:translateX(-50%);width:212px}
+.mt-title{display:inline-flex;align-items:center;gap:4px}
+.mt-title svg{width:12px;height:12px}
+.tab.pressed{background:var(--accent-bg);color:var(--accent)}
+
+/* iPad and Mac sidebar, for comparison */
+.mt-side{width:260px;border-radius:12px;background:var(--side);padding:10px 8px 12px;font-size:var(--b)}
+.mt-side .mt-sh{color:var(--lab2);font-weight:600;padding:2px 8px 6px}
+.mt-side .mt-sr{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;color:var(--lab)}
+.mt-side .mt-sr.sel{background:var(--accent-sel)}
+.mt-side .mt-sr .mt-sym{width:18px;height:18px}
+.mt-side .mt-sr .mt-sym svg{width:18px;height:18px}
+.mt-side .mt-sr .n{margin-left:auto;color:var(--lab2)}
+.mt-travel{display:flex;gap:28px;flex-wrap:wrap}
