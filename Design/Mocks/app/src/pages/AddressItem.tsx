@@ -321,7 +321,7 @@ export function AddressItem() {
   return (
     <Page
       title="Addresses: a new item kind"
-      status={<><strong>Proposal (2026-11-25), not built.</strong> The Safari card-and-address fill (<a href="#/ios-safari-fill">Cards and addresses in Safari</a>) needs somewhere to read an address from, and the vault has none. This page draws the kind, where it lives and how it is stored, its page, editor and list row, how 1Password addresses come in, and the edge cases. Needs the owner’s look before anything is built; the numbered questions at the end of Decisions are the ones that need an answer.</>}
+      status={<><strong>Approved by the owner, 2026-11-26.</strong> The Safari card-and-address fill (<a href="#/ios-safari-fill">Cards and addresses in Safari</a>) needs somewhere to read an address from, and the vault had none. This page draws the kind, where it lives and how it is stored, its page, editor and list row, how 1Password addresses come in, and the edge cases. Being built on iPhone, iPad and Mac.</>}
     >
       <Clarity
         intro={<p>An address is a place a person ships to or lives at, with the name, email and phone that go with it: the thing a delivery form asks for. Today the vault can hold one only as a custom item with fields typed by hand.</p>}
@@ -570,8 +570,8 @@ export function AddressItem() {
       </Against>
 
       <History
-        proposal
         entries={[
+          { date: '2026-11-26', text: <>Approved by the owner; build started. The Safari fill page now draws the row as full name and city, as decision 7 suggested. Nothing in the frames was replaced by the approval.</> },
           { date: '2026-11-25', text: <>New page, for the Safari card-and-address fill, which assumed an address item the vault does not have. Nothing replaced: today an address can only be a custom item with hand-made fields, and an imported 1Password Identity becomes a custom item with the address as one text block. Both are what this proposal would replace.</> },
         ]}
       />
