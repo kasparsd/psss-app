@@ -163,16 +163,22 @@ struct VaultSidebarFoot: View {
     var body: some View {
         HStack(spacing: 8) {
             if showsAdd {
-                Menu {
-                    ForEach(AddVaultChoice.all) { choice in Button(choice.menuTitle) { add(choice) } }
-                } label: {
-                    Label("Add Vault", systemImage: "plus")
-                }
-                .menuStyle(.button)
-                .menuIndicator(.hidden)
-                .buttonBorderShape(.capsule)
-                .fixedSize()
-                .help("Add a vault: create one, open a file, or import")
+                addMenu
+                    .menuStyle(.button)
+                    .menuIndicator(.hidden)
+                    // New, Open, Import from the top, also when the menu opens upward.
+                    .menuOrder(.fixed)
+                    // The Mac draws a menu with the glass button style flat, without the rim the toolbar's buttons and the gear
+                    // have, so there the glass is put on the menu itself.
+                    #if os(macOS)
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular.interactive(), in: .capsule)
+                    #else
+                    .buttonBorderShape(.capsule)
+                    #endif
+                    .fixedSize()
+                    .accessibilityShowsLargeContentViewer { Label("Add Vault", systemImage: "plus") }
+                    .help("Add a vault: create one, open a file, or import")
             }
             Spacer(minLength: 0)
             Button(action: openSettings) {
@@ -180,15 +186,38 @@ struct VaultSidebarFoot: View {
             }
             .buttonBorderShape(.circle)
             .accessibilityLabel(Text("Settings"))
+            .accessibilityShowsLargeContentViewer { Label("Settings", systemImage: "gearshape") }
             .help("Settings")
         }
         .buttonStyle(.glass)
+        // The size that matches the toolbar's buttons: the Mac's large is smaller than its toolbar capsules.
+        #if os(macOS)
+        .controlSize(.extraLarge)
+        #else
         .controlSize(.large)
+        #endif
+        // Like the system's bars, the foot stops growing before the accessibility text sizes, where both buttons were cut off at
+        // the sidebar's edges; holding a button shows it large.
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         // Stays at the bottom, behind the on-screen keyboard (iPad, typing in the unlock form beside the sidebar), instead of
         // being lifted over it.
         .ignoresSafeArea(.keyboard, edges: .bottom)
+    }
+
+    private var addMenu: some View {
+        Menu {
+            ForEach(AddVaultChoice.all) { choice in Button(choice.menuTitle) { add(choice) } }
+        } label: {
+            Label("Add Vault", systemImage: "plus")
+                #if os(macOS)
+                // A plain label takes no size from `controlSize`: the gear's and the toolbar's 36 pt.
+                .padding(.horizontal, 14)
+                .frame(height: 36)
+                .contentShape(Capsule())
+                #endif
+        }
     }
 }
 

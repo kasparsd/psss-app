@@ -52,7 +52,7 @@ export function FilterAndSort() {
             initial="mac"
             caption={{
               iphone: 'As in A.',
-              ipad: 'As on the Mac, with the Setup gear beside the sidebar button. At compact width it is the iPhone layout.',
+              ipad: 'As on the Mac, except that Sort and Filter stand beside + Add; the Settings gear is in the sidebar foot. At compact width it is the iPhone layout.',
               mac: 'The sidebar lists All, Codes, Cards, then the kinds, then Recently Deleted, and has no Filters section. Over the list: Sort, then Filter, then + Add, the same buttons as on iPhone; Filter holds With. The group and the list work as on iPhone, and an item in both is selected once, in the group. Codes and Cards have no Sort or Filter button because they keep their own order.',
             }}
             render={(d) => renderDevice(d, <PhoneAll />, { side: 'all', sel: 1 })}
@@ -117,7 +117,7 @@ export function FilterAndSort() {
               why: <>The default order used to put every used item first and the rest by name, which is one long list with no seam. A short group on top finds what you use lately, and the list below stays complete and predictable.</>,
             },
             {
-              decision: <><strong>4. Where the buttons are.</strong> Sort and Filter share one capsule, and + Add stands in its own beside it, in that order on every device. Sort and Filter both change how the list is shown; + Add makes something, so it is kept apart. iPhone: at the top right of the All tab; Setup stays top left. Mac and iPad: the same buttons over the list, with + Add at the column’s trailing edge, next to Edit; the sidebar lists All, Codes, Cards, Logins, Notes, Custom items and Recently Deleted, and has no Filters section. With the sidebar hidden the Filter menu also lists the places and kinds. The View menu on Mac and iPad lists every Show, With and Sort by choice with its checkmark.</>,
+              decision: <><strong>4. Where the buttons are.</strong> Sort and Filter share one capsule, and + Add stands in its own, in that order on every device. Sort and Filter both change how the list is shown; + Add makes something, so it is kept apart. iPhone: at the top right of the All tab; Setup stays top left. Mac and iPad: the same buttons over the list, with + Add at the column’s trailing edge, next to Edit (on the Mac Sort and Filter are at the column’s start, on iPad beside + Add); the sidebar lists All, Codes, Cards, Logins, Notes, Custom items and Recently Deleted, and has no Filters section. With the sidebar hidden the Filter menu also lists the places and kinds. The View menu on Mac and iPad lists every Show, With and Sort by choice with its checkmark.</>,
               rejected: <>Sort inside the Filter menu (three taps to change the order, and one button for two different questions); With and Sort by as tick rows in the Mac and iPad sidebar (drawn and dropped: visible and one click, but a different control from iPhone, a longer sidebar, and settings among places; the owner chose the same dropdowns everywhere); the sort or filter button at the bottom beside search, as in Passwords (the tab bar is there); the Recent and Most used sidebar rows.</>,
             },
             {
@@ -140,6 +140,7 @@ export function FilterAndSort() {
 
         <History
           entries={[
+          { date: '2026-11-26', text: <>Corrections after checking the build: on iPad the system keeps Sort and Filter beside + Add at the trailing edge, so only the Mac has them at the column’s start. Replaces the iPad frames that drew them at the start.</> },
           { date: '2026-11-26', text: <>Owner: on Mac and iPad + Add moved to the trailing edge of the list column, apart from Sort and Filter and next to Edit, so adding and editing sit together. Replaces + Add directly beside Sort and Filter there; iPhone is unchanged.</> },
           { date: '2026-11-25', text: <>Owner: icon on the left, row-size header, no own chevron; the pull-down is replaced by the right-click menu (built that way, mock follows). The Mac and iPad sidebar frames show it.</> },
           { date: '2026-11-25', text: <>Shared Mac and iPad window: the sidebar now ends in a foot pinned to the bottom, with Add Vault and an icon-only Settings gear (opens the Settings window on the Mac, the Settings sheet on iPad); on iPad the gear left the sidebar toolbar and Add Vault is no longer the last row of the list. Replaces the iPad sidebar toolbar gear and the Add Vault list row in every frame of this page. See <a href="#/vault-switcher">Vaults</a>.</> },

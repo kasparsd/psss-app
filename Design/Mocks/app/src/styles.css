@@ -71,8 +71,8 @@ table.cmp td,table.cmp th{border-top:1px solid var(--rule);padding:6px 12px 6px 
 .btn.wide{display:flex;justify-content:center;width:100%;padding:11px 12px;border-radius:14px}
 
 /* round icon buttons (toolbars) */
-.ibtn{width:34px;height:34px;border-radius:17px;display:grid;place-items:center;cursor:pointer;color:var(--lab);background:var(--glass);box-shadow:0 1px 4px rgba(0,0,0,.12);border:0;position:relative;flex:none;padding:0}
-.ibtn svg{width:18px;height:18px}
+.ibtn,.sfgear{width:34px;height:34px;border-radius:17px;display:grid;place-items:center;cursor:pointer;color:var(--lab);background:var(--glass);box-shadow:0 1px 4px rgba(0,0,0,.12);border:0;position:relative;flex:none;padding:0}
+.ibtn svg,.sfgear svg{width:18px;height:18px}
 .ibtn.flat{background:none;box-shadow:none;color:var(--accent)}
 [data-tip]:hover:after{content:attr(data-tip);position:absolute;top:100%;margin-top:4px;left:50%;transform:translateX(-50%);background:var(--glass);color:var(--lab);padding:2px 8px;border-radius:5px;box-shadow:var(--shadow);white-space:nowrap;z-index:60;font-size:var(--b);font-weight:400}
 
@@ -488,8 +488,11 @@ table.cmp td,table.cmp th{border-top:1px solid var(--rule);padding:6px 12px 6px 
 .col.side{display:flex;flex-direction:column}
 .sfoot{flex:none;padding:8px 12px;display:flex;align-items:center;gap:8px}
 .sfadd-wrap{position:relative;flex:1;min-width:0;display:flex}
-.sfgear{flex:none;margin-left:auto}
+.sfgear{margin-left:auto}
 .sfadd{display:flex;align-items:center;gap:6px;height:34px;border:0;border-radius:17px;background:var(--glass);box-shadow:0 1px 4px rgba(0,0,0,.12);color:var(--lab);padding:0 14px 0 11px;cursor:pointer;white-space:nowrap}
+.macui .col.list .tbar .viewopts .pop,.macwin .col.list .tbar .viewopts .pop{left:0;right:auto}
+/* an open Sort or Filter menu reaches past its column, as the system menu does */
+.col.list:has(.viewopts .pop){overflow:visible;position:relative;z-index:6}
 .sfp{display:inline-grid;place-items:center;width:14px;font-size:17px;line-height:1}
 .vadd{top:auto;bottom:calc(100% + 4px);left:6px;right:auto;min-width:250px}
 .sfadd-row .vadd{bottom:calc(100% + 2px)}

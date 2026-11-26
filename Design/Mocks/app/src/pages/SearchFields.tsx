@@ -1,8 +1,11 @@
 import { useState, type ReactNode } from 'react';
+import { SidebarIcon } from '../icons';
 import { Against, Clarity, Decisions, Frame, Frames, History, Page, Section } from '../components/page';
 import { IPhone, MacWindow } from '../components/devices';
 import { Chevron, EmptyState, ListRow } from '../components/Rows';
 import type { Item } from '../data';
+import { SortMenu } from '../components/SortMenu';
+import { FilterMenu } from '../components/FilterMenu';
 
 type FieldKey = 'name' | 'website' | 'username';
 const fieldKeys: FieldKey[] = ['name', 'website', 'username'];
@@ -128,7 +131,15 @@ function MacSearchFields({ q, chosen: c0 = [] }: { q: string; chosen?: FieldKey[
             </div>
           </div>
           <div className="col list" data-bounds>
-            <div className="tbar"><span className="sp" /><button className="btn glass">+ Add</button></div>
+            <div className="tbar">
+              <button className="ibtn" aria-label="Show sidebar" data-tip="Show sidebar"><SidebarIcon /></button>
+              <span className="viewopts">
+                <SortMenu value="used" onChange={() => {}} />
+                <span style={{ opacity: .45, pointerEvents: 'none' }}><FilterMenu value={{ type: 'all', feats: [] }} onChange={() => {}} /></span>
+              </span>
+              <span className="sp" />
+              <button className="btn glass">+ Add</button>
+            </div>
             <div className="lh">Search results<span> · {n} item{n === 1 ? '' : 's'}</span>{foundLine(chosen) && <div className="s">{foundLine(chosen)}</div>}</div>
             <Pills q={q} chosen={chosen} onToggle={toggle} />
             <Rows q={q} chosen={chosen} mac />

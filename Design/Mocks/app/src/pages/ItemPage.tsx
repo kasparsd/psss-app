@@ -191,6 +191,7 @@ export function ItemPage() {
 
         <History
           entries={[
+          { date: '2026-11-26', text: <>Corrections after checking the build: on iPad the system keeps Sort and Filter beside + Add at the trailing edge, so only the Mac has them at the column’s start. Replaces the iPad frames that drew them at the start.</> },
           { date: '2026-11-26', text: <>Owner: on Mac and iPad + Add moved to the trailing edge of the list column, apart from Sort and Filter and next to Edit, so adding and editing sit together. Replaces + Add directly beside Sort and Filter there; iPhone is unchanged.</> },
           { date: '2026-11-25', text: <>Owner: icon on the left, row-size header, no own chevron; the pull-down is replaced by the right-click menu (built that way, mock follows). The Mac and iPad sidebar frames show it.</> },
           { date: '2026-11-25', text: <>Shared Mac and iPad window: the sidebar now ends in a foot pinned to the bottom, with Add Vault and an icon-only Settings gear (opens the Settings window on the Mac, the Settings sheet on iPad); on iPad the gear left the sidebar toolbar and Add Vault is no longer the last row of the list. Replaces the iPad sidebar toolbar gear and the Add Vault list row in every frame of this page. See <a href="#/vault-switcher">Vaults</a>.</> },
