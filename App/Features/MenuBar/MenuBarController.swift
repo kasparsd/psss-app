@@ -77,7 +77,8 @@ final class MenuBarController: NSObject {
     /// The logo in its hidden state (the field, the p and the three dots), as a template image the system colours.
     private static func mark() -> NSImage {
         let box = LogoFieldGeometry.box
-        let height: CGFloat = 16
+        // Lower than a square icon (about 16 pt): the field is more than twice as wide as it is high, so it reads heavy.
+        let height: CGFloat = 13
         let scale = height / box.height
         let image = NSImage(size: NSSize(width: (box.width * scale).rounded(.up), height: height), flipped: true) { _ in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }

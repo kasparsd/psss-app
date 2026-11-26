@@ -17,7 +17,7 @@ import './mbm.css';
 export const BarMark = () => {
   const { box, outline, line, fat, p, tail, dots } = ICON_FIELD;
   return (
-    <svg width={Math.ceil((box[2] * 16) / box[3])} height="16" viewBox={box.join(' ')} fill="currentColor" aria-hidden>
+    <svg width={Math.ceil((box[2] * 13) / box[3])} height="13" viewBox={box.join(' ')} fill="currentColor" aria-hidden>
       <rect {...outline} fill="none" stroke="currentColor" strokeWidth={line} />
       <path d={p} stroke="currentColor" strokeWidth={fat} strokeLinejoin="round" />
       <path d={tail} />
@@ -1121,6 +1121,7 @@ export function MacMenuBar() {
       ]} />
 
       <History entries={[
+        { date: '2026-11-26', text: 'Owner: the menu bar icon is 13 pt high, 29 pt wide (replacing 16 pt, which looked heavy beside the system’s icons).' },
         { date: '2026-11-26', text: 'Owner: the menu bar icon is the logo with the p and three dots, one colour (replacing the field with three dots and no p).' },
         { date: '2026-11-26', text: 'Owner: notices use the snack bar: a copy shows the app’s Copied pill for two seconds, “Password copied. Clears in 60 s.” (replacing a line above the bottom bar that stayed).' },
         { date: '2026-11-26', text: 'Owner asked: the vault pop-up has the vault glyph before the name, as in the sidebar, the AutoFill picker and the browser popup (replacing the name alone).' },

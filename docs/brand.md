@@ -35,7 +35,7 @@ For places the field is too wide for: the browser toolbar button and the landing
 
 - **A2, the default everywhere:** butter inside the ring, charcoal ring and dot, one file for light and dark. Small cut (24 px and below): stroke 7, ring radius 24.5, dot radius 10, because a 5 unit line is under a pixel at 16 px. Large cut (above 24 px): stroke 5 (the logo's line), radius 25.5, dot radius 8. Files: `Design/Landing/assets/Psss-mark-small.svg` (small cut) and the PNGs from `scripts/build-extension-icons.mjs`.
 - **A, the monochrome fallback:** the same geometry with no fill and one colour, for template images and one-colour use: `Design/Landing/assets/Psss-mark-small-mono.svg` (black, small cut; the component draws it in `currentColor`).
-- **Exception, Mac menu bar (owner, 2026-11-26):** the logo in its hidden state (field, p and three dots) in the app icon’s cut, 16 pt high, as a one-colour template image (`MenuBarController.mark()`). A ring with a dot reads there as the system’s recording symbol.
+- **Exception, Mac menu bar (owner, 2026-11-26):** the logo in its hidden state (field, p and three dots) in the app icon’s cut, 13 pt high (owner, 2026-11-26; a wide shape at the 16 pt of a square icon looked heavy), as a one-colour template image (`MenuBarController.mark()`). A ring with a dot reads there as the system’s recording symbol.
 - The extension's store tile (48 and 128 px) stays the app icon.
 
 ## App icon
