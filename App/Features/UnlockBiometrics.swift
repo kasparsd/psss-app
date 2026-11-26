@@ -11,9 +11,24 @@ struct LockIcon: View {
     var retry: () -> Void = {}
 
     private let size: CGFloat = 76
+    /// A pointer is over the icon (Mac, and iPad with a trackpad or mouse).
+    @State private var hovering = false
+    /// A tap switches the field for a moment, as on the welcome screen.
+    @State private var tapped = false
+    @State private var taps = 0
 
     var body: some View {
-        LockAppIcon(shown: opening, size: size)
+        // Hovering or tapping switches the field to its other state: the name to the dots, or the dots to the name.
+        LockAppIcon(shown: opening != (hovering || tapped), size: size, immediate: tapped)
+            .contentShape(RoundedRectangle(cornerRadius: size * 0.2237, style: .continuous))
+            .onHover { hovering = $0 }
+            .onTapGesture { taps += 1 }
+            .task(id: taps) {
+                guard taps > 0 else { return }
+                tapped = true
+                try? await Task.sleep(for: .milliseconds(1300))
+                if !Task.isCancelled { tapped = false }
+            }
             .overlay(alignment: .bottomTrailing) {
                 if let biometry { badge(biometry).offset(x: 12, y: 12) }
             }
@@ -85,17 +100,22 @@ struct LockScreen: View {
     private var unlocking: Bool { gate.state == .unlocking }
 
     var body: some View {
-        VStack(spacing: 16) {
+        GeometryReader { proxy in
+            ScrollView {
+                content(minHeight: proxy.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+        .background(.background)
+    }
+
+    private func content(minHeight: CGFloat) -> some View {
+        UnlockStack(minHeight: minHeight) {
             LockHeader(biometry: BiometryKind.current, vaultName: String(localized: "the sample vault"), opening: unlocking,
                        retry: { Task { await gate.unlock() } })
             Text("Open the sample vault to continue.")
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            if case .failed(let message) = gate.state, !message.isEmpty {
-                Text(message)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
             Button {
                 Task { await gate.unlock() }
             } label: {
@@ -105,11 +125,16 @@ struct LockScreen: View {
             .controlSize(.large)
             .disabled(unlocking)
             .keyboardShortcut(.defaultAction)
+            if case .failed(let message) = gate.state, !message.isEmpty {
+                Text(message)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .layoutValue(key: UnlockNoticePart.self, value: true)
+            }
         }
         .frame(maxWidth: 340)
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.background)
+        .padding(.horizontal, 24)
+        .frame(maxWidth: .infinity)
     }
 }
 

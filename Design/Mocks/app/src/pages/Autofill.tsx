@@ -107,12 +107,12 @@ function UnlockBody({ mac, state = 'idle', keyfile }: { mac?: boolean; state?: '
   return (
     <div className="af-pad">
       <div className="lk-field" style={{ width: 'auto', ...(checking ? { opacity: 0.5, borderColor: 'var(--sep)' } : null) }} aria-disabled={checking}>{checking ? '••••••••••••' : <>Vault Password{state === 'idle' && <Caret />}</>}</div>
+      {keyfile && <PopUpRow label="Key file" value={keyfile === 'chosen' ? 'Work.keyx' : 'Choose…'} mac={mac} trailing={keyfile === 'chosen' ? <button className="lk-x" aria-label="Remove key file">×</button> : undefined} />}
+      <button className="btn pri wide" disabled={checking}>Unlock</button>
       {state === 'wrong' && (
         <Notice kind="warning" action={keyfile ? undefined : <button className="btn sq">Choose Key File…</button>}>That didn’t open Work. Check Caps Lock and your keyboard language. If this vault uses a key file, choose it.</Notice>
       )}
       {checking && <Notice kind="progress" title="Checking your vault password…">This takes a moment on purpose: it makes guessing your vault password very slow. Keep this sheet open.</Notice>}
-      {keyfile && <PopUpRow label="Key file" value={keyfile === 'chosen' ? 'Work.keyx' : 'Choose…'} mac={mac} trailing={keyfile === 'chosen' ? <button className="lk-x" aria-label="Remove key file">×</button> : undefined} />}
-      <button className="btn pri wide" disabled={checking}>Unlock</button>
       {!checking && <div className="af-help" style={{ padding: 0 }}>Opens Work for this sheet only. Psss closes it when the sheet closes.</div>}
     </div>
   );
@@ -211,8 +211,8 @@ export function Autofill() {
       </Frames>
       <Frames>
         <Frame label="L · iPhone, Unlock chosen" phone caption="The app’s lock screen, as approved (Unlock page): the Vault row, the vault password with the focus, Unlock. No More Options and no Key file row, because Work is not known to use a key file. No Forgot Password: that help lives in the app. Cancel goes back to frame K."><Unlocking device="iphone" /></Frame>
-        <Frame label="M · iPhone, wrong password" phone caption="The notice sits under the field, as on the lock screen. Only here does Choose Key File… appear, for a vault made elsewhere that turns out to need one."><Unlocking device="iphone" state="wrong" /></Frame>
-        <Frame label="N · iPhone, checking the password" phone caption="The field is dimmed and locked; “Checking your vault password…” says the wait is on purpose. Unlock dims and moves down; the Vault row stays."><Unlocking device="iphone" state="checking" /></Frame>
+        <Frame label="M · iPhone, wrong password" phone caption="The notice sits under Unlock, as on the lock screen. Only here does Choose Key File… appear, for a vault made elsewhere that turns out to need one."><Unlocking device="iphone" state="wrong" /></Frame>
+        <Frame label="N · iPhone, checking the password" phone caption="The field is dimmed and locked; “Checking your vault password…” says the wait is on purpose. Unlock dims and stays where it is, with the notice under it; the Vault row stays."><Unlocking device="iphone" state="checking" /></Frame>
         <Frame label="O · Mac, vault uses a key file" caption="The Key file row is shown from the start, because Psss recorded that Work uses one (after Choose Key File…, it shows the file’s name and a remove button). The same screen on iPad."><Unlocking device="mac" keyfile="uses" /></Frame>
       </Frames>
       <Frames>
@@ -340,6 +340,7 @@ export function Autofill() {
       <History
         proposal
         entries={[
+          { date: '2026-11-26', text: <>Owner, built: in the sheet’s password unlock the notices (checking, wrong password) sit under Unlock, as on the lock screen, so Unlock does not move down. Replaces notices between the field and Unlock.</> },
           { date: '2026-11-26', text: <>Owner: tapping a row picks it and fills, as in Apple Passwords; an (i) at the end of each row opens the login’s details inside the sheet (<a href="#/autofill-lessons">lessons page</a>, frames B and C). Replaces the labeled Fill button (and Sign In and Use Code buttons) at the end of every row in frames A to D, H, I, U and V; the heading and the search are unchanged.</> },
           { date: '2026-11-25', text: <>Built that way, mock follows. The picker shows the closed padlock only on a locked vault and nothing on an open one (before, the current vault carried an open padlock); frame E’s heading is “For This Site” like the other frames, and its notice reads “Passwords has none for this site” (the page’s host is not repeated, as in the app). With several vaults open, AutoFill suggestions are kept per vault, and a vault not opened since the app launched drops out of the suggestions until it is opened (an open item in the roadmap). Replaces the open padlock, “For cloudnest.example” and the host in the notice.</> },
           { date: '2026-11-25', text: <>Several vaults can be open at once (owner): the Vault select lists open vaults as ready to fill and locked ones as needing unlock (the notice says which), and choosing a vault no longer locks the other one. No frame redrawn. Replaces “one current vault per device”, where choosing a vault made it the app’s vault and locked the open one.</> },

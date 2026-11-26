@@ -211,15 +211,14 @@ struct VaultRemoval: ViewModifier {
     }
 }
 
-/// The unlock form of the shown vault in the content area, beside the sidebar. With other vaults open it says nothing about them
-/// (they stay open); with none open it says so.
+/// The unlock form of the shown vault in the content area, beside the sidebar. It says nothing about the other vaults: the
+/// sidebar shows which are open.
 struct VaultUnlockPane: View {
     let session: VaultSession
     let gate: UnlockGate
 
     var body: some View {
-        VaultPasswordView(session: session, gate: gate, embedded: true,
-                          footnote: session.isAnyOpen ? nil : String(localized: "Psss is locked. All your vaults are locked."))
+        VaultPasswordView(session: session, gate: gate, embedded: true)
             .id(session.reference?.id)
     }
 }

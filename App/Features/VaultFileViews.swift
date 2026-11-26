@@ -200,8 +200,6 @@ struct VaultPasswordView: View {
     let gate: UnlockGate
     /// In the content area beside a sidebar: the icon and "Unlock <vault>" only, no full-screen header, no vault pop-up row.
     var embedded = false
-    /// A line under the actions, for example "Psss is locked. All your vaults are locked."
-    var footnote: String?
     /// iPhone, when other vaults are open: a labeled Cancel at the top that goes back to the vault that was open. Nil leaves it out.
     var cancel: (() -> Void)?
     @State private var password = ""
@@ -236,11 +234,10 @@ struct VaultPasswordView: View {
     @FocusState private var focused: Bool
     @AppStorage("vaultSource") private var vaultSource = ""
 
-    init(session: VaultSession, gate: UnlockGate, embedded: Bool = false, footnote: String? = nil, cancel: (() -> Void)? = nil) {
+    init(session: VaultSession, gate: UnlockGate, embedded: Bool = false, cancel: (() -> Void)? = nil) {
         self.session = session
         self.gate = gate
         self.embedded = embedded
-        self.footnote = footnote
         self.cancel = cancel
         _autoPromptOff = State(initialValue: gate.lockNotice != nil)
     }
@@ -265,8 +262,7 @@ struct VaultPasswordView: View {
     var body: some View {
         GeometryReader { proxy in
             ScrollView {
-                content
-                    .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+                content(minHeight: proxy.size.height)
             }
             .scrollBounceBehavior(.basedOnSize)
         }
@@ -311,8 +307,8 @@ struct VaultPasswordView: View {
         .modifier(LockScreenAddVault(enabled: !embedded, session: session, choice: $addChoice, working: working) { gate.markUnlocked() })
     }
 
-    private var content: some View {
-        VStack(spacing: 16) {
+    private func content(minHeight: CGFloat) -> some View {
+        UnlockStack(minHeight: minHeight) {
             LockHeader(biometry: nil, vaultName: vaultName, opening: opening, showsTitle: !embedded,
                        title: session.reference == nil ? String(localized: "Psss Is Locked") : String(localized: "Unlock \(vaultName)"))
             if !embedded {
@@ -320,19 +316,14 @@ struct VaultPasswordView: View {
                 vaultSelector
             }
             form
-            // The screen is centred, so the notice appearing under the field would move the field up. An invisible copy of the
-            // notice below the buttons holds the same height until the notice takes its place, so the field never moves while
-            // Unlock stays where it is when nothing is happening.
-            if !embedded && !(working && !unlockingWithBiometrics) && !hasMessage {
-                progressNotice.hidden().accessibilityHidden(true)
-            }
         }
+        .onAppear { focused = true }
         .frame(maxWidth: 340)
         .padding(.horizontal, 24)
-        .padding(.vertical, 24)
+        .frame(maxWidth: .infinity)
     }
 
-    /// The one line under the title. Face ID or Touch ID progress takes its place; the password check shows under the field instead.
+    /// The one line under the title. Face ID or Touch ID progress takes its place; the password check shows under the buttons instead.
     @ViewBuilder private var statusLine: some View {
         if working && unlockingWithBiometrics {
             HStack(spacing: 10) {
@@ -345,7 +336,7 @@ struct VaultPasswordView: View {
         }
     }
 
-    /// Under the password field, in the one place for notices: a problem replaces "not recognised", which replaces a lock notice.
+    /// Under the unlock buttons, in the one place for notices: a problem replaces "not recognised", which replaces a lock notice.
     @ViewBuilder private var messageLine: some View {
         if let problem {
             LockNotice(kind: .warning, text: problem,
@@ -358,8 +349,6 @@ struct VaultPasswordView: View {
         }
     }
 
-    private var hasMessage: Bool { problem != nil || (notRecognised && biometry != nil) || gate.lockNotice != nil }
-
     private var progressNotice: some View {
         LockNotice(kind: .progress, title: "Checking your vault password…",
                    text: String(localized: "This takes a moment on purpose: it makes guessing your vault password very slow. Keep this window open."))
@@ -367,11 +356,11 @@ struct VaultPasswordView: View {
 
     private var form: some View {
         UnlockForm(vaultName: embedded ? vaultName : nil, password: $password, focused: $focused, biometry: biometry, working: working,
-                   fieldDisabled: missing, canUnlock: canUnlock, footnote: footnote,
+                   fieldDisabled: missing, canUnlock: canUnlock,
                    unlock: unlock, useBiometrics: { Task { await askBiometrics() } },
                    locateFile: missing ? { choose(.relinkVault) } : nil,
                    forgotPassword: { lost = true }, help: { explaining = true }) {
-            // Under the field, where it was typed. No space is held for it, so the idle screen stays compact.
+            // Under the buttons. No space is held for it, so the idle screen stays compact.
             if working && !unlockingWithBiometrics {
                 progressNotice
             } else {
@@ -380,7 +369,6 @@ struct VaultPasswordView: View {
         } keyFile: {
             keyFileRow
         }
-        .onAppear { focused = true }
     }
 
     /// The Key file row shows only when the vault is known to use a key file (Psss records that after the first unlock), a file is
@@ -551,7 +539,6 @@ struct VaultPasswordView: View {
     /// disabled while the vault was checked, and a disabled field gives up focus; asking again for focus that is still marked
     /// as held does nothing, so it is released first and taken once the field is enabled again.
     private func refocus() {
-        focused = false
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(150))
             if !missing { focused = true }

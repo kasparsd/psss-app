@@ -121,8 +121,7 @@ struct ProviderPasswordUnlock: View {
                        primary: ProviderAction(title: "Unlock", isEnabled: canSubmit, run: submit), vaults: vaults) {
             ScrollView {
                 VStack(spacing: 16) {
-                    UnlockPasswordField(text: $password, focused: $focused, working: working, disabled: working, onSubmit: submit)
-                    notice
+                    UnlockPasswordField(text: $password, focused: $focused, working: working, onSubmit: submit)
                     if showsKeyFileRow {
                         KeyFileRow(fileName: keyFile == nil ? nil : (keyFileName ?? ""), choose: choose, remove: {
                             keyFile = nil; keyFileName = nil; keyFileRequested = false
@@ -130,6 +129,7 @@ struct ProviderPasswordUnlock: View {
                         .disabled(working)
                     }
                     InlinePrimary(title: "Unlock", isEnabled: canSubmit, action: submit)
+                    notice
                     if !working {
                         Text("Opens \(name) for this sheet only. Psss closes it when the sheet closes.")
                             .foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
@@ -218,10 +218,8 @@ struct ProviderPasswordUnlock: View {
     /// The typed password goes at the end of every attempt, whatever its result.
     private func clear() { password = "" }
 
-    /// The field was disabled while the vault was checked, and a disabled field gives up focus; asking again for focus that is still
-    /// marked as held does nothing, so it is released first.
+    /// The cursor goes back into the field, if it left it during the attempt.
     private func refocus() {
-        focused = false
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(150))
             focused = true

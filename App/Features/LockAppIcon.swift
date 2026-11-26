@@ -8,14 +8,17 @@ let charcoal = Color(red: 0x1F / 255, green: 0x1F / 255, blue: 0x23 / 255)
 /// (shown). Every path is in `LogoFieldGeometry.box` units, so one transform scales them all to the view's width.
 struct LogoField: View {
     var shown: Bool
+    /// The change answers a tap: all three places at once and without a slow start, so nothing seems to wait.
+    var immediate = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Which of the three places show the s. Each follows `shown` with its own delay, through an explicit animation that touches
     /// only this value: an implicit animation on the letters would also animate any layout change that lands in the same update
     /// (the lock screen's text and form change as the attempt starts) and slide the s into place.
     @State private var placed: [Bool]
 
-    init(shown: Bool) {
+    init(shown: Bool, immediate: Bool = false) {
         self.shown = shown
+        self.immediate = immediate
         _placed = State(initialValue: Array(repeating: shown, count: 3))
     }
 
@@ -72,7 +75,8 @@ struct LogoField: View {
     /// The three places change one after another; with Reduce Motion they change at once. Slower than the web logo (0.16 s, 70 ms
     /// apart), which a pointer is already watching: here it is one moment, often over before Face ID has finished.
     private func animation(_ i: Int) -> Animation? {
-        reduceMotion ? nil : .easeInOut(duration: 0.28).delay(Double(i) * 0.12)
+        if reduceMotion { return nil }
+        return immediate ? .easeOut(duration: 0.15) : .easeInOut(duration: 0.28).delay(Double(i) * 0.12)
     }
 }
 
@@ -81,11 +85,12 @@ struct LogoField: View {
 struct LockAppIcon: View {
     var shown: Bool
     var size: CGFloat = 76
+    var immediate = false
 
     var body: some View {
         let tile = RoundedRectangle(cornerRadius: size * 0.2237, style: .continuous)
         tile.fill(butter)
-            .overlay { LogoField(shown: shown).frame(width: size * LogoFieldGeometry.iconFill) }
+            .overlay { LogoField(shown: shown, immediate: immediate).frame(width: size * LogoFieldGeometry.iconFill) }
             .foregroundStyle(charcoal)
             .overlay { tile.strokeBorder(.black.opacity(0.12), lineWidth: 0.5) }
             .frame(width: size, height: size)

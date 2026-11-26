@@ -147,7 +147,7 @@ function SidebarFoot({ open, onToggle }: { open: boolean; onToggle: () => void }
  * A locked vault chosen in the sidebar (or the locked window): the window swaps to two columns, the sidebar and the unlock form, which fills the place of the list and detail columns (as built: the app icon, “Unlock Work”, the field, the Unlock row, Forgot Password and Help; no intro line). The other open vaults stay open, and the section of this one expands after it unlocks.
  * One row under the field: Unlock, the default button, disabled until a password is typed, then Use Touch ID (Face ID on iPad). On the Mac the system's Touch ID prompt appears by itself when this form becomes active.
  */
-function UnlockPane({ name, locked, bio, state, onUnlock }: { name: string; locked: boolean; bio?: 'Touch ID' | 'Face ID'; state?: 'failed' | 'checking' | 'wrong' | 'changed'; onUnlock?: () => void }) {
+function UnlockPane({ name, bio, state, onUnlock }: { name: string; bio?: 'Touch ID' | 'Face ID'; state?: 'failed' | 'checking' | 'wrong' | 'changed'; onUnlock?: () => void }) {
   const [pw, setPw] = useState(state === 'checking' ? '••••••••••••' : state === 'wrong' ? 'hunter2hunter2' : '');
   return (
     <div className="col unlockpane" data-bounds>
@@ -156,6 +156,7 @@ function UnlockPane({ name, locked, bio, state, onUnlock }: { name: string; lock
         <div className="lk-title">Unlock {name}</div>
         <div className="lk-form">
           <PasswordField value={pw} onChange={setPw} dim={state === 'checking'} />
+          <UnlockRow bio={bio} typed={pw.length > 0} busy={state === 'checking'} onUnlock={onUnlock} />
           {state === 'checking' && (
             <Notice kind="progress" title="Checking your vault password…">This takes a moment on purpose: it makes guessing your vault password very slow. Keep this window open.</Notice>
           )}
@@ -164,13 +165,11 @@ function UnlockPane({ name, locked, bio, state, onUnlock }: { name: string; lock
           )}
           {state === 'changed' && <Notice kind="info">The vault was changed by another app or device and needs your vault password again.</Notice>}
           {state === 'failed' && bio && <Notice kind="info">{bio} didn’t recognise you. Try again, or enter the vault password.</Notice>}
-          <UnlockRow bio={bio} typed={pw.length > 0} busy={state === 'checking'} onUnlock={onUnlock} />
           <div className="lk-help">
             <button className="btn sq">Forgot Password</button>
             <button className="btn sq">Help</button>
           </div>
         </div>
-        <div className="lk-line">{locked ? 'Psss is locked. All your vaults are locked.' : ''}</div>
       </div>
     </div>
   );
@@ -334,7 +333,7 @@ export function Workspace({ device, init = {}, empty = false, extra, custom }: {
         </div>
 
         {unlocking ? (
-          <UnlockPane name={unlocking} locked={openVaultLocked} bio={unlocking === init.added || init.noBio ? undefined : mac ? 'Touch ID' : 'Face ID'} state={init.unlockState} onUnlock={unlocking === 'Work' && !openVaultLocked ? () => { setWorkUnlocked(true); setVault('Work'); setSide('all'); setUnlocking(null); } : undefined} />
+          <UnlockPane name={unlocking} bio={unlocking === init.added || init.noBio ? undefined : mac ? 'Touch ID' : 'Face ID'} state={init.unlockState} onUnlock={unlocking === 'Work' && !openVaultLocked ? () => { setWorkUnlocked(true); setVault('Work'); setSide('all'); setUnlocking(null); } : undefined} />
         ) : (<>
         <div className="col list" data-bounds>
           <div className="tbar">
