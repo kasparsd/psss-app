@@ -110,7 +110,7 @@ function StepsSheet({ at = 0 }: { at?: 0 | 'safari' }) {
             <ol className="ser-steps">
               <li>Open Settings, then tap Apps › Safari › Extensions.</li>
               <li>Tap Psss, then turn on Allow Extension.</li>
-              <li>Tap All Websites and choose Allow. <span className="s">Ask also works: Safari then asks once on each site.</span></li>
+              <li>Leave All Websites on Ask. <span className="s">The first time you tap Psss on a site, Safari asks; choose Allow for that site.</span></li>
             </ol>
             <Gh>Or in Safari</Gh>
             <div>Open any web page, tap the page menu (ᴀA, or the menu button), choose Manage Extensions, turn on Psss, then choose Allow when Safari asks.</div>
@@ -147,7 +147,7 @@ function SettingsPhone({ seen }: { seen?: boolean }) {
         </div>
         <Head>Safari</Head>
         <div className="icard">
-          <Line l="Safari Extension" v={seen ? 'Working' : 'Not seen yet'} chev />
+          <Line l="Safari Extension" v={seen ? 'Used in Safari' : 'Not seen yet'} chev />
         </div>
         <Foot>
           {seen
@@ -211,7 +211,7 @@ export function SafariExtensionReminder() {
   return (
     <Page
       title="Safari extension reminder (iPhone, iPad)"
-      status={<><strong>Proposal (2026-11-26), not built.</strong> The direction is the owner’s: iOS cannot say whether the Safari extension is on, so the extension leaves a note the first time it runs and the card shows only until then. This page draws the card on iPhone and iPad, the steps sheet it opens, the Settings row, the order with the AutoFill card, and the Mac card’s words beside it. It replaces the first-run card (frame 8) of <a href="#/ios-safari-fill">Cards and addresses in Safari</a>.</>}
+      status={<><strong>Approved by the owner, 2026-11-26; not built.</strong> The direction is the owner’s: iOS cannot say whether the Safari extension is on, so the extension leaves a note the first time it runs and the card shows only until then. This page draws the card on iPhone and iPad, the steps sheet it opens, the Settings row, the order with the AutoFill card, and the Mac card’s words beside it. It replaces the first-run card (frame 8) of <a href="#/ios-safari-fill">Cards and addresses in Safari</a>.</>}
     >
       <Clarity
         intro={<p>Passwords fill through system AutoFill without any extension. Cards and addresses do not: on iPhone and iPad only the Psss extension in Safari can fill them, and it is off until the person turns it on. The card says that in plain words and shows how, once, and then stays out of the way.</p>}
@@ -265,7 +265,7 @@ export function SafariExtensionReminder() {
         <Frame phone label="F · Settings, not seen yet" caption="“Not seen yet” is all Psss knows: the extension has not run in Safari. The footer says what it is for and that passwords do not need it.">
           <SettingsPhone />
         </Frame>
-        <Frame phone label="G · Settings, working" caption="Once the extension has run, “Working”. The footer says what to check if it stops, because the status never changes back (accepted gap, Decisions 4).">
+        <Frame phone label="G · Settings, used in Safari" caption="Once the extension has run, “Used in Safari”. The footer says what to check if it stops, because the status never changes back (accepted gap, Decisions 4).">
           <SettingsPhone seen />
         </Frame>
       </Frames>
@@ -321,12 +321,12 @@ export function SafariExtensionReminder() {
             why: <>A button that goes somewhere other than where the switch is would lose the person. Two ways cover people who live in Settings and people who live in Safari.</>,
           },
           {
-            decision: <><strong>4. Accepted gap: turning it off later does not bring the card back.</strong> The note says the extension ran once; it cannot say it is still on. The Settings row says “Working” and its footer says what to check if cards stop filling.</>,
+            decision: <><strong>4. Accepted gap: turning it off later does not bring the card back.</strong> The note says the extension ran once; it cannot say it is still on. The Settings row says “Used in Safari” (only what is known) and its footer says what to check if cards stop filling.</>,
             rejected: <>clearing the note on a timer so the card returns (nags people who left it off on purpose, and still cannot know).</>,
-            why: <>Not knowing is the platform’s limit. Open for the owner: “Working” claims more than we know after a later switch-off. “Used in Safari” says only what is true; recommended if the owner agrees.</>,
+            why: <>Not knowing is the platform’s limit. “Working” was rejected: it claims more than we know after a later switch-off.</>,
           },
           {
-            decision: <><strong>5. Where.</strong> The top of the Cards and Addresses places, not All. A Settings row, Safari Extension, with “Not seen yet” or “Working”, opens the same sheet.</>,
+            decision: <><strong>5. Where.</strong> The top of the Cards and Addresses places, not All. A Settings row, Safari Extension, with “Not seen yet” or “Used in Safari”, opens the same sheet.</>,
             rejected: <>the top of All (long list of logins; the card is about two other places); a badge on the Settings gear; a notification.</>,
             why: <>A person looking at their cards is the one who wants them filled. Settings is where a person looks for the way back. Never a badge or an alert, as the AutoFill card.</>,
           },
@@ -341,9 +341,9 @@ export function SafariExtensionReminder() {
             why: <>One name for the thing everywhere, and no promise a device cannot keep.</>,
           },
           {
-            decision: <><strong>8. The site permission in the steps follows the brief: All Websites › Allow</strong>, with “Ask also works: Safari then asks once on each site” as the quieter option.</>,
-            rejected: <>telling everyone to pick Ask (the Safari page’s least-privilege decision of 2026-11-26) or telling everyone to pick Allow with no mention of Ask.</>,
-            why: <>Open for the owner: this page now recommends Allow, the Safari page recommends Ask. Allow is one fewer prompt on every checkout; Ask is less access. One of the two pages has to change. Recommended: keep Allow in the steps, say what it grants, and update the Safari page’s decision.</>,
+            decision: <><strong>8. The site permission stays Ask</strong>: the steps leave All Websites on Ask, and Safari asks once per site the first time Psss is tapped there. Same as the Safari card-fill page.</>,
+            rejected: <>All Websites › Allow in the steps.</>,
+            why: <>Least access suits Psss: the extension only needs a site when the person taps it. One prompt per site is a small cost.</>,
           },
           {
             decision: <><strong>9. A place with nothing in it shows no card</strong> (an empty Cards or Addresses place shows its own empty state and Add button alone).</>,
@@ -364,6 +364,7 @@ export function SafariExtensionReminder() {
       <History
         proposal
         entries={[
+          { date: '2026-11-26', text: <>Owner approved. Settings row reads “Used in Safari” instead of “Working”; the steps keep the site permission on Ask (was All Websites › Allow); an empty place shows no card; one card at a time on the Mac too.</> },
           { date: '2026-11-26', text: <>New page, from the owner’s direction: the extension leaves a “seen” note for the app and the card shows only until then; How to Turn It On opens a steps sheet because iOS has no link to the switch; the card sits on Cards and Addresses and in a Settings row; AutoFill first. Replaces the first-run card with inline steps (frame 8 of <a href="#/ios-safari-fill">Cards and addresses in Safari</a>) and the Mac-only reminder as the only reminder; the Mac card’s words are proposed to match.</> },
         ]}
       />
