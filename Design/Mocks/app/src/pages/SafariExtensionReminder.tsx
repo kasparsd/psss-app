@@ -219,7 +219,7 @@ export function SafariExtensionReminder() {
           ['What must they give?', 'Nothing in the card: one tap on How to Turn It On opens a sheet of steps. The person does the switching in Settings or in Safari, in two or three taps, because iOS offers no button for it.'],
           ['What can go wrong?', 'The person turns it on but Safari still asks per site (the steps say Ask also works); the extension is turned off later (the card does not come back, see Decisions); the steps differ a little on another iOS version (the picture says it is drawn).'],
           ['Where does it live?', 'The card is at the top of the Cards and Addresses places, where a person who wants to fill a card has just looked. The same steps are always in Settings › Safari Extension. The “seen” note is a flag in the App Group the app and the extension share; it holds no vault data.'],
-          ['Who holds the key?', 'Nothing here touches the vault key. Face ID, the vault password and the two-minute read permission are on the Safari page.'],
+          ['Who holds the key?', 'Nothing here touches the vault key. Face ID, the vault password and the vault key the extension holds are on the Safari page.'],
           ['How do they leave?', 'Later hides the card for a week, as the AutoFill card does, and says so. The steps stay in Settings. Done closes the steps sheet. Nothing is changed or stored by looking.'],
         ]}
       />
@@ -349,7 +349,6 @@ export function SafariExtensionReminder() {
         <ul>
           <li><strong>When the extension writes the note.</strong> The first time its popup or its page script runs. Not checked: whether Safari runs an extension’s script before the person opens it (it would set the note earlier than the first use, which is fine).</li>
           <li><strong>Settings wording on iOS 26.</strong> “Apps › Safari › Extensions” and “Allow Extension” are as best known and need a device check.</li>
-          <li><strong>Frame 8 of the Safari page</strong> still draws the first-run card with steps inside it. It is replaced by frames A to D here; whoever edits that page should point it here.</li>
         </ul>
       </Section>
 
