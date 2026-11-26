@@ -1,4 +1,4 @@
-/* iPhone: the More tab. Drawn for this mock page only. */
+/* iPhone: the More tab frames on the Places page. */
 .mt-dark{color-scheme:dark;
 --screen:#000;--card:#1c1c1e;--sep:rgba(84,84,88,.65);--lab:#fff;--lab2:rgba(235,235,245,.6);
 --accent:#0a84ff;--accent-bg:rgba(10,132,255,.2);--accent-sel:rgba(10,132,255,.32);--red:#ff453a;
@@ -17,10 +17,6 @@
 .mt-row+.mt-row:before{content:"";position:absolute;top:0;left:50px;right:0;height:1px;background:var(--sep)}
 .mt-sym{display:inline-flex;width:24px;height:24px;color:var(--accent);flex:none}
 .mt-sym svg{width:24px;height:24px}
-
-/* Today, as built: grey tile, subtitle */
-.mt-tile{width:30px;height:30px;border-radius:8px;background:#8e8e93;color:#fff;display:grid;place-items:center;flex:none}
-.mt-tile span{display:inline-flex;width:18px;height:18px}
 
 /* B: a menu above the tab bar */
 .mt-dim{position:absolute;inset:0;background:var(--dim);z-index:1}
