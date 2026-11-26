@@ -500,7 +500,7 @@ test('trailing noise words and the first bracket or star are ignored', () => {
 });
 
 test('a source of more than six words says nothing, and a prefix must be context or the same role', () => {
-  guessed('postal-code', { name: 'billing_shipping_delivery_mailing_payment_zip' });
+  guessed('postal-code', { name: 'billing_shipping_delivery_mailing_checkout_zip' });
   refused({ name: 'billing_shipping_delivery_mailing_payment_customer_zip' });
   guessed('postal-code', labelled('Please type in the postal code'.split(' ').slice(-2).join(' ')));
   refused(labelled('Please type in your zip code of residence'));
@@ -694,4 +694,56 @@ test('words that mean something else in another language give no role', () => {
   }
   guessed('email', labelled('Correo electrónico'));
   guessed('organization', labelled('Firmenname'));
+});
+
+test('a card number whose hint says it is partial is not the card number', () => {
+  for (const text of ['Card number (last 4 digits)', 'Card number (masked)', 'Kartennummer (letzte 4 Ziffern)', 'Card number (ending in 1234)',
+    'Numéro de carte (derniers chiffres)']) {
+    assert.equal(cardNumber(labelled(text)), '', text);
+    assert.equal(cardNumber({ placeholder: text }), '', text);
+  }
+  assert.notEqual(cardNumber(labelled('Card number (Visa, Mastercard)')), '');
+  // Other roles keep their hints.
+  const code = new Input(labelled('Security code (3 digits)'));
+  fill(page([form(new Input({ name: 'cardnumber' }), code)]), 'card');
+  assert.equal(code.value, '987');
+  guessed('postal-code', labelled('Postcode (required)'));
+});
+
+test('card words are context for card roles and not for address roles', () => {
+  for (const name of ['card_company', 'payment_name', 'credit_name', 'card_first_name', 'card_last_name', 'card_recipient_name', 'card_address', 'card_zip']) {
+    refused({ name });
+  }
+  for (const name of ['card_holder_name', 'payment_card_number', 'credit_card_expiry']) assert.ok(withName(name), name);
+  const holder = new Input({ name: 'card_name' });
+  fill(page([form(new Input({ name: 'cardnumber' }), holder)]), 'card');
+  assert.equal(holder.value, 'Alex Sample');
+});
+const withName = (name) => cardNumber({ name }) || (() => {
+  const target = new Input({ name });
+  fill(page([form(new Input({ name: 'cardnumber' }), target)]), 'card');
+  return target.value;
+})();
+
+test('ASP.NET placeholder names are read without the placeholder', () => {
+  guessed('given-name', { name: 'ctl00_ContentPlaceHolder1_txtFirstName' });
+  guessed('postal-code', { name: 'ctl00$ContentPlaceHolder1$txtPostalCode' });
+  guessed('address-level2', { name: 'ctl00_MainContent_txtCity' });
+  guessed('postal-code', { name: 'ctl00_contentplaceholder_txtPostalCode' });
+});
+
+test('a phone country-code box is not the country', () => {
+  const set = (target) => [new Input({ name: 'address' }), new Input({ name: 'zip' }), new Input({ name: 'city' }), target];
+  for (const options of [{ type: 'tel', name: 'country_code' }, { name: 'country_code', placeholder: '+371' }, { type: 'number', name: 'country' },
+    { name: 'country', placeholder: ' +1' }, { type: 'tel', name: 'countryname' }]) {
+    const target = new Input(options);
+    fill(page([form(...set(target))]), 'address');
+    assert.equal(target.value, '', JSON.stringify(options));
+  }
+  const text = new Input({ name: 'country' });
+  fill(page([form(...set(text))]), 'address');
+  assert.ok(text.value);
+  const only = select(undefined, [['LV', 'Latvia'], ['US', 'United States']], { name: 'country_code', autocomplete: '' });
+  fill(page([form(new Input({ name: 'address' }), new Input({ name: 'zip' }), only)]), 'address');
+  assert.ok(only.value);
 });

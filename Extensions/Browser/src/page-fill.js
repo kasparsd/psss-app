@@ -399,16 +399,24 @@ function psssFillPage(fields, mode, expectedOrigin) {
   // The words of one source: cut at a bracket or star (a hint or a required mark), at most 200 characters, camelCase split.
   const wordsOf = (text) => {
     const whole = String(text ?? '');
-    const stop = whole.search(/[(*]/);
-    const piece = (stop < 0 ? whole : whole.slice(0, stop)).slice(0, 200).replace(/(\p{Ll})(\p{Lu})/gu, '$1 $2');
+    const clean = whole.replace(/contentplaceholder\d*/gi, ' ');
+    const stop = clean.search(/[(*]/);
+    const piece = (stop < 0 ? clean : clean.slice(0, stop)).slice(0, 200).replace(/(\p{Ll})(\p{Lu})/gu, '$1 $2');
     const found = plain(piece).split(/[^a-z0-9]+/).filter(Boolean);
     while (found.length && noise.has(found.at(-1))) found.pop();
-    return found.length > 6 ? [] : found;
+    // What was cut off: "Card number (last 4 digits)" is not the card number.
+    found.cut = stop < 0 ? '' : plain(clean.slice(stop, stop + 200));
+    return found.length > 6 ? Object.assign([], { cut: found.cut }) : found;
   };
+  const partialCard = /\b(?:last|ending|final|masked|partial|letzte|letzten|derniers|ultimos|ultimas|ultime|laatste|ostatnie|pedejie|pedejos)\b/;
+  // A number in the hint: a count of digits (16) is fine, a few digits (4, 1234) means a part of the number.
+  const partialDigits = (hint) => (hint.match(/\d+/g) ?? []).some((run) => run.length > 2 || Number(run) < 13 || Number(run) > 19);
   // A person's name takes fewer words before it than a place does: street_name, home_name and form_name are not a person.
   const personRoles = new Set(['name', 'given-name', 'family-name', 'cc-name']);
   const aroundPerson = new Set(['billing', 'shipping', 'delivery', 'mailing', 'recipient', 'customer', 'contact', 'your', 'my', 'card', 'credit',
     'payment', 'checkout', 'primary', 'main', 'txt', 'tb', 'tbx']);
+  // Card words give context to card roles only.
+  const cardWords = new Set(['card', 'credit', 'payment']);
   // The role the longest run of words at the end of a source names, when every word before it only adds context.
   const roleOfWords = (found, table) => {
     for (let start = 0; start < found.length; start++) {
@@ -417,8 +425,9 @@ function psssFillPage(fields, mode, expectedOrigin) {
       if (!roles) continue;
       if (roles.size !== 1) return undefined;
       const [role] = roles;
+      if (role === 'cc-number' && (partialCard.test(found.cut ?? '') || partialDigits(found.cut ?? ''))) return undefined;
       const allowed = personRoles.has(role) ? aroundPerson : around;
-      const clear = found.slice(0, start).every((word) => allowed.has(word) || /^ctl\d+$/.test(word) || table.get(word)?.has(role));
+      const clear = found.slice(0, start).every((word) => (allowed.has(word) && (role.startsWith('cc-') || !cardWords.has(word))) || /^ctl\d+$/.test(word) || table.get(word)?.has(role));
       return clear ? { role, run } : undefined;
     }
     return undefined;
@@ -448,11 +457,15 @@ function psssFillPage(fields, mode, expectedOrigin) {
     if (field === 'off') return { input, group };
     const sources = [input.name, input.id, input.getAttribute('aria-label'), ...[...(input.labels ?? [])].map((label) => label.textContent)];
     const names = sources.map(normalize);
-    const matched = Object.keys(aliases).filter((role) => aliases[role].some((alias) => names.includes(alias)));
+    // A box for a phone's country code is not the country.
+    const dialing = /^(?:tel|number)$/i.test(input.type ?? '') || /^\s*\+\d/.test(input.placeholder ?? '');
+    const notCountry = (role) => !(dialing && (role === 'country' || role === 'country-name'));
+    const matched = Object.keys(aliases).filter((role) => notCountry(role) && aliases[role].some((alias) => names.includes(alias)));
     // "Security code" alone is also what sign-in checks and captchas are called.
     const generic = matched[0] === 'cc-csc' && !names.some((name) => !genericCodes.includes(name) && aliases['cc-csc'].includes(name));
     if (!matched.length && extended) {
       const guess = inferRole([...sources, input.placeholder], aliases);
+      if (guess && !notCountry(guess.role)) return { input, group, ambiguous: false };
       // A guess is never declared, and never marks the field ambiguous (sign-in rules read that).
       if (guess) {
         return { input, role: guess.role, group, declared: false, inferred: true, ambiguous: false,
