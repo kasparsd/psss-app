@@ -113,27 +113,22 @@ struct CodesView: View {
     }
 
     /// The outer selection is a login id; the list selects rows. Maps one to the other for the detail pane and Command-C.
-    private var rowSelection: Binding<SectionedRowID?>? {
-        selection.map { SectionedRowID.binding(outer: $0, picked: $picked, recent: Set(recentItems.map(\.id))) }
+    private func rowSelection(recent: [VaultItem]) -> Binding<SectionedRowID?>? {
+        selection.map { SectionedRowID.binding(outer: $0, picked: $picked, recent: Set(recent.map(\.id))) }
     }
 
-    private var codeItems: [VaultItem] { items.filter { $0.traits.contains(.code) } }
-
-    private var countText: String { codeItems.count == 1 ? String(localized: "1 code") : String(localized: "\(codeItems.count) codes") }
-
-    private var allCodes: [VaultItem] {
-        codeItems.sorted { $0.fullName.localizedStandardCompare($1.fullName) == .orderedAscending }
-    }
-
-    /// Up to five logins used in the last 30 days (copying a code is a use), above a list of more than five.
-    private var recentItems: [VaultItem] { RecentlyUsed.visible(snapshot: recent, in: allCodes) }
+    private func countText(_ count: Int) -> String { count == 1 ? String(localized: "1 code") : String(localized: "\(count) codes") }
 
     var body: some View {
-        Group {
-            if let rowSelection {
-                List(selection: rowSelection) { rows }
+        // Ordered once for each redraw and handed down. As computed properties these were worked out again for every row.
+        let codes = CodesOrder.ordered(items)
+        // Up to five logins used in the last 30 days (copying a code is a use), above a list of more than five.
+        let group = RecentlyUsed.visible(snapshot: recent, in: codes)
+        return Group {
+            if let rowSelection = rowSelection(recent: group) {
+                List(selection: rowSelection) { rows(codes, recent: group) }
             } else {
-                List { rows }
+                List { rows(codes, recent: group) }
             }
         }
         .itemListStyle()
@@ -141,7 +136,7 @@ struct CodesView: View {
         .sensoryFeedback(.success, trigger: copy.count)
         #endif
         .overlay {
-            if codeItems.isEmpty {
+            if codes.isEmpty {
                 ContentUnavailableView {
                     Label("No verification codes yet", systemImage: "lock.badge.clock")
                 } description: {
@@ -158,35 +153,34 @@ struct CodesView: View {
         .navigationTitle("Codes")
         #if os(iOS)
         // iPhone: the title is the name alone and the line under it carries the count, so neither is ever cut.
-        .navigationSubtitle(selection == nil ? countText : "")
+        .navigationSubtitle(selection == nil ? countText(codes.count) : "")
         #endif
         .columnTitleInList(selection != nil)
         #if os(macOS)
         .onCopyCommand {
             // Command-C copies the selected row's code. The copy is made after the system has written what this returns (nothing),
             // so the concealed copy is the one left on the clipboard.
-            if let id = selection?.wrappedValue, let item = codeItems.first(where: { $0.id == id }), item.makesCode {
+            if let id = selection?.wrappedValue, let item = CodesOrder.item(id, in: items), item.makesCode {
                 Task { @MainActor in copy.copy(item) { used(id) } }
             }
             return []
         }
         #endif
-        .onAppear { recent = RecentlyUsed.group(from: codeItems).map(\.id) }
+        .onAppear { recent = RecentlyUsed.group(from: CodesOrder.listed(items)).map(\.id) }
     }
 
     @ViewBuilder
-    private var rows: some View {
+    private func rows(_ codes: [VaultItem], recent group: [VaultItem]) -> some View {
         if selection != nil {
-            ListTitleLine(title: "Codes", count: countText)
+            ListTitleLine(title: "Codes", count: countText(codes.count))
         }
-        if !codeItems.isEmpty {
+        if !codes.isEmpty {
             // The headings only tell the two sections apart; without a group the title already says Codes.
-            let group = recentItems
             if group.isEmpty {
-                Section { ForEach(allCodes) { row($0, in: .all, group: allCodes) } }
+                Section { ForEach(codes) { row($0, in: .all, group: codes) } }
             } else {
                 Section("Recently used") { ForEach(group) { row($0, in: .recent, group: group) } }
-                Section("All codes") { ForEach(allCodes) { row($0, in: .all, group: allCodes) } }
+                Section("All codes") { ForEach(codes) { row($0, in: .all, group: codes) } }
             }
             Text(helpText)
                 .foregroundStyle(.secondary)
