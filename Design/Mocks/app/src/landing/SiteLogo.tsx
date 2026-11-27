@@ -7,9 +7,16 @@ import '../../../../Logo/psss-logo.css';
  * it plain that this is an app). A butter tile in the icon's shape, and in it
  * the logo's field at the icon's 77.8 percent width (docs/brand.md, "App icon"):
  * hidden at rest, a p and three dots, and on hover or a tap each dot turns into
- * its s, one after the other. `shown` rests on “psss” and hides on hover.
+ * its s, one after the other. `shown` rests on “psss” and hides instead.
+ * The tile is the label of an unseen checkbox, so a tap switches it with no
+ * script: once to change, again to change back.
  */
 export function SiteLogo({ shown = false, className = '' }: { shown?: boolean; className?: string }) {
   const svg = shown ? logo.replace('class="psss-logo"', 'class="psss-logo rest-shown"') : logo;
-  return <span className={`lp-appicon ${className}`.trim()} dangerouslySetInnerHTML={{ __html: svg }} />;
+  return (
+    <label className={`lp-appicon ${className}`.trim()}>
+      <input type="checkbox" className="psss-switch" autoComplete="off" aria-label={shown ? 'Hide the name in the logo' : 'Show the name in the logo'} />
+      <span className="lp-appicon-art" dangerouslySetInnerHTML={{ __html: svg }} />
+    </label>
+  );
 }

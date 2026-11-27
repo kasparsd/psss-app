@@ -2,19 +2,29 @@
    Use with the drawing in psss-logo.svg, inlined in the page. No script is needed.
 
    Default: the field rests hidden (p and three dots) and shows the name while
-   the pointer is over it or after a tap.
-   With class "rest-shown" it is the other way round: it rests on "psss" and
-   hides the name on hover. */
+   a pointer is over it. With class "rest-shown" it is the other way round: it
+   rests on "psss" and hides the name on hover.
+
+   For a tap, put the drawing in a <label> after
+   <input type="checkbox" class="psss-switch">: each tap, click or Space
+   switches to the other state and back. A touch screen has no hover. */
 .psss-logo { display: block; overflow: visible; }
 .psss-logo .psss-s path,
 .psss-logo .psss-d circle { transition: opacity .16s ease; transition-delay: calc(var(--i) * 70ms); }
 .psss-logo .psss-s path { opacity: 0; }
-.psss-logo:hover .psss-s path { opacity: 1; }
-.psss-logo:hover .psss-d circle { opacity: 0; }
 .psss-logo.rest-shown .psss-s path { opacity: 1; }
 .psss-logo.rest-shown .psss-d circle { opacity: 0; }
-.psss-logo.rest-shown:hover .psss-s path { opacity: 0; }
-.psss-logo.rest-shown:hover .psss-d circle { opacity: 1; }
+/* Hover only where there is a real one: a touch screen keeps it stuck after a tap, over the switch. */
+@media (hover: hover) {
+  .psss-logo:hover .psss-s path { opacity: 1; }
+  .psss-logo:hover .psss-d circle { opacity: 0; }
+  .psss-logo.rest-shown:hover .psss-s path { opacity: 0; }
+  .psss-logo.rest-shown:hover .psss-d circle { opacity: 1; }
+}
+.psss-switch:checked ~ * .psss-logo .psss-s path { opacity: 1; }
+.psss-switch:checked ~ * .psss-logo .psss-d circle { opacity: 0; }
+.psss-switch:checked ~ * .psss-logo.rest-shown .psss-s path { opacity: 0; }
+.psss-switch:checked ~ * .psss-logo.rest-shown .psss-d circle { opacity: 1; }
 @media (prefers-reduced-motion: reduce) {
   .psss-logo .psss-s path,
   .psss-logo .psss-d circle { transition: none; }

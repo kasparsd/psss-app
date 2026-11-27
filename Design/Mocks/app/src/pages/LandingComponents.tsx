@@ -50,10 +50,10 @@ export function LandingComponents() {
       <style>{narrowGallery}</style>
 
       <Section title="1. Header icon">
-        <p>The header is the app icon, centred: a butter tile in the icon’s shape with the logo inside it, “to make it super clear it is an app” (owner). The logo is the original file, <code>Design/Logo/psss-logo.svg</code>, with its own stylesheet. On load it shows “psss” and hides it place by place, as the lock screen does when the vault locks; it then rests on a p and three dots, and hover or a tap shows the letters again. It takes no script. Under reduced motion it starts on the dots. <code>SiteLogo</code> takes <code>shown</code> to rest on “psss”.</p>
+        <p>The header is the app icon, centred: a butter tile in the icon’s shape with the logo inside it, “to make it super clear it is an app” (owner). The logo is the original file, <code>Design/Logo/psss-logo.svg</code>, with its own stylesheet. On load it shows “psss” and hides it place by place, as the lock screen does when the vault locks; it then rests on a p and three dots. Hover shows the letters again; a tap, click or Space shows them until the next one. It takes no script. Under reduced motion it starts on the dots. <code>SiteLogo</code> takes <code>shown</code> to rest on “psss”.</p>
       </Section>
       <Frames>
-        <Frame label="A. Header, light" caption="Cream band, butter tile, charcoal mark. At rest the mark is a p and three dots; hover it to see the letters.">
+        <Frame label="A. Header, light" caption="Cream band, butter tile, charcoal mark. At rest the mark is a p and three dots; hover or tap it to see the letters.">
           <Box><SiteHeader /><Tail /></Box>
         </Frame>
         <Frame label="B. Header, dark" caption="Charcoal band. The tile keeps its butter in both appearances.">
@@ -166,7 +166,7 @@ export function LandingComponents() {
             why: <>The owner: the demos did not look good; galleries work better on a phone. A row of pictures also reads without a script and cannot get stuck mid-step.</>,
           },
           {
-            decision: <><strong>2. The original logo file with its letter-by-letter reveal.</strong> <code>Design/Logo/psss-logo.svg</code> and its stylesheet are imported as they are.</>,
+            decision: <><strong>2. The original logo file with its letter-by-letter reveal.</strong> <code>Design/Logo/psss-logo.svg</code> and its stylesheet are imported as they are. The tile is a checkbox’s label, so a tap switches it.</>,
             rejected: <>a redrawn copy of the logo for the page.</>,
             why: <>One logo, one source: a change to the brand file reaches the page without a second edit.</>,
           },
@@ -249,6 +249,9 @@ export function LandingComponents() {
       <History
         proposal
         entries={[
+          { date: '2026-11-27', text: <>In light mode the cards became sand (<code>--psss-sand</code>), a shade deeper than the cream page, and the platform switch deep sand with a cream chosen segment (owner: the white cards did not look good). Replaced white cards.</> },
+          { date: '2026-11-27', text: <>Tapping a row’s heading or the platform switch twice no longer selects its words (owner). Replaced the browser’s default, under which they could be selected like body text.</> },
+          { date: '2026-11-27', text: <>The header icon now switches on a tap as well as on hover (owner: it should work on mobile). A checkbox under the tile holds the choice, with no script. Replaced hover alone, which a touch screen does not have.</> },
           { date: '2026-11-27', text: <>The space between the lead picture and “Sound familiar?” was about halved (owner: reduce the gap). Replaced the full section spacing under a deep hero padding, 216 px on a wide screen and 112 px on a phone, with about 88 and 56.</> },
           { date: '2026-11-27', text: <>After a check against Chrome’s Modern Web Guidance: text became a step smaller on a phone (body 16, lead 18) in place of 17 and 22 everywhere; galleries show their scrollbar to a mouse in place of none; the skip link was removed, since the header holds nothing to skip; the chosen platform is outlined in forced colours; the lists say they are lists; and a gallery’s name no longer tells how to scroll it.</> },
           { date: '2026-11-27', text: <>Every heading became Nunito at 700 with slightly tighter lines (owner: “nunito at 700 for all headings”). Replaced Varela Round, whose single weight looked too light. The logo keeps its Varela Round letters.</> },

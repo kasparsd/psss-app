@@ -8,15 +8,15 @@
    headline, section heading, lead line, body and small.
    Lists are the app's grouped lists: a small header above a card of rows with
    hairlines between them. No buttons, badges or bordered boxes. Brand colours
-   from docs/brand.md: cream for the page, butter for the app icon, charcoal
-   for text; in the dark, charcoal with cream text. Light or dark follows the
+   from docs/brand.md, as tokens in Design/Brand/tokens.css: cream for the page,
+   sand for its cards, butter for the app icon, charcoal for text; in the dark, charcoal with cream text. Light or dark follows the
    system setting; there is no switch. Text is a step smaller on a phone and
    grows with the width up to the desktop sizes.
    Nunito 700 is for headings only (the stack in Design/Brand/tokens.css);
    the body is the system's text face.
 
    Contrast (WCAG 2.x): charcoal 1F1F23 on cream FFF9E5 15.6, on butter 11.9,
-   on white 16.6; muted 5C584D on cream 6.7, on white 7.1; cream on charcoal
+   on sand FCF0C8 14.4; muted 5C584D on cream 6.7, on sand 6.2, on deep sand 5.6; cream on charcoal
    15.6; muted B8B3A4 on charcoal 7.8, on 2A2A2F 6.8. */
 
 .lp {
@@ -24,8 +24,9 @@
   --charcoal: #1F1F23;
   --ground: #FFF9E5;
   --hero: #FFF9E5;
-  --panel: #FFFFFF;
-  --tile: #FFF9E5;
+  --panel: var(--psss-sand);
+  --seg-track: var(--psss-sand-deep);   /* the platform switch */
+  --seg-on: var(--psss-cream);          /* and its chosen segment */
   --text: #1F1F23;
   --muted: #5C584D;
   --line: rgba(31, 31, 35, .12);
@@ -55,12 +56,12 @@
    `.lp-dark`, which only the mock page uses to show both side by side. */
 @media (prefers-color-scheme: dark) {
   .lp:not(.lp-light) {
-    --ground: #1F1F23; --hero: #1F1F23; --panel: #2A2A2F; --tile: #1F1F23; --text: #FFF9E5; --muted: #B8B3A4;
+    --ground: #1F1F23; --hero: #1F1F23; --panel: #2A2A2F; --seg-track: #1F1F23; --seg-on: #2A2A2F; --text: #FFF9E5; --muted: #B8B3A4;
     --line: rgba(255, 249, 229, .14); --focus: #FFD84D;
   }
 }
 .lp.lp-dark {
-  --ground: #1F1F23; --hero: #1F1F23; --panel: #2A2A2F; --tile: #1F1F23; --text: #FFF9E5; --muted: #B8B3A4;
+  --ground: #1F1F23; --hero: #1F1F23; --panel: #2A2A2F; --seg-track: #1F1F23; --seg-on: #2A2A2F; --text: #FFF9E5; --muted: #B8B3A4;
   --line: rgba(255, 249, 229, .14); --focus: #FFD84D;
 }
 
@@ -96,6 +97,11 @@
   box-shadow: 0 .5rem 1.5rem rgba(31, 31, 35, .14), inset 0 0 0 1px rgba(31, 31, 35, .06);
 }
 .lp .lp-appicon svg { width: 77.8%; height: auto; }
+.lp .lp-appicon-art { display: contents; }
+/* The whole tile is the switch: its label. The checkbox is unseen and lets the pointer through, so hover reaches the drawing. */
+.lp .lp-appicon { position: relative; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.lp .lp-appicon input { position: absolute; inset: 0; margin: 0; opacity: 0; pointer-events: none; }
+.lp .lp-appicon:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 3px; }
 /* On load the field reads “psss”, then hides it place by place, as the lock screen does when the vault
    locks (0.28 s a place, 120 ms apart; docs/brand.md). It then rests on the dots, and the logo’s own
    hover shows the name again. The animation only fills backwards, so once it ends the logo’s rules are in charge. */
@@ -124,6 +130,8 @@
 .lp .lp-row + .lp-row { border-top: 1px solid var(--line); }
 .lp .lp-row-head { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 1rem; padding: .9rem 1.25rem; }
 .lp .lp-row-head::-webkit-details-marker { display: none; }
+/* A row's heading and the platform switch are controls: tapping twice opens and closes, and selects no text. */
+.lp .lp-row-head, .lp .lp-gal-switch { user-select: none; -webkit-user-select: none; touch-action: manipulation; }
 .lp .lp-row-head:focus-visible { outline: 3px solid var(--focus); outline-offset: -3px; border-radius: var(--r); }
 .lp .lp-row-label { flex: 1; min-width: 0; font-weight: 600; }
 /* A chevron from two borders: down when closed, up when open. */
@@ -174,11 +182,11 @@
 
 /* Platform switch: radio buttons drawn as a small segmented control. CSS shows the row of the chosen platform. */
 .lp .lp-vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.lp .lp-gal-switch { border: 0; border-radius: 999px; padding: 3px; margin: 0 0 1rem; display: inline-flex; gap: 2px; min-width: 0; background: var(--tile); }
+.lp .lp-gal-switch { border: 0; border-radius: 999px; padding: 3px; margin: 0 0 1rem; display: inline-flex; gap: 2px; min-width: 0; background: var(--seg-track); }
 .lp .lp-gal-switch label { position: relative; cursor: pointer; }
 .lp .lp-gal-switch input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
 .lp .lp-gal-switch span { display: block; padding: .6rem 1rem; border-radius: 999px; font-size: var(--small); line-height: 1.45; color: var(--muted); }
-.lp .lp-gal-switch input:checked + span { background: var(--panel); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
+.lp .lp-gal-switch input:checked + span { background: var(--seg-on); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
 /* Forced colours (Windows contrast themes) drop the fill and shadow that mark the choice. */
 @media (forced-colors: active) {
   .lp .lp-gal-switch input:checked + span { outline: 2px solid Highlight; outline-offset: -2px; }

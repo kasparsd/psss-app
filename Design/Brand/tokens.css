@@ -4,8 +4,10 @@
   --psss-butter: #FFD84D;
   --psss-charcoal: #1F1F23;
   --psss-cream: #FFF9E5;
+  --psss-sand: #FCF0C8;       /* cards on cream */
+  --psss-sand-deep: #F4E4AE;  /* a control's track on sand */
   --psss-stone: #8A8578;      /* rules and fills only, never small text */
-  --psss-ink-muted: #5C584D;  /* secondary text on cream or white, 6.8:1 */
+  --psss-ink-muted: #5C584D;  /* secondary text: 6.7:1 on cream, 6.2:1 on sand, 5.6:1 on deep sand */
 
   /* Web headings, at 700. The logo and wordmark files stay Varela Round, outlined. */
   --psss-font-display: 'Nunito', ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
