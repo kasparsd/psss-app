@@ -174,7 +174,7 @@ export const copy = {
     heading: 'Questions',
     items: [
       { q: 'Who can read my passwords?', a: 'You can. The file is encrypted and opens with your vault password, or with Face ID or Touch ID on your device. We run no server and keep no copy, so we cannot read it and cannot recover it for you. Nobody outside has audited the security yet. An audit is planned before version 1.0.' },
-      { q: 'Where is my data?', a: 'In a file on your device. Sync through iCloud Drive is coming; when you turn it on, the same encrypted file is kept in your iCloud Drive, and Psss has no server in between.' },
+      { q: 'Where is my data?', a: 'In one encrypted file, on your device or in your own iCloud Drive, whichever you choose. Psss has no server in between.' },
       { q: 'What if I stop using Psss?', a: 'Your passwords are in a standard KeePass file. Open it in KeePassXC, Strongbox or another KeePass app.' },
       { q: 'What does it cost?', a: 'Nothing is decided about pricing yet. Sync through iCloud will be free.' },
       { q: 'When can I try it?', a: 'We do not have a date and would rather not guess. This page will say when it is out.' },

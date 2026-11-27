@@ -277,9 +277,9 @@ const toolbarFill: Pictures = {
 
 const otherSite: Pictures = {
   mac: [
-    { caption: 'Nothing saved for this site in this vault, and the popup says so.', screen: <Browser title="Sign in · Cloudnest" url="cloudnest.example/login"><NothingHere /></Browser> },
-    { caption: 'A search for “git” lists this site’s logins first.', screen: <Browser ring="search"><SearchGit ring="search" /></Browser> },
+    { caption: 'A search for “git” finds a login, this site’s first and others below.', screen: <Browser ring="search"><SearchGit ring="search" /></Browser> },
     { caption: 'Under Other Matches, each login says which site it was saved for.', screen: <Browser ring="other"><SearchGit ring="other" /></Browser> },
+    { caption: 'On a site with nothing saved, the popup says so rather than guess.', screen: <Browser title="Sign in · Cloudnest" url="cloudnest.example/login"><NothingHere /></Browser> },
   ],
 };
 

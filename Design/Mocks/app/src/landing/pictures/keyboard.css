@@ -31,3 +31,6 @@
   backdrop-filter: none; -webkit-backdrop-filter: none;
   background: linear-gradient(var(--field), var(--field)), var(--screen);
 }
+/* The keyboard sits at the bottom of the phone screen: clip it to the screen's rounded corners. */
+.lp-gal .phone .scr, .lp-shot .phone .scr { overflow: hidden; border-radius: 38px; }
+.lp-gal .phone .kbd, .lp-gal .phone .lpd-kbd, .lp-shot .phone .kbd, .lp-shot .phone .lpd-kbd { border-radius: 0 0 38px 38px; }

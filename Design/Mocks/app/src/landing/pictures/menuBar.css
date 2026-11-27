@@ -41,3 +41,13 @@
 
 /* Keep on Top, ringed where the panel shows it */
 .lp-gal .lpm-top .mbm-panel button[aria-pressed] { box-shadow: 0 0 0 3px var(--accent-bg), 0 0 0 5px var(--accent); }
+
+/* On a phone the closed panel shows the whole screen, smaller, not a cut of it: the crop that suits the open panel would leave
+   only wallpaper and the corner of the page. 640 px at these sizes fits the slide (86vw). */
+@media (max-width: 40rem) {
+  .lp-gal .lpm-crop.lpm-closed { --lpm-s: .8; width: 640px; }
+  .lp-gal .lpm-closed .mbm-desk { margin-left: 0; }
+}
+@media (max-width: 30rem) { .lp-gal .lpm-crop.lpm-closed { --lpm-s: .6; } }
+@media (max-width: 26rem) { .lp-gal .lpm-crop.lpm-closed { --lpm-s: .5; } }
+@media (max-width: 22.5rem) { .lp-gal .lpm-crop.lpm-closed { --lpm-s: .4; } }

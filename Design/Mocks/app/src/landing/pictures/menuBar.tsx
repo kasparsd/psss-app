@@ -92,7 +92,7 @@ const findPictures: Pictures = {
 const generatePictures: Pictures = {
   mac: [
     { caption: 'The generator is a tab: a strong password, random characters or words.', screen: <Still tab="generate" /> },
-    { caption: 'It works while the vault is locked, because it shows nothing from a vault.', screen: <Still tab="generate" locked /> },
+    { caption: 'With the vault locked, the generator still works and shows nothing from it.', screen: <Still tab="generate" locked /> },
     { caption: 'Further down, a PIN, or a key in hexadecimal or Base64.', screen: <Still tab="generate" mod="scrolled" /> },
   ],
 };

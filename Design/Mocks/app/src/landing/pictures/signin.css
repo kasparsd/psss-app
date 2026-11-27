@@ -40,8 +40,8 @@
 .lpd-pin{padding:6px 14px 10px}
 
 /* ---- iPad and Mac: the page in the window, a sheet over it ---- */
-.lpd-wide{position:relative;height:440px;background:var(--win)}
-.lpd-wide[data-device="ipad"]{height:560px}
+.lpd-wide{position:relative;width:794px;height:500px;background:var(--win)}
+.lpd-wide[data-device="ipad"]{width:804px;height:560px}
 .lpd-wpage{height:100%;display:flex;flex-direction:column;background:var(--screen)}
 .lpd-wbar{flex:none;padding:8px 14px 4px}
 .lpd-wbar.mac{padding-left:84px}
