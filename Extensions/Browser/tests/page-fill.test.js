@@ -310,6 +310,127 @@ test('one address section: the focused one, else shipping, else the first', () =
   assert.deepEqual(run(undefined, ['', ''], blocks), [9, 0]);
   assert.deepEqual(run((sets) => sets[1].email, ['', ''], blocks), [0, 9]);
   assert.deepEqual(run((sets) => sets[1]['postal-code'], ['', ''], blocks), [0, 9]);
+  // Two blocks inside one form: the nearest to the focused field too, whichever of its fields that is.
+  const together = (sets) => [form(...sets.map((set) => box(...set)))];
+  assert.deepEqual(run(undefined, ['', ''], together), [9, 0]);
+  for (const role of ['name', 'address-level2', 'postal-code', 'email', 'tel']) {
+    assert.deepEqual(run((sets) => sets[1][role], ['', ''], together), [0, 9], role);
+    assert.deepEqual(run((sets) => sets[0][role], ['', ''], together), [9, 0], role);
+  }
+});
+
+test('the number box relabelled or masked by its own handler does not end the fill', () => {
+  const changes = {
+    label: (input) => { input.attributes['aria-label'] = 'Accepted'; },
+    password: (input) => { input.type = 'password'; },
+    telephone: (input) => { input.type = 'tel'; }
+  };
+  for (const [kind, change] of Object.entries(changes)) {
+    for (const options of [{ autocomplete: 'cc-number' }, { attributes: { 'aria-label': 'Card number' } }]) {
+      for (const wrap of [form, box]) {
+        const set = cardSet(), number = new Input({ ...options, attributes: { ...options.attributes } });
+        // The guessed box is found by its label, which the handler takes away.
+        number.getAttribute = (name) => number.attributes[name] ?? null;
+        number.onEvent = () => change(number);
+        const result = fill(page([wrap(number, set.name, set.expiry, set.code)]), 'card');
+        assert.deepEqual(plain(result), { filled: ['cc-number', 'cc-name', 'cc-exp', 'cc-csc'] }, kind);
+        assert.deepEqual([number.value, set.code.value], ['4242424242424242', '987'], kind);
+      }
+    }
+  }
+  // Another box the handler relabels or retypes is left alone, and the fill goes on past it.
+  for (const change of [(input) => { input.attributes['aria-label'] = 'Coupon'; }, (input) => { input.type = 'password'; }]) {
+    const set = cardSet();
+    set.number.onEvent = () => change(set.name);
+    assert.deepEqual(plain(fill(page([form(...Object.values(set))]), 'card')), { filled: ['cc-number', 'cc-exp', 'cc-csc'] });
+    assert.equal(set.name.value, '');
+  }
+  // Another name, autocomplete or a type no number box has: it is not that box any more, and the number is taken back.
+  for (const change of [(input) => { input.type = 'search'; }, (input) => { input.attributes.name = 'coupon'; },
+    (input) => { input.attributes.autocomplete = 'off'; }]) {
+    const set = cardSet();
+    set.number.onEvent = () => change(set.number);
+    assert.deepEqual(plain(fill(page([form(...Object.values(set))]), 'card')), { filled: [], left: ['cc-number'] });
+    assert.deepEqual(values(set), ['', '', '', '']);
+  }
+});
+
+test('a number whose handler runs past the time limit is still reported', () => {
+  const set = cardSet();
+  set.number.onEvent = () => { for (const until = Date.now() + 2100; Date.now() < until;); set.number.onEvent = undefined; };
+  assert.deepEqual(plain(fill(page([form(...Object.values(set))]), 'card')), { filled: [], left: ['cc-number'] });
+  assert.deepEqual(values(set), ['', '', '', '']);
+});
+
+// A page handler on the security code, once everything is written, that does `act`.
+const lastly = (act) => {
+  const set = cardSet();
+  set.code.onEvent = () => { set.code.onEvent = undefined; act(set); };
+  const result = plain(fill(page([form(...Object.values(set))]), 'card'));
+  return { set, result };
+};
+
+test('a card number or code the page puts into another written field is taken back', () => {
+  const NUMBER = card['cc-number'];
+  const shapes = {
+    whole: NUMBER, spaced: NUMBER.replace(/(.{4})(?!$)/g, '$1 '), cut: NUMBER.slice(0, 12), tail: NUMBER.slice(-8),
+    wide: [...NUMBER].map((digit) => String.fromCodePoint(0xff10 + Number(digit))).join(''),
+    hidden: [...NUMBER].join('​'), hostile: '‮../\n' + NUMBER + '\u0000', huge: 'x'.repeat(5_000_000) + NUMBER
+  };
+  for (const [shape, text] of Object.entries(shapes)) {
+    for (const role of ['name', 'expiry']) {
+      for (const move of [true, false]) {
+        const started = Date.now();
+        const { set, result } = lastly((fields) => { fields[role].stored = text; if (move) fields.number.stored = ''; });
+        const written = role === 'name' ? 'cc-name' : 'cc-exp';
+        assert.deepEqual(result.left, move ? ['cc-number', written].sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b)) : [written], shape);
+        assert.equal(set[role].value, '', shape + ' ' + role);
+        // Results name roles only.
+        assert.doesNotMatch(JSON.stringify(result), /\d{3}/, shape);
+        assert.ok(Date.now() - started < 2000, shape);
+      }
+    }
+  }
+  // Added after what was written, and the code moved or added.
+  for (const text of [`Alex Sample ${NUMBER}`, '987', 'Alex Sample 987']) {
+    const { set, result } = lastly((fields) => { fields.name.stored = text; });
+    assert.deepEqual([set.name.value, result.left], ['', ['cc-name']], text);
+  }
+});
+
+test('other rewrites stay, as do digits in a field the fill did not write', () => {
+  for (const text of ['ALEX S.', 'Alex Sample •••• 4242', '424242******4242', '+371 29870000', 'Alex Sample (ref 19870)']) {
+    const { set, result } = lastly((fields) => { fields.name.stored = text; });
+    assert.deepEqual([set.name.value, result.left], [text, ['cc-name']], text);
+  }
+  const stray = new Input({ name: 'coupon' });
+  const set = cardSet();
+  set.code.onEvent = () => { set.code.onEvent = undefined; stray.stored = set.number.value; set.number.stored = ''; };
+  fill(page([form(...Object.values(set), stray)]), 'card');
+  assert.equal(stray.value, card['cc-number']);
+});
+
+test('a copy the page makes again is removed without asking the page again', () => {
+  // On every change of the name box the number is copied back into it.
+  const set = cardSet();
+  set.name.onEvent = () => { if (set.number.value) set.name.stored = set.number.value; };
+  const result = plain(fill(page([form(...Object.values(set))]), 'card'));
+  assert.deepEqual([set.name.value, result.left], ['', ['cc-name']]);
+  // Taking the number back hands it to a field already dealt with.
+  const other = cardSet();
+  other.code.onEvent = () => { other.code.onEvent = undefined; other.name.stored = card['cc-number']; other.number.stored = '1'; };
+  other.number.onEvent = () => { if (other.number.value === '') other.name.stored = card['cc-number']; };
+  fill(page([form(...Object.values(other))]), 'card');
+  assert.deepEqual([other.number.value, other.name.value], ['', '']);
+});
+const ORDER = ['cc-number', 'cc-name', 'cc-exp', 'cc-csc'];
+
+test('a code the page hands back to its own box while another is taken back goes too', () => {
+  const set = cardSet();
+  set.code.onEvent = () => { set.code.onEvent = undefined; set.name.stored = '987'; set.code.stored = ''; };
+  set.name.onEvent = () => { if (set.name.value === '' && set.code.value === '') set.code.stored = '987'; };
+  const result = plain(fill(page([form(...Object.values(set))]), 'card'));
+  assert.deepEqual([set.name.value, set.code.value, result.left], ['', '', ['cc-name', 'cc-csc']]);
 });
 
 test('duplicates within one address section are skipped unless focused', () => {

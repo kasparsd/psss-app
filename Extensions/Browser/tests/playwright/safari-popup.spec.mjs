@@ -368,10 +368,12 @@ for (const [engine, type] of Object.entries({ chromium, webkit })) {
       for (const path of ['/checkout?clear=csc:exp,cardholder', '/checkout?replace=csc:exp', '/checkout?format=cardnumber:cut',
         '/checkout?format=cardnumber:stuck', '/checkout?split=cardnumber:drop', '/checkout?strip=cardnumber:cardnumber',
         '/checkout?second=hidden&show=csc:second&hide=csc:first', '/delivery?clear=tel:tel', '/delivery?second=1&remove=fullname:first',
-        '/delivery?format=postal:noprefix']) {
+        '/delivery?format=postal:noprefix', '/checkout?carry=csc:cardnumber,cardholder', '/checkout?copy=csc:cardnumber,exp',
+        '/checkout?stall=cardnumber:cardnumber']) {
         await open(path);
         await button(/^Fill/).click();
-        await expect(popup.locator('h1'), path).toHaveText('Check the form');
+        // A stalled page keeps the popup waiting, here for some seconds (the popup itself gives up after 20).
+        await expect(popup.locator('h1'), path).toHaveText('Check the form', { timeout: 15_000 });
         await expect(main(), path).toContainText(UNKNOWN);
         await expect(main(), path).not.toContainText(/not filled|nothing was filled|are in the form/i);
         await context.close();
@@ -389,7 +391,8 @@ for (const [engine, type] of Object.entries({ chromium, webkit })) {
     });
 
     test('the page’s own formatting still counts as filled', async () => {
-      for (const path of ['/checkout?format=cardnumber:dots', '/checkout?rerender=csc:exp,cardnumber']) {
+      for (const path of ['/checkout?format=cardnumber:dots', '/checkout?rerender=csc:exp,cardnumber',
+        '/checkout?retype=cardnumber:cardnumber', '/checkout?relabel=cardnumber:cardnumber']) {
         await open(path);
         await button(/^Fill/).click();
         await expect(popup.locator('h1'), path).toContainText('Filled Everyday Visa');

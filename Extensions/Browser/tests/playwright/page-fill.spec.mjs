@@ -133,7 +133,32 @@ for (const [engine, type] of Object.entries({ chromium, webkit })) {
       ['/delivery?format=street:expand', all(ADDRESS, 'address-line1'), ['address-line1'], { ...home, street: 'Brivibas street 1, Apt 2' }],
       ['/delivery?format=street:cut&format=email:cut', all(ADDRESS, 'address-line1', 'email'), ['address-line1', 'email'],
         { ...home, street: 'Brivibas 1, ', email: 'jane@secret.' }],
-      ['/delivery?format=tel:dots', ADDRESS, [], { ...home, tel: '+371.2000.0000' }]
+      ['/delivery?format=tel:dots', ADDRESS, [], { ...home, tel: '+371.2000.0000' }],
+      // The number or code moved or copied into another element the fill wrote is taken back from it too.
+      ['/checkout?carry=csc:cardnumber,cardholder', ['cc-exp', 'cc-csc'], ['cc-number', 'cc-name'], without(card, 'cardnumber', 'cardholder')],
+      ['/checkout?carry=exp:cardnumber,cardholder', ['cc-exp'], ['cc-number', 'cc-name'], { exp: card.exp }],
+      ['/checkout?carry=csc:cardnumber,exp', ['cc-name', 'cc-csc'], ['cc-number', 'cc-exp'], without(card, 'cardnumber', 'exp')],
+      ['/checkout?carry=cardholder:cardnumber,cardholder', [], ['cc-number', 'cc-name'], {}],
+      ['/checkout?copy=csc:cardnumber,cardholder', all(CARD, 'cc-name'), ['cc-name'], without(card, 'cardholder')],
+      ['/checkout?copy=cardholder:cardnumber,cardholder', all(CARD, 'cc-name'), ['cc-name'], without(card, 'cardholder')],
+      ['/checkout?cut=csc:cardnumber,cardholder', ['cc-exp', 'cc-csc'], ['cc-number', 'cc-name'], without(card, 'cardnumber', 'cardholder')],
+      ['/checkout?append=csc:cardnumber,exp', ['cc-name', 'cc-csc'], ['cc-number', 'cc-exp'], without(card, 'cardnumber', 'exp')],
+      ['/checkout?carry=csc:csc,cardholder', ['cc-number', 'cc-exp'], ['cc-name', 'cc-csc'], without(card, 'cardholder', 'csc')],
+      ['/checkout?expiry=select&carry=exp-year:cardnumber,cardholder', ['cc-exp-month', 'cc-exp-year'], ['cc-number', 'cc-name'],
+        { 'exp-month': '05', 'exp-year': '2031' }],
+      // Another rewrite stays, and so does a copy in an element the fill did not write.
+      ['/checkout?copy=csc:cardholder,exp', all(CARD, 'cc-exp'), ['cc-exp'], { ...card, exp: 'Jane Q Doe' }],
+      ['/checkout?second=hidden&carry=csc:cardnumber,second-cardholder', all(CARD, 'cc-number'), ['cc-number'],
+        { ...without(card, 'cardnumber'), 'second-cardholder': NUMBER }],
+      ['/checkout?carry=cardnumber:cardnumber,cardholder', [], ['cc-number'], { cardholder: NUMBER }],
+      // The number's box relabelled or masked by its own handler is still the number's box.
+      ['/checkout?relabel=cardnumber:cardnumber', CARD, [], card],
+      ['/checkout?retype=cardnumber:cardnumber', CARD, [], card],
+      // A handler that outlasts the page fill's patience: what was written is still reported.
+      ['/checkout?stall=cardnumber:cardnumber', [], ['cc-number'], {}],
+      ['/checkout?stall=cardholder:cardholder', ['cc-number', 'cc-name'], [], without(card, 'exp', 'csc')],
+      ['/checkout?stall=cardnumber:cardnumber&strip=cardnumber:cardnumber', [], ['cc-number'], boxes([NUMBER])],
+      ['/checkout?stall=cardholder:cardholder&carry=cardholder:cardnumber,cardholder', [], ['cc-number', 'cc-name'], {}]
     ]) {
       test('only what stayed is reported: ' + path, async () => {
         const mode = path.startsWith('/delivery') ? 'address' : 'card';
@@ -150,6 +175,17 @@ for (const [engine, type] of Object.entries({ chromium, webkit })) {
         expect(held).toEqual(values);
       });
     }
+
+    test('a handler that runs past the time the caller gave: the number is reported, and nothing more is written', async () => {
+      for (const [path, left] of [['/checkout?stall=cardnumber:cardnumber', ['cc-number']],
+        ['/checkout?stall=cardnumber:cardnumber&strip=cardnumber:cardnumber', ['cc-number']]]) {
+        await page.goto(base + path);
+        await page.addScriptTag({ content: script });
+        const result = await page.evaluate(([values]) => psssFillPage(values, 'card', location.origin, { until: Date.now() + 1000 }), [fields.card]);
+        expect(result).toEqual({ filled: [], left });
+        expect(await page.evaluate(() => ['cardholder', 'exp', 'csc'].map((id) => document.getElementById(id).value))).toEqual(['', '', '']);
+      }
+    });
 
     test('nothing is written after the time the caller gave', async () => {
       for (const until of [0, Date.now() - 1, NaN]) {

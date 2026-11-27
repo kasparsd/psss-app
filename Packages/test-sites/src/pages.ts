@@ -236,10 +236,14 @@ const kept = `<p class="note">Page load <b id="load"></b></p>${input('note', 'Or
  * groups it in fours, `cut` keeps 12 characters, `stuck` keeps 12 characters and puts them back when emptied, `short` masks
  * all but the ends, `plain` drops accents, `national` and `prefix` rewrite a phone number, `noprefix` drops `LV-`, `expand`
  * spells out a street. `?split=id:drop` (or `:keep`, which leaves the first four) spreads a number over four new boxes.
+ * `?carry=id:from,to` moves a value from one field to another, `?copy` copies it, `?cut` moves its first 12 characters and
+ * `?append` adds it after what the other field holds. `?relabel=id:to` changes a field's `aria-label`, `?retype=id:to` makes it
+ * a password box. `?stall=id:to` keeps the page's script busy for 2.5 seconds, longer than the page fill waits for a page.
  */
 function meddling(query: URLSearchParams): string {
   const id = /^[a-z0-9-]+$/;
-  const kinds = ['clear', 'show', 'remove', 'hide', 'move', 'replace', 'rerender', 'strip', 'set', 'format', 'split'];
+  const kinds = ['clear', 'show', 'remove', 'hide', 'move', 'replace', 'rerender', 'strip', 'set', 'format', 'split',
+    'carry', 'copy', 'cut', 'append', 'relabel', 'retype', 'stall'];
   const rules = kinds.flatMap((how) => query.getAll(how).flatMap((rule) => {
     const [trigger = '', rest = ''] = rule.split(':');
     const targets = rest.split(',').filter((text) => id.test(text));
@@ -271,8 +275,21 @@ for (const [how, trigger, targets] of ${JSON.stringify(rules)}) document.getElem
     field.value = targets[0] === 'keep' ? field.value.slice(0, 4) : '';
     return;
   }
+  if (['carry', 'copy', 'cut', 'append'].includes(how)) {
+    const [from, to] = targets.map((name) => document.getElementById(name));
+    if (!from || !to || !from.value) return;
+    to.value = how === 'cut' ? from.value.slice(0, 12) : how === 'append' ? to.value + ' ' + from.value : from.value;
+    if (how !== 'copy') from.value = '';
+    return;
+  }
+  if (how === 'stall') {
+    for (const until = Date.now() + 2500; Date.now() < until;);
+    return;
+  }
   for (const target of targets.map((name) => document.getElementById(name)).filter(Boolean)) {
     if (how === 'clear') target.value = '';
+    else if (how === 'relabel') target.setAttribute('aria-label', 'Accepted');
+    else if (how === 'retype') target.type = 'password';
     else if (how === 'set') target.value = 'C\\u0113sis';
     else if (how === 'remove') target.remove();
     else if (how === 'hide') target.style.display = 'none';

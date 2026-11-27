@@ -445,8 +445,16 @@ function psssFillPage(fields, mode, expectedOrigin, options = {}) {
     return { role, runs: named.map(({ run }) => run) };
   };
 
+  // The card number's field once the number is in it. The page's handlers for the number may change its label or type (a brand
+  // in the label, a number masked as a password): with the same name, id and autocomplete it is still the field that was chosen.
+  let numberField;
+  const fixedNames = (input) => JSON.stringify(['name', 'id', 'autocomplete'].map((name) => input.getAttribute(name)));
+  const keptNumber = (input) => numberField !== undefined && numberField.entry.input === input &&
+    ['text', 'tel', 'number', 'password'].includes(input.type) && fixedNames(input) === numberField.names;
+
   // With `extended`, a name that is not exact is also read word by word. Logins never do.
   const describe = (input, aliases, extended = false) => {
+    if (keptNumber(input)) return { ...numberField.entry };
     const tokens = String(input.autocomplete ?? '').toLowerCase().trim().split(/\s+/).filter(Boolean);
     if (tokens.at(-1) === 'webauthn') tokens.pop();
     const field = tokens.at(-1);
@@ -579,7 +587,7 @@ function psssFillPage(fields, mode, expectedOrigin, options = {}) {
   // Where a field is: its form and every container.
   const place = (input) => [input.form, ...(ancestors(input) ?? [])];
   // What a field is called and what it takes.
-  const identity = (input) => JSON.stringify([input.type,
+  const identity = (input) => keptNumber(input) ? numberField.identity : JSON.stringify([input.type,
     ...['name', 'id', 'autocomplete', 'aria-label'].map((name) => input.getAttribute(name))]);
   const targets = (list, anchor, roles) => roles.map((role) => ({ role, entry: member(list, anchor, role) }))
     .filter(({ entry }) => entry)
@@ -588,7 +596,8 @@ function psssFillPage(fields, mode, expectedOrigin, options = {}) {
   const cardTargets = timed(() => {
     const isCard = ({ role }) => Boolean(role?.startsWith('cc-'));
     const all = strictFields({ ...loginAliases, ...cardAliases }, isCard);
-    const numbers = all.filter(({ role, input }) => role === 'cc-number' && ['text', 'tel', 'number'].includes(input.type));
+    const numbers = all.filter(({ role, input }) => role === 'cc-number' &&
+      (['text', 'tel', 'number'].includes(input.type) || keptNumber(input)));
     const focused = all.find(({ input }) => input === active);
     let anchor;
     if (focused?.input.form) anchor = preferred(inScope(numbers, focused));
@@ -624,8 +633,8 @@ function psssFillPage(fields, mode, expectedOrigin, options = {}) {
     const focused = all.find(({ input }) => input === active);
     const own = focused ? inScope(anchors, focused) : [];
     const streetsFirst = (list) => [...list.filter(isStreet), ...list.filter((entry) => !isStreet(entry))];
-    const nearby = own.length && !focused.input.form
-      ? [...own].sort((x, y) => shared(y, focused) - shared(x, focused)) : own;
+    // Nearest to the focused field first: one form may hold two address blocks.
+    const nearby = own.length ? [...own].sort((x, y) => shared(y, focused) - shared(x, focused)) : own;
     const shipping = ({ group }) => group.split(' ').includes('shipping');
     const starts = [
       ...streetsFirst(own.includes(focused) && isStreet(focused) ? [focused, ...nearby] : nearby),
@@ -712,9 +721,35 @@ function psssFillPage(fields, mode, expectedOrigin, options = {}) {
 
   // Once every field is written, a page's handlers may have changed, moved, removed or replaced any of them. `filled` keeps
   // the roles whose value stayed as written. The others are `left`: what became of their values is not known, so nothing may be
-  // claimed about them. A card number or security code that did not stay is also taken back, from the element it was written to.
-  // No other element is changed, whatever it holds now: only what this fill wrote is the fill's to change.
+  // claimed about them. A card number or security code that did not stay is also taken back, from the element it was written to,
+  // and so is a copy of either that the page put into another element this fill wrote. Nothing else is changed: no element the
+  // fill did not write, and no other rewrite by the page.
   const secrets = new Set(['cc-number', 'cc-csc']);
+  // This many digits of the number in a row are a copy of it, whole or cut. The first six and the last four, which pages show,
+  // are fewer.
+  const COPY = 7;
+  const joined = (text) => String(text ?? '').normalize('NFKC').replace(/[\p{Cf}\s\p{Pd}./()_,:;|]/gu, '');
+  // Whether a written element holds the number or code in place of, or beside, what was written to it. A secret's own element
+  // holds it too.
+  const carries = (record) => {
+    const { role, input, value } = record;
+    const now = joined(input.value);
+    const own = secrets.has(role) ? '' : joined(value);
+    return records.some((secret) => {
+      if (secret.role === 'cc-number') {
+        const number = joined(secret.value);
+        for (let at = 0; at + COPY <= number.length; at++) {
+          const part = number.slice(at, at + COPY);
+          if (now.includes(part) && !own.includes(part)) return true;
+        }
+      }
+      // Three or four digits mean the code only when they are all there is, or all that was added to what was written.
+      if (secret.role === 'cc-csc' && (record === secret || !same(input.value, value, role))) {
+        return now === secret.value || joined(String(input.value).replace(value, '')) === secret.value;
+      }
+      return false;
+    });
+  };
   const settle = () => {
     if (!records.length) return;
     // Looking again has its own time budget.
@@ -738,16 +773,33 @@ function psssFillPage(fields, mode, expectedOrigin, options = {}) {
       return Boolean(holder) && (holder.tagName === 'SELECT' ? holder.value === value : same(holder.value, value, role));
     };
     let held = records;
-    // Taking a value back runs the page's handlers again, so look until nothing more goes.
-    while (held.length) {
+    // Taking a value back runs the page's handlers again, so look until nothing more goes. Each element is taken back at most
+    // once: a page that insists is left as it is, and the role is reported.
+    const taken = new Set();
+    for (let more = true; more;) {
       chains.clear();
-      const now = look();
+      const now = held.length ? look() : [];
       const gone = held.filter((record) => !holds(record, now));
-      if (!gone.length) break;
       held = held.filter((record) => !gone.includes(record));
-      for (const { role, input, before } of gone) {
-        if (secrets.has(role) && input.value !== '' && input.value !== before) { set(input, before); announce(input); }
+      more = gone.length > 0;
+      for (const record of records) {
+        const { role, input, before } = record;
+        if (taken.has(record) || input.value === '' || input.value === before) continue;
+        // A number or code that did not stay goes, whatever is left of it. Any other element only when it holds a copy.
+        const goes = secrets.has(role)
+          ? !held.includes(record) && (gone.includes(record) || carries(record))
+          : carries(record);
+        if (!goes) continue;
+        taken.add(record);
+        set(input, before);
+        announce(input);
+        more = true;
       }
+    }
+    // A copy that is still there, or came back while something else was taken back, goes without telling the page. The
+    // number's own field is left as the page insists on having it.
+    for (const record of records) {
+      if (record.role !== 'cc-number' && !held.includes(record) && carries(record)) set(record.input, record.before);
     }
     result.filled = held.map(({ role }) => role);
     const left = records.filter((record) => !held.includes(record)).map(({ role }) => role);
@@ -791,6 +843,7 @@ function psssFillPage(fields, mode, expectedOrigin, options = {}) {
     if (input.value !== value) { set(input, before); return; }
     // Recorded first: the page's handlers run inside `announce`.
     if (mode !== 'login') records.push({ role, target, input, before, value });
+    if (mode === 'card' && role === 'cc-number') numberField = { entry, names: fixedNames(input), identity: target.identity };
     announce(input);
     result.filled.push(role);
   };

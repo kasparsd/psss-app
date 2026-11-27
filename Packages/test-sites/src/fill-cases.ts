@@ -193,4 +193,26 @@ export const fillCases: FillCase[] = [
   // Renamed or retyped between writes.
   ...([['renamed', "c.name='coupon'"], ['to-password', "c.type='password'"], ['relabelled', "c.setAttribute('aria-label','Coupon')"]] as const)
     .map(([name, change]) => card(`code-${name}`, f('n', 'cc-number', `oninput="const c=document.getElementById('c');${change}"`) + f('c', 'cc-csc'), { n: NUMBER })),
+
+  // Two address blocks in one form: the one nearest the focused field.
+  ...([['bm', 'b'], ['by', 'b'], ['bs', 'b'], ['bz', 'b'], ['ay', 'a'], [undefined, 'a']] as const).map(([focus, filled]) =>
+    address(`two-blocks-one-form-focus-${focus ?? 'none'}`,
+      `<form>${['a', 'b'].map((id) => `<div>${f(`${id}m`, 'name')}${f(`${id}s`, 'address-line1')}${f(`${id}y`, 'address-level2')}${f(`${id}z`, 'postal-code')}</div>`).join('')}</form>`,
+      { [`${filled}m`]: 'Jane Doe', [`${filled}s`]: 'Brivibas 1, Apt 2', [`${filled}y`]: 'Rigacity', [`${filled}z`]: 'LV-1010' }, focus)),
+
+  // The number's own input handler may relabel its box or mask it as a password: the fill goes on, declared or guessed.
+  ...([['relabelled', "this.setAttribute('aria-label','Accepted')"], ['to-password', "this.type='password'"], ['to-tel', "this.type='tel'"],
+    ['both', "this.type='password';this.setAttribute('aria-label','Accepted')"]] as const).flatMap(([name, change]) => [
+    ['declared', f('n', 'cc-number', `oninput="${change}"`)],
+    ['guessed', `<input id="n" aria-label="Card number" oninput="${change}">`],
+    ['named', `<input id="n" name="cardnumber" oninput="${change}">`],
+  ].flatMap(([kind, number]) => [['form', (inner: string) => `<form>${inner}</form>`], ['formless', (inner: string) => `<div>${inner}</div>`]]
+    .map(([shape, wrap]) => ({
+      ...card(`number-${name}-itself-${kind}-${shape}`, (wrap as (inner: string) => string)(number + f('h', 'cc-name') + labelled('c', 'Security code')),
+        { n: NUMBER, h: 'Jane Q Doe', c: '987' }),
+      filled: ['cc-number', 'cc-name', 'cc-csc'],
+    })))),
+  // A box that is no longer a text box, or has another name, is not the number's box any more: the number is taken back.
+  ...([['to-search', "this.type='search'"], ['renamed', "this.name='coupon'"], ['autocomplete-off', "this.autocomplete='off'"]] as const)
+    .map(([name, change]) => ({ ...card(`number-${name}-itself`, f('n', 'cc-number', `oninput="${change}"`) + f('c', 'cc-csc'), {}), filled: [] })),
 ];
