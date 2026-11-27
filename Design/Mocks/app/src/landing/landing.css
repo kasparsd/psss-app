@@ -105,7 +105,9 @@
 }
 @keyframes lp-hide { from { opacity: 1; } to { opacity: 0; } }
 @keyframes lp-show { from { opacity: 0; } to { opacity: 1; } }
-.lp .lp-hero { background: var(--hero); padding: clamp(2.5rem, 7vw, 5rem) 0 clamp(3rem, 8vw, 6rem); }
+.lp .lp-hero { background: var(--hero); padding: clamp(2.5rem, 7vw, 5rem) 0 clamp(1rem, 2vw, 1.5rem); }
+/* The lead picture ends in open space of its own, so the first section starts closer than the ones after it. */
+.lp .lp-hero + .lp-section { padding-top: clamp(2.5rem, 5vw, 4.5rem); }
 .lp .lp-hero .lp-intro { max-width: 44rem; margin: 0 auto clamp(2.5rem, 6vw, 4.5rem); }
 .lp .lp-hero .lp-lead { margin-top: 1.25rem; }
 .lp .lp-hero-art { min-width: 0; }

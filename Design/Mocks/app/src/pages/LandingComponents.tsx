@@ -249,6 +249,7 @@ export function LandingComponents() {
       <History
         proposal
         entries={[
+          { date: '2026-11-27', text: <>The space between the lead picture and “Sound familiar?” was about halved (owner: reduce the gap). Replaced the full section spacing under a deep hero padding, 216 px on a wide screen and 112 px on a phone, with about 88 and 56.</> },
           { date: '2026-11-27', text: <>After a check against Chrome’s Modern Web Guidance: text became a step smaller on a phone (body 16, lead 18) in place of 17 and 22 everywhere; galleries show their scrollbar to a mouse in place of none; the skip link was removed, since the header holds nothing to skip; the chosen platform is outlined in forced colours; the lists say they are lists; and a gallery’s name no longer tells how to scroll it.</> },
           { date: '2026-11-27', text: <>Every heading became Nunito at 700 with slightly tighter lines (owner: “nunito at 700 for all headings”). Replaced Varela Round, whose single weight looked too light. The logo keeps its Varela Round letters.</> },
           { date: '2026-11-27', text: <>Section headings became prominent and centred again, with a line under them, followed by the panels (frames G and H). Replaced the small left-aligned titles over each panel, because the owner preferred the centred ones.</> },
