@@ -146,14 +146,15 @@ enum SharedVault {
             guard !site.isEmpty else { return nil }  // malformed website: nothing to register
             return ASPasswordCredentialIdentity(
                 serviceIdentifier: ASCredentialServiceIdentifier(identifier: site, type: .domain),
-                user: item.visibleAccount,
+                // What the system shows. The value filled is read from the vault when the suggestion is chosen.
+                user: DisplayText.safe(item.visibleAccount, empty: item.displayTitle, limit: DisplayText.maxValueLength),
                 recordIdentifier: IdentityRecord.make(vault: vault, item: item.id))
         }
         identities += items.compactMap { item in
             guard let passkey = item.passkey else { return nil }
             return ASPasskeyCredentialIdentity(
                 relyingPartyIdentifier: passkey.rpID,
-                userName: item.visibleAccount.isEmpty ? item.displayTitle : item.visibleAccount,
+                userName: DisplayText.safe(item.visibleAccount, empty: item.displayTitle, limit: DisplayText.maxValueLength),
                 credentialID: passkey.credentialID,
                 userHandle: passkey.userHandle,
                 recordIdentifier: IdentityRecord.make(vault: vault, item: item.id))
@@ -167,7 +168,7 @@ enum SharedVault {
                 guard !site.isEmpty else { return nil }
                 return ASOneTimeCodeCredentialIdentity(
                     serviceIdentifier: ASCredentialServiceIdentifier(identifier: site, type: .domain),
-                    label: item.visibleAccount.isEmpty ? item.displayTitle : item.visibleAccount,
+                    label: DisplayText.safe(item.visibleAccount, empty: item.displayTitle),
                     recordIdentifier: IdentityRecord.make(vault: vault, item: item.id))
             }
         }

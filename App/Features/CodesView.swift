@@ -122,7 +122,7 @@ struct CodesView: View {
     private var countText: String { codeItems.count == 1 ? String(localized: "1 code") : String(localized: "\(codeItems.count) codes") }
 
     private var allCodes: [VaultItem] {
-        codeItems.sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
+        codeItems.sorted { $0.fullName.localizedStandardCompare($1.fullName) == .orderedAscending }
     }
 
     /// Up to five logins used in the last 30 days (copying a code is a use), above a list of more than five.
@@ -222,7 +222,8 @@ private struct CodeRow: View {
     /// Not the usual 30 seconds: this row names its period, in place of the account.
     private var subtitle: Text? {
         if item.makesCode, item.otpSettings.period != 30 { return Text("Every \(item.otpSettings.period) s") }
-        return item.account.isEmpty ? nil : Text(verbatim: item.account)
+        let account = DisplayText.safe(item.account)
+        return account.isEmpty ? nil : Text(verbatim: account)
     }
 
     var body: some View {

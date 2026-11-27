@@ -159,17 +159,18 @@ struct ItemFieldMappingView: View {
         guard let role else { return }
         if let previous = draft[role], previous != field.key {
             AccessibilityNotification.Announcement(
-                String(localized: "\(String(localized: role.label)) moved from \(previous) to \(field.key)")).post()
+                String(localized: "\(String(localized: role.label)) moved from \(DisplayText.safe(previous)) to \(DisplayText.safe(field.key))")).post()
         }
         draft[role] = field.key
     }
 
     private func fieldRow(_ field: StoredItemField) -> some View {
         let role = role(of: field)
-        let name = field.key.isEmpty ? String(localized: "Unnamed field") : field.key
+        let name = DisplayText.safe(field.key, empty: String(localized: "Unnamed field"))
         let protected = !field.value.isEmpty && (field.concealed || role?.sensitive == true)
         let shown = revealedFields.contains(field.id)
-        let value = field.value.split(whereSeparator: \.isNewline).joined(separator: " ")
+        // A revealed protected value is drawn exactly, on one line.
+        let value = protected && shown ? field.value.split(whereSeparator: \.isNewline).joined(separator: " ") : DisplayText.value(field.value)
         return HStack(alignment: .center, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: name)

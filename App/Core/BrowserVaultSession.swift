@@ -46,7 +46,7 @@ enum BrowserVaultFacts {
 
     /// Where the vault is kept, in the words the app's menu uses. A file that cannot be found has no location to show.
     static func location(of reference: VaultReference, state: BrowserVaultState) -> String {
-        state == .notFound ? reference.fileName : reference.menuLocation
+        state == .notFound ? DisplayText.safe(reference.fileName) : reference.menuLocation
     }
 
     static func vault(_ reference: VaultReference, active: Bool, open: Bool, lockedOut: Bool = false) -> BrowserVault {

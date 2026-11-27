@@ -71,7 +71,7 @@ struct IncomingCodeSheet: View {
 
     private func picker(_ setup: TOTPSetup) -> some View {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        let all = logins.sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
+        let all = logins.sorted { $0.fullName.localizedStandardCompare($1.fullName) == .orderedAscending }
         let suggested = query.isEmpty ? IncomingCodeMatch.suggested(for: setup, among: logins) : []
         let suggestedIDs = Set(suggested.map(\.id))
         let rest = all.filter { item in
@@ -80,9 +80,9 @@ struct IncomingCodeSheet: View {
         return List {
             Section {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(setup.issuer.isEmpty ? "Found a verification code" : "Found a code for \(setup.issuer)")
+                    Text(setup.shownIssuer.isEmpty ? "Found a verification code" : "Found a code for \(setup.shownIssuer)")
                         .font(.title2.weight(.semibold))
-                    if !setup.account.isEmpty { Text(setup.account).foregroundStyle(.secondary) }
+                    if !setup.shownAccount.isEmpty { Text(setup.shownAccount).foregroundStyle(.secondary) }
                     Text("Choose the login it belongs to. Nothing is saved until you confirm.").foregroundStyle(.secondary)
                 }
                 .listRowBackground(Color.clear)
@@ -93,7 +93,7 @@ struct IncomingCodeSheet: View {
                     onNewLogin(setup)
                     dismiss()
                 } label: {
-                    Label(setup.issuer.isEmpty ? "New login with this code" : "New login for \(setup.issuer)", systemImage: "plus")
+                    Label(setup.shownIssuer.isEmpty ? "New login with this code" : "New login for \(setup.shownIssuer)", systemImage: "plus")
                 }
             } footer: {
                 Text("It opens the new login to review. Nothing is saved until you save it.")
@@ -115,7 +115,8 @@ struct IncomingCodeSheet: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.displayTitle)
-                    if !item.account.isEmpty { Text(item.account).foregroundStyle(.secondary) }
+                    let account = DisplayText.safe(item.account)
+                    if !account.isEmpty { Text(account).foregroundStyle(.secondary) }
                     if item.totpUsable { Text("Has a code. Saving replaces it.").foregroundStyle(.secondary) }
                 }
                 Spacer(minLength: 8)

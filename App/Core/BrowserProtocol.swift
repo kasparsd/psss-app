@@ -154,7 +154,7 @@ enum BrowserProtocol {
             let logins = items.filter { $0.kind == .login && !$0.secret.isEmpty }
             let found = logins
                 .filter { ItemSearch.matches($0, query: query, in: chosen) }
-                .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
+                .sorted { $0.fullName.localizedStandardCompare($1.fullName) == .orderedAscending }
             let perField = ItemSearch.counts(logins, query: query)
             // Every result shown is offered for this page, the ones saved for other sites too: only a login the person's own search
             // returned can be filled as "Other Matches".

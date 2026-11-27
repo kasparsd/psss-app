@@ -21,7 +21,7 @@ enum RecentlyUsed {
         }
         let ordered = recent.sorted { a, b in
             if a.1 != b.1 { return a.1 > b.1 }
-            let byName = a.0.displayTitle.localizedStandardCompare(b.0.displayTitle)
+            let byName = a.0.fullName.localizedStandardCompare(b.0.fullName)
             if byName != .orderedSame { return byName == .orderedAscending }
             return a.0.id.uuidString < b.0.id.uuidString
         }

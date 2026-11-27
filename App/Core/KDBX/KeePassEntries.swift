@@ -615,7 +615,7 @@ enum EntryMapping {
         let stored = otpSetup(entry)
         if item.kind == .login && (secret != stored.secret || (!secret.isEmpty && settings != stored.settings)) {
             for legacy in otpKeys.dropFirst() { set(legacy, nil) }
-            set("otp", secret.isEmpty ? nil : TOTP.setupURL(secret: secret, issuer: item.displayTitle, account: item.account, settings: settings))
+            set("otp", secret.isEmpty ? nil : TOTP.setupURL(secret: secret, issuer: item.fullName, account: item.account, settings: settings))
         }
 
         // A flag another app left off is put back on the strings Psss keeps protected, whether or not their values changed.

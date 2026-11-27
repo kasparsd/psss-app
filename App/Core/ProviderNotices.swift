@@ -74,7 +74,7 @@ enum SaveWords {
 
     /// "Gitforge (sam.r)", or the name alone when the login has no username.
     static func label(of item: VaultItem) -> String {
-        let name = shortened(DisplayText.title(of: item))
+        let name = shortened(item.displayTitle)
         let account = shortened(DisplayText.safe(item.account, empty: ""))
         return account.isEmpty || account == name ? name : "\(name) (\(account))"
     }

@@ -389,9 +389,9 @@ struct CodeConfirmContent: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Text(setup.issuer.isEmpty ? "Found a verification code" : "Found a code for \(setup.issuer)")
+            Text(setup.shownIssuer.isEmpty ? "Found a verification code" : "Found a code for \(setup.shownIssuer)")
                 .font(.title2.weight(.semibold))
-            if !setup.account.isEmpty { Text(setup.account).foregroundStyle(.secondary) }
+            if !setup.shownAccount.isEmpty { Text(setup.shownAccount).foregroundStyle(.secondary) }
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 let code = TOTP.code(secret: setup.secret, settings: setup.settings, at: context.date) ?? "------"
                 let remaining = TOTP.secondsRemaining(period: setup.settings.period, at: context.date)
@@ -440,4 +440,10 @@ struct CodeSavedContent: View {
                 .controlSize(.large)
         }
     }
+}
+
+extension TOTPSetup {
+    /// The issuer and account a setup link names, safe to show. What is saved is the link’s own text.
+    var shownIssuer: String { DisplayText.safe(issuer) }
+    var shownAccount: String { DisplayText.safe(account) }
 }

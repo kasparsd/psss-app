@@ -173,13 +173,14 @@ struct VaultReference: Codable, Equatable, Sendable {
     /// "Personal.kdbx · iCloud Drive › Documents" for a file opened in place. Nothing for a vault Psss created: its location says nothing useful.
     var locationDescription: String? {
         guard !managed else { return nil }
-        guard let bookmark, let url = try? VaultFiles.resolve(bookmark).url else { return fileName }
-        if VaultFiles.isInPsssFolder(url) { return "\(url.lastPathComponent) · \(VaultFiles.psssFolderLabel)" }
+        guard let bookmark, let url = try? VaultFiles.resolve(bookmark).url else { return DisplayText.safe(fileName) }
+        if VaultFiles.isInPsssFolder(url) { return "\(DisplayText.safe(url.lastPathComponent)) · \(VaultFiles.psssFolderLabel)" }
         let folder = VaultFiles.folderWords(of: url) ?? url.deletingLastPathComponent().pathComponents
             .filter { $0 != "/" }
             .suffix(2)
             .joined(separator: " › ")
-        return folder.isEmpty ? url.lastPathComponent : "\(url.lastPathComponent) · \(folder)"
+        let file = DisplayText.safe(url.lastPathComponent)
+        return folder.isEmpty ? file : "\(file) · \(DisplayText.safe(folder))"
     }
 
     /// Writes the reference of a vault that was just created or opened, which has a new identifier. Refuses a reference whose
@@ -317,15 +318,15 @@ struct VaultReference: Codable, Equatable, Sendable {
     /// Where the vault lives, for the lock screen's selector: "On this device" for a vault Psss created, otherwise the folder.
     var menuLocation: String {
         if managed { return String(localized: "On this device") }
-        guard let bookmark, let url = try? VaultFiles.resolve(bookmark).url else { return fileName }
+        guard let bookmark, let url = try? VaultFiles.resolve(bookmark).url else { return DisplayText.safe(fileName) }
         if VaultFiles.isInPsssFolder(url) { return VaultFiles.psssFolderLabel }
-        if let words = VaultFiles.folderWords(of: url) { return words }
+        if let words = VaultFiles.folderWords(of: url) { return DisplayText.safe(words) }
         // Sandbox plumbing (identifier folders, the File Provider copy) tells a person nothing.
         let parts = url.deletingLastPathComponent().pathComponents.filter { part in
             part != "/" && part != "File Provider Storage" && UUID(uuidString: part) == nil
         }
         let folder = parts.suffix(2).joined(separator: " › ")
-        return folder.isEmpty ? String(localized: "In the Files app") : folder
+        return DisplayText.safe(folder, empty: String(localized: "In the Files app"))
     }
 
     static func clear() { remove(defaultsKey, file: "vault-reference.json") }

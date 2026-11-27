@@ -13,7 +13,7 @@ enum CardsOrder {
                 let (x, y) = (rank[a.id] ?? -1, rank[b.id] ?? -1)
                 if x != y { return x < y }
             }
-            let byName = a.displayTitle.localizedStandardCompare(b.displayTitle)
+            let byName = a.fullName.localizedStandardCompare(b.fullName)
             if byName != .orderedSame { return byName == .orderedAscending }
             return a.id.uuidString < b.id.uuidString
         }
@@ -37,7 +37,7 @@ extension VaultItem {
     /// 2026-11-24). A card past its expiry adds "Expired": "Visa · Expired", "Sam Rivera · Expired", or "Expired" alone. Nil when
     /// there is nothing to say. The number and the expiry are the row's trailing block, see `cardNumberLine` and `cardExpiryLine`.
     func cardSecondLine(now: Date = .now, calendar: Calendar = .current) -> String? {
-        let holder = visibleAccount.trimmingCharacters(in: .whitespacesAndNewlines)
+        let holder = DisplayText.safe(visibleAccount)
         let lead: String? = visibleTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? (holder.isEmpty ? nil : holder)
             : CardBrand(number: CardNumber.normalized(secret))?.shortName ?? String(localized: "Card")

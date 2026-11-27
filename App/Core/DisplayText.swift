@@ -25,11 +25,19 @@ import Foundation
 ///   variation selectors has nothing to sit on.
 ///
 /// The result is stable: passing it through again changes nothing.
+///
+/// Every screen that shows a name from a vault (a title, username, website, field name, vault or file name) goes through here:
+/// `VaultItem.displayTitle` for an item's name, `safe` for any other single line, `value` for a field on an item's page and
+/// `lines` for a field that holds several lines. Text a person edits, notes and a revealed protected value are shown as stored.
 enum DisplayText {
     static let maxLength = 80
     static let maxScalars = 320
     static let maxMarksPerBase = 8
     static let maxEmojiSequence = 10
+    /// The longest value an item's page shows. Longer than a name, because the page is where a long username or address is read.
+    static let maxValueLength = 500
+    /// The most lines `lines` keeps.
+    static let maxLines = 100
 
     /// The scripts in which U+200C and U+200D are part of correct spelling: Arabic, Syriac, N'Ko, Mongolian, Devanagari, Bengali,
     /// Gurmukhi, Gujarati, Oriya, Tamil, Telugu, Kannada, Malayalam, Sinhala, Thai, Lao, Tibetan, Myanmar and Khmer. Persian,
@@ -40,20 +48,50 @@ enum DisplayText {
         "Kannada", "Malayalam", "Sinhala", "Thai", "Lao", "Tibetan", "Myanmar", "Khmer"
     ]
 
-    /// `text` as one safe line. When nothing is left, `empty`: nothing, unless you pass a placeholder.
-    static func safe(_ text: String, empty: String = "") -> String {
-        var builder = Builder()
+    /// `text` as one safe line of at most `limit` characters. When nothing is left, `empty`: nothing, unless you pass a placeholder.
+    static func safe(_ text: String, empty: String = "", limit: Int = maxLength) -> String {
+        var builder = Builder(maxScalars: limit * (maxScalars / maxLength))
         builder.run(Array(text.unicodeScalars))
         var kept = builder.kept
         trimTail(&kept)
         guard kept.contains(where: hasInk) else { return empty }
         var result = String(String.UnicodeScalarView(kept))
-        if builder.capHit || result.count > maxLength {
-            var head = Array(result.prefix(result.count >= maxLength ? maxLength - 1 : result.count).unicodeScalars)
+        if builder.capHit || result.count > limit {
+            var head = Array(result.prefix(result.count >= limit ? limit - 1 : result.count).unicodeScalars)
             trimTail(&head)
             result = String(String.UnicodeScalarView(head)) + "…"
         }
         return result
+    }
+
+    /// A field's value as an item's page shows it: one safe line, cut only past `maxValueLength`.
+    static func value(_ text: String) -> String { safe(text, limit: maxValueLength) }
+
+    /// A value of several lines (a street, a custom field): each line made safe on its own, so nothing reorders or hides text
+    /// across lines, and at most `maxLines` of them.
+    static func lines(_ text: String) -> String {
+        let all = text.split(maxSplits: maxLines, omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+        var shown = all.prefix(maxLines).map { value(String($0)) }
+        if all.count > maxLines { shown.append("…") }
+        return shown.joined(separator: "\n")
+    }
+
+    /// How a field's value is drawn.
+    enum Shape {
+        /// One line (a username, a website).
+        case line
+        /// Several lines (a street, a custom field).
+        case lines
+        /// The person's own writing (notes), shown as it is.
+        case asStored
+    }
+
+    static func shown(_ text: String, as shape: Shape) -> String {
+        switch shape {
+        case .line: value(text)
+        case .lines: lines(text)
+        case .asStored: text
+        }
     }
 
     /// `text` made safe and put in typographic quotes, for a value from the vault inside a sentence with fixed text. Straight and
@@ -69,13 +107,14 @@ enum DisplayText {
     /// CJK quotation marks and fullwidth.
     private static let quoteMarks: Set<UInt32> = [0x22, 0xAB, 0xBB, 0x201C, 0x201D, 0x201E, 0x201F, 0x2033, 0x2036, 0x301D, 0x301E, 0x301F, 0xFF02]
 
-    /// The name of an item as shown: its safe title, else the name made from what it holds (`VaultItem.derivedTitle`), with a
+    /// The name of an item as shown (`VaultItem.displayTitle`): its safe title, else the name made from what it holds (`VaultItem.derivedTitle`), with a
     /// website in its readable, lookalike-safe form. Never empty: the kind ("Login") stands in last.
     static func title(of item: VaultItem) -> String {
-        let name = safe(item.title)
+        let name = safe(item.visibleTitle)
         if !name.isEmpty { return name }
         if item.kind == .login || item.kind == .keePassEntry {
-            let site = HostDisplay.shown(SharedVault.host(item.website))
+            // A host is cut like any other name: a hostile one can be far longer than a line.
+            let site = safe(HostDisplay.shown(SharedVault.host(item.visibleWebsite)))
             if !site.isEmpty { return site }
         }
         return safe(item.derivedTitle, empty: item.kind.unnamedTitle)
@@ -84,6 +123,7 @@ enum DisplayText {
     // MARK: Scanning
 
     private struct Builder {
+        let maxScalars: Int
         var kept: [Unicode.Scalar] = []
         var capHit = false
         private var pendingSpace = false
@@ -141,7 +181,7 @@ enum DisplayText {
 
         /// Adds `scalar` (after a pending space), keeping the emoji sequence and total limits. False when the total is full.
         private mutating func append(_ scalar: Unicode.Scalar) -> Bool {
-            if kept.count + (pendingSpace ? 2 : 1) > DisplayText.maxScalars {
+            if kept.count + (pendingSpace ? 2 : 1) > maxScalars {
                 capHit = true
                 return false
             }

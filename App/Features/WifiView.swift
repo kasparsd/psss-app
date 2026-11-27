@@ -10,7 +10,7 @@ struct WifiView: View {
     let add: () -> Void
 
     private var networks: [VaultItem] {
-        items.filter { $0.kind == .wifi }.sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
+        items.filter { $0.kind == .wifi }.sorted { $0.fullName.localizedStandardCompare($1.fullName) == .orderedAscending }
     }
 
     private var countText: String { networks.count == 1 ? String(localized: "1 network") : String(localized: "\(networks.count) networks") }

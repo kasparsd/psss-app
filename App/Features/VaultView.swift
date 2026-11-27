@@ -1330,7 +1330,7 @@ struct VaultView: View {
         if isSearching || place == .all { return unique(recentGroup + results) }
         if place == .codes {
             let withCode = items.filter { $0.traits.contains(.code) }
-                .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
+                .sorted { $0.fullName.localizedStandardCompare($1.fullName) == .orderedAscending }
             return unique(RecentlyUsed.visible(snapshot: nil, in: withCode) + withCode)
         }
         if place == .addresses {
@@ -1339,7 +1339,7 @@ struct VaultView: View {
         }
         if place == .wifi {
             return items.filter { $0.kind == .wifi }
-                .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
+                .sorted { $0.fullName.localizedStandardCompare($1.fullName) == .orderedAscending }
         }
         let cards = CardsOrder.ordered(items)
         return unique(cards.recent + cards.live + cards.expired)
@@ -1877,7 +1877,7 @@ struct VaultView: View {
             link(item.id, section) { AddressListRow(address: item) }
                 .itemRowInsets(first: first, last: last)
         } else {
-            let subtitle = isSearching ? searchSubtitle(item, query: search, chosen: searchFields) : (item.visibleAccount.isEmpty ? Text(item.kind.label) : Text(verbatim: item.visibleAccount))
+            let subtitle = isSearching ? searchSubtitle(item, query: search, chosen: searchFields) : (item.shownAccount.isEmpty ? Text(item.kind.label) : Text(verbatim: item.shownAccount))
             if isSearching, item.makesCode {
                 ItemListRow(item: item, subtitle: subtitle, glyphs: item.traits.filter { $0 == .passkey },
                             glyphColumns: [.passkey], open: { openItem(item.id) }) {
@@ -2654,7 +2654,8 @@ private struct ItemDetail: View {
     /// A field is one row with a copy icon at its end. Protected values stay hidden until a deliberate reveal.
     private func row(_ id: FieldID, _ label: LocalizedStringResource, _ value: String, shown: String? = nil, hidden: Bool = false, notice: String? = nil) -> some View {
         let isSecret = id == .value(.secret)
-        return FieldRow(label: label, value: value, shown: shown ?? (isSecret ? item.spacedSecret : value),
+        let shape: DisplayText.Shape = id == .value(.notes) ? .asStored : id == .value(.street) ? .lines : .line
+        return FieldRow(label: label, value: value, shown: shown ?? (isSecret ? item.spacedSecret : value), shape: shape,
                         masked: isSecret ? item.maskedSecret : VaultItem.hiddenMask,
                         hidden: hidden,
                         revealed: Binding(get: { revealed.contains(id) },

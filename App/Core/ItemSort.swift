@@ -41,7 +41,7 @@ enum ItemSort: String, CaseIterable, Identifiable, Sendable {
         case .recentlyChanged:
             if let order = Self.newerFirst(a.modified, b.modified) { return order }
         }
-        let byName = a.displayTitle.localizedStandardCompare(b.displayTitle)
+        let byName = a.fullName.localizedStandardCompare(b.fullName)
         if byName != .orderedSame { return byName == .orderedAscending }
         return a.id.uuidString < b.id.uuidString
     }

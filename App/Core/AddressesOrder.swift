@@ -12,7 +12,7 @@ enum AddressesOrder {
                 let (x, y) = (rank[a.id] ?? -1, rank[b.id] ?? -1)
                 if x != y { return x < y }
             }
-            let byName = a.displayTitle.localizedStandardCompare(b.displayTitle)
+            let byName = a.fullName.localizedStandardCompare(b.fullName)
             if byName != .orderedSame { return byName == .orderedAscending }
             return a.id.uuidString < b.id.uuidString
         }

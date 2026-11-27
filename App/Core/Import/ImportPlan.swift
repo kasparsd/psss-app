@@ -279,8 +279,8 @@ enum ImportError: Error, Equatable {
         case .unreadable(let reason): String(localized: "The export could not be read. \(reason)")
         case .sampleVault: String(localized: "The sample vault cannot take imports. Create or open a vault first.")
         case .vaultStructure: String(localized: "The vault has no group to import into. Nothing was changed.")
-        case .attachmentUnreadable(let name): String(localized: "The attachment \(name) could not be read. Nothing was added.")
-        case .attachmentChanged(let name): String(localized: "The attachment \(name) changed after the export was read. Nothing was added.")
+        case .attachmentUnreadable(let name): String(localized: "The attachment \(DisplayText.safe(name)) could not be read. Nothing was added.")
+        case .attachmentChanged(let name): String(localized: "The attachment \(DisplayText.safe(name)) changed after the export was read. Nothing was added.")
         case .lineTooLong(let megabytes): String(localized: "A line in this file is longer than \(megabytes) MB, so it cannot be read safely. It does not look like a normal 1Password export.")
         case .unreadableResult: String(localized: "The imported items could not be written safely, so nothing was added. The vault is unchanged.")
         }

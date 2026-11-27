@@ -548,6 +548,11 @@ func appleImportChecks(writesWork: Bool) async throws {
         let checks = AppleImportText.checks(issues)
         check("apple words: checks are capped and counted", "\(checks.shown.count) \(checks.more) \(AppleImportText.checks([]).more)", "100 3 0")
         check("apple words: checks sentences and titles", checks.shown.prefix(3).map { "\($0.title): \($0.detail)" }.joined(separator: " | "), "No title: It holds nothing. | No title: It holds nothing. | t2: Done!")
+        let name = "a\u{202E}\nb" + String(repeating: "x", count: 20_000)
+        let hostile = AppleImportText.checks([ImportIssue(kind: .similarLogin, item: name, detail: "it looks like " + name)]).shown[0]
+        check("apple words: a hostile name in a line to check is one clean, cut line", "\(hostile.title.count) \(hostile.detail.count) \((hostile.title + hostile.detail).contains { "\u{202E}\n".contains($0) })", "80 500 false")
+        let attachment = ImportError.attachmentUnreadable(name).message
+        check("apple words: a hostile attachment name in an error", "\(attachment.count < 200) \(attachment.contains("\n") || attachment.contains("\u{202E}"))", "true false")
         let problems = [ImportError.notAnExport, .empty, .tooLarge, .unreadable("The file “/Users/someone/x.csv” couldn’t be opened. NSCocoaErrorDomain 257"), .lineTooLong(1)].map { AppleImportText.fileProblem($0) }
             + [AppleImportText.fileProblem(CocoaError(.fileReadNoPermission))]
         check("apple words: file problems are plain, without codes or paths", problems.joined(separator: "|"),

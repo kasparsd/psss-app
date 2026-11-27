@@ -1,3 +1,4 @@
+import AuthenticationServices
 import Foundation
 
 // Hostless checks for site matching. Run with scripts/test-matching.sh.
@@ -624,6 +625,14 @@ do {
     same("row line: a list of other sites adds the website", row("Gitforge", account: "sam.r", website: "https://gitforge.example", site: true), "sam.r · gitforge.example")
     same("row line: the name is the site, so it is not repeated", row("gitforge.example", account: "sam.r", website: "https://gitforge.example", site: true), "sam.r")
     same("row line: hostile newline and bidi are removed", row("Gitforge", account: "sam\n\u{202E}r", website: ""), DisplayText.safe("sam\n\u{202E}r"))
+
+    do {  // the system's suggestions show safe names; the record identifier is what finds the value to fill
+        let hostile = "sam\n\u{202E}r" + String(repeating: "x", count: 5_000)
+        let item = VaultItem(kind: .login, title: "Gitforge", account: hostile, website: "https://gitforge.example", secret: "x")
+        let shown = SharedVault.identities(for: [item], vault: UUID()).compactMap { $0 as? ASPasswordCredentialIdentity }.first?.user ?? ""
+        expect("identities: a hostile username is one clean line", shown.hasPrefix("sam r") && shown.count == DisplayText.maxValueLength && !shown.contains("\n"), true)
+        expect("identities: the username to fill is untouched", item.fillValue(for: .username) == hostile, true)
+    }
 
     // Rows that would read the same get what differs (owner, 2026-11-26): the website, else the vault, else the change date.
     func login(_ title: String, _ account: String, _ website: String, modified: Date? = nil) -> VaultItem {

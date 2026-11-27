@@ -255,7 +255,7 @@ private struct LoginRow: View {
                     titleHighlight: titleHighlight,
                     glyphs: item.passkey == nil ? [] : [.passkey], glyphColumns: [.passkey],
                     open: action, openHint: verb) {
-            DetailButton(name: DisplayText.title(of: item), action: openValues)
+            DetailButton(name: item.displayTitle, action: openValues)
         }
         .background {
             if isDefault {
@@ -345,7 +345,7 @@ private struct ItemValues: View {
         let site = item.visibleWebsite.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !site.isEmpty else { return nil }
         let host = HostDisplay.shown(SharedVault.host(site))
-        let text = host.isEmpty ? DisplayText.safe(site, empty: "") : host
+        let text = DisplayText.value(host.isEmpty ? site : host)
         return text.isEmpty ? nil : text
     }
 
@@ -392,13 +392,13 @@ private struct ItemValues: View {
                     VStack(spacing: 8) {
                         ItemIcon(item: item, size: 60)
                         #if os(macOS)
-                        Text(verbatim: DisplayText.title(of: item)).font(.title2.bold()).multilineTextAlignment(.center)
+                        Text(verbatim: item.displayTitle).font(.title2.bold()).multilineTextAlignment(.center)
                         #endif
                     }
                     Spacer(minLength: 0)
                 }
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text(verbatim: DisplayText.title(of: item)))
+                .accessibilityLabel(Text(verbatim: item.displayTitle))
             }
             .listRowBackground(Color.clear)
             if !lines.isEmpty {
@@ -437,7 +437,7 @@ private struct ItemValues: View {
             if let vaults { ProviderVaultRow(vaults: vaults) }
             list
         }
-        .navigationTitle(DisplayText.title(of: item)).navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(item.displayTitle).navigationBarTitleDisplayMode(.inline)
         #else
         ProviderScreen(cancel: ProviderAction(title: "Cancel", run: cancel),
                        primary: fill.map { ProviderAction(title: fillTitle, run: $0) },
@@ -1068,12 +1068,12 @@ struct CodeList: View {
     private var found: [VaultItem] {
         others
             .filter { item in
-                item.displayTitle.localizedStandardContains(query)
+                item.fullName.localizedStandardContains(query)
                     || item.account.localizedStandardContains(query)
                     || item.website.localizedStandardContains(query)
                     || SharedVault.host(item.website).localizedStandardContains(query)
             }
-            .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
+            .sorted { $0.fullName.localizedStandardCompare($1.fullName) == .orderedAscending }
     }
 
     private func isOwnSite(_ item: VaultItem) -> Bool {
@@ -1093,7 +1093,7 @@ struct CodeList: View {
         var lines = [
             ConfirmLine(String(localized: "Saved for:"), savedValue),
             ConfirmLine(String(localized: "You are signing in to:"), pageValue),
-            ConfirmLine(String(localized: "Login:"), DisplayText.quoted(DisplayText.title(of: item)))
+            ConfirmLine(String(localized: "Login:"), DisplayText.quoted(item.displayTitle))
         ]
         let account = DisplayText.safe(item.account, empty: "")
         if !account.isEmpty { lines.append(ConfirmLine(String(localized: "Account:"), DisplayText.quoted(account))) }

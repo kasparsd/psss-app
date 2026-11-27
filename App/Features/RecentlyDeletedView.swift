@@ -289,6 +289,7 @@ struct RecentlyDeletedDetail: View {
         let value = key == .expiry ? CardExpiry.displayed(item.expiry) : item[key]
         return FieldRow(label: label, value: value,
                         shown: key == .secret ? item.spacedSecret : value,
+                        shape: key == .notes ? .asStored : key == .street ? .lines : .line,
                         masked: key == .secret ? item.maskedSecret : VaultItem.hiddenMask,
                         hidden: key == .secret || key == .securityCode || key == .pin || item.concealedFields?.contains(key.rawValue) == true,
                         revealed: Binding(get: { revealed.contains(key) },

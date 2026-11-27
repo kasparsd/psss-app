@@ -324,7 +324,7 @@ struct VaultLocationRows: View {
         LabeledContent("Location") {
             Text(verbatim: reference.menuLocation)
                 #if os(macOS)
-                .help(Text(verbatim: url?.path ?? reference.fileName))
+                .help(Text(verbatim: DisplayText.value(url?.path ?? reference.fileName)))
                 #endif
         }
         if !reference.managed {

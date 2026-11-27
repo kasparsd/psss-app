@@ -47,7 +47,7 @@ private struct CredentialFields: View {
                     HStack {
                         Button(keyFile == nil ? "Choose Key File…" : "Change Key File…") { choosingKeyFile = true }
                         if let keyFileName {
-                            Text(keyFileName).foregroundStyle(.secondary).lineLimit(1)
+                            Text(verbatim: DisplayText.safe(keyFileName)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                             Button("Remove") { keyFile = nil; self.keyFileName = nil }
                         }
                     }

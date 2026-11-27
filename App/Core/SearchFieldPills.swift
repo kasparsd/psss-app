@@ -39,11 +39,15 @@ struct SearchFieldPills: View {
 /// A row's second line while searching: the field that matched, with the matching part in the primary colour.
 func searchSubtitle(_ item: VaultItem, query: String, chosen: Set<SearchField>) -> Text {
     let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    let account = DisplayText.safe(item.visibleAccount)
+    let plain = account.isEmpty ? Text(item.kind.label) : Text(verbatim: account)
     guard let field = ItemSearch.shownField(of: item, query: query, chosen: chosen),
-          let text = field.text(of: item).first(where: { $0.localizedStandardContains(query) }),
-          let range = text.range(of: query, options: [.caseInsensitive, .diacriticInsensitive])
-    else {
-        return item.visibleAccount.isEmpty ? Text(item.kind.label) : Text(verbatim: item.visibleAccount)
+          let found = field.text(of: item).first(where: { $0.localizedStandardContains(query) })
+    else { return plain }
+    // The longer limit, so a match far into a website is still in the line; the row cuts what does not fit.
+    let text = DisplayText.value(found)
+    guard let range = text.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) else {
+        return text.isEmpty ? plain : Text(verbatim: text)
     }
     return emphasized(text, range)
 }

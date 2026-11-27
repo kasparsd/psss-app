@@ -132,7 +132,7 @@ struct VaultItem: Identifiable, Sendable, Codable {
     /// The `otpauth://` link that moves this TOTP secret to another authenticator.
     var totpSetupURL: String? {
         guard kind == .login, let secret = TOTP.normalizedSecret(otpSecret) else { return nil }
-        return TOTP.setupURL(secret: secret, issuer: displayTitle, account: account, settings: otpSettings)
+        return TOTP.setupURL(secret: secret, issuer: fullName, account: account, settings: otpSettings)
     }
 
     /// What this item holds beyond a name and a secret. Secure notes always have notes, so they do not advertise it.
@@ -145,8 +145,12 @@ struct VaultItem: Identifiable, Sendable, Codable {
     }
 
     /// The name shown everywhere (owner, 2026-11-24): the name the person gave, or one made from what the item holds, so no kind
-    /// needs a name. Lists, search, sort by name, the item page, the Undo capsule, Recently Deleted and AutoFill all use this.
-    var displayTitle: String {
+    /// needs a name. Lists, the item page, the Undo capsule, Recently Deleted and AutoFill show this. It is safe to show (see
+    /// `DisplayText`): never use it to store, fill or compare, use `fullName`.
+    var displayTitle: String { DisplayText.title(of: self) }
+
+    /// The same name exactly as stored, for search, sort and what is written into a file or a setup link. Never shown as it is.
+    var fullName: String {
         let name = visibleTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? derivedTitle : name
     }
@@ -355,7 +359,7 @@ struct ItemFieldMapping: Codable, Equatable, Sendable {
                 continue
             }
             guard choices.contains(where: { $0.key == key }) else {
-                issues.append((role, String(localized: "“\(key)” is unavailable. Choose a different field.")))
+                issues.append((role, String(localized: "“\(DisplayText.safe(key))” is unavailable. Choose a different field.")))
                 continue
             }
         }
@@ -370,6 +374,9 @@ extension VaultItem {
     var visibleTitle: String { concealedFields?.contains("title") == true ? "" : title }
     var visibleAccount: String { concealedFields?.contains("account") == true ? "" : account }
     var visibleWebsite: String { concealedFields?.contains("website") == true ? "" : website }
+
+    /// The username as a row's line shows it: safe, empty when there is none to show.
+    var shownAccount: String { DisplayText.safe(visibleAccount) }
 
     func fillValue(for role: FieldRole, at date: Date = .now) -> String? {
         let value: String

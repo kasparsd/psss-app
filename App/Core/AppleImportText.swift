@@ -62,7 +62,7 @@ enum AppleImportText {
         let told = deleted.isEmpty ? issues : issues.filter { $0.kind != .deletedNotImported }
         let all: [(String, String)] = told.map { ($0.item ?? "", sentence($0.detail)) } + deleted.map { ($0.title, gone) }
         let shown = all.prefix(checkLimit).enumerated().map { index, one in
-            Check(id: index, title: DisplayText.safe(one.0, empty: String(localized: "No title")), detail: one.1)
+            Check(id: index, title: DisplayText.safe(one.0, empty: String(localized: "No title")), detail: DisplayText.value(one.1))
         }
         return (shown, max(0, all.count - checkLimit))
     }

@@ -47,7 +47,7 @@ enum PickerSearch {
                 let found = fields(of: item, query: query)
                 return chosen.isEmpty ? !found.isEmpty : !found.isDisjoint(with: chosen)
             }
-            .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
+            .sorted { $0.fullName.localizedStandardCompare($1.fullName) == .orderedAscending }
     }
 
     /// How many offerable items have the text in each field, for the pills. One item can count in two fields.
@@ -98,9 +98,9 @@ extension ReleaseCheck {
 /// sites' logins (`showsSite`) always adds the website after the account. Everything is made safe for one line.
 enum RowLine {
     static func text(for item: VaultItem, showsSite: Bool) -> String? {
-        let title = DisplayText.title(of: item)
+        let title = item.displayTitle
         let account = DisplayText.safe(item.account, empty: "")
-        let site = HostDisplay.shown(SharedVault.host(item.website))
+        let site = DisplayText.value(HostDisplay.shown(SharedVault.host(item.website)))
         var parts: [String] = []
         if !account.isEmpty, account != title { parts.append(account) }
         if !site.isEmpty, site != title, showsSite || parts.isEmpty { parts.append(site) }
@@ -122,12 +122,12 @@ extension RowLine {
                             changed: (Date) -> String = RowLine.changedText) -> [UUID: String] {
         var groups: [String: [VaultItem]] = [:]
         for item in items {
-            let key = DisplayText.title(of: item) + "\u{0}" + (text(for: item, showsSite: showsSite) ?? "")
+            let key = item.displayTitle + "\u{0}" + (text(for: item, showsSite: showsSite) ?? "")
             groups[key, default: []].append(item)
         }
         var result: [UUID: String] = [:]
         for group in groups.values where group.count > 1 {
-            let sites = group.map { HostDisplay.shown(SharedVault.host($0.website)) }
+            let sites = group.map { DisplayText.value(HostDisplay.shown(SharedVault.host($0.website))) }
             let vaults = group.map { vaultName($0).map { DisplayText.safe($0, empty: "") } ?? "" }
             for (index, item) in group.enumerated() {
                 if Set(sites).count > 1 {

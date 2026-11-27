@@ -58,7 +58,7 @@ struct ItemIcon: View {
 
     private var tint: Color {
         guard item.kind == .login else { return .gray }
-        let seed = (item.website.isEmpty ? item.displayTitle : item.website).unicodeScalars.reduce(UInt32(7)) { $0 &* 31 &+ $1.value }
+        let seed = (item.website.isEmpty ? item.fullName : item.website).unicodeScalars.reduce(UInt32(7)) { $0 &* 31 &+ $1.value }
         return Color(hue: Double(seed % 360) / 360, saturation: 0.5, brightness: 0.72)
     }
 

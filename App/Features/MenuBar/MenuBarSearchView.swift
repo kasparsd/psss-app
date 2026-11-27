@@ -92,12 +92,13 @@ struct MenuBarField: Identifiable {
     var link: URL?
     /// A verification code is computed when it is shown or copied.
     var isCode = false
+    var shape = DisplayText.Shape.line
     var id: String { label }
 
     static func of(_ item: VaultItem) -> [MenuBarField] {
         var fields: [MenuBarField] = []
-        func add(_ label: String, _ value: String, secret: Bool = false, link: URL? = nil) {
-            if !value.isEmpty { fields.append(MenuBarField(label: label, value: value, secret: secret, link: link)) }
+        func add(_ label: String, _ value: String, secret: Bool = false, link: URL? = nil, shape: DisplayText.Shape = .line) {
+            if !value.isEmpty { fields.append(MenuBarField(label: label, value: value, secret: secret, link: link, shape: shape)) }
         }
         // Values the file marks as protected stay hidden here as on the item page.
         func hidden(_ key: String) -> Bool { item.concealedFields?.contains(key) == true }
@@ -123,7 +124,7 @@ struct MenuBarField: Identifiable {
         case .address:
             add(String(localized: "Full name"), item.account, secret: hidden("account"))
             add(String(localized: "Organization"), item.address.organization, secret: hidden("addressOrganization"))
-            add(String(localized: "Street"), item.address.street, secret: hidden("addressStreet"))
+            add(String(localized: "Street"), item.address.street, secret: hidden("addressStreet"), shape: .lines)
             add(String(localized: "City"), item.address.city, secret: hidden("addressCity"))
             add(String(localized: "Region"), item.address.region, secret: hidden("addressRegion"))
             add(String(localized: "Postal code"), item.address.postalCode, secret: hidden("addressPostalCode"))
@@ -135,9 +136,9 @@ struct MenuBarField: Identifiable {
             add(String(localized: "Password"), item.secret, secret: true)
             add(String(localized: "Website"), item.website, secret: hidden("website"), link: SiteMatch.webAddress(item.website))
         }
-        add(String(localized: "Note"), item.notes, secret: item.kind == .secureNote || hidden("notes"))
+        add(String(localized: "Note"), item.notes, secret: item.kind == .secureNote || hidden("notes"), shape: .asStored)
         for field in item.otherFields ?? [] where !fields.contains(where: { $0.label == field.key }) {
-            add(field.key, field.value, secret: field.concealed)
+            add(field.key, field.value, secret: field.concealed, shape: .lines)
         }
         return fields
     }
@@ -171,7 +172,7 @@ struct MenuBarSearchView: View {
         let groups: [Group]
         if !query.isEmpty {
             let all = items.filter { ItemSearch.matches($0, query: query) }
-                .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
+                .sorted { $0.fullName.localizedStandardCompare($1.fullName) == .orderedAscending }
             // The page's own logins are never cut off.
             let found = Array(all.prefix(Self.limit))
             if host != nil {
@@ -187,13 +188,13 @@ struct MenuBarSearchView: View {
             let isBrowser = model.page != .notBrowser
             let front = model.frontName.lowercased()
             let named = isBrowser || front.isEmpty ? [] : items.filter {
-                $0.kind == .login && $0.displayTitle.lowercased().split { !$0.isLetter && !$0.isNumber }.contains(Substring(front))
+                $0.kind == .login && $0.fullName.lowercased().split { !$0.isLetter && !$0.isNumber }.contains(Substring(front))
             }
             let listed = pageIDs.union(named.map(\.id))
             var recent = RecentlyUsed.group(from: items).filter { !listed.contains($0.id) }
             var recentTitle = String(localized: "Recently used")
             if recent.isEmpty, forPage.isEmpty, named.isEmpty {
-                recent = Array(items.sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }.prefix(8))
+                recent = Array(items.sorted { $0.fullName.localizedStandardCompare($1.fullName) == .orderedAscending }.prefix(8))
                 recentTitle = String(localized: "Items")
             }
             let first = host.map { Group(title: String(localized: "For \($0)"), items: forPage) }
@@ -340,7 +341,7 @@ struct MenuBarSearchView: View {
                 ForEach(model.session.openVaults.filter { $0.id != model.vaultID }, id: \.id) { vault in
                     let count = model.session.store(for: vault.id)?.items().filter { ItemSearch.matches($0, query: query) }.count ?? 0
                     if count > 0 {
-                        Button("Show \(count) in \(vault.name)") {
+                        Button("Show \(count) in \(VaultName.short(vault.name))") {
                             let typed = model.query
                             model.choose(vault.id)
                             model.type(typed)
@@ -357,7 +358,7 @@ struct MenuBarItemRow: View {
     let model: MenuBarModel
     let item: VaultItem
 
-    private var subtitle: Text { item.visibleAccount.isEmpty ? Text(item.kind.label) : Text(verbatim: item.visibleAccount) }
+    private var subtitle: Text { item.shownAccount.isEmpty ? Text(item.kind.label) : Text(verbatim: item.shownAccount) }
     private func open() { model.open(item.id) }
 
     private var chevron: some View {
@@ -429,7 +430,7 @@ struct MenuBarItemPage: View {
         if item.concealedFields?.contains("website") == true { return String(localized: "Saved for another website, not the page in front.") }
         let saved: String = SiteMatch.normalizedHost(item.website)
         guard !saved.isEmpty else { return String(localized: "Saved for another website, not the page in front.") }
-        return String(localized: "Saved for \(saved), not the page in front.")
+        return String(localized: "Saved for \(DisplayText.safe(saved)), not the page in front.")
     }
 
     var body: some View {
@@ -504,11 +505,11 @@ struct MenuBarFieldRow: View {
                             CodeDigits(code: TOTP.code(secret: item.otpSecret, settings: item.otpSettings, at: context.date) ?? "")
                         }
                     } else if let link = field.link, !field.secret {
-                        Link(destination: link) { Text(field.value).lineLimit(1).truncationMode(.middle) }
+                        Link(destination: link) { Text(DisplayText.value(field.value)).lineLimit(1).truncationMode(.middle) }
                     } else if field.secret, !shown {
                         Text(String(repeating: "\u{2022}", count: 10)).accessibilityLabel("Hidden")
                     } else {
-                        Text(field.value).monospaced(field.secret).lineLimit(6)
+                        Text(field.secret ? field.value : DisplayText.shown(field.value, as: field.shape)).monospaced(field.secret).lineLimit(6)
                     }
                     if field.secret {
                         Button(action: toggle) {

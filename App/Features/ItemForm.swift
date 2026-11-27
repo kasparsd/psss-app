@@ -219,7 +219,7 @@ struct ItemFields: View {
     // MARK: Fields
 
     private func otherField(_ field: StoredItemField) -> some View {
-        let name = field.key.isEmpty ? String(localized: "Unnamed field") : field.key
+        let name = DisplayText.safe(field.key, empty: String(localized: "Unnamed field"))
         let value = Binding(get: { item.otherFieldEdits?[field.id] ?? field.value },
                             set: { item.editOtherField(field, value: $0) })
         return labeled(name) {
@@ -375,7 +375,7 @@ struct ItemFields: View {
         return Picker("Country or region", selection: Binding(get: { item.address.countryCode ?? item.address.country },
                                                                 set: { item.address.country = $0 })) {
             Text("Not set").tag("")
-            if let unknown { Text(verbatim: unknown).tag(unknown) }
+            if let unknown { Text(verbatim: DisplayText.safe(unknown)).tag(unknown) }
             ForEach(AddressCountry.choices, id: \.code) { Text(verbatim: $0.name).tag($0.code) }
         }
         .pickerStyle(.menu)
@@ -405,7 +405,7 @@ struct ItemIdentity: View {
         VStack(spacing: 8) {
             ItemIcon(item: item, size: 64)
             if let name {
-                TextField("Name", text: name, prompt: Text(verbatim: item.derivedTitle).foregroundStyle(Color.secondary))
+                TextField("Name", text: name, prompt: Text(verbatim: DisplayText.safe(item.derivedTitle, empty: item.kind.unnamedTitle)).foregroundStyle(Color.secondary))
                     // Without this the Mac form draws the field's title, "Name", as a row label beside it.
                     .labelsHidden()
                     .textFieldStyle(.plain)
@@ -436,7 +436,7 @@ struct ItemIdentity: View {
 enum PasskeyCard {
     static func row(_ passkey: PasskeyRecord) -> some View {
         Label {
-            Text("Saved \(passkey.created.formatted(date: .abbreviated, time: .omitted)) for \(passkey.rpID)")
+            Text("Saved \(passkey.created.formatted(date: .abbreviated, time: .omitted)) for \(DisplayText.safe(passkey.rpID))")
         } icon: {
             Image(systemName: "person.badge.key")
         }
@@ -450,7 +450,7 @@ enum PasskeyCard {
     }
 
     static func footer(_ passkey: PasskeyRecord) -> some View {
-        Text("Sign in on \(passkey.rpID) with this passkey. It never leaves your vault.")
+        Text("Sign in on \(DisplayText.safe(passkey.rpID)) with this passkey. It never leaves your vault.")
     }
 }
 

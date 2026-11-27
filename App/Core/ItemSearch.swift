@@ -25,7 +25,7 @@ enum SearchField: CaseIterable, Hashable {
             // An address is found by its label, its full name and its city, and never by street, email or phone (owner, 2026-11-26).
             // The name made from a street is not searched either.
             item.kind == .address ? [item.visibleTitle, item.visibleAccount, item.address.city]
-                : item.kind == .login ? [item.visibleTitle] : [item.visibleTitle, item.displayTitle]
+                : item.kind == .login ? [item.visibleTitle] : [item.visibleTitle, item.fullName]
         case .website: [item.visibleWebsite]
         // The full name of an address is a Name match, so an address never answers to "Username".
         case .username: item.kind == .address ? [] : [item.visibleAccount]

@@ -19,7 +19,7 @@ enum IncomingCodeMatch {
                 }
                 return !account.isEmpty && item.account.caseInsensitiveCompare(account) == .orderedSame
             }
-            .sorted { $0.displayTitle.localizedStandardCompare($1.displayTitle) == .orderedAscending }
+            .sorted { $0.fullName.localizedStandardCompare($1.fullName) == .orderedAscending }
     }
 
     /// A login that holds the code but is not saved: named for the issuer, with the account as its username. The editor opens on it

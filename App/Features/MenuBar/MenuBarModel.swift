@@ -162,7 +162,7 @@ final class MenuBarModel {
 
     var reference: VaultReference? { sample == nil ? session.reference : nil }
     var vaultID: UUID { reference?.id ?? Self.sampleID }
-    var vaultName: String { sample != nil ? String(localized: "Sample vault") : reference?.name ?? "" }
+    var vaultName: String { sample != nil ? String(localized: "Sample vault") : reference.map { VaultName.short($0.name) } ?? "" }
     var hasVault: Bool { sample != nil || reference != nil }
 
     /// The shown vault's open store; nil while it is locked.
@@ -386,7 +386,7 @@ final class MenuBarModel {
     func unlockWithBiometrics() async {
         guard !unlocking, let reference else { return }
         failure = nil
-        let outcome = await prompter.evaluate(reason: String(localized: "Unlock \(reference.name)."))
+        let outcome = await prompter.evaluate(reason: String(localized: "Unlock \(VaultName.sentence(reference.name))."))
         // Another vault was chosen while the prompt was up.
         guard session.reference?.id == reference.id else { return }
         switch outcome {
@@ -400,7 +400,7 @@ final class MenuBarModel {
             } catch VaultStoreError.lockedMeanwhile {
                 // The locked panel is the answer.
             } catch {
-                failure = String(localized: "That didn’t open \(reference.name). Enter the vault password.")
+                failure = String(localized: "That didn’t open \(VaultName.sentence(reference.name)). Enter the vault password.")
             }
         case .cancelled: break
         case .notRecognised, .unavailable: failure = String(localized: "Touch ID did not work. Enter the vault password.")
@@ -421,7 +421,7 @@ final class MenuBarModel {
             password = ""
         } catch {
             password = ""
-            failure = String(localized: "That didn’t open \(reference.name). Check Caps Lock and your keyboard language. If this vault uses a key file, unlock it in Psss.")
+            failure = String(localized: "That didn’t open \(VaultName.sentence(reference.name)). Check Caps Lock and your keyboard language. If this vault uses a key file, unlock it in Psss.")
         }
     }
 

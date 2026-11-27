@@ -9,7 +9,8 @@ extension VaultItem {
         let given = visibleTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let network = visibleAccount.trimmingCharacters(in: .whitespacesAndNewlines)
         let security = wifiSecurity.shortLabel
-        return given.isEmpty || network.isEmpty || given == network ? security : "\(network) \u{00B7} \(security)"
+        let shown = DisplayText.safe(network)
+        return given.isEmpty || shown.isEmpty || given == network ? security : "\(shown) \u{00B7} \(security)"
     }
 }
 

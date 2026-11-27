@@ -206,7 +206,7 @@ struct MenuBarNewLoginView: View {
         let draft = model.draft
         if let waiting = model.waiting[model.vaultID] {
             MenuBarMessage(title: "You have an unsaved login") {
-                Text("For \(draft.name.isEmpty ? (draft.website.isEmpty ? String(localized: "no website yet") : draft.website) : draft.name) in \(model.vaultName).")
+                Text("For \(DisplayText.safe(draft.name.isEmpty ? draft.website : draft.name, empty: String(localized: "no website yet"))) in \(model.vaultName).")
                     .foregroundStyle(.secondary)
                 Button("Continue It") { model.waiting[model.vaultID] = nil }.buttonStyle(.borderedProminent)
                 Button("Replace It") { model.draft = waiting; model.waiting[model.vaultID] = nil }
@@ -229,7 +229,10 @@ struct MenuBarNewLoginView: View {
         let same = exact ?? matches.first
         let named = !draft.name.trimmingCharacters(in: .whitespaces).isEmpty || !SiteMatch.normalizedHost(draft.website).isEmpty
         let can = !draft.password.isEmpty && named
-        let label = same.map { $0.account.isEmpty ? $0.displayTitle : "\($0.displayTitle) (\($0.account))" } ?? ""
+        let label = same.map {
+            let account = DisplayText.safe($0.account)
+            return account.isEmpty ? $0.displayTitle : "\($0.displayTitle) (\(account))"
+        } ?? ""
 
         func text(_ path: WritableKeyPath<MenuBarDraft, String>) -> Binding<String> {
             Binding(get: { model.draft[keyPath: path] }, set: { new in
