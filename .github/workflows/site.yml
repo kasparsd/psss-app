@@ -1,0 +1,79 @@
+# Builds the website (Site/) and deploys it to Cloudflare Pages from main.
+# Setup of the Cloudflare project, the token and the secrets: docs/development.md, "Website".
+name: Website
+
+on:
+  push:
+    branches: [main]
+    paths: &paths
+      - 'Site/**'
+      - 'Design/Mocks/app/src/**'
+      - 'Design/Logo/**'
+      - '.github/workflows/site.yml'
+  pull_request:
+    paths: *paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: Site
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: Site/.node-version
+          cache: npm
+          cache-dependency-path: Site/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: site
+          path: Site/dist
+          if-no-files-found: error
+          retention-days: 7
+
+  # A separate job, so no build and no package install script runs beside the Cloudflare token.
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: website
+      url: https://psss.app
+    # One deployment at a time; a running one finishes.
+    concurrency:
+      group: website
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: Site
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: Site/.node-version
+          cache: npm
+          cache-dependency-path: Site/package-lock.json
+      # Wrangler at the version in the lockfile.
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: site
+          path: Site/dist
+      - run: npm run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

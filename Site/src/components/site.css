@@ -1,10 +1,15 @@
 /* The one font the site ships (docs/brand.md, "Type"). */
 @font-face {
   font-family: 'Varela Round';
-  src: url('../../../Design/Fonts/VarelaRound/VarelaRound-Regular.ttf') format('truetype');
+  src: url('../assets/VarelaRound-Regular.woff2') format('woff2');
   font-weight: 400;
   font-display: swap;
 }
 /* The mock library paints its own page ground; the site's ground is the landing page's. */
 body { margin: 0; background: #FFF9E5; }
 @media (prefers-color-scheme: dark) { body { background: #1F1F23; } }
+
+/* The 404 page is one short message: centred, with room under it. */
+.lp.not-found { min-height: 100vh; }
+.lp.not-found .lp-intro { margin-top: 2.5rem; }
+.lp .nf-home { text-align: center; }

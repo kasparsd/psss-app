@@ -1,0 +1,8 @@
+---
+// Cloudflare Pages serves 404.html for any address that has no file.
+import Layout from '../layouts/Layout.astro';
+import { NotFound } from '../components/NotFound';
+---
+<Layout title="Page not found · Psss Passwords" description="There is no page at this address." noindex>
+  <NotFound />
+</Layout>

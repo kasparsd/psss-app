@@ -58,7 +58,10 @@ export function Gallery({ id, title, pictures }: {
   );
 }
 
-/** One screen alone, for the hero. */
+/**
+ * One screen alone, for the hero. The wrapper hides nothing: the picture inside
+ * names itself for a screen reader and switches off its own controls (`HeroArt`).
+ */
 export function Shot({ children }: { children: ReactNode }) {
-  return <div className="lp-shot lp-gal-device" inert aria-hidden="true">{children}</div>;
+  return <div className="lp-shot lp-gal-device">{children}</div>;
 }

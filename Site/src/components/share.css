@@ -1,0 +1,13 @@
+/* One fixed frame, 1200 by 630: app icon and slogan on the left, the app on the right.
+   The landing page's dark look (owner, 2026-11-27): charcoal ground, the butter app icon, cream words, no shadows. */
+.lp.share {
+  width: 1200px; height: 630px; overflow: hidden;
+  display: grid; grid-template-columns: 460px 700px; align-items: center;
+}
+.lp.share .share-words { padding-left: 64px; }
+.lp.share .lp-appicon { width: 220px; height: 220px; margin: 0 0 40px; }
+.lp.share .lp-h1 { font-size: 62px; line-height: 1.12; }
+
+/* No shadow anywhere; dark windows are told from the dark ground by a thin edge. */
+.lp.share *, .lp.share *::before, .lp.share *::after { box-shadow: none !important; text-shadow: none !important; filter: none !important; }
+.lp.share .macwin, .lp.share .xb-bar, .lp.share .xp, .lp.share .phone { border: 2px solid #55555C; }

@@ -1,0 +1,9 @@
+---
+// The picture shown when the address is shared, drawn from the page's own parts so it cannot drift.
+// scripts/build-og-image.mjs photographs this page at 1200 by 630 into public/og.png. Not for visitors.
+import Layout from '../layouts/Layout.astro';
+import { ShareImage } from '../components/ShareImage';
+---
+<Layout title="Share image · Psss Passwords" description="The picture shown when the page is shared." noindex>
+  <ShareImage />
+</Layout>

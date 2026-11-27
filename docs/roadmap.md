@@ -197,6 +197,27 @@ Goal: five people outside the project fill, save and find a login without guidan
 8. Card fields, next steps (2026-11-24): a field-mapping role for Valid from, PIN and Card issuer so mapped cards show them too; a Card type row that shows a stored 1Password code (`mc`) as the network's name; joining a split expiry (`cc-exp-month` and `cc-exp-year`) on import; KeePass entry expiry on logins. See [items](items.md#recognized-fields-review-of-2026-11-24).
 9. On-device field classifier for card and address fill, only if the word-by-word rules ([browser extension](browser-extension.md#design), built 2026-11-26) fall short on real checkout forms. Two candidates: a small character n-gram model trained in Node and shipped as JSON inside the page script (100–500 KB, no protocol change), or Mozilla's `tinybert-address-autofill` (Apache-2.0, 66 WHATWG field types, 15 MB int8 at 84.8% or 29 MB fp16 at 89.7% on Mozilla's test set, against about 85% for Firefox's regex rules) run natively, which needs a probe-then-fill protocol keyed by field identity, a memory and time measurement in the iOS Safari handler, and Core ML conversion (Python) or ONNX Runtime. The model card's provenance is uneven (examples load from a personal namespace, the latest commit names another base model), so it would be re-measured on our own fixtures. Measure first: a labelled set of real checkout pages (Firefox's form autofill fixtures, licence to check, plus Latvian, German and French pages), recall on fields we fill and false fills on all others, run through the whole page fill so the safety checks count. Pass only with no more wrong fields written than the rules, and any card number or security code in a wrong field is a blocker.
 
+## Website
+
+The page is built and its deployment workflow written (2026-11-27, [development](development.md#website)); what it is, in [brand](brand.md#landing-page).
+
+Claims on the page against what is built, checked 2026-11-27. The page carries no status flags, so the owner decides what stays:
+
+- Not built: all four “From the Mac menu bar” rows. In “What you get”, moving in from 1Password 7 (the importer has no screens).
+- Prototype or test builds only: all four “In the browser” rows.
+- Partly built: “Which account?”, “Search what you remember” (choosing a field is written, not verified) and “Same file, new view”.
+- Built, not verified on a real device: AutoFill of sign-ins and codes, “A QR code on the same phone”, moving in from Apple Passwords, a new vault in iCloud Drive.
+- “The quickest storage and autofill” is a comparative claim taken from the welcome screen.
+
+Open:
+
+- [ ] The owner's own words in the story on why the family left 1Password 7. Not to be written for them.
+- [ ] After the first deployment: response headers, empty console, no other origin, a real iPhone, VoiceOver on Mac and iPhone (open a row, reach the gallery, hear the captions in order, use the platform switch), tap target size, link previews, Lighthouse.
+- [ ] Safari on Mac and iPhone, and Firefox, as shipped browsers.
+- [ ] Pictures: Mac and iPad drawings of “The code, when it is asked for”; browser and menu bar pictures retuned for the narrower slide, with small text on phones; fixed generator values as a prop on the menu bar `Panel` in place of the seeded `crypto` swap.
+- [ ] At release: real device screenshots where they read better, an App Store badge (ask first), `SoftwareApplication` structured data.
+- [ ] If wanted: short gallery videos for the ads in [positioning](positioning.md), a privacy page, a longer story.
+
 ## Open decisions
 
 | Decision | Options | Owner input needed |

@@ -52,7 +52,7 @@ Undecided, and deliberately deferred (owner, 2026-11-23). It replaces the model 
 
 ## Collection and brand
 
-Psss is the collection name, with one app per concern and one address each: `passwords.psss.app`, `photos.psss.app`, and others later. The name suggests discretion, which suits both a vault and a private photo reviewer.
+Psss is the collection name, with one app per concern. The password app’s website is at the top-level `psss.app` (owner, 2026-11-27; before that `passwords.psss.app`); other apps get their own addresses, such as `photos.psss.app`. The name suggests discretion, which suits both a vault and a private photo reviewer.
 
 - Open decision: whether the photo app takes the Psss name (Psss Photos) or keeps its working name Memory Darling under a “from Psss” line. The photo app's brand direction is people-centered and warm, and the password manager needs to feel trustworthy and quiet. They should share principles, pricing language and native interface rules, and may differ in character.
 - Shared engineering where it pays: purchase and entitlement handling, restore, a Help and Settings scaffold, and Developer settings. Extract a shared Swift package only when the second app needs the same code in production, as the photo app does with its core.

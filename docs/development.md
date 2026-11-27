@@ -103,12 +103,31 @@ Custom tooling, build scripts, generators and reference implementations are writ
 
 ## Website
 
-`Site/` is the landing page: Astro 7 with its React integration, used only to render the mock library’s landing components (`Design/Mocks/app/src/landing`, alias `@mocks`) to static HTML at build time. Nothing is hydrated, so the built page has no script; the stylesheet is inlined, and the only other requests are the favicon and the Varela Round font. What the page is and why is in [brand](brand.md#landing-page).
+`Site/` is the landing page: Astro 7 with its React integration, used only to render the mock library’s landing components (`Design/Mocks/app/src/landing`, alias `@mocks`) to static HTML at build time. Nothing is hydrated, so the built page has no script; the stylesheet and favicons are inlined, and the page asks its own origin only for the Varela Round font and, when a browser or a network wants them, the home screen icons, web manifest and share image. What the page is and why is in [brand](brand.md#landing-page).
 
 - `cd Site && npm install` once, then `npm run build` (type-checks with `astro check`, then writes `Site/dist`) or `npm run dev`; the `site` entry in `.claude/launch.json` starts the dev server on port 4321.
 - It has its own lockfile and stays outside the root npm workspace, like the mock app. React is deduplicated in `astro.config.mjs` because the mock library has its own `node_modules`.
 - The mock pages `#/landing…` in `Design/Mocks/app` show the same components with their states and decisions. Change a component there and both change.
-- Deployment is Cloudflare Pages (owner, 2026-11-27), not set up yet: root directory `Site`, build command `npm run build`, output `dist`, Node 24 from `Site/.node-version`, domain `passwords.psss.app`. `Site/public/_headers` carries the security headers; keep Cloudflare Web Analytics off.
+- The build fails if the output holds a script or loads a file from another origin (`src/integrations/no-script.mjs`, which also deletes the unused React browser runtime Astro writes). `Site/public/_headers` carries the security headers, a one-year cache for the hashed files in `/_astro` and `noindex` for the `pages.dev` addresses.
+- Generated files, committed, never edited by hand: `public/og.png` (the share image, a photograph of the `/og/` page: `npm run build` in `Site`, then `node scripts/build-og-image.mjs`; run it after a change to the lead picture, icon or headline), `src/assets/VarelaRound-Regular.woff2` and `public/OFL.txt` (`node scripts/build-site-font.mjs`; the whole font, compressed and not subset, because “Varela” is a Reserved Font Name), and the home screen icons (`node scripts/build-extension-icons.mjs`). `public/sitemap.xml` and `robots.txt` are written by hand and name the domain, as does `astro.config.mjs`.
+
+### Deployment
+
+Cloudflare Pages (owner, 2026-11-27), project `psss-app`, domain `psss.app`, deployed by `.github/workflows/site.yml` with Wrangler. Cloudflare does not build the site and is not connected to the repository. A pull request that touches the site only builds it; a push to `main` that touches `Site/`, the mock library, the logo or the workflow builds and deploys it, and the workflow can also be run by hand. Wrangler is a dev dependency of `Site/`, so the lockfile fixes one version for a person and for CI; `npm run deploy` uploads `dist`. The deploy job runs apart from the build and installs with package scripts off, so no build and no install script runs beside the token.
+
+One-time setup:
+
+1. Create the project, signed in to the Cloudflare account that will hold it, after `npm install` in `Site/`: `npx wrangler login`, then `npx wrangler pages project create psss-app --production-branch main`. The workflow does not create it. Another name needs the same change in the `deploy` script in `Site/package.json`.
+2. Create an API token: Cloudflare dashboard, API Tokens, Create Token, Custom token, one permission: Account, Cloudflare Pages, Edit, limited to that account.
+3. Copy the account ID (`npx wrangler whoami` in `Site/` prints it).
+4. In the GitHub repository, Settings, Environments, New environment `website`; under deployment branches allow only `main`; add the environment secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+5. Push to `main`, or run the “Website” workflow from the Actions tab.
+6. In the Pages project, Custom domains, add `psss.app`. A top-level domain needs its zone in the same Cloudflare account, with the domain’s nameservers pointed at Cloudflare; the DNS record is then made for you.
+7. Redirect the project’s `pages.dev` address to the domain with a Bulk Redirect (301, subpath matching, preserve path suffix and query string).
+8. Keep Cloudflare Web Analytics off and, if the zone is on Cloudflare, turn Email Address Obfuscation and Rocket Loader off for this host. The footer promises no analytics and no outside scripts.
+9. If `www.psss.app` should work, redirect it to `psss.app` with a redirect rule.
+
+After the first deployment check the response headers, an empty browser console, no request to another origin, both appearances on a real iPhone, and a link preview.
 
 ## Design mocks
 

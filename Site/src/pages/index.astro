@@ -1,32 +1,30 @@
 ---
+import Layout from '../layouts/Layout.astro';
 import { Page } from '../components/Page';
-import favicon from '../assets/Psss-mark-small.svg?url';
-import favicon32 from '../assets/favicon-32.png?url';
 
-const title = 'Psss Passwords: a private password manager for iPhone, iPad and Mac';
-const description = 'Psss keeps your passwords, passkeys, verification codes, cards and notes in one encrypted file you own, in the open KeePass format. No account, no server.';
+// The headline carries no search words, so the title and description must (docs/brand.md, "Landing page").
+const title = 'Psss Passwords: password manager for iPhone, iPad and Mac';
+const description = 'A private password manager for iPhone, iPad and Mac. Your logins, codes and cards stay in one encrypted KeePass file you own. No account, no server.';
+const share = 'No account, no server. One encrypted file you own, in the open KeePass format.';
 const url = new URL(Astro.url.pathname, Astro.site);
+const image = new URL('/og.png', Astro.site);
+const imageAlt = 'The Psss app icon and “Psss for your secrets” beside the app on a Mac, an iPhone and in a browser popup.';
 ---
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="light dark" />
-    <title>{title}</title>
-    <meta name="description" content={description} />
-    <meta name="theme-color" content="#FFD84D" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#1F1F23" media="(prefers-color-scheme: dark)" />
+<Layout title={title} description={description}>
+  <Fragment slot="head">
     <link rel="canonical" href={url} />
-    <link rel="icon" type="image/png" sizes="32x32" href={favicon32} />
-    <link rel="icon" type="image/svg+xml" href={favicon} />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Psss Passwords" />
     <meta property="og:title" content={title} />
-    <meta property="og:description" content="No account, no server. One encrypted file you own, in the open KeePass format." />
+    <meta property="og:description" content={share} />
     <meta property="og:url" content={url} />
-  </head>
-  <body>
-    <Page />
-  </body>
-</html>
+    <meta property="og:image" content={image} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={imageAlt} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content={image} />
+    <meta name="twitter:image:alt" content={imageAlt} />
+  </Fragment>
+  <Page />
+</Layout>

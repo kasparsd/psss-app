@@ -72,6 +72,9 @@
 .lp .lp-skip { position: absolute; left: 1rem; top: -4rem; z-index: 10; background: var(--text); color: var(--ground); padding: .5rem 1rem; border-radius: .5rem; }
 .lp .lp-skip:focus { top: 1rem; }
 
+/* With very large text a long word breaks rather than leaving its box. */
+.lp .lp-h1, .lp .lp-h2, .lp .lp-row-label { overflow-wrap: break-word; min-width: 0; }
+
 /* ---- type: the headline, then title, body and small ---- */
 .lp .lp-h1, .lp .lp-h2 { font-family: var(--display); font-weight: 400; color: inherit; margin: 0; text-wrap: balance; }
 .lp .lp-h1 { font-size: var(--h1); line-height: 1.05; letter-spacing: -.01em; }
@@ -176,6 +179,12 @@
 /* iPad and Mac pictures are wide: a wider tile, and the frame drawn smaller so the whole window is in view. */
 .lp .lp-gal-track[data-platform="ipad"] .lp-gal-slide,
 .lp .lp-gal-track[data-platform="mac"] .lp-gal-slide { width: min(86vw, 700px); }
+/* Where the column is narrower than that, the slide stays inside its row and leaves the next one peeking. Not on a phone,
+   whose pictures are sized for the width above. In pixels, so large text does not eat the slide. */
+@media (min-width: 641px) {
+  .lp .lp-gal-track[data-platform="ipad"] .lp-gal-slide,
+  .lp .lp-gal-track[data-platform="mac"] .lp-gal-slide { width: min(86vw, 700px, calc(100% - 32px)); }
+}
 .lp .lp-gal-track[data-platform="ipad"] .lp-gal-device,
 .lp .lp-gal-track[data-platform="mac"] .lp-gal-device { zoom: .74; }
 @media (max-width: 40rem) {
