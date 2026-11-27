@@ -1,0 +1,32 @@
+---
+import { Page } from '../components/Page';
+import favicon from '../assets/Psss-mark-small.svg?url';
+import favicon32 from '../assets/favicon-32.png?url';
+
+const title = 'Psss Passwords: a private password manager for iPhone, iPad and Mac';
+const description = 'Psss keeps your passwords, passkeys, verification codes, cards and notes in one encrypted file you own, in the open KeePass format. No account, no server.';
+const url = new URL(Astro.url.pathname, Astro.site);
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#FFD84D" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1F1F23" media="(prefers-color-scheme: dark)" />
+    <link rel="canonical" href={url} />
+    <link rel="icon" type="image/png" sizes="32x32" href={favicon32} />
+    <link rel="icon" type="image/svg+xml" href={favicon} />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Psss Passwords" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content="No account, no server. One encrypted file you own, in the open KeePass format." />
+    <meta property="og:url" content={url} />
+  </head>
+  <body>
+    <Page />
+  </body>
+</html>

@@ -1,0 +1,82 @@
+/*
+ * Styles for the three sign-in galleries (pictures/fill.tsx, codeFill.tsx,
+ * codeSetup.tsx) and their mock page. Every selector starts with `.lpd-`, so
+ * nothing leaks. Inside a device only the library's two sizes are used (`.t`
+ * title, body, `.s` secondary); no font size is set here. The pictures are
+ * still: no animation, no hover or focus states.
+ */
+
+/* ---- the calm ring: marks the one thing being touched ---- */
+.lpd-cue{outline:2px solid var(--accent);outline-offset:2px;box-shadow:0 0 0 7px var(--accent-bg)}
+/* for a row or a menu item that fills its container: the ring is drawn inside */
+.lpd-cue-in{outline:2px solid var(--accent);outline-offset:-2px;border-radius:12px}
+.lpd-cue-row{margin:0 8px;border-radius:10px;outline:2px solid var(--accent);outline-offset:-2px}
+.lpd-cue-row .mrow{margin:0}
+
+/* ---- the Safari page inside the phone ---- */
+.lpd-safari{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--screen)}
+.lpd-url{display:flex;align-items:center;justify-content:center;gap:6px;margin:4px 14px 8px;padding:8px 12px;border-radius:999px;background:var(--field);color:var(--lab);flex:none}
+.lpd-url svg{width:12px;height:12px;color:var(--lab2);flex:none}
+.lpd-page{flex:1;min-height:0;overflow:hidden;margin:0 14px;padding:22px 16px 16px;border-radius:18px;background:var(--card);display:flex;flex-direction:column;gap:12px}
+.lpd-brand{display:flex;align-items:center;gap:8px}
+.lpd-brand .ic{border-radius:50%}
+.lpd-lab{display:flex;flex-direction:column;gap:4px;color:var(--lab2)}
+.lpd-input{display:block;width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;border:1px solid var(--sep);background:var(--screen);color:var(--lab);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:2.6em}
+.lpd-input.ph{color:var(--lab2)}
+.lpd-input.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
+.lpd-input.lpd-cue{border-color:var(--accent)}
+.lpd-page .btn.wide,.lpd-wcard .btn.wide{margin-top:4px}
+.lpd-page .s,.lpd-wcard .s{margin:0}
+.lpd-center{text-align:center}
+
+/* ---- the system keyboard, drawn as a block with its suggestion bar ---- */
+.lpd-kbd{position:absolute;left:0;right:0;bottom:0;z-index:3;background:var(--field);display:flex;flex-direction:column}
+.lpd-kbar{display:flex;justify-content:center;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--sep)}
+.lpd-sugg{border-radius:10px;background:var(--card);color:var(--lab);padding:6px 14px;display:flex;flex-direction:column;align-items:center;min-height:44px;justify-content:center}
+.lpd-sugg .s{line-height:1.2}
+.lpd-keys{height:150px;display:grid;place-items:center;color:var(--lab2)}
+
+/* ---- the picker on iPhone: the search field over the keyboard ---- */
+.lpd-pin{padding:6px 14px 10px}
+
+/* ---- iPad and Mac: the page in the window, a sheet over it ---- */
+.lpd-wide{position:relative;height:440px;background:var(--win)}
+.lpd-wide[data-device="ipad"]{height:560px}
+.lpd-wpage{height:100%;display:flex;flex-direction:column;background:var(--screen)}
+.lpd-wbar{flex:none;padding:8px 14px 4px}
+.lpd-wbar.mac{padding-left:84px}
+.lpd-wbar .lpd-url{margin:0 auto;max-width:360px}
+.lpd-wbody{flex:1;min-height:0;display:flex;justify-content:center;padding:12px 14px}
+.lpd-wcard{width:min(100%,340px);align-self:flex-start;padding:22px 16px 16px;border-radius:18px;background:var(--card);display:flex;flex-direction:column;gap:12px}
+.lpd-wbg{height:100%;display:flex;flex-direction:column;background:var(--win)}
+.lpd-wbg .ident{padding-top:28px}
+
+/* ---- the screenshot, its preview and the editor ---- */
+.lpd-qr{display:block;margin:2px auto;width:156px;height:156px;background:#fff;padding:8px;border-radius:10px;border:1px solid var(--sep)}
+.lpd-qr rect{fill:#000}
+.lpd-shot{display:block;width:100%;aspect-ratio:3/4;background:#fff;border-radius:6px;padding:8%;box-shadow:0 0 0 1px rgba(0,0,0,.15)}
+.lpd-shot i{display:block;height:5%;border-radius:3px;background:rgba(60,60,67,.25);margin-bottom:6%}
+.lpd-shot i.w{width:70%}
+.lpd-shot svg{display:block;width:62%;margin:8% auto 0;background:#fff}
+.lpd-shot rect{fill:#000}
+.lpd-thumb{position:absolute;left:12px;bottom:18px;z-index:4;width:72px;padding:4px;border-radius:10px;background:var(--glass);box-shadow:var(--shadow)}
+.lpd-editor{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--screen)}
+.lpd-editor .lpd-img{flex:1;min-height:0;display:grid;place-items:center;padding:8px 40px 24px;background:var(--field)}
+.lpd-editor .lpd-img .lpd-shot{max-height:100%;width:auto;height:100%;max-width:100%}
+.lpd-donewrap{position:relative;display:inline-block}
+.lpd-menu{position:absolute;left:0;top:calc(100% + 6px);z-index:8;width:232px;background:var(--glass);border-radius:16px;box-shadow:var(--shadow);padding:6px;display:flex;flex-direction:column}
+.lpd-menu div{padding:10px 12px;border-radius:10px;min-height:44px;box-sizing:border-box;display:flex;align-items:center;color:var(--lab)}
+.lpd-menu .del{color:var(--red)}
+.lpd-menu .go{font-weight:600;color:var(--accent)}
+
+/* ---- the Add verification code sheet (option H) ---- */
+.lpd-bg{display:flex;flex-direction:column;flex:1;min-height:0}
+.lpd-ring{width:24px;height:24px;flex:none;transform:rotate(-90deg)}
+.lpd-ring circle{fill:none;stroke-width:3}
+.lpd-ring .bg{stroke:var(--field)}
+.lpd-ring .fg{stroke:var(--accent);stroke-linecap:round}
+.lpd-coderow{display:flex;align-items:center;gap:10px;width:100%}
+.lpd-coderow .grow{display:flex;flex-direction:column;align-items:flex-start;gap:2px}
+.lpd-copybtn{color:var(--accent);width:44px;height:44px;margin:-8px -10px -8px 0;display:grid;place-items:center;flex:none}
+.lpd-copybtn svg{width:20px;height:20px}
+.lpd-livecode{display:flex;align-items:center;justify-content:center;gap:10px}

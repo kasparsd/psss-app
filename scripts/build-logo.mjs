@@ -6,13 +6,11 @@
 //   Design/Logo/Psss-field-{hidden,shown}[-butter].svg  the two states, as files
 //   Design/Logo/psss-logo.svg                           both states in one drawing, for inlining in HTML
 //   Design/Logo/psss-logo.css                           the switch on hover, in both resting modes
-//   Design/Landing/assets/psss-logo.css                 a copy for the landing page
-//   Design/Landing/index.html                           the drawing between the "psss-logo" markers
 //   Design/Mocks/app/src/logoField.ts                   the same geometry for the mock pages
 //   App/AppIcon.icon/Assets/{Frame,Dots}[-Dark|-Tint].svg  the app icon's two glass layers
 //   App/Features/LogoFieldGeometry.swift                the icon cut as SwiftUI paths, for the lock screen
 //   Design/AppIcon/AppIcon-{light,dark}.svg             the icon drawn flat, for reference and export
-//   Design/Landing/assets/Psss-mark-small[-mono].svg   the small mark: a ring with one dot (A2, and A in one colour)
+//   Site/src/assets/Psss-mark-small[-mono].svg         the small mark: a ring with one dot (A2, and A in one colour)
 //
 // Units are the mark's own (docs/brand.md): centre line y 60, the field 118
 // wide and 56 high, starting at x 4 and y 32.
@@ -223,16 +221,7 @@ const css = `/* The Psss logo: one field, shown and hidden. Built by scripts/bui
 }
 `;
 write('Design/Logo/psss-logo.css', css);
-write('Design/Landing/assets/psss-logo.css', css);
-
-// The landing page carries the drawing inline, between two markers.
-{
-  const path = 'Design/Landing/index.html';
-  const html = read(path);
-  const re = /(<!-- psss-logo:start -->)[\s\S]*?(<!-- psss-logo:end -->)/;
-  if (!re.test(html)) throw new Error(`${path}: psss-logo markers not found`);
-  write(path, html.replace(re, `$1\n${inline}\n$2`));
-}
+// The website (Site/) reads Design/Logo/psss-logo.svg and psss-logo.css directly.
 
 const num = (o) => Object.fromEntries(Object.entries(o).map(([a, b]) => [a, Number(b)]));
 const forMock = (g) => ({ box: g.box, line: Number(g.line), fat: Number(g.fat), outline: num(g.outline), p: g.p, tail: g.tail, s: g.s, dots: g.dots.map(num) });
@@ -339,6 +328,6 @@ enum LogoFieldGeometry {
 // A ring with one dot, for favicons and the browser toolbar (scripts/small-mark.mjs).
 // The PNG sizes come from scripts/build-extension-icons.mjs.
 {
-  write('Design/Landing/assets/Psss-mark-small.svg', smallMarkSvg({ cut: 'small', title: 'Psss mark, small cut' }));
-  write('Design/Landing/assets/Psss-mark-small-mono.svg', smallMarkSvg({ cut: 'small', mono: true, title: 'Psss mark, one colour, small cut' }).replaceAll('currentColor', '#000000'));
+  write('Site/src/assets/Psss-mark-small.svg', smallMarkSvg({ cut: 'small', title: 'Psss mark, small cut' }));
+  write('Site/src/assets/Psss-mark-small-mono.svg', smallMarkSvg({ cut: 'small', mono: true, title: 'Psss mark, one colour, small cut' }).replaceAll('currentColor', '#000000'));
 }

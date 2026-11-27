@@ -1,0 +1,10 @@
+/* The one font the site ships (docs/brand.md, "Type"). */
+@font-face {
+  font-family: 'Varela Round';
+  src: url('../../../Design/Fonts/VarelaRound/VarelaRound-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-display: swap;
+}
+/* The mock library paints its own page ground; the site's ground is the landing page's. */
+body { margin: 0; background: #FFF9E5; }
+@media (prefers-color-scheme: dark) { body { background: #1F1F23; } }

@@ -1,0 +1,196 @@
+/* Landing page styles. Everything is scoped under `.lp`, and every rule uses a
+   class, never a bare element, so the device frames inside a picture keep the
+   mock app's own styling.
+
+   The look (owner, 2026-11-27): calm, and taken from the app itself. One
+   column; the lead picture alone is wider. Each section opens with a centred
+   heading and one line, then its panels, which are left-aligned. Text sizes:
+   headline, section heading, lead line, body and small.
+   Lists are the app's grouped lists: a small header above a card of rows with
+   hairlines between them. No buttons, badges or bordered boxes. Brand colours
+   from docs/brand.md: cream for the page, butter for the app icon, charcoal
+   for text; in the dark, charcoal with cream text. Light or dark follows the
+   system setting; there is no switch.
+   Varela Round is for headings only (the stack in Design/Brand/tokens.css);
+   the body is the system's text face.
+
+   Contrast (WCAG 2.x): charcoal 1F1F23 on cream FFF9E5 15.6, on butter 11.9,
+   on white 16.6; muted 5C584D on cream 6.7, on white 7.1; cream on charcoal
+   15.6; muted B8B3A4 on charcoal 7.8, on 2A2A2F 6.8. */
+
+.lp {
+  --butter: #FFD84D;
+  --charcoal: #1F1F23;
+  --ground: #FFF9E5;
+  --hero: #FFF9E5;
+  --panel: #FFFFFF;
+  --tile: #FFF9E5;
+  --text: #1F1F23;
+  --muted: #5C584D;
+  --line: rgba(31, 31, 35, .12);
+  --focus: #1F1F23;
+  --display: 'Varela Round', ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
+  --body: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  --step: 1.0625rem;   /* body, 17 */
+  --small: .9375rem;   /* supporting, 15 */
+  --title: 1.375rem;   /* a section's lead line, 22 */
+  --h2: clamp(1.75rem, 4.2vw, 2.75rem);   /* section headings */
+  --h1: clamp(2.5rem, 7vw, 4.5rem);
+  --r: 1.25rem;
+  --gap: clamp(4rem, 10vw, 7.5rem);
+  color-scheme: light dark;
+  background: var(--ground);
+  color: var(--text);
+  font: var(--step)/1.6 var(--body);
+  -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+}
+.lp.lp-light { color-scheme: light; }
+.lp.lp-dark { color-scheme: dark; }
+
+/* Dark. The same values twice: once for the system setting, once for a forced
+   `.lp-dark`, which only the mock page uses to show both side by side. */
+@media (prefers-color-scheme: dark) {
+  .lp:not(.lp-light) {
+    --ground: #1F1F23; --hero: #1F1F23; --panel: #2A2A2F; --tile: #1F1F23; --text: #FFF9E5; --muted: #B8B3A4;
+    --line: rgba(255, 249, 229, .14); --focus: #FFD84D;
+  }
+}
+.lp.lp-dark {
+  --ground: #1F1F23; --hero: #1F1F23; --panel: #2A2A2F; --tile: #1F1F23; --text: #FFF9E5; --muted: #B8B3A4;
+  --line: rgba(255, 249, 229, .14); --focus: #FFD84D;
+}
+
+.lp, .lp *, .lp *::before, .lp *::after { box-sizing: border-box; }
+
+/* ---- layout: one column, and a wider one for the lead picture only ---- */
+.lp .lp-wrap { max-width: 46.5rem; margin: 0 auto; padding: 0 1.25rem; }
+.lp .lp-wrap.lp-wide { max-width: 70rem; }
+.lp .lp-section { padding: var(--gap) 0 0; }
+/* Each section opens with a prominent centred heading and its line, then the panels (owner, 2026-11-27). */
+.lp .lp-intro { margin: 0 0 2.5rem; text-align: center; }
+.lp .lp-skip { position: absolute; left: 1rem; top: -4rem; z-index: 10; background: var(--text); color: var(--ground); padding: .5rem 1rem; border-radius: .5rem; }
+.lp .lp-skip:focus { top: 1rem; }
+
+/* ---- type: the headline, then title, body and small ---- */
+.lp .lp-h1, .lp .lp-h2 { font-family: var(--display); font-weight: 400; color: inherit; margin: 0; text-wrap: balance; }
+.lp .lp-h1 { font-size: var(--h1); line-height: 1.05; letter-spacing: -.01em; }
+.lp .lp-h2 { font-size: var(--h2); line-height: 1.1; }
+.lp .lp-lead { margin: 1rem 0 0; font-size: var(--title); line-height: 1.45; text-wrap: pretty; }
+.lp .lp-body { margin: 0 0 1rem; text-wrap: pretty; }
+.lp .lp-small { margin: 0; font-size: var(--small); line-height: 1.45; color: var(--muted); }
+.lp .lp-link { color: inherit; text-decoration: underline; text-underline-offset: .2em; text-decoration-color: var(--muted); }
+.lp .lp-link:hover { text-decoration-color: currentColor; }
+.lp .lp-link:focus-visible, .lp .lp-skip:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; border-radius: .25rem; }
+
+/* ---- header and lead ---- */
+.lp .lp-header { background: var(--hero); padding: clamp(2.5rem, 6vw, 4rem) 1.25rem 0; display: flex; justify-content: center; }
+/* The app icon: butter tile, charcoal mark, in both appearances. */
+.lp .lp-appicon {
+  width: 5.5rem; height: 5.5rem; border-radius: 22.5%; display: grid; place-items: center;
+  background: linear-gradient(180deg, #FFE070, var(--butter)); color: var(--charcoal);
+  box-shadow: 0 .5rem 1.5rem rgba(31, 31, 35, .14), inset 0 0 0 1px rgba(31, 31, 35, .06);
+}
+.lp .lp-appicon svg { width: 77.8%; height: auto; }
+/* On load the field reads “psss”, then hides it place by place, as the lock screen does when the vault
+   locks (0.28 s a place, 120 ms apart; docs/brand.md). It then rests on the dots, and the logo’s own
+   hover shows the name again. The animation only fills backwards, so once it ends the logo’s rules are in charge. */
+@media (prefers-reduced-motion: no-preference) {
+  .lp .lp-appicon .psss-s path { animation: lp-hide .28s ease backwards; animation-delay: calc(1s + var(--i) * 120ms); }
+  .lp .lp-appicon .psss-d circle { animation: lp-show .28s ease backwards; animation-delay: calc(1s + var(--i) * 120ms); }
+}
+@keyframes lp-hide { from { opacity: 1; } to { opacity: 0; } }
+@keyframes lp-show { from { opacity: 0; } to { opacity: 1; } }
+.lp .lp-hero { background: var(--hero); padding: clamp(2.5rem, 7vw, 5rem) 0 clamp(3rem, 8vw, 6rem); }
+.lp .lp-hero .lp-intro { max-width: 44rem; margin: 0 auto clamp(2.5rem, 6vw, 4.5rem); }
+.lp .lp-hero .lp-lead { margin-top: 1.25rem; }
+.lp .lp-hero-art { min-width: 0; }
+.lp .lp-shot { display: block; width: 100%; font: 16px/1.5 -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; }
+
+/* ---- the list: groups of rows that open ---- */
+.lp .lp-group { margin: 3rem 0 0; }
+/* Each group: its heading and one line, then the card of rows. */
+.lp .lp-group-head { margin: 0 0 .25rem; font-family: var(--display); font-weight: 400; font-size: var(--title); line-height: 1.3; }
+.lp .lp-group-lead { margin: 0 0 1rem; color: var(--muted); }
+.lp .lp-rows { margin: 0; padding: 0; list-style: none; background: var(--panel); border-radius: var(--r); overflow: hidden; }
+.lp .lp-plain .lp-row { padding: .9rem 1.25rem; }
+.lp .lp-plain .lp-row-label { margin: 0; }
+.lp .lp-row + .lp-row { border-top: 1px solid var(--line); }
+.lp .lp-row-head { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 1rem; padding: .9rem 1.25rem; }
+.lp .lp-row-head::-webkit-details-marker { display: none; }
+.lp .lp-row-head:focus-visible { outline: 3px solid var(--focus); outline-offset: -3px; border-radius: var(--r); }
+.lp .lp-row-label { flex: 1; min-width: 0; font-weight: 600; }
+/* A chevron from two borders: down when closed, up when open. */
+.lp .lp-row-mark { flex: none; width: .55rem; height: .55rem; margin: 0 .25rem .2rem; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(45deg); }
+.lp .lp-row[open] .lp-row-mark { transform: rotate(-135deg); margin-bottom: -.2rem; }
+@media (prefers-reduced-motion: no-preference) { .lp .lp-row-mark { transition: transform .15s ease; } }
+.lp .lp-row-body { padding: 0 1.25rem 1.25rem; --gal-bleed: 1.25rem; }
+.lp .lp-row-body > .lp-body { color: var(--muted); }
+.lp .lp-row-body > .lp-body:last-child { margin-bottom: 0; }
+/* The platform switch sits at the top right of an opened row, beside the sentence, in the same place every time. */
+.lp .lp-row-body { position: relative; }
+@media (min-width: 48rem) {
+  .lp .lp-row-body .lp-gal-switch { position: absolute; top: 0; right: 1.25rem; margin: 0; }
+  .lp .lp-row-body:has(.lp-gal-switch) > .lp-body { max-width: calc(100% - 15rem); min-height: 2.75rem; }
+}
+@media (max-width: 47.99rem) {
+  .lp .lp-row-body .lp-gal-switch { display: flex; width: fit-content; margin: 0 0 .75rem auto; }
+}
+
+/* ---- story, footer ---- */
+.lp .lp-sign { margin-top: 1.5rem; font-weight: 600; }
+.lp .lp-footer { margin-top: var(--gap); padding: 2rem 0 4rem; border-top: 1px solid var(--line); color: var(--muted); font-size: var(--small); }
+.lp .lp-footer p { margin: 0 0 .5rem; }
+
+/* ---------- Swipe gallery ----------
+   One picture per step on a quiet tile, its line underneath. The row scrolls
+   sideways and snaps; on a phone one tile fills the width with the next one
+   peeking in, so it is plain that there is more. No script. */
+.lp .lp-gal { margin: 1.25rem 0 0; min-width: 0; }
+.lp .lp-gal-track {
+  list-style: none; margin: 0 calc(var(--gal-bleed, 1.25rem) * -1); padding: .25rem var(--gal-bleed, 1.25rem) .5rem;
+  display: flex; gap: 1rem; overflow-x: auto; overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory; scroll-padding-inline: var(--gal-bleed, 1.25rem);
+  -webkit-overflow-scrolling: touch; scrollbar-width: none;
+}
+.lp .lp-gal-track::-webkit-scrollbar { display: none; }
+.lp .lp-gal-track:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: var(--r); }
+.lp .lp-gal-slide { flex: none; width: min(74vw, 300px); scroll-snap-align: start; display: flex; flex-direction: column; gap: .85rem; }
+/* The picture sits straight on the card: no second surface behind it. */
+.lp .lp-gal-tile { display: flex; justify-content: flex-start; align-items: flex-start; }
+.lp .lp-gal-cap { margin: 0; font-size: var(--small); line-height: 1.45; color: var(--muted); }
+/* the frames inside are the mock app's, not the page's */
+.lp .lp-gal-device { font: 16px/1.5 -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; max-width: 100%; }
+
+/* Platform switch: radio buttons drawn as a small segmented control. CSS shows the row of the chosen platform. */
+.lp .lp-vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.lp .lp-gal-switch { border: 0; border-radius: 999px; padding: 3px; margin: 0 0 1rem; display: inline-flex; gap: 2px; min-width: 0; background: var(--tile); }
+.lp .lp-gal-switch label { position: relative; cursor: pointer; }
+.lp .lp-gal-switch input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.lp .lp-gal-switch span { display: block; padding: .6rem 1rem; border-radius: 999px; font-size: var(--small); line-height: 1.45; color: var(--muted); }
+.lp .lp-gal-switch input:checked + span { background: var(--panel); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
+.lp .lp-gal-switch input:focus-visible + span { outline: 3px solid var(--focus); outline-offset: 2px; }
+.lp .lp-gal:has(input[value="iphone"]:checked) .lp-gal-track:not([data-platform="iphone"]),
+.lp .lp-gal:has(input[value="ipad"]:checked) .lp-gal-track:not([data-platform="ipad"]),
+.lp .lp-gal:has(input[value="mac"]:checked) .lp-gal-track:not([data-platform="mac"]) { display: none; }
+/* iPad and Mac pictures are wide: a wider tile, and the frame drawn smaller so the whole window is in view. */
+.lp .lp-gal-track[data-platform="ipad"] .lp-gal-slide,
+.lp .lp-gal-track[data-platform="mac"] .lp-gal-slide { width: min(86vw, 700px); }
+.lp .lp-gal-track[data-platform="ipad"] .lp-gal-device,
+.lp .lp-gal-track[data-platform="mac"] .lp-gal-device { zoom: .74; }
+@media (max-width: 40rem) {
+  .lp .lp-gal-track[data-platform="ipad"] .lp-gal-device,
+  .lp .lp-gal-track[data-platform="mac"] .lp-gal-device { zoom: .34; }
+}
+
+/* On a phone a whole Mac or iPad window would be drawn too small to read, so where a story
+   has iPhone pictures only those are offered there. Stories drawn only for the Mac keep theirs. */
+@media (max-width: 40rem) {
+  .lp .lp-gal:has(.lp-gal-track[data-platform="iphone"]) .lp-gal-switch { display: none; }
+  .lp .lp-gal:has(.lp-gal-track[data-platform="iphone"]) .lp-gal-track:not([data-platform="iphone"]) { display: none; }
+  .lp .lp-gal:has(.lp-gal-track[data-platform="iphone"]) .lp-gal-track[data-platform="iphone"] { display: flex; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html:has(.lp) { scroll-behavior: smooth; }
+}

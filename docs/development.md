@@ -96,10 +96,19 @@ Reuse derived-data directories to keep incremental builds fast. Verify both sche
 Custom tooling, build scripts, generators and reference implementations are written for Node 24 (decided by the owner, 2026-11-23), not Python. The same code can then be packaged as client libraries for working with vaults outside Apple platforms.
 
 - `.nvmrc` pins the major version. Scripts find a Node 24 binary themselves and fail with a clear message when there is none; they do not assume the `node` on the path.
-- `scripts/build-logo.mjs` builds the logo from one set of numbers: the files in `Design/Logo`, the landing page's inline logo and its CSS, and the drawing the mock pages use. Run it after changing the logo; see [brand](brand.md).
+- `scripts/build-logo.mjs` builds the logo from one set of numbers: the files in `Design/Logo` (which the website reads directly), the small mark in `Site/src/assets`, and the drawing the mock pages use. Run it after changing the logo; see [brand](brand.md).
 - TypeScript is run directly by Node (type stripping, erasable syntax only). No build step, and no dependencies unless a document records why one is needed.
 - Code meant to become a library lives in `Packages/<name>/` with its own `package.json`, pure functions over bytes in the core and file system access in a separate module. The first is `Packages/format`, the reference implementation of the [vault format](format-spec.md). Every package under `Packages/` is a workspace of the root `package.json` (owner, 2026-11-24): run `npm install` once at the root (no dependencies, it only links them), then `npm test` runs every package's tests, `npm test -w @psss/vault` one of them, and `npm run start:sites` starts the [test sites](#test-sites-for-autofill). The `scripts/test-*.sh` wrappers stay for finding Node 24 and for the heavy-job lock. Packages still import each other by relative path. `Design/Mocks/app` and `Extensions/Browser/tests` have real dependencies and their own lockfiles, so they stay outside the workspace.
 - The Python scripts that exist (`scripts/build-brand-icons.py`, `scripts/build-public-suffix.py`, `Extensions/Browser/build.py`) predate this and are ported when next touched.
+
+## Website
+
+`Site/` is the landing page: Astro 7 with its React integration, used only to render the mock library’s landing components (`Design/Mocks/app/src/landing`, alias `@mocks`) to static HTML at build time. Nothing is hydrated, so the built page has no script; the stylesheet is inlined, and the only other requests are the favicon and the Varela Round font. What the page is and why is in [brand](brand.md#landing-page).
+
+- `cd Site && npm install` once, then `npm run build` (type-checks with `astro check`, then writes `Site/dist`) or `npm run dev`; the `site` entry in `.claude/launch.json` starts the dev server on port 4321.
+- It has its own lockfile and stays outside the root npm workspace, like the mock app. React is deduplicated in `astro.config.mjs` because the mock library has its own `node_modules`.
+- The mock pages `#/landing…` in `Design/Mocks/app` show the same components with their states and decisions. Change a component there and both change.
+- Deployment is Cloudflare Pages (owner, 2026-11-27), not set up yet: root directory `Site`, build command `npm run build`, output `dist`, Node 24 from `Site/.node-version`, domain `passwords.psss.app`. `Site/public/_headers` carries the security headers; keep Cloudflare Web Analytics off.
 
 ## Design mocks
 

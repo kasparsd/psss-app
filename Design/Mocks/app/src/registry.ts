@@ -28,6 +28,11 @@ import { AutofillLessons } from './pages/AutofillLessons';
 import { MacMenuBar } from './pages/MacMenuBar';
 import { MacBackground } from './pages/MacBackground';
 import { ImportPasswords } from './pages/ImportPasswords';
+import { LandingPage } from './pages/LandingPage';
+import { LandingComponents } from './pages/LandingComponents';
+import { LandingDemosSignIn } from './pages/LandingDemosSignIn';
+import { LandingDemosVault } from './pages/LandingDemosVault';
+import { LandingGalleriesMore } from './pages/LandingGalleriesMore';
 
 export interface PageEntry {
   slug: string;
@@ -73,4 +78,9 @@ export const pages: PageEntry[] = [
   { slug: 'autofill-lessons', short: 'AutoFill lessons', title: 'AutoFill picker: lessons from Apple Passwords', oldFile: '', status: 'Partly approved by the owner, 2026-11-26', summary: 'Our picker beside Apple Passwords\u2019 iOS 26 one: the site named, duplicates told apart, the login\u2019s details and New Login inside the sheet, and what the system\u2019s own list lets us change.', component: AutofillLessons },
   { slug: 'menu-bar', short: 'Menu bar', title: 'Mac menu bar: quick search', oldFile: '', status: 'Approved 2026-11-26 (phase 1: copy and page matching), not built', summary: 'A clickable menu bar and \u2303\u2318P panel with a vault switcher and tabs (Search with logins for the page and item values to copy, Generate, New Login), the browser extension card, the later Paste, and a comparison of other apps.', component: MacMenuBar },
   { slug: 'mac-background', short: 'Mac background', title: 'Mac: running in the background, Dock and login', oldFile: '', status: 'Approved 2026-11-26, not built', summary: 'The menu bar, open at login and Dock settings, the one-time sheet that asks, the later reminder, the approval state, and the rules for closing, locking and quitting, and a Browsers section for page logins.', component: MacBackground },
+  { slug: 'landing', short: 'Landing page', title: 'Landing page: the whole page', oldFile: '', status: 'First draft, 2026-11-27; look approved by the owner in conversation, not built into a deployed site', summary: 'The website\u2019s one page as Site/ builds it: the app icon, the lead picture of the Mac app, iPhone and browser extension together, a calm list of four groups of closed rows (signing in, in the app, in the browser, from the Mac menu bar) that each open to a swipe gallery, the story, what you get and questions. No calls to action, no flags, no script.', component: LandingPage },
+  { slug: 'landing-components', short: 'Landing parts', title: 'Landing page: parts', oldFile: '', status: 'First draft, 2026-11-27; look approved by the owner in conversation, not built into a deployed site', summary: 'Each part of the landing page alone with its states: header icon, lead, section heading, row closed and open, a group with its header and line, the swipe gallery with the platform switch, story, what you get, questions and footer. Decisions, departures from the product contract, open questions and history.', component: LandingComponents },
+  { slug: 'landing-demos-sign-in', short: 'Landing: signing in', title: 'Landing galleries: signing in', oldFile: '', status: 'First draft, 2026-11-27; look approved by the owner in conversation, not built into a deployed site', summary: 'The wrong-account, code and code-setup galleries on each platform, with what the pictures fake.', component: LandingDemosSignIn },
+  { slug: 'landing-demos-vault', short: 'Landing: your vault', title: 'Landing galleries: cards, Undo, search, your KeePass file', oldFile: '', status: 'First draft, 2026-11-27; look approved by the owner in conversation, not built into a deployed site', summary: 'The cards, Undo, search and field mapping galleries on each platform, with what the pictures fake.', component: LandingDemosVault },
+  { slug: 'landing-galleries-more', short: 'Landing: browser, menu bar', title: 'Landing galleries: browser and menu bar', oldFile: '', status: 'First draft, 2026-11-27; look approved by the owner in conversation, not built into a deployed site', summary: 'The eight galleries of the browser and Mac menu bar groups, each with its words and, only here, its status and note: the record of what is built, which the page does not show.', component: LandingGalleriesMore },
 ];

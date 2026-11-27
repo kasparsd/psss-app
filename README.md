@@ -7,6 +7,7 @@ An Apple-native password manager that is as easy as Apple Passwords and also hol
 - Deleting an item never removes it outright: it moves to Recently Deleted for 30 days, with a 10-second Undo, and only a confirmed Delete Now… or Delete All… removes it for good ([items](docs/items.md)).
 - Opened KeePass entries show their custom fields. Use **Edit** to change values or **Show as Card or Login…** to assign Card or Login roles in the same vault. [KeePass field mapping](docs/items.md#showing-and-mapping-keepass-fields)
 - Several vaults can be open at once. On Mac and iPad each vault is a section of the sidebar (right-click for Vault Settings…, Lock, Show in Finder, Remove Vault…); on iPhone a vault button switches between them. **Lock All Vaults** (⌘L) and the auto-lock lock every vault, and the browser popup and AutoFill fill from any open vault ([vaults](docs/vaults.md#multiple-vaults)).
+- [Website](docs/development.md#website): the landing page in `Site/`, static HTML built from the mock components; what it shows and why is in [brand](docs/brand.md#landing-page).
 - [Frozen HTML prototype](prototype/index.html) of the early flows, kept for reference.
 
 ## Run the native prototype

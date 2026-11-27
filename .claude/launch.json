@@ -32,16 +32,19 @@
       "port": 5179
     },
     {
-      "name": "landing",
-      "runtimeExecutable": "python3",
+      "name": "site",
+      "runtimeExecutable": "npm",
       "runtimeArgs": [
-        "-m",
-        "http.server",
-        "8123",
-        "--directory",
-        "Design/Landing"
+        "--prefix",
+        "Site",
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "4321",
+        "--strictPort"
       ],
-      "port": 8123
+      "port": 4321
     },
     {
       "name": "test-sites",

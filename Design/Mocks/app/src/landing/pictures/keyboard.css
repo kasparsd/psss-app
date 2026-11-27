@@ -1,0 +1,33 @@
+/* The system keyboard in the landing pictures: a quiet drawing of key shapes
+   (no letters) over the library's placeholder boxes (.kbd, .lpd-keys), whose
+   word "Keyboard" is hidden. Scoped to the gallery and the single shot, so the
+   mock pages keep their placeholder. Colours follow the library's light and dark. */
+.lp-gal, .lp-shot {
+  --lpk-letters:url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%20390%20150'%20preserveAspectRatio%3D'none'%3E%3Crect%20x%3D'4'%20y%3D'6'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'42.8'%20y%3D'6'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'81.6'%20y%3D'6'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'120.4'%20y%3D'6'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'159.2'%20y%3D'6'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'198'%20y%3D'6'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'236.8'%20y%3D'6'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'275.6'%20y%3D'6'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'314.4'%20y%3D'6'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'353.2'%20y%3D'6'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'23.5'%20y%3D'42'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'62.3'%20y%3D'42'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'101.1'%20y%3D'42'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'139.9'%20y%3D'42'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'178.7'%20y%3D'42'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'217.5'%20y%3D'42'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'256.3'%20y%3D'42'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'295.1'%20y%3D'42'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'333.9'%20y%3D'42'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'56'%20y%3D'78'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'94.8'%20y%3D'78'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'133.6'%20y%3D'78'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'172.4'%20y%3D'78'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'211.2'%20y%3D'78'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'250'%20y%3D'78'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'288.8'%20y%3D'78'%20width%3D'32.8'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'50'%20y%3D'114'%20width%3D'246'%20height%3D'28'%20rx%3D'5'%2F%3E%3C%2Fsvg%3E");
+  --lpk-special:url("data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%20390%20150'%20preserveAspectRatio%3D'none'%3E%3Crect%20x%3D'4'%20y%3D'78'%20width%3D'44'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'329.6'%20y%3D'78'%20width%3D'56.4'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'4'%20y%3D'114'%20width%3D'40'%20height%3D'28'%20rx%3D'5'%2F%3E%3Crect%20x%3D'302'%20y%3D'114'%20width%3D'84'%20height%3D'28'%20rx%3D'5'%2F%3E%3C%2Fsvg%3E");
+  --lpk-key: #fff;
+  --lpk-alt: rgba(120, 120, 128, .3);
+}
+@media (prefers-color-scheme: dark) {
+  .lp-gal, .lp-shot { --lpk-key: rgba(255, 255, 255, .3); --lpk-alt: rgba(255, 255, 255, .14); }
+}
+.lp-gal .kbd, .lp-shot .kbd, .lp-gal .lpd-keys, .lp-shot .lpd-keys {
+  position: relative; display: block; font-size: 0; color: transparent; overflow: hidden;
+}
+.lp-gal .kbd, .lp-shot .kbd { position: absolute; }
+.lp-gal .kbd::before, .lp-shot .kbd::before, .lp-gal .lpd-keys::before, .lp-shot .lpd-keys::before,
+.lp-gal .kbd::after, .lp-shot .kbd::after, .lp-gal .lpd-keys::after, .lp-shot .lpd-keys::after {
+  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 150px;
+  -webkit-mask-size: 100% 100%; mask-size: 100% 100%; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+}
+.lp-gal .kbd::before, .lp-shot .kbd::before, .lp-gal .lpd-keys::before, .lp-shot .lpd-keys::before {
+  background: var(--lpk-key); -webkit-mask-image: var(--lpk-letters); mask-image: var(--lpk-letters);
+}
+.lp-gal .kbd::after, .lp-shot .kbd::after, .lp-gal .lpd-keys::after, .lp-shot .lpd-keys::after {
+  background: var(--lpk-alt); -webkit-mask-image: var(--lpk-special); mask-image: var(--lpk-special);
+}
+/* Opaque, so the tab bar the library draws behind its keyboard does not show through as blurred blobs. */
+.lp-gal .kbd, .lp-shot .kbd {
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+  background: linear-gradient(var(--field), var(--field)), var(--screen);
+}

@@ -1,0 +1,43 @@
+/*
+ * Styles for the "From the Mac menu bar" pictures (pictures/menuBar.tsx).
+ * Every selector starts with `.lp-gal` and `.lpm-`. Inside the screen the
+ * mock library's own classes and two text sizes are kept (mbm.css, styles.css);
+ * this file sets no font size. The ring is the calm accent outline for the one
+ * thing being touched; nothing is animated.
+ *
+ * Size. The gallery draws Mac slides with the frame zoomed to .74 (.34 below
+ * 40rem). The panel is 372px wide, which would be tiny at .34, so `.lpm-crop`
+ * counters the zoom: its zoom is the size wanted on screen (--lpm-s) divided
+ * by the gallery's (--lpm-g). The wanted size steps with the width of the slide
+ * (86vw up to 760px, less 2rem of padding). On wide screens the whole 640px
+ * screen is shown at 1 (.8 on a tablet width). On a phone the screen is cut to
+ * its right 408px, the menu bar's right end with the panel under it, and is
+ * drawn at .58 to .9.
+ */
+
+.lp-gal .lpm-crop {
+  --lpm-g: .74; --lpm-s: .8;
+  zoom: calc(var(--lpm-s) / var(--lpm-g));
+  width: 640px; margin-inline: auto; overflow: hidden; border-radius: 12px;
+}
+@media (min-width: 54rem) { .lp-gal .lpm-crop { --lpm-s: 1; } }
+@media (max-width: 40rem) {
+  .lp-gal .lpm-crop { --lpm-g: .34; --lpm-s: .9; width: 408px; }
+}
+@media (max-width: 30rem) { .lp-gal .lpm-crop { --lpm-s: .68; } }
+@media (max-width: 22.5rem) { .lp-gal .lpm-crop { --lpm-s: .58; } }
+
+.lp-gal .lpm-crop .mbm-desk { width: 640px; max-width: none; height: 620px; box-shadow: none; }
+@media (max-width: 40rem) { .lp-gal .lpm-crop .mbm-desk { margin-left: -232px; } }
+
+/* the panel closed: only the menu bar and the page, with the Psss item ringed */
+.lp-gal .lpm-closed .mbm-desk { height: 330px; }
+.lp-gal .lpm-closed .mbm-mark { outline: 2px solid var(--accent); outline-offset: 1px; box-shadow: 0 0 0 6px var(--accent-bg); }
+
+/* the generator "scrolled to the end": the blocks above the PIN are left out, as scrolling would hide them */
+.lp-gal .lpm-scrolled .mbm-genblock[data-kind="strong"],
+.lp-gal .lpm-scrolled .mbm-genblock[data-kind="random"],
+.lp-gal .lpm-scrolled .mbm-genblock[data-kind="words"] { display: none; }
+
+/* Keep on Top, ringed where the panel shows it */
+.lp-gal .lpm-top .mbm-panel button[aria-pressed] { box-shadow: 0 0 0 3px var(--accent-bg), 0 0 0 5px var(--accent); }

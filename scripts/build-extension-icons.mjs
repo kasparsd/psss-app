@@ -23,7 +23,7 @@ function renderMark(size, file) {
 
 try {
   for (const size of [16, 32]) renderMark(size, join(out, `action-${size}.png`));
-  renderMark(32, join(root, 'Design/Landing/assets/favicon-32.png'));
+  renderMark(32, join(root, 'Site/src/assets/favicon-32.png'));
 
   const source = join(root, 'Design/AppIcon/AppIcon-light-1024.png');
   const crop = 900; // of 1024: the field takes more of the small sizes
@@ -40,4 +40,4 @@ try {
 } finally {
   rmSync(scratch, { recursive: true, force: true });
 }
-console.log('Wrote action-16, action-32, icon-48, icon-128 in Extensions/Browser/src and Design/Landing/assets/favicon-32.png');
+console.log('Wrote action-16, action-32, icon-48, icon-128 in Extensions/Browser/src and Site/src/assets/favicon-32.png');
