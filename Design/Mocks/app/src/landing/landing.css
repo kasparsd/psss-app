@@ -11,7 +11,7 @@
    from docs/brand.md: cream for the page, butter for the app icon, charcoal
    for text; in the dark, charcoal with cream text. Light or dark follows the
    system setting; there is no switch.
-   Varela Round is for headings only (the stack in Design/Brand/tokens.css);
+   Nunito 700 is for headings only (the stack in Design/Brand/tokens.css);
    the body is the system's text face.
 
    Contrast (WCAG 2.x): charcoal 1F1F23 on cream FFF9E5 15.6, on butter 11.9,
@@ -29,7 +29,7 @@
   --muted: #5C584D;
   --line: rgba(31, 31, 35, .12);
   --focus: #1F1F23;
-  --display: 'Varela Round', ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
+  --display: 'Nunito', ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
   --body: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
   --step: 1.0625rem;   /* body, 17 */
   --small: .9375rem;   /* supporting, 15 */
@@ -76,9 +76,9 @@
 .lp .lp-h1, .lp .lp-h2, .lp .lp-row-label { overflow-wrap: break-word; min-width: 0; }
 
 /* ---- type: the headline, then title, body and small ---- */
-.lp .lp-h1, .lp .lp-h2 { font-family: var(--display); font-weight: 400; color: inherit; margin: 0; text-wrap: balance; }
-.lp .lp-h1 { font-size: var(--h1); line-height: 1.05; letter-spacing: -.01em; }
-.lp .lp-h2 { font-size: var(--h2); line-height: 1.1; }
+.lp .lp-h1, .lp .lp-h2 { font-family: var(--display); font-weight: 700; color: inherit; margin: 0; text-wrap: balance; }
+.lp .lp-h1 { font-size: var(--h1); line-height: 1; letter-spacing: -.01em; }
+.lp .lp-h2 { font-size: var(--h2); line-height: 1.05; }
 .lp .lp-lead { margin: 1rem 0 0; font-size: var(--title); line-height: 1.45; text-wrap: pretty; }
 .lp .lp-body { margin: 0 0 1rem; text-wrap: pretty; }
 .lp .lp-small { margin: 0; font-size: var(--small); line-height: 1.45; color: var(--muted); }
@@ -113,7 +113,7 @@
 /* ---- the list: groups of rows that open ---- */
 .lp .lp-group { margin: 3rem 0 0; }
 /* Each group: its heading and one line, then the card of rows. */
-.lp .lp-group-head { margin: 0 0 .25rem; font-family: var(--display); font-weight: 400; font-size: var(--title); line-height: 1.3; }
+.lp .lp-group-head { margin: 0 0 .25rem; font-family: var(--display); font-weight: 700; font-size: var(--title); line-height: 1.2; }
 .lp .lp-group-lead { margin: 0 0 1rem; color: var(--muted); }
 .lp .lp-rows { margin: 0; padding: 0; list-style: none; background: var(--panel); border-radius: var(--r); overflow: hidden; }
 .lp .lp-plain .lp-row { padding: .9rem 1.25rem; }

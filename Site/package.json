@@ -22,8 +22,8 @@
     "@astrojs/check": "0.9.12",
     "@types/react": "19.2.2",
     "@types/react-dom": "19.2.2",
+    "subset-font": "2.9.0",
     "typescript": "5.9.3",
-    "wawoff2": "2.0.1",
     "wrangler": "4.168.0"
   }
 }

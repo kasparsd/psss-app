@@ -7,8 +7,8 @@
   --psss-stone: #8A8578;      /* rules and fills only, never small text */
   --psss-ink-muted: #5C584D;  /* secondary text on cream or white, 6.8:1 */
 
-  /* Varela Round is a single weight (400), which is the wordmark weight. */
-  --psss-font-display: 'Varela Round', ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
+  /* Web headings, at 700. The logo and wordmark files stay Varela Round, outlined. */
+  --psss-font-display: 'Nunito', ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
   --psss-font-body: ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
 
   /* Wordmark font size is this fraction of the mark's height. */

@@ -1,8 +1,8 @@
 /* The one font the site ships (docs/brand.md, "Type"). */
 @font-face {
-  font-family: 'Varela Round';
-  src: url('../assets/VarelaRound-Regular.woff2') format('woff2');
-  font-weight: 400;
+  font-family: 'Nunito';
+  src: url('../assets/Nunito-Bold.woff2') format('woff2');
+  font-weight: 700;
   font-display: swap;
 }
 /* The mock library paints its own page ground; the site's ground is the landing page's. */
