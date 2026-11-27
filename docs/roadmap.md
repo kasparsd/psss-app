@@ -199,7 +199,7 @@ Goal: five people outside the project fill, save and find a login without guidan
 
 ## Website
 
-The page is built and its deployment workflow written (2026-11-27, [development](development.md#website)); what it is, in [brand](brand.md#landing-page).
+The page is built and deployed from CI to `psss-app.pages.dev` and served at `psss.app`, where it and both redirects were checked (2026-11-27, [development](development.md#website)); what it is, in [brand](brand.md#landing-page).
 
 Claims on the page against what is built, checked 2026-11-27. The page carries no status flags, so the owner decides what stays:
 

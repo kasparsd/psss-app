@@ -125,9 +125,9 @@ One-time setup:
 4. In the GitHub repository, Settings, Environments, New environment `website`; under deployment branches allow only `main`; add the environment secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
 5. Push to `main`, or run the “Website” workflow from the Actions tab.
 6. In the Pages project, Custom domains, add `psss.app`. A top-level domain needs its zone in the same Cloudflare account, with the domain’s nameservers pointed at Cloudflare; the DNS record is then made for you.
-7. Redirect the project’s `pages.dev` address to the domain with a Bulk Redirect (301, subpath matching, preserve path suffix and query string).
+7. Redirect the project’s `pages.dev` address to the domain with a Bulk Redirect: source `psss-app.pages.dev/` (never bare `pages.dev`, which could catch other projects), target `https://psss.app`, 301, with subpath matching, preserve path suffix and query string, and include subdomains.
 8. Keep Cloudflare Web Analytics off and, if the zone is on Cloudflare, turn Email Address Obfuscation and Rocket Loader off for this host. The footer promises no analytics and no outside scripts.
-9. If `www.psss.app` should work, redirect it to `psss.app` with a redirect rule.
+9. If `www.psss.app` should work, give it a proxied DNS record and add `www.psss.app/` to the same Bulk Redirect list, with the same target and options but without subdomains.
 
 After the first deployment check the response headers, an empty browser console, no request to another origin, both appearances on a real iPhone, and a link preview.
 
