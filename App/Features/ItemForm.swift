@@ -180,7 +180,7 @@ struct ItemFields: View {
                             .fixedSize()
                     }
                     if item.totpInvalid {
-                        Label("That is not a valid setup key.", systemImage: "exclamationmark.triangle")
+                        Label { Text("That is not a valid setup key.") } icon: { WarningSymbol() }
                     }
                 }
             }
@@ -341,7 +341,7 @@ struct ItemFields: View {
                             .keyboardType(.emailAddress)
                             #endif
                         if item.emailLooksWrong {
-                            Label("This doesn\u{2019}t look like an email address. It is saved as typed.", systemImage: "exclamationmark.triangle")
+                            Label { Text("This doesn\u{2019}t look like an email address. It is saved as typed.") } icon: { WarningSymbol() }
                         }
                     }
                 case .phone:

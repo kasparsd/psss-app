@@ -1,9 +1,9 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Runs one add-vault flow when `choice` is set, then clears it: the create form; the file picker for a vault file; or the picker,
-/// the "Ready to import" alert and the create form for an Apple Passwords export. Nothing is added until the last step succeeds.
-/// A created or imported vault is open and shown, the others stay as they were, and `onAdded` runs. A vault file is only added to
+/// Runs one add-vault flow when `choice` is set, then clears it: the create form, or the file picker for a vault file. Import from
+/// Apple Passwords is handed to the app's one import sheet (`importsApplePasswords`). Nothing is added until the last step
+/// succeeds. A created vault is open and shown, the others stay as they were, and `onAdded` runs. A vault file is only added to
 /// the list, locked, and shown with its unlock form (no password is asked here): `onFileAdded` runs.
 private struct AddVaultFlow: ViewModifier {
     @Binding var choice: AddVaultChoice?
@@ -11,12 +11,11 @@ private struct AddVaultFlow: ViewModifier {
     let onAdded: () -> Void
     let onFileAdded: () -> Void
 
-    private enum FilePurpose { case vaultFile, passwordsCSV }
+    /// Opens the import sheet from here, for a screen that has to close first or keeps the sheet to itself.
+    let importsApplePasswords: (() -> Void)?
+    @Environment(AppleImportRequests.self) private var imports
     @State private var picking = false
-    @State private var purpose = FilePurpose.vaultFile
     @State private var creating = false
-    @State private var pendingImport: [VaultItem] = []
-    @State private var notice: String?
     @State private var problem: String?
 
     func body(content: Content) -> some View {
@@ -25,42 +24,33 @@ private struct AddVaultFlow: ViewModifier {
                 guard let new else { return }
                 choice = nil
                 switch new {
-                case .create: pendingImport = []; creating = true
-                case .open: purpose = .vaultFile; picking = true
-                case .importPasswords: purpose = .passwordsCSV; picking = true
+                case .create: creating = true
+                case .open: picking = true
+                case .importPasswords: if let importsApplePasswords { importsApplePasswords() } else { imports.start() }
                 }
             }
-            .fileImporter(isPresented: $picking,
-                          allowedContentTypes: purpose == .vaultFile ? [.keePassVault, .data] : [.commaSeparatedText, .plainText]) { result in
-                switch purpose {
-                case .vaultFile:
-                    guard let url = try? result.get() else { return }
-                    do { try session.add(fileAt: url); onFileAdded() }
-                    catch { problem = (error as? KDBXError)?.message ?? (error as? VaultStoreError)?.message ?? String(localized: "Psss could not read that file.") }
-                case .passwordsCSV:
-                    readPasswordsCSV(result, notice: $notice, problem: $problem) { pendingImport = $0 }
-                }
+            .fileImporter(isPresented: $picking, allowedContentTypes: [.keePassVault, .data]) { result in
+                guard let url = try? result.get() else { return }
+                do { try session.add(fileAt: url); onFileAdded() }
+                catch { problem = (error as? KDBXError)?.message ?? (error as? VaultStoreError)?.message ?? String(localized: "Psss could not read that file.") }
             }
-            .alert("Ready to import", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
-                Button("Create Vault…") { notice = nil; creating = true }
-                Button("Cancel", role: .cancel) { notice = nil; pendingImport = [] }
-            } message: { Text((notice ?? "") + " " + String(localized: "Choose a vault password to create the vault that will hold them.")) }
             .alert("Nothing was added", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
                 Button("OK") { problem = nil }
             } message: { Text(problem ?? "") }
             .sheet(isPresented: $creating) {
-                NewVaultSheet(session: session, importing: pendingImport) { creating = false; pendingImport = []; onAdded() }
+                NewVaultSheet(session: session) { creating = false; onAdded() }
             }
     }
 }
 
 extension View {
     /// Starts an add-vault flow when `choice` is set (it is cleared at once). Attach it once per screen, to a view that stays on
-    /// screen while the flow runs. `onAdded` runs after a vault was created or imported, with the new vault already open;
-    /// `onFileAdded` after a vault file was added: it is in the list and shown, locked, and the unlock form follows.
+    /// screen while the flow runs. `onAdded` runs after a vault was created, with the new vault already open; `onFileAdded`
+    /// after a vault file was added: it is in the list and shown, locked, and the unlock form follows.
     func addVaultFlow(_ choice: Binding<AddVaultChoice?>, session: VaultSession, onAdded: @escaping () -> Void,
-                      onFileAdded: @escaping () -> Void = {}) -> some View {
-        modifier(AddVaultFlow(choice: choice, session: session, onAdded: onAdded, onFileAdded: onFileAdded))
+                      onFileAdded: @escaping () -> Void = {}, importsApplePasswords: (() -> Void)? = nil) -> some View {
+        modifier(AddVaultFlow(choice: choice, session: session, onAdded: onAdded, onFileAdded: onFileAdded,
+                              importsApplePasswords: importsApplePasswords))
     }
 }
 

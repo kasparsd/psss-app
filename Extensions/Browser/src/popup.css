@@ -65,8 +65,14 @@ label { display: block; font-weight: 600; margin-bottom: 4px; }
 .notice .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .notice .txt strong { font-weight: 600; }
 
-.notice { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--accent-bg); }
-.notice[data-kind="warning"] { background: rgba(255, 149, 0, .18); }
+/* No coloured box: the icon says what kind of message it is. */
+.notice { display: flex; align-items: flex-start; gap: 10px; padding: 4px 2px; }
+.nicon { width: 18px; height: 18px; flex: none; fill: none; stroke: var(--lab2); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+/* The warning is a filled orange triangle with a white mark, as in the app. */
+.nicon.warn { stroke: #ff9500; }
+.nicon.warn .tri { fill: #ff9500; }
+.nicon.warn .mark { stroke: #fff; }
+.notice[data-kind="info"] .nicon.warn, .notice[data-kind="warning"] .nicon.info { display: none; }
 .notice p { overflow-wrap: anywhere; }
 .top > .btn { flex: none; }
 

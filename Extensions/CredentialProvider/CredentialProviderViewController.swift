@@ -358,6 +358,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             let rpID = requestParameters.relyingPartyIdentifier
             let clientDataHash = requestParameters.clientDataHash
             // The page may have asked for a passkey first (Google does), so the list also offers the saved logins, as the plain list does.
+            // When it named the passkeys it accepts and none is here, a notice replaces the list.
             let request = PasskeyRequestList(items: items, serviceIdentifiers: serviceIdentifiers.map(\.identifier), rpID: rpID,
                                              allowedCredentials: requestParameters.allowedCredentials)
             // Counts and the relying party only (a site name, never a credential): enough to tell from a device log whether a
@@ -370,7 +371,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             }
             present(FillList(site: request.site,
                              items: PickerSearch.offerable(items),
-                             passkeys: PasskeyChoice(rpID: rpID, items: request.passkeys,
+                             passkeys: PasskeyChoice(rpID: rpID, items: request.passkeys, namedPasskeysMissing: request.namedPasskeysMissing,
                                                      choose: { [weak self] in self?.assert($0, relyingParty: rpID, clientDataHash: clientDataHash) }),
                              vaults: vaultSwitch, vaultName: session.reference?.name,
                              choose: { [weak self] in self?.complete(with: $0) },

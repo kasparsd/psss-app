@@ -28,6 +28,9 @@ struct RootView: View {
     @AppStorage("lockTiming") private var lockTiming = LockTiming.oneMinute.rawValue
     @Environment(\.scenePhase) private var scenePhase
     @Environment(SettingsRequests.self) private var settingsRequests
+    @Environment(AppleImportRequests.self) private var appleImports
+    @State private var showsAppleImport = false
+    @State private var lockClosedImport = false
     #if os(macOS)
     @Environment(\.openSettings) private var openSettings
     #else
@@ -36,6 +39,14 @@ struct RootView: View {
 
     static let keePassSource = "kdbx"
     private var usesDeviceAuth: Bool { vaultSource != Self.keePassSource }
+
+    /// The import sheet opens when the person asks for it, and for what Apple Passwords handed over once there is somewhere to
+    /// show it: no vault yet, or an open one (a locked window asks for the vault password first).
+    private var wantsAppleImport: Bool {
+        if appleImports.requested { return true }
+        guard appleImports.pending != nil, appleImports.openSheets == 0 else { return false }
+        return vaultSource != Self.keePassSource || (gate.isUnlocked && session.windowStore != nil)
+    }
 
     private var timing: LockTiming { LockTiming(rawValue: lockTiming) ?? .oneMinute }
 
@@ -91,6 +102,20 @@ struct RootView: View {
             } else {
                 LockScreen(gate: gate)
             }
+        }
+        // Behind the content, not on it, so the sheet stays while an import swaps the screen under it (a new or another vault).
+        .background {
+            Color.clear.appleImportSheet(isPresented: $showsAppleImport, session: session, requests: appleImports,
+                                         lockedAway: { lockClosedImport }) {
+                gate.markUnlocked()
+                vaultSource = Self.keePassSource
+            }
+        }
+        .onChange(of: wantsAppleImport, initial: true) { _, wants in
+            if wants { lockClosedImport = false; showsAppleImport = true }
+        }
+        .onChange(of: gate.isUnlocked) { _, unlocked in
+            if !unlocked, showsAppleImport { lockClosedImport = true; showsAppleImport = false }
         }
         // Entering or leaving the sample vault (Welcome, Start Over) starts it fresh, so nothing typed into it comes back.
         .onChange(of: vaultSource) { sample = SampleVaultStore() }

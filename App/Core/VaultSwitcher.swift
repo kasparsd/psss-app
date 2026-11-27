@@ -20,7 +20,7 @@ enum AddVaultChoice: Hashable, Identifiable {
     case create
     /// A KeePass file from Files, iCloud Drive or another folder.
     case open
-    /// A new vault made from an Apple Passwords export (a CSV file).
+    /// What is in Apple Passwords, moved directly or by its file, into an open vault or a new one.
     case importPasswords
 
     var id: Self { self }
@@ -44,7 +44,7 @@ enum AddVaultChoice: Hashable, Identifiable {
 
     /// The footer under the "Add Vault" group, the same everywhere.
     static var footer: LocalizedStringKey {
-        "Create makes a new, empty vault. Open adds a KeePass file from iCloud Drive or another folder. Import makes a new vault from an Apple Passwords export; exports are not encrypted, so delete the file afterwards."
+        "Create makes a new, empty vault. Open adds a KeePass file from iCloud Drive or another folder. Import adds what is in Apple Passwords to a vault."
     }
 }
 

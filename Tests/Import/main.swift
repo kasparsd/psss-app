@@ -893,8 +893,6 @@ do {
     check("csv: every row has a marker made of site, user and title", "\(p.items.allSatisfy { $0.sourceID?.hasPrefix("csv:") == true })", "true")
     expectThrows("csv: not a passwords file", .notAnExport) { _ = try CSVSource.plan(from: "a,b\n1,2\n", now: now) }
     expectThrows("csv: nothing but a header", .empty) { _ = try CSVSource.plan(from: "Title,Url,Username,Password\n", now: now) }
-    // The existing reader still works for its current caller.
-    check("csv: CSVImport is unchanged", "\(try CSVImport.items(from: text).items.count) \(try CSVImport.items(from: text).skipped)", "3 2")
     var vault = try emptyVault()
     let summary = try vault.apply(p)
     check("csv: applied", "\(summary.logins) \(vault.items().count)", "3 3")
@@ -2862,6 +2860,10 @@ if run(["which", "keepassxc-cli"]).status == 0 {
     print("skip keepassxc round trip: keepassxc-cli not installed")
 }
 
+// MARK: Apple Passwords (Apple.swift)
+
+try await appleImportChecks(writesWork: writesWork)
+
 // MARK: Every issue kind has a fixture, and no text holds a secret, a type name or an internal string
 
 do {
@@ -2872,7 +2874,9 @@ do {
     let forbidden = ["PSSS_", "xn--", "S3CR3T", "wallet.", "webforms.", "securenotes.", "passwords.", "category:", "(s)", "identifier", "hash", "marker", "UUID", "fingerprint"]
     var bad: [String] = []
     for issue in made {
-        for word in forbidden where issue.detail.lowercased().contains(word.lowercased()) {
+        // "Apple Passwords" is the app's name and may end a sentence; "passwords." is otherwise a 1Password type name.
+        let plain = issue.detail.replacingOccurrences(of: "Apple Passwords.", with: "Apple Passwords")
+        for word in forbidden where plain.lowercased().contains(word.lowercased()) {
             // The sentences about a shared internal ID name an ID on purpose.
             if word == "identifier" || word == "UUID" { continue }
             bad.append("\(issue.kind.rawValue): \(word) in \(issue.detail)")

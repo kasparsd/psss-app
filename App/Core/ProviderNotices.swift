@@ -4,7 +4,7 @@ import Foundation
 /// to R, Z). Pure, so the sentences are tested. `name` is the vault's own name: it is made safe here (`VaultName.sentence`), so
 /// callers pass it as the vault has it. `method` is "Face ID", "Touch ID" or similar.
 enum ProviderNotices {
-    /// What the notice is: information (a tinted blue card) or a problem (orange).
+    /// What the notice is: information (a grey circled i) or a problem (orange).
     enum Tone: Equatable { case info, warning }
 
     struct Notice: Equatable {

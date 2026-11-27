@@ -89,10 +89,10 @@ export function VaultSwitcher() {
       />
 
       <Section title="1. Settings › Vaults: the list, then Add Vault">
-        <p>The three ways to add a vault are a group of their own under the list of vaults, in Settings, with the same words as the menu and the welcome screen. There is no chooser sheet any more: one level fewer. On iPhone and iPad the rows are navigation rows (no descriptions) that push the create form, the Files picker or the import inside Settings; one footer says what each does and warns that exports are not encrypted. On the Mac, “Add Vault” is the last row of the vault list, and choosing it shows the three choices in the right panel.</p>
+        <p>The three ways to add a vault are a group of their own under the list of vaults, in Settings, with the same words as the menu and the welcome screen. There is no chooser sheet any more: one level fewer. On iPhone and iPad the rows are navigation rows (no descriptions) that push the create form, the Files picker or the import inside Settings; one footer says what each does. Import opens the import sheet of its own page (Import from Apple Passwords). On the Mac, “Add Vault” is the last row of the vault list, and choosing it shows the three choices in the right panel.</p>
       </Section>
       <Frames>
-        <Frame label="A · iPhone" phone caption="Vaults (names only), then “Add Vault” with the three rows. The rows have chevrons: each pushes its screen inside Settings, and Back returns here. One footer says what each does and warns about the unencrypted export."><Phone title="Settings" done><VaultsList both /><AppBody /></Phone></Frame>
+        <Frame label="A · iPhone" phone caption="Vaults (names only), then “Add Vault” with the three rows. The rows have chevrons: each pushes its screen inside Settings, and Back returns here. One footer says what each does."><Phone title="Settings" done><VaultsList both /><AppBody /></Phone></Frame>
         <Frame label="B · iPad" caption="The same group in the Settings sheet; the same pushes. The app’s own groups follow below, as on iPhone."><IPadSheet title="Settings"><VaultsList both /></IPadSheet></Frame>
       </Frames>
       <Frames>
@@ -187,7 +187,7 @@ export function VaultSwitcher() {
             why: <>The owner’s request: the same facts were shown twice.</>,
           },
           {
-            decision: <><strong>Add Vault</strong> is a group in Settings › Vaults, under the list: Create a New Vault, Open a Vault File, Import from Apple Passwords, with the import warning as its footer. Navigation rows on iPhone and iPad; rows with a labeled push button (Create…, Open…, Import…) on the Mac. The chooser sheet is gone.</>,
+            decision: <><strong>Add Vault</strong> is a group in Settings › Vaults, under the list: Create a New Vault, Open a Vault File, Import from Apple Passwords, with one footer saying what each does. Navigation rows on iPhone and iPad; rows with a labeled push button (Create…, Open…, Import…) on the Mac. The chooser sheet is gone.</>,
             rejected: <>the chooser sheet (a panel inside a panel, reached from a row that only opened another list of rows); an “Add Vault…” row at the end of the vault list.</>,
             why: <>The owner’s request: one level fewer. The three ways are always visible where vaults are managed; each leads directly to the flow that exists for it.</>,
           },
@@ -253,6 +253,7 @@ export function VaultSwitcher() {
 
       <History
         entries={[
+          { date: '2026-11-26', text: <>The Add Vault footer says “Import adds what is in Apple Passwords to a vault.” Import now opens its own sheet, which can add to an open vault, and says there that a file is not encrypted. Replaces “Import makes a new vault from an Apple Passwords export” with its warning.</> },
           { date: '2026-11-26', text: <>Corrections after checking the build: on iPad the system keeps Sort and Filter beside + Add at the trailing edge, so only the Mac has them at the column’s start. Replaces the iPad frames that drew them at the start.</> },
           { date: '2026-11-26', text: <>Owner: on Mac and iPad + Add moved to the trailing edge of the list column, apart from Sort and Filter and next to Edit. Replaces Sort, Filter and + Add together at the right of the column in frames D to N.</> },
           { date: '2026-11-26', text: <>Owner: the sidebar foot’s Add Vault and Settings gear use the same buttons as the toolbar: standard glass, a labeled capsule and a circle, on Mac and iPad. Replaces the borderless text-and-icon controls on a bar with a divider above it, so both read as buttons.</> },

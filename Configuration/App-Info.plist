@@ -30,6 +30,11 @@
             </array>
         </dict>
     </array>
+    <!-- The activity that carries what Apple Passwords hands over (ASCredentialExchangeActivity). -->
+    <key>NSUserActivityTypes</key>
+    <array>
+        <string>ASCredentialExchangeActivity</string>
+    </array>
     <!-- iPhone and iPad: the Keychain group of the card and address grant for the Safari extension (KeychainSafariFillStore). The Mac
          app shares this file, has no entitlement for the group and never reads the key. -->
     <key>PsssSafariFillAccessGroup</key>

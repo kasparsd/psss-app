@@ -230,7 +230,14 @@ async function route(req: IncomingMessage): Promise<Reply> {
     const rpId = chooseRpId(host, data.rpId);
     const challenge = b64url(randomBytes(32));
     state.challenges.set(challenge, { kind: 'get', rpId, expires: Date.now() + 120_000 });
-    return json({ challenge, rpId });
+    // A second step names the credentials it accepts: the account's own, or one that no provider here holds (a security key).
+    let allow: string[] | undefined;
+    if (data.allow === 'elsewhere') allow = [b64url(randomBytes(16))];
+    if (data.allow === 'account') {
+      allow = (state.accounts.get(String(data.username ?? '').trim())?.passkeys ?? []).filter((p) => p.rpId === rpId).map((p) => p.id);
+      if (!allow.length) throw new Error('that account has no passkey for this relying party: create one first');
+    }
+    return json({ challenge, rpId, allowCredentials: allow?.map((id) => ({ type: 'public-key', id })) });
   }
   if (method === 'POST' && path === '/api/webauthn/login/verify') {
     const issued = takeChallenge(state, data.challenge, 'get');

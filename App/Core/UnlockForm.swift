@@ -5,9 +5,16 @@ import SwiftUI
 // They hold no state of their own; the screen decides when each shows. Nothing here reads or keeps a secret beyond the text
 // binding it is handed.
 
+/// The one warning symbol: an orange triangle beside the words, with no coloured box. The words beside it say what is wrong.
+struct WarningSymbol: View {
+    var body: some View {
+        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).accessibilityHidden(true)
+    }
+}
+
 /// A notice under the unlock buttons (owner, 2026-11-24, mock `#/unlock-screen` section 5): progress, a wrong password and every
-/// other message in one tinted card with a filled symbol. Orange for a problem (red is kept for deletion), blue for information, a
-/// spinner for progress.
+/// other message as a symbol and words, with no coloured box (owner, 2026-11-26). An orange triangle for a problem (red is kept for
+/// deletion), a grey circled i for information, a spinner for progress.
 struct LockNotice: View {
     enum Kind { case progress, warning, info }
     let kind: Kind
@@ -16,14 +23,6 @@ struct LockNotice: View {
     /// One labeled button under the words, for the way out the notice names ("Choose Key File…"). Nil leaves it out.
     var action: (title: LocalizedStringKey, run: () -> Void)?
 
-    private var tint: Color {
-        switch kind {
-        case .progress: .secondary
-        case .warning: .orange
-        case .info: .accentColor
-        }
-    }
-
     private var spoken: String { kind == .warning ? String(localized: "Warning: \(text)") : text }
 
     var body: some View {
@@ -31,8 +30,8 @@ struct LockNotice: View {
             Group {
                 switch kind {
                 case .progress: ProgressView().controlSize(.small)
-                case .warning: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                case .info: Image(systemName: "info.circle.fill").foregroundStyle(Color.accentColor)
+                case .warning: WarningSymbol()
+                case .info: Image(systemName: "info.circle").foregroundStyle(.secondary)
                 }
             }
             .frame(width: 22, height: 22)
@@ -47,9 +46,9 @@ struct LockNotice: View {
             .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
-        .padding(12)
+        .padding(.vertical, 4)
+        .padding(.horizontal, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .accessibilityElement(children: kind == .warning && action == nil ? .ignore : .combine)
         .accessibilityLabel(kind == .warning && action == nil ? Text(verbatim: spoken) : Text(verbatim: ""))
         .onAppear { if kind == .warning { AccessibilityNotification.Announcement(spoken).post() } }

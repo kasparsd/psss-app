@@ -17,7 +17,7 @@ struct ProviderNotice {
     }
 }
 
-/// The notice card. With one vault there is no Vault row to carry Unlock, so the card carries it (`carriesUnlock`).
+/// The notice. With one vault there is no Vault row to carry Unlock, so the notice carries it (`carriesUnlock`).
 struct ProviderNoticeView: View {
     let notice: ProviderNotice
     let carriesUnlock: Bool

@@ -39,7 +39,7 @@ enum ImportDuplicates {
         }
 
         /// Typed by hand, or imported from a CSV, which carries no identifier: a source that has less than a 1Password item.
-        var isPlain: Bool { sourceID == nil || sourceID?.hasPrefix("csv:") == true }
+        var isPlain: Bool { sourceID == nil || sourceID?.hasPrefix("csv:") == true || sourceID?.hasPrefix("apple:") == true }
         var isFromCSV: Bool { sourceID?.hasPrefix("csv:") == true }
 
         /// Whether the entry was imported from an item with this fingerprint. An entry imported before the fingerprint was salted
@@ -78,6 +78,8 @@ enum ImportDuplicates {
         case otherTitle
         /// The entry it would have merged into was already merged into by an earlier item of this import.
         case mergeTaken
+        /// A code, passkey, note or field differs from the vault's login (Apple Passwords imports).
+        case otherDetails
     }
 
     /// A CSV row that looks like an earlier CSV login with another title or another site.
@@ -582,6 +584,7 @@ extension ImportItem {
         for revision in history { put(revision.password) }
         put("files")
         for file in attachments { put(file.name); put(AttachmentDigest.shared.hex(of: file.url, size: file.size)) }
+        if let passkey { put("passkey"); put(passkey.credentialID.base64EncodedString()); put(passkey.rpID) }
         return Hex.string(hasher.finalize().prefix(16))
     }
 

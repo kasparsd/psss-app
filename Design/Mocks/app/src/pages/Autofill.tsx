@@ -192,7 +192,7 @@ export function Autofill() {
         <Frame label="D · iPad, searching" caption="Same sheet; the rows are the iPad list’s rounded rows. The pills touch the search field."><Screen device="ipad" title="Choose a Login" vault={<Vr />} search={<Field text="git" />} pills={<Pills counts={counts} />}><SearchList mac /></Screen></Frame>
       </Frames>
       <Frames>
-        <Frame label="E · iPhone, nothing for this site in this vault" phone caption="A notice, the same card as the vault notices: “No logins for this site”, the vault named, and the ways on: search all items below, or choose another vault in the Vault row. No button, because both are controls already on screen. Psss does not search the other vault for the person. The menu is closed here so the notice can be read; frame F opens it."><Screen device="iphone" title="Choose a Login" vault={<Vr />} search={<Field />}><Head>For This Site</Head><Notice kind="info" title="No logins for this site">Passwords has none for this site. Search all items below, or choose another vault above.</Notice></Screen></Frame>
+        <Frame label="E · iPhone, nothing for this site in this vault" phone caption="A notice, like the vault notices: “No logins for this site”, the vault named, and the ways on: search all items below, or choose another vault in the Vault row. No button, because both are controls already on screen. Psss does not search the other vault for the person. The menu is closed here so the notice can be read; frame F opens it."><Screen device="iphone" title="Choose a Login" vault={<Vr />} search={<Field />}><Head>For This Site</Head><Notice kind="info" title="No logins for this site">Passwords has none for this site. Search all items below, or choose another vault above.</Notice></Screen></Frame>
       </Frames>
 
       <Section title="2. Another vault: locked, needs password, not available">
@@ -223,11 +223,12 @@ export function Autofill() {
       </Frames>
 
       <Section title="3. What to fill">
-        <p>Tapping a row fills the username and the password (owner, 2026-11-26, as in Apple Passwords). The (i) at the end of a row opens its details, where one value can be filled on its own. A passkey request lists the passkeys first. The single Fill screen is gone: every entry point opens a list.</p>
+        <p>Tapping a row fills the username and the password (owner, 2026-11-26, as in Apple Passwords). The (i) at the end of a row opens its details, where one value can be filled on its own. A passkey request lists the passkeys first; when the site names the passkeys it accepts and the vault has none of them (frame U2), no password is offered. The single Fill screen is gone: every entry point opens a list.</p>
       </Section>
       <Frames>
         <Frame label="T · iPhone, the (i): details and one value" phone caption="Opened by the (i). Username, password and the verification code, each tapped to fill on its own; the full details screen (icon, website, vault, changed, Fill Username and Password) is drawn in frame C of the lessons page. The Vault row is on this screen too. Choosing another vault here returns to that vault’s list."><Values /></Frame>
-        <Frame label="U · iPhone, a passkey request" phone caption="“Passkeys for gitforge.example” first, rows with the passkey glyph; tapping a row signs in; logins below under “Logins”. No warning paragraph."><Screen device="iphone" title="Sign In" vault={<Vr />}><Head>Passkeys for gitforge.example</Head><div className="grp"><ListRow item={gitforge} traits="passkey" trailing={<InfoBtn name={gitforge.name} />} /></div><Head>Logins</Head><div className="grp"><ListRow item={harbor} traits={false} sub="gitforge.example" trailing={<InfoBtn name={harbor.name} />} /></div></Screen></Frame>
+        <Frame label="U · iPhone, a passkey request" phone caption="“Passkeys for gitforge.example” first, rows with the passkey glyph; tapping a row signs in; logins below under “Logins”. No warning paragraph. When the site names accepted passkeys and none is here, frame U2 shows instead."><Screen device="iphone" title="Sign In" vault={<Vr />}><Head>Passkeys for gitforge.example</Head><div className="grp"><ListRow item={gitforge} traits="passkey" trailing={<InfoBtn name={gitforge.name} />} /></div><Head>Logins</Head><div className="grp"><ListRow item={harbor} traits={false} sub="gitforge.example" trailing={<InfoBtn name={harbor.name} />} /></div></Screen></Frame>
+        <Frame label="U2 · iPhone, the passkey is somewhere else" phone caption="The site named the passkeys it accepts and this vault has none of them, typically a security-key second step. A password would not answer it, so no login is listed and there is no search: Cancel returns to the page. With one vault there is no Vault row and the last sentence is left out. iPad and Mac show the same notice in the sheet."><Screen device="iphone" title="Sign In" vault={<Vr />}><Notice kind="info" title="No matching passkey for gitforge.example">Passwords has none of the passkeys this site accepts. If yours is in Apple Passwords, another app or a security key, choose Cancel and use it there. Or choose another vault above.</Notice></Screen></Frame>
         <Frame label="V · iPhone, a verification code" phone caption="The codes for the site, with the same Vault row. The code is the live one; tapping the row puts it in the field."><Screen device="iphone" title="Choose a Code" vault={<Vr />}><Head>For gitforge.example</Head><div className="grp"><ListRow item={gitforge} traits={false} trailing={<><CodeDigits code="482 913" /><InfoBtn name={gitforge.name} /></>} /></div></Screen></Frame>
       </Frames>
 
@@ -244,10 +245,10 @@ export function Autofill() {
       </Frames>
 
       <Section title="5. A reminder card is not a notice">
-        <p>The app’s AutoFill and Safari reminder cards (title, one sentence, buttons) ask the person to do something and can be put off. A notice tells them what is true now. Both are cards with the same corner radius and padding.</p>
+        <p>The app’s AutoFill and Safari reminder cards (title, one sentence, buttons) ask the person to do something and can be put off. A notice tells them what is true now: an icon and words, with no box.</p>
       </Section>
       <Frames>
-        <Frame label="AA · Side by side" caption="Left: the reminder card as built. Right: the notice card. Different jobs, so a different look.">
+        <Frame label="AA · Side by side" caption="Left: the reminder card as built, on a neutral background because it holds a task. Right: a notice, with no box. Different jobs, so a different look.">
           <div style={{ display: 'flex', gap: 12, padding: 16, background: 'var(--win)', flexWrap: 'wrap' }}>
             <div style={{ flex: '1 1 240px', background: 'rgba(142,142,147,.16)', borderRadius: 12, padding: 14 }}>
               <div style={{ fontWeight: 600 }}>Turn on AutoFill</div>
@@ -291,7 +292,7 @@ export function Autofill() {
             why: <>The owner: one button, no extra step. The second line is now the safety signal against a lookalike site.</>,
           },
           {
-            decision: <>Nothing for this site in the current vault is a notice (the card the vault notices use) titled “No logins for this site”, naming the vault and pointing to the search field and the Vault row; Psss does not search every vault.</>,
+            decision: <>Nothing for this site in the current vault is a notice (the one the vault notices use) titled “No logins for this site”, naming the vault and pointing to the search field and the Vault row; Psss does not search every vault.</>,
             why: <>The device test showed a person not knowing the login was in the other vault.</>,
           },
           {
@@ -340,6 +341,9 @@ export function Autofill() {
       <History
         proposal
         entries={[
+          { date: '2026-11-26', text: <>Owner, built: notices have no coloured background. The icon says the kind (grey circled i, filled orange triangle, spinner) beside the words; grey replaces the accent-blue information icon, which looked tappable. Replaces the tinted card.</> },
+          { date: '2026-11-26', text: <>Owner, built: frame U2 has no button. Replaces “Show Passwords Anyway”: in a simulator test, a login chosen on a passkey request filled nothing and the page reported a failure.</> },
+          { date: '2026-11-26', text: <>Owner, built: frame U2 added. When a passkey request names the passkeys it accepts and the vault has none, the sheet says so and offers passwords only after Show Passwords Anyway. Replaces listing the site’s logins as if they could answer it (seen on a device: a security-key step offered the password, which the page could not use).</> },
           { date: '2026-11-26', text: <>Owner, built: in the sheet’s password unlock the notices (checking, wrong password) sit under Unlock, as on the lock screen, so Unlock does not move down. Replaces notices between the field and Unlock.</> },
           { date: '2026-11-26', text: <>Owner: tapping a row picks it and fills, as in Apple Passwords; an (i) at the end of each row opens the login’s details inside the sheet (<a href="#/autofill-lessons">lessons page</a>, frames B and C). Replaces the labeled Fill button (and Sign In and Use Code buttons) at the end of every row in frames A to D, H, I, U and V; the heading and the search are unchanged.</> },
           { date: '2026-11-25', text: <>Built that way, mock follows. The picker shows the closed padlock only on a locked vault and nothing on an open one (before, the current vault carried an open padlock); frame E’s heading is “For This Site” like the other frames, and its notice reads “Passwords has none for this site” (the page’s host is not repeated, as in the app). With several vaults open, AutoFill suggestions are kept per vault, and a vault not opened since the app launched drops out of the suggestions until it is opened (an open item in the roadmap). Replaces the open padlock, “For cloudnest.example” and the host in the notice.</> },

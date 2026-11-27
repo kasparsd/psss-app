@@ -131,11 +131,16 @@ export function passkeys(ctx: Ctx, query: URLSearchParams): string {
   <input id="rp" value="${esc(rpId)}" autocapitalize="none">
   <button id="create">Create passkey</button>
   <button id="signin">Sign in with a passkey</button>
+  <p class="note">As a second step: the site names the passkeys it accepts.</p>
+  <button id="named">Use this account’s passkey</button>
+  <button id="elsewhere">Use a passkey saved elsewhere</button>
 </form>
 <pre id="out">Ready.</pre>
 <script>${passkeyClient()}
 document.getElementById('create').onclick = () => run(() => create(document.getElementById('u').value, document.getElementById('rp').value));
 document.getElementById('signin').onclick = () => run(() => signIn(document.getElementById('rp').value));
+for (const allow of ['named', 'elsewhere']) document.getElementById(allow).onclick = () => run(() => signIn(document.getElementById('rp').value,
+  { allow: allow === 'named' ? 'account' : allow, username: document.getElementById('u').value }));
 conditional();</script>`);
 }
 
@@ -159,18 +164,22 @@ async function create(username, rpId) {
     authenticatorData: b64(c.response.getAuthenticatorData()), publicKey: b64(c.response.getPublicKey()) });
   return 'Passkey created and verified by the server ✓\\nid: ' + b64(c.rawId) + '\\nrp: ' + o.rp.id;
 }
-async function signInWith(rpId, mediation) {
-  const o = await post('/api/webauthn/login/options', { rpId: rpId || undefined });
-  const a = await navigator.credentials.get({ publicKey: { challenge: raw(o.challenge), rpId: o.rpId, userVerification: 'preferred', timeout: 120000 }, mediation });
+let pending; // the conditional request, ended before a button starts its own
+async function signInWith(rpId, mediation, named) {
+  const o = await post('/api/webauthn/login/options', { rpId: rpId || undefined, ...named });
+  pending?.abort();
+  pending = new AbortController();
+  const allowCredentials = o.allowCredentials?.map((c) => ({ type: c.type, id: raw(c.id) }));
+  const a = await navigator.credentials.get({ publicKey: { challenge: raw(o.challenge), rpId: o.rpId, allowCredentials, userVerification: 'preferred', timeout: 120000 }, mediation, signal: pending.signal });
   const r = await post('/api/webauthn/login/verify', { challenge: o.challenge, id: b64(a.rawId), clientDataJSON: b64(a.response.clientDataJSON),
     authenticatorData: b64(a.response.authenticatorData), signature: b64(a.response.signature), userHandle: a.response.userHandle ? b64(a.response.userHandle) : null });
   return r.username;
 }
-async function signIn(rpId) { const u = await signInWith(rpId, undefined); location.href = '/account'; return 'Signed in as ' + u + ' ✓ (signature verified by the server)'; }
+async function signIn(rpId, named) { const u = await signInWith(rpId, undefined, named); location.href = '/account'; return 'Signed in as ' + u + ' ✓ (signature verified by the server)'; }
 async function conditional() {
   if (!window.PublicKeyCredential || !(await PublicKeyCredential.isConditionalMediationAvailable?.())) return out('Conditional passkey requests are not available here.');
   out('A conditional passkey request is pending. Choose Psss in the keyboard bar or AutoFill.');
-  try { await signInWith('', 'conditional'); location.href = '/account'; } catch (e) { out(e.name === 'NotAllowedError' ? 'No passkey was chosen, so the request ended.' : 'Passkey request ended: ' + e.name + ' ' + e.message); }
+  try { await signInWith('', 'conditional'); location.href = '/account'; } catch (e) { if (e.name !== 'AbortError') out(e.name === 'NotAllowedError' ? 'No passkey was chosen, so the request ended.' : 'Passkey request ended: ' + e.name + ' ' + e.message); }
 }`;
 }
 

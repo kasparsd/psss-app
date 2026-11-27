@@ -70,4 +70,11 @@ enum ResultGroups {
             ? String(localized: "\(name) has none for this site. Search all items \(searchWhere), or choose another vault above.")
             : String(localized: "\(name) has none for this site. Search all items \(searchWhere).")
     }
+
+    /// The words of the notice for a passkey request that names the passkeys the site accepts when the vault has none of them.
+    static func noMatchingPasskeyBody(vault: String, otherVaults: Bool) -> String {
+        let name = VaultName.sentence(vault)
+        let body = String(localized: "\(name) has none of the passkeys this site accepts. If yours is in Apple Passwords, another app or a security key, choose Cancel and use it there.")
+        return otherVaults ? body + " " + String(localized: "Or choose another vault above.") : body
+    }
 }

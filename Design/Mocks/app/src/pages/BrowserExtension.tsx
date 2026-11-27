@@ -114,7 +114,7 @@ export function BrowserExtension() {
             <XFoot />
           </Browser>
         </Frame>
-        <Frame label="C · Nothing for this site in this vault" caption="A notice, the same card as the vault notices: “No logins for this site”, then what to do: search all logins in the field above, or choose another vault in the header. The notice names the vault; the site is the page’s own, so it is not named. Psss does not search the other vault for the person. It has no button, because each way out is a control already in the popup. With one vault the notice leaves out the vault clause.">
+        <Frame label="C · Nothing for this site in this vault" caption="A notice, like the vault notices: “No logins for this site”, then what to do: search all logins in the field above, or choose another vault in the header. The notice names the vault; the site is the page’s own, so it is not named. Psss does not search the other vault for the person. It has no button, because each way out is a control already in the popup. With one vault the notice leaves out the vault clause.">
           <Browser title="Sign in · Cloudnest" url="cloudnest.example/login">
             <XHead vaults />
             <XSearch />
@@ -343,9 +343,9 @@ export function BrowserExtension() {
             why: <>The owner: one button, one behaviour, no extra step. With no confirmation the second line is the safety signal against a lookalike domain, so it is kept on every Other Matches row and is never shortened away.</>,
           },
           {
-            decision: <>Nothing for this site is a notice (<code>Notice</code>, the card the vault notices use) titled “No logins for this site”, with one sentence naming the vault and the ways on: search all logins above, or choose another vault. No button: each way is a control already on screen.</>,
+            decision: <>Nothing for this site is a notice (<code>Notice</code>, the one the vault notices use) titled “No logins for this site”, with one sentence naming the vault and the ways on: search all logins above, or choose another vault. No button: each way is a control already on screen.</>,
             rejected: <>one line of plain secondary text under the heading.</>,
-            why: <>The owner: plain text did not read as a message. The same card as the other notices is how the popup says something is not as expected.</>,
+            why: <>The owner: plain text did not read as a message. The same as the other notices is how the popup says something is not as expected.</>,
           },
           {
             decision: <>The popup says Touch ID, never Face ID, and a vault chosen with Touch ID ready goes Unlock, prompt, toolbar check, list (frames G to K).</>,
@@ -392,6 +392,7 @@ export function BrowserExtension() {
       <History
         proposal
         entries={[
+          { date: '2026-11-26', text: <>Owner, built: notices have no coloured background. The icon says the kind (grey circled i, filled orange triangle, spinner) beside the words; grey replaces the accent-blue information icon, which looked tappable. Replaces the tinted card.</> },
           { date: '2026-11-26', text: 'Owner approved frames Q, R and S.' },
           { date: '2026-11-26', text: 'Q shows the logins under the request, R keeps the popup open behind the browser’s question (replacing a prompt drawn in its place) with its Learn more link, and S is new: the way back after Not Now.' },
           { date: '2026-11-26', text: 'Proposed frames Q and R: the popup asks for access to tab addresses in Firefox and Zen, so the Mac menu bar can show logins for the page.' },

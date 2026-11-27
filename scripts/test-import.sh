@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds and runs the hostless importer tests: 1PIF reader and mapping, duplicates, the KDBX writer, the store, CSV, limits,
+# Builds and runs the hostless importer tests: 1PIF reader and mapping, duplicates, the KDBX writer, the store, CSV, Apple Passwords, limits,
 # a large generated export and a KeePassXC round trip. Everything it writes goes under build/import-test.
 # PSSS_IMPORT_LARGE_ITEMS, PSSS_IMPORT_LARGE_FILES and PSSS_IMPORT_LARGE_FILE_MB scale the large case (default 50000 items
 # and 20 files of 5 MB).
@@ -11,7 +11,7 @@ mkdir -p build/import-test
 swiftc -O -swift-version 6 -D HOSTLESS_TESTS \
   App/Core/KDBX/*.swift App/Core/VaultItem.swift App/Core/AddressLayout.swift App/Core/TOTP.swift App/Core/Passkey.swift \
   App/Core/SharedVault.swift App/Core/SiteMatch.swift App/Core/PublicSuffixList.swift App/Core/UsageLog.swift App/Core/SampleVault.swift App/Core/VaultStore.swift App/Core/KeePassVaultStore.swift App/Core/VaultState.swift App/Core/ReturnPlaces.swift App/Core/ItemFilter.swift App/Core/DisplayText.swift App/Core/ItemSort.swift App/Core/RecentlyDeletedText.swift App/Core/HostDisplay.swift App/Core/ItemSearch.swift App/Core/BiometricKey.swift App/Core/CardBrand.swift App/Core/CardNumber.swift \
-  App/Core/CSVImport.swift App/Core/Import/*.swift Tests/Import/main.swift \
+  App/Core/CSVImport.swift App/Core/Import/*.swift App/Core/AppleImportText.swift App/Core/AppleImportRequests.swift Tests/Import/main.swift Tests/Import/Apple.swift \
   -o build/import-test/run
 # The tests keep every file they write (vaults, backups, usage, the vault reference) under build/, never in real app data.
 rm -rf build/import-test/root

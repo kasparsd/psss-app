@@ -217,7 +217,7 @@ function Generate({ gen, onGen, paste, startAt, onPaste, onCopy, onSave }: { gen
     const block = top.current?.querySelector<HTMLElement>(`[data-kind="${startAt}"]`);
     if (main && block) main.scrollTop += block.getBoundingClientRect().top - main.getBoundingClientRect().top - 8;
   }, [startAt]);
-  const weak = (more: string) => <div className="mbm-note alert">Weaker than the recommended password. A machine trying a trillion guesses a second would need about 25 years. {more}</div>;
+  const weak = (more: string) => <Notice kind="warning">Weaker than the recommended password. A machine trying a trillion guesses a second would need about 25 years. {more}</Notice>;
   const block = (kind: GenKind, title: string, noun: string, controls?: ReactNode) => (
     <section className="mbm-group mbm-genblock" data-kind={kind} aria-label={title}>
       <div className="mbm-genhead">
@@ -302,7 +302,7 @@ function NewLogin({ vault, site, draft, onDraft, onCopy, readOnly, failed, nameR
         <div className="mapfield"><button type="button" className="mbtn" onClick={() => set({ password: make('strong', newGen().set), shown: true })}>Use a Strong Password</button></div>
       </div>
       <div className="s mbm-footnote">Saved in {vault} ({where}). Add a code, notes or other fields in Psss.</div>
-      {readOnly && <div className="mbm-note alert" role="alert">{vault} is read-only, so nothing can be saved to it. Choose another vault.</div>}
+      {readOnly && <Notice kind="warning">{vault} is read-only, so nothing can be saved to it. Choose another vault.</Notice>}
       {!!password && !named && <div className="s">Enter a name or a website.</div>}
       {already && <div className="mbm-note">{label} already has this password.</div>}
       {same && !already && !!password && <div className="s">Replaces the password of {label}. The old one stays under Previous passwords.</div>}
@@ -749,7 +749,7 @@ export function Panel(p: PanelProps) {
       <>
         <label className="mbm-search"><SearchIcon /><input ref={take} value={query} placeholder={`Search ${vault}`} aria-label={`Search ${vault}`} onChange={(e) => { setQuery(e.target.value); setSel(undefined); setDone(undefined); }} /></label>
         <div className="mbm-list">
-          {moved && <div className="mbm-note alert" role="alert">{front} is no longer in front. Nothing was pasted.</div>}
+          {moved && <Notice kind="warning">{front} is no longer in front. Nothing was pasted.</Notice>}
           {!q && p.offerPaste && !paste && <div className="mbm-ask"><div>Paste values straight into {front} instead of copying.</div><button className="mbtn" onClick={() => setPaste(true)}>Turn On Paste…</button></div>}
           {p.waiting && <div className="mbm-note s" role="status">Reading the page…</div>}
           {!q && askAccess && <div className="mbm-ask"><div><strong>Show logins for the page in {front}</strong></div><div>macOS will ask to let Psss control {front}, and will say this gives access to its data and actions. Psss reads only the front tab’s address, when this panel opens.</div><div className="mbm-row2"><button className="mbtn" onClick={() => setAccess('off')}>Not Now</button><button className="mbtn default" onClick={() => setAccess('allowed')}>Allow in {front}…</button></div></div>}
@@ -1122,6 +1122,7 @@ export function MacMenuBar() {
 
       <History entries={[
         { date: '2026-11-26', text: 'Owner: the menu bar icon is 13 pt high, 29 pt wide (replacing 16 pt, which looked heavy beside the system’s icons).' },
+        { date: '2026-11-26', text: <>Owner, built: notices have no coloured background. The icon says the kind (grey circled i, filled orange triangle, spinner) beside the words; grey replaces the accent-blue information icon, which looked tappable. Replaces the tinted card.</> },
         { date: '2026-11-26', text: 'Owner: the menu bar icon is the logo with the p and three dots, one colour (replacing the field with three dots and no p).' },
         { date: '2026-11-26', text: 'Owner: notices use the snack bar: a copy shows the app’s Copied pill for two seconds, “Password copied. Clears in 60 s.” (replacing a line above the bottom bar that stayed).' },
         { date: '2026-11-26', text: 'Owner asked: the vault pop-up has the vault glyph before the name, as in the sidebar, the AutoFill picker and the browser popup (replacing the name alone).' },

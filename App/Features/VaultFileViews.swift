@@ -77,7 +77,10 @@ private struct CredentialFields: View {
 /// First vault: a name and a vault password. Imported items wait here until the vault exists.
 struct NewVaultSheet: View {
     let session: VaultSession
-    var importing: [VaultItem] = []
+    /// What an import adds to the new vault, in the same write that creates it.
+    var importPlan: ImportPlan?
+    /// How many items the import added.
+    var onAdded: (Int) -> Void = { _ in }
     let onCreated: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
@@ -90,9 +93,11 @@ struct NewVaultSheet: View {
     @State private var iCloudAvailable: Bool?
     @State private var location = VaultLocation.iCloudDrive
 
-    init(session: VaultSession, importing: [VaultItem] = [], onCreated: @escaping () -> Void) {
+    init(session: VaultSession, importPlan: ImportPlan? = nil, onAdded: @escaping (Int) -> Void = { _ in },
+         onCreated: @escaping () -> Void) {
         self.session = session
-        self.importing = importing
+        self.importPlan = importPlan
+        self.onAdded = onAdded
         self.onCreated = onCreated
         _name = State(initialValue: VaultName.suggested(among: session.knownVaults.map(\.name)))
     }
@@ -151,8 +156,8 @@ struct NewVaultSheet: View {
                 if !password.isEmpty, !confirmation.isEmpty, password != confirmation {
                     ProblemText(text: String(localized: "The passwords do not match."))
                 }
-                if !importing.isEmpty {
-                    Text("\(importing.count) imported logins will be added.").foregroundStyle(.secondary)
+                if let importPlan {
+                    Text("\(importPlan.items.count) imported items will be added.").foregroundStyle(.secondary)
                 }
                 if working { WorkingNotice(text: "Creating your vault…") }
                 if let problem { ProblemText(text: problem) }
@@ -177,12 +182,15 @@ struct NewVaultSheet: View {
         problem = nil
         Task {
             do {
-                try await session.create(name: name, credentials: .init(password: password, keyFile: keyFile), items: importing, location: effectiveLocation)
+                let added = try await session.create(name: name, credentials: .init(password: password, keyFile: keyFile),
+                                                     plan: importPlan, location: effectiveLocation)
                 password = ""; confirmation = ""; keyFile = nil
+                onAdded(added)
                 dismiss()
                 onCreated()
             } catch {
-                problem = (error as? KDBXError)?.messageForNewKey ?? (error as? VaultStoreError)?.message ?? error.localizedDescription
+                problem = (error as? KDBXError)?.messageForNewKey ?? (error as? VaultStoreError)?.message
+                    ?? (error as? ImportError)?.message ?? error.localizedDescription
                 working = false
             }
         }
@@ -598,7 +606,7 @@ struct ChangePasswordSheet: View {
                     }
                 }
                 if working { WorkingNotice(text: "Encrypting the vault with the new password…") }
-                if let problem { ProblemText(text: problem, secondary: changed) }
+                if let problem { ProblemText(text: problem) }
             }
             .formStyle(.grouped)
             .disabled(working)
@@ -744,18 +752,16 @@ struct LostPasswordSheet: View {
 }
 
 
-/// A problem or an explanation on a lock, creation or change screen: a warning symbol and the words in the primary style, or the
-/// secondary style when nothing went wrong. Red is kept for deletion.
+/// A problem on a lock, creation or change screen: the warning symbol and the words in the primary style. Red is kept for deletion.
 struct ProblemText: View {
     let text: String
-    var secondary = false
 
-    /// What VoiceOver reads: one element, with "Warning" in front when something went wrong.
-    private var spoken: String { secondary ? text : String(localized: "Warning: \(text)") }
+    /// What VoiceOver reads: one element, with "Warning" in front.
+    private var spoken: String { String(localized: "Warning: \(text)") }
 
     var body: some View {
-        Label { Text(verbatim: text) } icon: { Image(systemName: "exclamationmark.triangle").accessibilityHidden(true) }
-            .foregroundStyle(secondary ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+        Label { Text(verbatim: text) } icon: { WarningSymbol() }
+            .foregroundStyle(.primary)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(verbatim: spoken))
             // A problem that appears, or changes, is spoken at once: the person is looking at the field, not at this line.

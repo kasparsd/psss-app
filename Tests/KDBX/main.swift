@@ -391,6 +391,28 @@ do {
     expect("draft: an expiry written another way is no change", !card.hasChanges(from: cardStored))
 }
 do {
+    // The edit in place, held above the layouts: it keeps what was typed until Save, Cancel or the vault going away ends it.
+    let stored = VaultItem(kind: .login, title: "Mail", account: "me", secret: "pw")
+    let other = VaultItem(kind: .login, title: "Other")
+    let edit = ItemEdit()
+    func same(_ a: VaultItem, _ b: VaultItem) -> Bool { a.id == b.id && !a.hasChanges(from: b) }
+    expect("edit: nothing is edited at first", edit.itemID == nil && same(edit.draft(of: stored), stored))
+    edit.begin(stored, focus: .website)
+    expect("edit: begins on the stored values", edit.itemID == stored.id && edit.focus == .website && !edit.draft(of: stored).hasChanges(from: stored))
+    var typed = edit.draft(of: stored)
+    typed.secret = "new"
+    typed.website = "mail.example"
+    edit.update(typed)
+    expect("edit: keeps what was typed", same(edit.draft(of: stored), typed) && edit.draft(of: stored).hasChanges(from: stored))
+    expect("edit: another item's page has its own values", same(edit.draft(of: other), other))
+    edit.update(other)
+    expect("edit: another item cannot take the draft over", edit.itemID == stored.id && same(edit.draft(of: stored), typed))
+    edit.end()
+    expect("edit: ending drops what was typed", edit.itemID == nil && edit.focus == nil && same(edit.draft(of: stored), stored))
+    edit.update(typed)
+    expect("edit: a late report brings nothing back", edit.itemID == nil && same(edit.draft(of: stored), stored))
+}
+do {
     // The All list's sort orders (View setting): each key, what it does with items that lack the key, and a held snapshot.
     let t = Date(timeIntervalSince1970: 1_800_000_000)
     let a = VaultItem(kind: .login, title: "Apple", lastUsed: t.addingTimeInterval(-10), useCount: 2, modified: t.addingTimeInterval(-500))

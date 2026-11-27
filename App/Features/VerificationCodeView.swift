@@ -192,7 +192,7 @@ struct VerificationCodeSheet: View {
             }
             .background(.quaternary, in: RoundedRectangle(cornerRadius: 16))
             if let problem {
-                Label { Text(problem).multilineTextAlignment(.leading) } icon: { Image(systemName: "exclamationmark.triangle") }
+                Label { Text(problem).multilineTextAlignment(.leading) } icon: { WarningSymbol() }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityAddTraits(.updatesFrequently)
             } else {

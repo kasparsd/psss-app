@@ -18,6 +18,9 @@ struct SettingsSheet: View {
     /// A vault was created, opened or imported: it is open now.
     let added: () -> Void
     @State private var addChoice: AddVaultChoice?
+    @Environment(AppleImportRequests.self) private var appleImports
+    /// Import from Apple Passwords was chosen here: it opens once this sheet has gone, since only one can be on screen.
+    @State private var importsAfterClosing = false
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -56,7 +59,11 @@ struct SettingsSheet: View {
             }
         }
         .modifier(SheetSize())
-        .addVaultFlow($addChoice, session: session, onAdded: added)
+        .addVaultFlow($addChoice, session: session, onAdded: added, importsApplePasswords: {
+            importsAfterClosing = true
+            close()
+        })
+        .onDisappear { if importsAfterClosing { appleImports.start() } }
     }
 
     /// A vault's page: its details work from the reference, and what needs the vault open (items, a copy, a new password) is there

@@ -67,7 +67,6 @@
 .mbm-list>*{flex:none}
 .mbm-head{color:var(--lab2);font-weight:600;padding:6px 8px 2px}
 .mbm-note{padding:6px 8px}
-.mbm-note.alert{background:var(--red-bg);border-radius:8px;margin:2px 2px 6px}
 .mbm-foot{flex:none;display:flex;align-items:center;gap:12px;white-space:nowrap;padding:10px 20px;border-top:1px solid var(--sep)}
 .mbm-pair{display:flex;gap:6px}
 .mbm-panel .mbm-foot .mbm-pair .mbtn{border:0;background:var(--mbtn-bg);box-shadow:var(--mbtn-edge);padding:0 8px}

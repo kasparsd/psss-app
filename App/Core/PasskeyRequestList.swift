@@ -8,9 +8,12 @@ import Foundation
 /// for other sites stay behind the search and its confirmation, exactly as in the plain list, so nothing here puts every
 /// login one tap away.
 ///
+/// A request that names the passkeys it accepts, none of which is listed, is one a password is unlikely to answer (a security-key
+/// second step): the list then says so and offers no login (`namedPasskeysMissing`, mock `#/autofill`, frame U2).
+///
 /// The system does not say whether the page also accepts a password. `ASPasskeyCredentialRequestParameters` carries the relying
 /// party, the client data hash, the user verification preference, the allowed credentials and the WebAuthn extension inputs:
-/// nothing that tells an autofill-assisted (conditional) request from a modal one. So the logins stay listed, below the passkeys
+/// nothing that tells an autofill-assisted (conditional) request from a modal one. So, apart from that case, the logins stay listed, below the passkeys
 /// under "Logins" (mock `#/autofill`, frame U); the list says nothing more about it.
 ///
 /// A passkey belongs to its relying party exactly: the request's `relyingPartyIdentifier` is the identifier the site chose
@@ -28,6 +31,9 @@ struct PasskeyRequestList: Sendable {
 
     /// One passkey and no login for the site: sign in at once, as before. With any login to choose from the person sees the list.
     var signsInWithoutList: Bool { passkeys.count == 1 && siteLogins.isEmpty }
+
+    /// The site named the passkeys it accepts and none of them is listed.
+    var namedPasskeysMissing: Bool { diagnostics.allowedCredentials > 0 && passkeys.isEmpty }
 
     /// The logins the plain list and this one are built from: logins that have a password.
     static func passwordLogins(_ items: [VaultItem]) -> [VaultItem] {

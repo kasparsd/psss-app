@@ -73,6 +73,15 @@ enum KeePassImport {
         summary.issues = plan.issues + resolved.issues
         for (position, (item, resolution)) in zip(plan.items, resolved.items).enumerated() {
             let title: String? = item.title.isEmpty ? nil : item.title
+            // What Apple Passwords holds and Psss could not take is said even when the item itself is not added. What is only
+            // about the item as it would be saved is not.
+            if plan.source == .applePasswords {
+                switch resolution {
+                case .skip, .inRecycleBin, .deletedByPerson:
+                    summary.issues += item.issues.filter { [.passkeyNotImported, .unreadableValue, .unknownKind, .skippedRow].contains($0.kind) }
+                default: break
+                }
+            }
             switch resolution {
             case .skip:
                 summary.duplicatesSkipped += 1
@@ -80,12 +89,16 @@ enum KeePassImport {
             case .addSimilar:
                 summary.similarAdded += 1
                 let why: String
+                // The Apple review is read before anything is written, and nothing there asks the person to delete one.
+                let fromApple = plan.source == .applePasswords
                 switch resolved.similar[position] ?? .password {
+                case .password where fromApple: why = String(localized: "a login for this site and user name is already here with a different password. Both are kept.")
                 case .password: why = String(localized: "the vault already has a login for this site and user name with a different password, so this one was added as a separate entry. Delete the one you do not need.")
                 case .incomingHasNone: why = String(localized: "the vault already has a login for this site and user name with a password, and this one has none, so it was added as a separate entry. Delete the one you do not need.")
                 case .existingHasNone: why = String(localized: "the vault already has a login for this site and user name without a password, and this one has one, so it was added as a separate entry. Delete the one you do not need.")
                 case .otherTitle: why = String(localized: "the vault already has a login for this site and user name with another title and no password, so this one was added as a separate entry. Delete the one you do not need.")
                 case .mergeTaken: why = String(localized: "the login it matches was already combined with another item of this import, so this one was added as a separate entry")
+                case .otherDetails: why = String(localized: "a login for this site and user name is already here with other details. Both are kept.")
                 }
                 // A look-alike of a CSV login is told once, in the look-alike line below.
                 if resolved.looksLike[position] == nil { summary.issues.append(ImportIssue(kind: .similarLogin, item: title, detail: why)) }
@@ -93,8 +106,9 @@ enum KeePassImport {
                 summary.refreshed += 1
                 continue
             case .inRecycleBin:
-                summary.issues.append(ImportIssue(kind: .inRecycleBin, item: title,
-                                                  detail: String(localized: "you deleted it here earlier, so it was not imported again. The deleted copy was left as it is.")))
+                summary.issues.append(ImportIssue(kind: .inRecycleBin, item: title, detail: plan.source == .applePasswords
+                    ? String(localized: "you deleted it here earlier, so it is not imported again. The deleted copy stays as it is.")
+                    : String(localized: "you deleted it here earlier, so it was not imported again. The deleted copy was left as it is.")))
                 continue
             case .deletedByPerson:
                 summary.deletedNotImported += 1
@@ -254,6 +268,8 @@ enum KeePassImport {
         var codeNotInUse = false
         /// The entry keeps its own source identifier (it was paired among items that are alike).
         var keepSource = false
+        /// The entry keeps the stored hashes of its own import, or stays without any.
+        var keepBaseline = false
         /// Attachment names that already exist with other bytes and take the new ones (an update only).
         var replaced: Set<String> = []
         var historyAdds: [ImportRevision] = []
@@ -404,6 +420,7 @@ enum KeePassImport {
     }
 
     private static func resolutions(_ plan: ImportPlan, known: [Known], document: KDBXDocument) -> Resolved {
+        if plan.source == .applePasswords { return AppleImport.resolve(plan, known: known, document: document) }
         let outcome = ImportDuplicates.decide(plan, against: known.map(\.existing), deleted: DeletedSources.read(from: document.root)) { index in
             let node = known[index].node
             let fields = baseline(of: node)?.fields ?? [:]
@@ -618,6 +635,14 @@ enum KeePassImport {
             string(labels.claim(field.label.isEmpty ? field.role.rawValue : field.label), field.value, protected: field.concealed)
         }
         for field in extraCodes { string(labels.claim(field.label), field.value, protected: true) }
+        if let passkey = item.passkey, let key = try? P256.Signing.PrivateKey(rawRepresentation: passkey.privateKey) {
+            string(EntryMapping.passkeyCredential, passkey.credentialID.base64URL, protected: false)
+            string(EntryMapping.passkeyKey, key.pemRepresentation, protected: true)
+            string(EntryMapping.passkeyRelyingParty, passkey.rpID, protected: false)
+            string(EntryMapping.passkeyUsername, username, protected: false)
+            string(EntryMapping.passkeyUserHandle, passkey.userHandle.base64URL, protected: false)
+            string(EntryMapping.passkeyCreated, KeePassTime.string(passkey.created), protected: false)
+        }
 
         var tags: [String] = []
         for tag in item.tags {
@@ -1135,7 +1160,8 @@ enum KeePassImport {
             }
         }
         if let source = item.sourceID, !change.keepSource { put(sourceKey, ImportText.clean(source)) }
-        put(hashesKey, change.baseline.json)
+        if !change.keepBaseline { put(hashesKey, change.baseline.json) }
+        if data.children.isEmpty { entry.children.removeAll { $0 === data } }
     }
 
     /// The position of the attachment's bytes in the binary pool. Identical bytes are stored once. The file is read straight

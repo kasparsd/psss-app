@@ -141,7 +141,7 @@ struct IncomingCodeSheet: View {
 
     private var problem: some View {
         VStack(spacing: 16) {
-            Label { Text(result == .empty ? "This link holds no setup key." : result.problemText).multilineTextAlignment(.leading) } icon: { Image(systemName: "exclamationmark.triangle") }
+            Label { Text(result == .empty ? "This link holds no setup key." : result.problemText).multilineTextAlignment(.leading) } icon: { WarningSymbol() }
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text("This link was not saved. Look for “Can’t scan?” on the site to get the setup key, then use Add code on a login.")
                 .multilineTextAlignment(.center)

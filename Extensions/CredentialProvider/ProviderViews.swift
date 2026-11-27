@@ -474,6 +474,8 @@ private struct ValueCopied: View {
 struct PasskeyChoice {
     let rpID: String
     let items: [VaultItem]
+    /// The site named the passkeys it accepts and none of them is here.
+    var namedPasskeysMissing = false
     let choose: (VaultItem) -> Void
 }
 
@@ -485,7 +487,7 @@ private struct WarningNotice: View {
         Label {
             Text(verbatim: text)
         } icon: {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            WarningSymbol()
         }
         .accessibilityElement(children: .combine)
     }
@@ -568,7 +570,8 @@ extension View {
 
 /// Shown when the person taps the key in the keyboard bar or chooses Passwords from AutoFill. Also the list for a page with a
 /// passkey request pending (sites such as Google ask for a passkey first): the passkeys for the request come first under
-/// "Passkeys for <site>" with Sign In, then the same logins under "Logins", with the same search and the same confirmations.
+/// "Passkeys for <site>" with Sign In, then the same logins under "Logins", with the same search and the same confirmations. When the
+/// site named the passkeys it accepts and none is here, a notice says so instead of the list.
 ///
 /// One screen. Logins saved for the site come first under "For This Site", each filled by tapping the row (the (i) opens its details), and when exactly one matches it
 /// is the default action. A search field (bottom on iPhone, under the Vault row on iPad and Mac) searches the whole vault by name,
@@ -622,8 +625,11 @@ struct FillList: View {
 
     private var query: String { search.trimmingCharacters(in: .whitespacesAndNewlines) }
 
-    /// "Sign In" for a passkey request that has passkeys to offer, else "Choose a Login".
-    private var heading: LocalizedStringKey { passkeyItems.isEmpty ? "Choose a Login" : "Sign In" }
+    /// The notice replaces the list: the passkey the site asks for is somewhere else, and a password cannot answer the request.
+    private var passkeyElsewhere: Bool { passkeys?.namedPasskeysMissing == true }
+
+    /// "Sign In" for a passkey request that has passkeys to offer or is waiting for one kept elsewhere, else "Choose a Login".
+    private var heading: LocalizedStringKey { passkeyItems.isEmpty && !passkeyElsewhere ? "Choose a Login" : "Sign In" }
 
     /// The heading above the site's logins. Under a passkey section it says "Logins", so it cannot be read as the passkeys' heading.
     private func siteLabel() -> String {
@@ -660,8 +666,13 @@ struct FillList: View {
     @ViewBuilder private var screen: some View {
         #if os(iOS)
         ProviderScreen(heading: heading, cancel: ProviderAction(title: "Cancel", run: cancel), vaults: vaults) {
-            mainContent
-                .footSearch($search, focused: $searchFocused)
+            Group {
+                if passkeyElsewhere {
+                    passkeyElsewhereNotice
+                } else {
+                    mainContent.footSearch($search, focused: $searchFocused)
+                }
+            }
                 .navigationDestination(isPresented: Binding(get: { detail != nil }, set: { if !$0 { detail = nil; detailIsPasskey = false } })) {
                     if let detail { detailView(detail) }
                 }
@@ -670,7 +681,9 @@ struct FillList: View {
         if let detail {
             detailView(detail)
         } else {
-            ProviderScreen(heading: heading, cancel: ProviderAction(title: "Cancel", run: cancel), vaults: vaults) { mainContent }
+            ProviderScreen(heading: heading, cancel: ProviderAction(title: "Cancel", run: cancel), vaults: vaults) {
+                if passkeyElsewhere { passkeyElsewhereNotice } else { mainContent }
+            }
         }
         #endif
     }
@@ -695,6 +708,16 @@ struct FillList: View {
                 }
             }
             .flushTop(!query.isEmpty)
+        }
+    }
+
+    /// No logins and no search: every result would be a password, which does not answer this request. Cancel is the way on.
+    private var passkeyElsewhereNotice: some View {
+        List {
+            LockNotice(kind: .info, title: "No matching passkey for \(HostDisplay.shown(passkeys?.rpID ?? ""))",
+                       text: ResultGroups.noMatchingPasskeyBody(vault: vaults?.name ?? vaultName ?? "", otherVaults: vaults != nil))
+                .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                .listRowBackground(Color.clear)
         }
     }
 

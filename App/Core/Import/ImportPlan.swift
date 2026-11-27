@@ -3,7 +3,9 @@ import Foundation
 /// What an importer produces and the writer consumes. The types know nothing about 1Password, CSV or KDBX, so another
 /// source (1PUX, Apple Passwords) can fill the same plan. Nothing here is written anywhere until `VaultStore.apply`.
 
-enum ImportSourceKind: String, Sendable { case onePasswordPIF, csv }
+/// `applePasswords` is the direct move from Apple Passwords or its file; it follows `AppleImport`'s rules, which never replace
+/// what is saved.
+enum ImportSourceKind: String, Sendable { case onePasswordPIF, csv, applePasswords }
 
 /// The template an item opens with in Psss.
 enum ImportItemKind: String, Sendable { case login, card, address, note, custom }
@@ -60,6 +62,7 @@ struct ImportItem: Sendable {
     var issues: [ImportIssue] = []
     /// The identifier the source gave several items of one export, when `sourceID` carries a suffix that tells them apart.
     var sharedBase: String?
+    var passkey: PasskeyRecord? = nil
 
     func first(_ role: ImportFieldRole) -> String? { fields.first { $0.role == role }?.value }
     var username: String { first(.username) ?? "" }
@@ -75,6 +78,7 @@ struct ImportIssue: Sendable, Equatable {
         case historyTrimmed, similarLogin, skippedRow, windowsExport
         case dateMissing, unreadableValue, attachmentSkipped, tagsChanged, updatedOverwrote, mergeConflict
         case secretChanged, secretSpaces, looksLikeExisting, textEmptied, foldersFlattened, sharedIdentifier, deletedNotImported, inRecycleBin, trashedInSource, notesCombined, codeNotInUse, attachmentRemoved, secretEmptied, pairingLimit
+        case passkeyNotImported, passkeyReduced
     }
 
     var kind: Kind
@@ -336,15 +340,15 @@ extension ImportItem {
     /// characters get an issue that names the item and the field (and one that is left empty says it could not be stored at all).
     /// Other text (title, notes, labels, values) is cleaned without a word, unless something that had text is now empty, which is
     /// one issue per item.
-    mutating func sanitize(emptied alreadyEmptied: Bool = false) {
+    mutating func sanitize(emptied alreadyEmptied: Bool = false, app: String = "1Password") {
         let clean = ImportText.clean
         var emptied = alreadyEmptied
         var found: [ImportIssue] = []
         let shown = clean(title)
         func secret(_ name: String, empty: Bool) {
             let detail = empty
-                ? String(localized: "\(name) could not be stored at all. Check it in 1Password before you rely on it.")
-                : String(localized: "\(name) contained characters that cannot be stored and was changed. Check it in 1Password before you rely on it.")
+                ? String(localized: "\(name) could not be stored at all. Check it in \(app) before you rely on it.")
+                : String(localized: "\(name) contained characters that cannot be stored and was changed. Check it in \(app) before you rely on it.")
             found.append(ImportIssue(kind: .secretChanged, item: shown.isEmpty ? nil : shown, detail: detail))
         }
         if clean(title) != title, clean(title).isEmpty { emptied = true }
@@ -362,7 +366,7 @@ extension ImportItem {
                     case .pin: name = "the PIN"
                     case .securityCode: name = "the security code"
                     case .code: name = "the verification code setup"
-                    default: name = field.label.isEmpty ? "one of its fields" : "\u{2018}\(clean(field.label))\u{2019}"
+                    default: name = field.label.isEmpty ? "one of its fields" : "\u{2018}\(DisplayText.safe(field.label, empty: "\u{2026}"))\u{2019}"
                     }
                     secret(name, empty: value.isEmpty)
                 } else if value.isEmpty {
@@ -378,10 +382,10 @@ extension ImportItem {
                 case .pin: name = "the PIN"
                 case .securityCode: name = "the security code"
                 case .code: name = "the verification code setup"
-                default: name = field.label.isEmpty ? "one of its fields" : "\u{2018}\(clean(field.label))\u{2019}"
+                default: name = field.label.isEmpty ? "one of its fields" : "\u{2018}\(DisplayText.safe(field.label, empty: "\u{2026}"))\u{2019}"
                 }
                 found.append(ImportIssue(kind: .secretSpaces, item: shown.isEmpty ? nil : shown,
-                                         detail: String(localized: "\(name) is only spaces. Check it in 1Password.")))
+                                         detail: String(localized: "\(name) is only spaces. Check it in \(app).")))
             }
             fields[index].value = value
             let label = clean(field.label)
@@ -403,15 +407,15 @@ extension ImportItem {
         history = keptHistory
         if historyChanged {
             found.append(ImportIssue(kind: .secretChanged, item: shown.isEmpty ? nil : shown,
-                                     detail: String(localized: "an earlier password contained characters that cannot be stored and was changed. Check it in 1Password before you rely on it.")))
+                                     detail: String(localized: "an earlier password contained characters that cannot be stored and was changed. Check it in \(app) before you rely on it.")))
         }
         if historySpaces {
             found.append(ImportIssue(kind: .secretSpaces, item: shown.isEmpty ? nil : shown,
-                                     detail: String(localized: "an earlier password is only spaces. Check it in 1Password.")))
+                                     detail: String(localized: "an earlier password is only spaces. Check it in \(app).")))
         }
         if historyEmptied {
             found.append(ImportIssue(kind: .secretChanged, item: shown.isEmpty ? nil : shown,
-                                     detail: String(localized: "an earlier password could not be stored at all and was left out. Check it in 1Password before you rely on it.")))
+                                     detail: String(localized: "an earlier password could not be stored at all and was left out. Check it in \(app) before you rely on it.")))
         }
         if emptied {
             found.append(ImportIssue(kind: .textEmptied, item: shown.isEmpty ? nil : shown,

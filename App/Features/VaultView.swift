@@ -24,7 +24,7 @@ private struct AlertSurfaceModifier: ViewModifier {
 
 /// Every alert of the vault screen. Only one is shown at a time.
 private enum VaultAlert: Hashable {
-    case conflict, editorRemoved, storeProblem, autoFillSettings, importProblem, importNotice, biometricOff
+    case conflict, editorRemoved, storeProblem, autoFillSettings, biometricOff
 }
 
 /// The tabs of the iPhone (and of iPad at compact width): All, Codes, Cards and More, then the iOS 26 search tab at the trailing end.
@@ -32,6 +32,14 @@ private enum PhoneTab: Hashable { case place(VaultPlace), more, search }
 
 /// Where the More tab can go: the places that are not in the bar (owner, 2026-11-24).
 private enum MoreRoute: Hashable { case addresses, wifi, recentlyDeleted }
+
+/// The iPhone search as it was, kept while its field is put away ahead of a change of layout (see `changeLayout`).
+private struct ParkedSearch {
+    let text: String
+    let fields: Set<SearchField>
+    let inTab: Bool
+    let path: [VaultItem.ID]
+}
 
 /// While a page is edited in place the rest of the window is dimmed and does not react (owner, 2026-11-24).
 private struct DimsWhileEditing: ViewModifier {
@@ -105,9 +113,6 @@ struct VaultView: View {
         _items = State(initialValue: store.items())
         _deletedEntries = State(initialValue: store.recentlyDeleted().map(DeletedItem.init))
     }
-    @State private var importing = false
-    @State private var importNotice: String?
-    @State private var importProblem: String?
     @Environment(UnlockGate.self) private var gate
     @Environment(AutoFillStatus.self) private var autoFill
     #if os(macOS)
@@ -128,7 +133,7 @@ struct VaultView: View {
     /// The popover of places that tapping More opens.
     @State private var showsMoreMenu = false
     /// What is open inside the place the More tab shows (an item's page).
-    @State private var morePath = NavigationPath()
+    @State private var morePath: [VaultItem.ID] = []
     /// iPhone tabs. Each has its own stack, so each keeps its own open login.
     @State private var codesPath: [VaultItem.ID] = []
     @State private var cardsPath: [VaultItem.ID] = []
@@ -151,6 +156,18 @@ struct VaultView: View {
     @State private var codeCopy = CodeCopyState()
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var sizeClass
+    #endif
+    /// The layout on screen: tabs with stacks (true) or sidebar, list and item. It follows the width through `changeLayout`, which
+    /// carries the shown item across first, so the new layout is built showing it. Nil until the screen first appears.
+    @State private var laidOutAsStack: Bool?
+    /// The layout the width asks for now. It differs from `laidOutAsStack` only while the search field is being put away.
+    @State private var wantedStack = false
+    /// The search tab's field is up (iPhone).
+    @State private var searchPresented = false
+    /// Set between putting that field away and changing the layout.
+    @State private var parkedSearch: ParkedSearch?
+    #if os(iOS)
+    @State private var searchEnding = SearchFieldEnding()
     #endif
     /// The order of the All list, results and filters, kept on this device (owner, 2026-11-24). Codes, Cards and Recently Deleted keep
     /// their own orders.
@@ -239,12 +256,7 @@ struct VaultView: View {
         choose(spot.destination)
         guard let id = spot.item, items.contains(where: { $0.id == id }), !isRecentlyDeleted else { return }
         if usesStack {
-            switch place {
-            case .all: compactPath = [id]
-            case .codes: codesPath = [id]
-            case .cards: cardsPath = [id]
-            case .addresses, .wifi: break
-            }
+            showOnStack(id)
         } else {
             selection = id
             compactColumn = .detail
@@ -283,13 +295,18 @@ struct VaultView: View {
     @State private var selections: [VaultPlace: VaultItem.ID] = [:]
     private var selection: VaultItem.ID? {
         get { selections[place] }
-        nonmutating set { selections[place] = newValue }
+        nonmutating set { selections[place] = newValue; autoSelected[place] = nil }
     }
+    /// The rows that were selected for the person (`ensureSelection`, `selectNeighbor`), per place. Such a row is only shown beside
+    /// the list: a narrower window shows the list, and does not push it.
+    @State private var autoSelected: [VaultPlace: VaultItem.ID] = [:]
     /// The list's selection. At regular width the list cannot end up with rows and no selection: when the system clears it (a click on
     /// empty space, ⌘-click on the selected row, Escape) the previous row stays, see `ensureSelection`. On iPhone nothing is selected.
     private var selectionBinding: Binding<VaultItem.ID?> {
         Binding(get: { selection }, set: { new in
-            if new == nil, !usesStack, regularVisibleItems.contains(where: { $0.id == selection }) { return }
+            // A list of the split layout that is going away must not change what is selected.
+            if usesStack { return }
+            if new == nil, regularVisibleItems.contains(where: { $0.id == selection }) { return }
             selection = new
         })
     }
@@ -308,6 +325,7 @@ struct VaultView: View {
     private var isEditingInPlace: Bool { editingID != nil }
     @State private var showsEditorRemoved = false
     @State private var showsSetup = false
+    @Environment(AppleImportRequests.self) private var imports
     /// The add-vault flow being started, from the sidebar's foot, the vault menu or the File menu (`.addVaultFlow`). Settings has its own.
     @State private var addChoice: AddVaultChoice?
     /// The vault a section header's Remove Vault… asks about.
@@ -356,15 +374,18 @@ struct VaultView: View {
     private var isSearching: Bool { !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     /// The All list is showing: in the All place, and on iPhone also in the search tab, which is that list with a field.
-    private var showsAllList: Bool { place == .all || inSearchTab }
+    private var showsAllList: Bool { place == .all || searchTabShown }
+
+    /// The search tab is on screen. `inSearchTab` is kept while the window is wide, so narrowing it again returns there.
+    private var searchTabShown: Bool { usesStack && inSearchTab }
 
     /// Show and With narrow the list on screen, not search: typing always searches the whole vault (owner, 2026-11-24), and the
     /// iPhone search tab lists the whole vault too, so a missing result never comes from a forgotten filter.
-    private var narrowsList: Bool { !isSearching && !inSearchTab }
+    private var narrowsList: Bool { !isSearching && !searchTabShown }
 
     /// The Recently Deleted list is showing. Searching leaves it: results come from the live vault, deleted items never turn up in
     /// them.
-    private var isRecentlyDeleted: Bool { showsDeleted && place == .all && !inSearchTab && !isSearching }
+    private var isRecentlyDeleted: Bool { showsDeleted && place == .all && !searchTabShown && !isSearching }
 
     /// What the Recently Deleted list shows (kept for its empty-state branches; a search leaves the list).
     private var deletedResults: [DeletedItem] { ItemSearch.matching(deletedEntries, query: search) }
@@ -389,7 +410,9 @@ struct VaultView: View {
         return list.filter { seen.insert($0.id).inserted }
     }
 
-    private var usesStack: Bool {
+    private var usesStack: Bool { laidOutAsStack ?? wantsStack }
+
+    private var wantsStack: Bool {
         #if os(iOS)
         sizeClass == .compact
         #else
@@ -397,9 +420,145 @@ struct VaultView: View {
         #endif
     }
 
-    var body: some View {
+    // MARK: Width changes
+
+    /// The item on the page of the stack layout's tab that is showing; nil when that tab shows its list.
+    private var stackShownItem: VaultItem.ID? {
+        if let editingID { return editingID }
+        if inSearchTab { return searchPath.last }
+        if inMoreTab { return morePath.last }
+        return switch place {
+        case .all: compactPath.last
+        case .codes: codesPath.last
+        case .cards: cardsPath.last
+        case .addresses, .wifi: nil
+        }
+    }
+
+    /// The item beside the list that the person opened or edited; nil when there is none, or its row was only selected for them.
+    private var splitShownItem: VaultItem.ID? {
+        if let editingID { return editingID }
+        guard !shownVaultIsLocked, let id = selection, autoSelected[place] != id,
+              regularVisibleItems.contains(where: { $0.id == id }) else { return nil }
+        return id
+    }
+
+    /// The window became narrow or wide (a foldable's posture, an iPad window): the item on screen stays on screen.
+    private func changeLayout(toStack stack: Bool) {
+        wantedStack = stack
+        // A search that is being put away finishes the change itself, see `finishParkedSearch`.
+        #if os(iOS)
+        guard parkedSearch == nil else { return endParkedSearch() }
+        #endif
+        guard let old = laidOutAsStack, old != stack else { laidOutAsStack = stack; return }
+        #if os(iOS)
+        // UIKit throws ("Tried to invalidate an assertion that is already invalid", iOS 27.2) when the search tab is removed
+        // while its field is up. The field is ended first, and the layout changes when UIKit reports that it is gone.
+        if old, searchEnding.isUp {
+            parkedSearch = ParkedSearch(text: search, fields: searchFields, inTab: inSearchTab, path: searchPath)
+            endParkedSearch()
+            return
+        }
+        #endif
+        let open = old ? stackShownItem : splitShownItem
+        laidOutAsStack = stack
+        if stack {
+            // The places have no search field on iPhone, so results are only ever shown in the search tab.
+            if isSearching { inSearchTab = true; inMoreTab = false; showsDeleted = false }
+            showOnStack(open)
+        } else {
+            showBesideList(open)
+        }
+    }
+
+    #if os(iOS)
+    private func endParkedSearch() {
+        searchEnding.end {
+            searchFocused = false
+            searchPresented = false
+        } then: {
+            finishParkedSearch()
+        }
+    }
+
+    /// The search field is gone: gives the search back what ending it cleared, and changes the layout. If the window is narrow
+    /// again by then, the field comes back instead.
+    private func finishParkedSearch() {
+        guard let parked = parkedSearch else { return }
+        parkedSearch = nil
+        search = parked.text
+        searchFields = parked.fields
+        inSearchTab = parked.inTab
+        searchPath = parked.path
+        if wantedStack { searchPresented = parked.inTab } else { changeLayout(toStack: false) }
+    }
+    #endif
+
+    /// Puts the stack layout on the tab for the place showing, with `id` pushed, or its list when `id` is nil.
+    private func showOnStack(_ id: VaultItem.ID?) {
+        let path = id.map { [$0] } ?? []
+        if inSearchTab { searchPath = path; return }
+        let more: MoreRoute? = switch place {
+        case .addresses: .addresses
+        case .wifi: .wifi
+        case .all: isRecentlyDeleted ? .recentlyDeleted : nil
+        case .codes, .cards: nil
+        }
+        inMoreTab = more != nil
+        if let more {
+            morePlace = more
+            morePath = path
+            // The More tab has Recently Deleted as its own page; the All tab goes back to its items.
+            if more == .recentlyDeleted { showsDeleted = false }
+        } else {
+            switch place {
+            case .all: compactPath = path
+            case .codes: codesPath = path
+            case .cards: cardsPath = path
+            case .addresses, .wifi: break
+            }
+        }
+    }
+
+    /// Selects `id` in the split layout, in a list that has it. With nil the first row is selected, as always.
+    private func showBesideList(_ id: VaultItem.ID?) {
+        if !inSearchTab, inMoreTab, let morePlace {
+            switch morePlace {
+            case .addresses: place = .addresses
+            case .wifi: place = .wifi
+            case .recentlyDeleted: place = .all
+            }
+            showsDeleted = morePlace == .recentlyDeleted
+        }
+        let item = items.first { $0.id == id }
+        if let id, item != nil || deletedEntries.contains(where: { $0.id == id }) {
+            // The place underneath may not list it (an item opened from the search tab): All does, with the filter widened.
+            if !regularVisibleItems.contains(where: { $0.id == id }) {
+                if isSearching { search = "" }
+                place = .all
+                showsDeleted = item == nil
+                if let item {
+                    let wider = filter.revealing(item)
+                    showRaw = wider.show.rawValue
+                    withRaw = wider.with.rawValue
+                }
+            }
+            selection = id
+            compactColumn = .detail
+        } else {
+            selection = nil
+        }
+        ensureSelection()
+    }
+
+    // In two parts: one chain of this length is more than the compiler can type-check.
+    private var withEndingsAndSearch: some View {
         withSceneValues
-            .modifier(EndsEdit(edit: edit, unlocked: gate.isUnlocked, vault: session.reference?.id, locked: shownVaultIsLocked))
+            .onChange(of: wantsStack, initial: true) { _, stack in changeLayout(toStack: stack) }
+            // What was typed goes with the vault: when it locks, and when another vault is shown.
+            .onChange(of: gate.isUnlocked) { edit.end() }
+            .onChange(of: session.reference?.id) { edit.end() }
+            .onChange(of: shownVaultIsLocked) { _, locked in if locked { edit.end() } }
             #if os(macOS)
             // Edit, Delete (system item) and the Delete key act on the selected item while the list has focus. A text field
             // that has focus handles both itself. ⌘⌫ belongs to the labeled item under it, Move to Recently Deleted (`deleteCommand`).
@@ -407,6 +566,10 @@ struct VaultView: View {
             #endif
             // Another place starts with no search: the person asked for something else.
             .onChange(of: place) { search = "" }
+    }
+
+    var body: some View {
+        withEndingsAndSearch
             // The list takes its order again when a sort is chosen, the filter or place changes or the search text changes (and when
             // it next appears, see `itemResults`); in between it holds still.
             .onChange(of: sortRaw) { resnapshotOrder() }
@@ -582,16 +745,14 @@ struct VaultView: View {
     }
 
     private var base: some View {
-        Group {
+        // A ZStack, not a Group: a Group hands its modifiers to whichever layout is in it, so they would start over on a width change.
+        ZStack {
             if usesStack { stackLayout } else { splitLayout }
         }
         .addVaultFlow($addChoice, session: session) { vaultAdded() }
         .modifier(VaultRemoval(request: $removingVault, session: session))
-        .passwordsImporter(isPresented: $importing, notice: $importNotice, problem: $importProblem) { added in
-            try store.save(added)
-            refresh()
-            registerIdentities()
-        }
+        // An import wrote a vault (the import sheet belongs to the app, above this window).
+        .onChange(of: imports.imported) { refresh(); registerIdentities() }
         // One alert at a time, shown by the surface the action came from: the item editor or Setup while one of them is open,
         // otherwise this screen. The flags below say what is waiting; `nextAlert` picks by priority.
         .modifier(AlertSurfaceModifier(surface: .vault, owner: self))
@@ -638,8 +799,6 @@ struct VaultView: View {
         if showsEditorRemoved { waiting.append(.editorRemoved) }
         if storeProblem != nil { waiting.append(.storeProblem) }
         if autoFill.settingsDidNotOpen { waiting.append(.autoFillSettings) }
-        if importProblem != nil { waiting.append(.importProblem) }
-        if importNotice != nil { waiting.append(.importNotice) }
         if session.biometricNotice != nil { waiting.append(.biometricOff) }
         return waiting
     }
@@ -697,8 +856,6 @@ struct VaultView: View {
         case .editorRemoved: return "This item was removed"
         case .storeProblem: return "Could not save"
         case .autoFillSettings: return LocalizedStringKey(AutoFillCopy(device: .current).settingsFailedTitle)
-        case .importProblem: return "Could not import"
-        case .importNotice: return "Imported"
         case .biometricOff: return "\(faceID) is off"
         case nil: return ""
         }
@@ -724,10 +881,6 @@ struct VaultView: View {
             Button("OK") { storeProblem = nil }
         case .autoFillSettings:
             Button("OK") { autoFill.settingsDidNotOpen = false }
-        case .importProblem:
-            Button("OK") { importProblem = nil }
-        case .importNotice:
-            Button("Open vault") { importNotice = nil; refresh(); registerIdentities() }
         case .biometricOff:
             Button("OK") { session.biometricNotice = nil }
         }
@@ -741,8 +894,6 @@ struct VaultView: View {
             Text("It was removed on another device or in another app, so editing stopped. Changes you had not saved were not kept.")
         case .storeProblem: Text(storeProblem ?? "")
         case .autoFillSettings: Text(AutoFillCopy(device: .current).settingsFailedMessage)
-        case .importProblem: Text(importProblem ?? "")
-        case .importNotice: Text(importNotice ?? "")
         case .biometricOff: Text(session.biometricNotice ?? "")
         }
     }
@@ -764,7 +915,7 @@ struct VaultView: View {
                     emptyChoice("Add a login", "plus", prominent: true) { editor = VaultItem(kind: .login) }
                     emptyChoice("Add a card", "creditcard") { editor = VaultItem(kind: .creditCard) }
                     emptyChoice("Add a note", "note.text") { editor = VaultItem(kind: .secureNote) }
-                    emptyChoice("Import from Apple Passwords", "square.and.arrow.down") { importing = true }
+                    emptyChoice("Import from Apple Passwords", "square.and.arrow.down") { addChoice = .importPasswords }
                 }
                 // While the card shows, or AutoFill is on, the short line. Off with the card hidden, the line that says to turn it on.
                 Group {
@@ -833,7 +984,7 @@ struct VaultView: View {
                 case .place(.codes): codesPath = []
                 case .place(.cards): cardsPath = []
                 case .place(.addresses), .place(.wifi): break
-                case .more: morePath = NavigationPath()
+                case .more: morePath = []
                 case .search: searchPath = []
                 }
             }
@@ -974,7 +1125,7 @@ struct VaultView: View {
     private func moreMenuRow(_ route: MoreRoute, _ title: LocalizedStringKey, _ symbol: String, count: Int) -> some View {
         Button {
             morePlace = route
-            morePath = NavigationPath()
+            morePath = []
             inSearchTab = false
             inMoreTab = true
             showsMoreMenu = false
@@ -1021,6 +1172,7 @@ struct VaultView: View {
     private var searchTab: some View {
         NavigationStack(path: $searchPath) {
             itemResults(results)
+                .background { SearchFieldReader(ending: searchEnding) }
                 .navigationDestination(for: VaultItem.ID.self) { id in
                     detail(for: id)
                 }
@@ -1030,7 +1182,7 @@ struct VaultView: View {
         // keyboard when the tab is selected, and the field's X returns to the previous tab by itself, with no field left on it.
         // (On the TabView, with `isPresented` and a programmatic tab change, the X left an inline field on the tab it returned to;
         // proved in a probe on iOS 27.2.)
-        .searchable(text: $search, prompt: "Search all items")
+        .searchable(text: $search, isPresented: $searchPresented, prompt: "Search all items")
         .searchFocused($searchFocused)
         .onSubmit(of: .search) { openTopResult() }
     }
@@ -1130,7 +1282,7 @@ struct VaultView: View {
         compactPath = []
         codesPath = []
         cardsPath = []
-        morePath = NavigationPath()
+        morePath = []
         searchPath = []
     }
 
@@ -1148,7 +1300,7 @@ struct VaultView: View {
         if let item = items.first(where: { $0.id == id }) {
             ItemDetail(item: item, hideSignal: hideSignal,
                        vault: store.title, vaultLocation: (store as? KeePassVaultStore).flatMap { $0.reference.managed ? nil : $0.reference.fileName },
-                       edit: edit, beganEditing: {},
+                       edit: edit, beganEditing: { autoSelected[place] = nil },
                        save: saveEdited, keepDraft: keepDraft, mapFields: { mapping in
                            try saveMapping(mapping, of: item.id)
                        }, delete: { delete(item.id) }, used: { markUsed(item.id) })
@@ -1202,6 +1354,7 @@ struct VaultView: View {
         let visible = regularVisibleItems
         if let current = selection, visible.contains(where: { $0.id == current }) { return }
         selection = visible.first?.id
+        autoSelected[place] = selection
     }
 
     /// After a removal: selects the row that followed the removed one in `before` (the list as it was), or the one before it when it
@@ -1210,6 +1363,7 @@ struct VaultView: View {
         guard !usesStack, let index = before.firstIndex(of: id) else { return }
         let remaining = before.filter { $0 != id }
         selection = remaining.isEmpty ? nil : remaining[min(index, remaining.count - 1)]
+        autoSelected[place] = selection
     }
 
     /// Mac and iPad at regular width, the same on both: sidebar, list and item for every place. The sidebar lists Codes and Cards
@@ -1435,13 +1589,13 @@ struct VaultView: View {
         if isSearching { return (String(localized: "Results"), ItemSearch.foundLine(searchFields)) }
         if isRecentlyDeleted { return (VaultDestination.recentlyDeleted.title, nil) }
         // The iPhone search tab lists the whole vault, whatever Show and With say.
-        if inSearchTab { return (ItemShow.all.title, nil) }
+        if searchTabShown { return (ItemShow.all.title, nil) }
         return (filter.show.title, filter.secondLine(sort: sort))
     }
 
     private func phoneLine(count: Int) -> String {
         if isSearching, let found = ItemSearch.foundLine(searchFields) { return "\(RecentlyDeletedText.itemCount(count)) · \(found)" }
-        if isSearching || isRecentlyDeleted || inSearchTab { return RecentlyDeletedText.itemCount(count) }
+        if isSearching || isRecentlyDeleted || searchTabShown { return RecentlyDeletedText.itemCount(count) }
         return filter.countLine(count: count, sort: sort)
     }
 
@@ -1971,7 +2125,7 @@ struct VaultView: View {
         refresh()
         registerIdentities()
         edit.end()
-        if let item = items.first(where: { $0.id == id }), place == .all, !inSearchTab {
+        if let item = items.first(where: { $0.id == id }), place == .all, !searchTabShown {
             let wider = filter.revealing(item)
             if wider != filter { filterBinding.wrappedValue = wider }
         }
@@ -1991,7 +2145,7 @@ struct VaultView: View {
                 if usesStack {
                     inMoreTab = true
                     morePlace = item.kind == .address ? .addresses : .wifi
-                    morePath = NavigationPath()
+                    morePath = []
                     morePath.append(item.id)
                 } else {
                     place = item.kind == .address ? .addresses : .wifi
@@ -2087,21 +2241,6 @@ private struct WideToolbarButton: View {
     var body: some View {
         let button = Button(action: action) { Text(title).padding(.horizontal, 6) }
         if prominent { button.buttonStyle(.glassProminent) } else { button }
-    }
-}
-
-/// What was typed goes with the vault: when it locks, and when another vault is shown.
-private struct EndsEdit: ViewModifier {
-    let edit: ItemEdit
-    let unlocked: Bool
-    let vault: UUID?
-    let locked: Bool
-
-    func body(content: Content) -> some View {
-        content
-            .onChange(of: unlocked) { edit.end() }
-            .onChange(of: vault) { edit.end() }
-            .onChange(of: locked) { _, locked in if locked { edit.end() } }
     }
 }
 
@@ -2501,7 +2640,7 @@ private struct ItemDetail: View {
             switch await WiFiJoin.join(network) {
             case .joined: pill.show(String(localized: "Joined \(network.displayTitle)"))
             case .declined: break
-            case .failed: pill.show(String(localized: "Could not join. Check the name and password."), symbol: "exclamationmark.circle.fill")
+            case .failed: pill.show(String(localized: "Could not join. Check the name and password."), symbol: "exclamationmark.triangle.fill")
             }
         }
     }

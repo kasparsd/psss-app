@@ -13,6 +13,8 @@ struct MacSettingsView: View {
     @State private var selection: Entry.ID?
     @State private var tab = Tab.general
     @State private var addChoice: AddVaultChoice?
+    @Environment(AppleImportRequests.self) private var appleImports
+    @State private var showsAppleImport = false
 
     private enum Tab: Hashable { case general, vaults }
 
@@ -88,11 +90,15 @@ struct MacSettingsView: View {
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .addVaultFlow($addChoice, session: session) {
-            gate.markUnlocked()
-            vaultSource = RootView.keePassSource
-            selection = session.reference?.id.uuidString
-        }
+        .addVaultFlow($addChoice, session: session, onAdded: showAdded, importsApplePasswords: { showsAppleImport = true })
+        .appleImportSheet(isPresented: $showsAppleImport, session: session, requests: appleImports, onImported: showAdded)
+    }
+
+    /// A vault was created or imported into: the app is unlocked on it and Settings shows it.
+    private func showAdded() {
+        gate.markUnlocked()
+        vaultSource = RootView.keePassSource
+        selection = session.reference?.id.uuidString
     }
 
     @ViewBuilder

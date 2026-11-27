@@ -362,14 +362,16 @@ final class CopiedPillModel {
     }
 }
 
-/// The pill itself: a checkmark and a short sentence on glass. Shared by every copy on an item page, so they all look and move alike.
+/// The pill itself: a checkmark (an orange triangle when something failed) and a short sentence on glass. Shared by every copy on an item page, so they all look and move alike.
 struct CopiedPill: View {
     let message: String
     var symbol = "checkmark.circle.fill"
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Label(message, systemImage: symbol)
+        Label { Text(message) } icon: {
+            Image(systemName: symbol).foregroundStyle(symbol == "exclamationmark.triangle.fill" ? Color.orange : Color.primary)
+        }
             .fontWeight(.semibold)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)

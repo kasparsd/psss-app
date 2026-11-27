@@ -19,7 +19,7 @@ Every host name is a separate site with its own accounts, sessions and cookies. 
 | `/login` | `username` and `current-password`, plus a conditional passkey request on load (`username webauthn`), the way Google asks |
 | `/otp` | verification code after the password: `one-time-code` field; `?attr=none` removes the hint, as most sites do; `?hint=0` hides the expected code |
 | `/account` | change password (current, new, confirm), turn on an authenticator with a chosen algorithm, digits and period, sign out, delete |
-| `/passkeys` | create a passkey, sign in with one, optional relying party ID (`?rpId=example.localhost` for a parent) |
+| `/passkeys` | create a passkey, sign in with one, optional relying party ID (`?rpId=example.localhost` for a parent); two second-step buttons that name the accepted passkeys, the account’s own or one saved elsewhere (`allowCredentials`) |
 
 The server verifies what it receives, so a pass means the provider is right: the code must match the format (SHA1, SHA256 or SHA512, 6 to 8 digits, 30 or 60 seconds, one step of drift), and a passkey's challenge, origin, relying party hash, user presence and ES256 signature are checked. Each challenge works once. The home page ends with what the server saw.
 

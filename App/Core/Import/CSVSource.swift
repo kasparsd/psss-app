@@ -6,7 +6,7 @@ import Foundation
 enum CSVSource {
     static let maxBytes = 64 * 1024 * 1024
 
-    static func plan(from url: URL, now: Date = .now) throws -> ImportPlan {
+    static func plan(from url: URL, source: ImportSourceKind = .csv, now: Date = .now) throws -> ImportPlan {
         // Only a regular file is read, and its size is enforced as it is read.
         let handle = try OnePasswordPIF.openRegularFile(url.path, limit: maxBytes)
         defer { try? handle.close() }
@@ -21,7 +21,7 @@ enum CSVSource {
         var fellBack = false
         let text: String
         if let utf8 = String(data: data, encoding: .utf8) { text = utf8 } else { text = Windows1252.decode(data).text; fellBack = true }
-        var plan = try plan(from: text, now: now)
+        var plan = try plan(from: text, source: source, now: now)
         if fellBack {
             plan.issues.append(ImportIssue(kind: .textEncoding, item: nil,
                                            detail: String(localized: "the file is not saved as UTF-8, so it was read as Windows text and accented or special characters may look different")))
@@ -31,7 +31,7 @@ enum CSVSource {
 
     /// Rows with a username, password or website become logins. Any other row, such as the note or card rows that
     /// 1Password 7 writes with only a title, is skipped and listed by title.
-    static func plan(from text: String, now: Date = .now) throws -> ImportPlan {
+    static func plan(from text: String, source: ImportSourceKind = .csv, now: Date = .now) throws -> ImportPlan {
         let rows = CSVImport.parse(text)
         guard let header = rows.first else { throw ImportError.notAnExport }
         let names = header.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
@@ -41,7 +41,7 @@ enum CSVSource {
         let notes = column(["notes", "note"]), otp = column(["otpauth", "totp"])
         guard pass != nil, user != nil || url != nil else { throw ImportError.notAnExport }
 
-        var plan = ImportPlan(source: .csv)
+        var plan = ImportPlan(source: source)
         plan.importedAt = now
         // A row has one empty field more than the header when the line ends in a comma, as 1Password 7 writes it.
         for row in rows.dropFirst() where !row.allSatisfy({ $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
@@ -84,12 +84,17 @@ enum CSVSource {
                 marker.update(data: Data([0]))
             }
             var item = ImportItem(sourceID: "csv:" + Hex.string(marker.finalize().prefix(8)), kind: .login, title: rowTitle, fields: fields, created: now, modified: now, issues: issues)
-            item.sanitize()
+            if source == .applePasswords {
+                item.sanitize(app: "Apple Passwords")
+                item.sourceID = AppleImport.identifier(item)
+            } else {
+                item.sanitize()
+            }
             plan.items.append(item)
             plan.missingDates += 1
         }
         guard plan.recordCount > 0 else { throw ImportError.empty }
-        plan.separateSharedIdentifiers()
+        if source != .applePasswords { plan.separateSharedIdentifiers() }
         return plan
     }
 }

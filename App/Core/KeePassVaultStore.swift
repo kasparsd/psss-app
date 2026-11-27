@@ -921,7 +921,11 @@ final class VaultSession {
     /// folder there, found again by a bookmark like any file opened in place, so Forget never deletes it and deleting the app keeps it.
     /// On the device it goes in the app's own storage and is deleted with the app. Throws `iCloudUnavailable` when iCloud Drive
     /// was asked for and is off; nothing is written then. The vaults that were open stay open.
-    func create(name: String, credentials: KDBXCredentials, items: [VaultItem] = [], location: VaultLocation = .thisDevice) async throws {
+    ///
+    /// `plan` is imported into the new vault before it is written. Returns how many items that added.
+    @discardableResult
+    func create(name: String, credentials: KDBXCredentials, items: [VaultItem] = [], plan: ImportPlan? = nil,
+                location: VaultLocation = .thisDevice) async throws -> Int {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? String(localized: "Passwords") : name
         let locksBefore = lockCount
         let folder: URL?
@@ -932,10 +936,11 @@ final class VaultSession {
         case .thisDevice:
             folder = nil
         }
-        let document = try await Task.detached { try KDBX.create(name: name, credentials: credentials) }.value
+        var document = try await Task.detached { try KDBX.create(name: name, credentials: credentials) }.value
         // Checked after the last wait and before anything is written, so trying again makes no second vault.
         guard lockCount == locksBefore else { throw VaultStoreError.lockedMeanwhile }
         document.upsert(items)
+        let added = try plan.map { try document.apply($0).itemCount } ?? 0
         let data = try KDBX.save(document)
         var reference: VaultReference
         let url: URL
@@ -956,6 +961,7 @@ final class VaultSession {
         remembered = VaultReference.remembered
         hold(KeePassVaultStore(reference: reference, url: url, scoped: false, document: document, fileData: data))
         noteShown()
+        return added
     }
 
     /// Adds a `.kdbx` file the person chose, in place (it is never copied) and shows it, locked: the vault goes to the end of the

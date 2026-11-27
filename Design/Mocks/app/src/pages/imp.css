@@ -15,3 +15,5 @@
 .imp.mac .imp-foot p{flex:1 0 100%}
 .imp-dim{background:var(--dim);padding:24px;display:grid;place-items:center}
 .imp.mac .imp-foot p{order:-1}
+
+.imp-bar .imp-done{margin-left:auto}

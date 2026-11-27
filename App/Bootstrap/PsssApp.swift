@@ -1,3 +1,4 @@
+import AuthenticationServices
 import SwiftUI
 
 @main
@@ -14,6 +15,7 @@ struct PsssApp: App {
     #if os(iOS)
     private static let safariFill = SafariFillCoordinator.live(session: appLock.session, gate: appLock.gate)
     #endif
+    @State private var appleImports = AppleImportRequests()
     @State private var gate = PsssApp.appLock.gate
     @State private var session = PsssApp.appLock.session
     @State private var autoFill = AutoFillStatus.live()
@@ -54,6 +56,9 @@ struct PsssApp: App {
                 .equatable()
                 .environment(settingsRequests)
                 .environment(incomingCodes)
+                .environment(appleImports)
+                // Apple Passwords hands over what the person chose to export to Psss.
+                .onContinueUserActivity(ASCredentialExchangeActivity) { appleImports.receive($0) }
                 // A site's “set up authenticator” link. It only queues; the unlocked vault asks which login it belongs to.
                 .onOpenURL { url in
                     incomingCodes.receive(url)
@@ -76,7 +81,7 @@ struct PsssApp: App {
         }
         #if os(macOS)
         .defaultSize(width: 1100, height: 680)
-        // A link opens in the window that is there, not in a new one.
+        // A link, or what Apple Passwords hands over, opens in the window that is there, not in a new one.
         .handlesExternalEvents(matching: ["*"])
         #endif
         .commands {
@@ -138,6 +143,7 @@ struct PsssApp: App {
                 .environment(autoFill)
                 .environment(safariExtension)
                 .environment(settingsRequests)
+                .environment(appleImports)
         }
         #endif
     }
