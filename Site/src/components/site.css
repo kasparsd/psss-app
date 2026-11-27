@@ -1,9 +1,10 @@
-/* The one font the site ships (docs/brand.md, "Type"). */
+/* The one font the site ships (docs/brand.md, "Type"). It travels inside the page, so headings are never
+   drawn in a fallback first and then redrawn. */
 @font-face {
   font-family: 'Nunito';
-  src: url('../assets/Nunito-Bold.woff2') format('woff2');
+  src: url('../assets/Nunito-Bold.woff2?inline') format('woff2');
   font-weight: 700;
-  font-display: swap;
+  font-display: block;
 }
 /* The mock library paints its own page ground; the site's ground is the landing page's. */
 body { margin: 0; background: #FFF9E5; }

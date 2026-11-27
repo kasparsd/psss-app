@@ -14,9 +14,8 @@ import { Faq, Hero, SiteFooter, SiteHeader, Story, WhatYouGet } from '../landing
 export function LandingPage() {
   return (
     <div className="lp">
-      <a className="lp-skip" href="#main">{copy.site.skip}</a>
       <SiteHeader />
-      <main id="main">
+      <main>
         <Hero headline={copy.hero.headline} lead={copy.hero.lead} art={<Shot><HeroArt /></Shot>} />
         <Topics heading={copy.painWall.heading} lead={copy.painWall.lead} groups={topicGroups()} />
         <Story {...copy.story} />

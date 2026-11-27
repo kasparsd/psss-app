@@ -40,10 +40,6 @@ export interface DemoSlotCopy {
 }
 
 export const copy = {
-  site: {
-    skip: 'Skip to the content',
-  },
-
   hero: {
     // The welcome screen's own words (App/Features/WelcomeView.swift), so the page and the app say the same thing.
     headline: 'Psss for your secrets',

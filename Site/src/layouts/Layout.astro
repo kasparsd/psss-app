@@ -1,6 +1,5 @@
 ---
 // The head every page shares. The pages differ in their words and in whether search engines may list them.
-import font from '../assets/Nunito-Bold.woff2?url';
 import favicon from '../assets/Psss-mark-small.svg?url';
 import favicon32 from '../assets/favicon-32.png?url';
 
@@ -18,7 +17,6 @@ const { title, description, noindex = false } = Astro.props;
     {noindex && <meta name="robots" content="noindex" />}
     <meta name="theme-color" content="#FFF9E5" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#1F1F23" media="(prefers-color-scheme: dark)" />
-    <link rel="preload" as="font" type="font/woff2" href={font} crossorigin />
     <link rel="icon" type="image/png" sizes="32x32" href={favicon32} />
     <link rel="icon" type="image/svg+xml" href={favicon} />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />

@@ -10,7 +10,8 @@
    hairlines between them. No buttons, badges or bordered boxes. Brand colours
    from docs/brand.md: cream for the page, butter for the app icon, charcoal
    for text; in the dark, charcoal with cream text. Light or dark follows the
-   system setting; there is no switch.
+   system setting; there is no switch. Text is a step smaller on a phone and
+   grows with the width up to the desktop sizes.
    Nunito 700 is for headings only (the stack in Design/Brand/tokens.css);
    the body is the system's text face.
 
@@ -31,9 +32,11 @@
   --focus: #1F1F23;
   --display: 'Nunito', ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
   --body: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
-  --step: 1.0625rem;   /* body, 17 */
-  --small: .9375rem;   /* supporting, 15 */
-  --title: 1.375rem;   /* a section's lead line, 22 */
+  /* Each size runs from a phone to a wide screen. The rem part keeps zoom and the reader's text size working. */
+  --step: clamp(1rem, .95rem + .25vw, 1.0625rem);    /* body, 16 to 17 */
+  --small: clamp(.875rem, .8rem + .25vw, .9375rem);  /* supporting, 14 to 15 */
+  --lead: clamp(1.125rem, .9rem + 1vw, 1.375rem);    /* a section's lead line, 18 to 22 */
+  --title: clamp(1.25rem, 1.1rem + .6vw, 1.375rem);  /* a group's heading, 20 to 22 */
   --h2: clamp(1.75rem, 4.2vw, 2.75rem);   /* section headings */
   --h1: clamp(2.5rem, 7vw, 4.5rem);
   --r: 1.25rem;
@@ -69,8 +72,6 @@
 .lp .lp-section { padding: var(--gap) 0 0; }
 /* Each section opens with a prominent centred heading and its line, then the panels (owner, 2026-11-27). */
 .lp .lp-intro { margin: 0 0 2.5rem; text-align: center; }
-.lp .lp-skip { position: absolute; left: 1rem; top: -4rem; z-index: 10; background: var(--text); color: var(--ground); padding: .5rem 1rem; border-radius: .5rem; }
-.lp .lp-skip:focus { top: 1rem; }
 
 /* With very large text a long word breaks rather than leaving its box. */
 .lp .lp-h1, .lp .lp-h2, .lp .lp-row-label { overflow-wrap: break-word; min-width: 0; }
@@ -79,12 +80,12 @@
 .lp .lp-h1, .lp .lp-h2 { font-family: var(--display); font-weight: 700; color: inherit; margin: 0; text-wrap: balance; }
 .lp .lp-h1 { font-size: var(--h1); line-height: 1; letter-spacing: -.01em; }
 .lp .lp-h2 { font-size: var(--h2); line-height: 1.05; }
-.lp .lp-lead { margin: 1rem 0 0; font-size: var(--title); line-height: 1.45; text-wrap: pretty; }
+.lp .lp-lead { margin: 1rem 0 0; font-size: var(--lead); line-height: 1.45; text-wrap: pretty; }
 .lp .lp-body { margin: 0 0 1rem; text-wrap: pretty; }
-.lp .lp-small { margin: 0; font-size: var(--small); line-height: 1.45; color: var(--muted); }
+.lp .lp-small { margin: 0; font-size: var(--small); line-height: 1.45; color: var(--muted); text-wrap: pretty; }
 .lp .lp-link { color: inherit; text-decoration: underline; text-underline-offset: .2em; text-decoration-color: var(--muted); }
 .lp .lp-link:hover { text-decoration-color: currentColor; }
-.lp .lp-link:focus-visible, .lp .lp-skip:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; border-radius: .25rem; }
+.lp .lp-link:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; border-radius: .25rem; }
 
 /* ---- header and lead ---- */
 .lp .lp-header { background: var(--hero); padding: clamp(2.5rem, 6vw, 4rem) 1.25rem 0; display: flex; justify-content: center; }
@@ -113,8 +114,8 @@
 /* ---- the list: groups of rows that open ---- */
 .lp .lp-group { margin: 3rem 0 0; }
 /* Each group: its heading and one line, then the card of rows. */
-.lp .lp-group-head { margin: 0 0 .25rem; font-family: var(--display); font-weight: 700; font-size: var(--title); line-height: 1.2; }
-.lp .lp-group-lead { margin: 0 0 1rem; color: var(--muted); }
+.lp .lp-group-head { margin: 0 0 .25rem; font-family: var(--display); font-weight: 700; font-size: var(--title); line-height: 1.2; text-wrap: balance; }
+.lp .lp-group-lead { margin: 0 0 1rem; color: var(--muted); text-wrap: pretty; }
 .lp .lp-rows { margin: 0; padding: 0; list-style: none; background: var(--panel); border-radius: var(--r); overflow: hidden; }
 .lp .lp-plain .lp-row { padding: .9rem 1.25rem; }
 .lp .lp-plain .lp-row-label { margin: 0; }
@@ -154,14 +155,18 @@
   list-style: none; margin: 0 calc(var(--gal-bleed, 1.25rem) * -1); padding: .25rem var(--gal-bleed, 1.25rem) .5rem;
   display: flex; gap: 1rem; overflow-x: auto; overscroll-behavior-x: contain;
   scroll-snap-type: x mandatory; scroll-padding-inline: var(--gal-bleed, 1.25rem);
-  -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
 }
-.lp .lp-gal-track::-webkit-scrollbar { display: none; }
+/* A finger swipes the row, so the scrollbar is hidden there. With a mouse it stays: it is the visible way along. */
+@media (pointer: coarse) {
+  .lp .lp-gal-track { scrollbar-width: none; }
+  .lp .lp-gal-track::-webkit-scrollbar { display: none; }
+}
 .lp .lp-gal-track:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: var(--r); }
 .lp .lp-gal-slide { flex: none; width: min(74vw, 300px); scroll-snap-align: start; display: flex; flex-direction: column; gap: .85rem; }
 /* The picture sits straight on the card: no second surface behind it. */
 .lp .lp-gal-tile { display: flex; justify-content: flex-start; align-items: flex-start; }
-.lp .lp-gal-cap { margin: 0; font-size: var(--small); line-height: 1.45; color: var(--muted); }
+.lp .lp-gal-cap { margin: 0; font-size: var(--small); line-height: 1.45; color: var(--muted); text-wrap: pretty; }
 /* the frames inside are the mock app's, not the page's */
 .lp .lp-gal-device { font: 16px/1.5 -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif; max-width: 100%; }
 
@@ -172,6 +177,10 @@
 .lp .lp-gal-switch input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
 .lp .lp-gal-switch span { display: block; padding: .6rem 1rem; border-radius: 999px; font-size: var(--small); line-height: 1.45; color: var(--muted); }
 .lp .lp-gal-switch input:checked + span { background: var(--panel); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
+/* Forced colours (Windows contrast themes) drop the fill and shadow that mark the choice. */
+@media (forced-colors: active) {
+  .lp .lp-gal-switch input:checked + span { outline: 2px solid Highlight; outline-offset: -2px; }
+}
 .lp .lp-gal-switch input:focus-visible + span { outline: 3px solid var(--focus); outline-offset: 2px; }
 .lp .lp-gal:has(input[value="iphone"]:checked) .lp-gal-track:not([data-platform="iphone"]),
 .lp .lp-gal:has(input[value="ipad"]:checked) .lp-gal-track:not([data-platform="ipad"]),

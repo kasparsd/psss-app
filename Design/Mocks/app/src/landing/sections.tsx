@@ -4,7 +4,7 @@ import './landing.css';
 
 /* Every component is a pure function of its props. Words come in as props (landing/copy.ts).
    The page is calm on purpose (owner, 2026-11-27) and takes its look from the app:
-   one column, one left edge, three text sizes, and grouped lists with a small header
+   one column, one left edge, few text sizes, and grouped lists with a small header
    above each, as in Settings. Only the lead (headline and picture) is centred. */
 
 /** The logo alone, in the middle. */
@@ -76,7 +76,7 @@ export function WhatYouGet({ heading, lead, items }: {
     <section className="lp-section" aria-labelledby="lp-get-h">
       <div className="lp-wrap">
         <Intro id="lp-get-h" heading={heading} lead={lead} />
-        <ul className="lp-rows lp-plain">
+        <ul className="lp-rows lp-plain" role="list">
           {items.map((it) => (
             <li className="lp-row" key={it.title}>
               <p className="lp-row-label">{it.title}</p>

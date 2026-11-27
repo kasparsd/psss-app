@@ -201,7 +201,7 @@ export function LandingComponents() {
             why: <>A caption reads best after the picture it explains. The calm look and the icon are the owner’s: “to make it super clear it is an app”.</>,
           },
           {
-            decision: <><strong>9. One column, three text sizes, and one list style.</strong> Lists are drawn like the app’s grouped lists (a small header above a card, a small line under it); “What you get” and “Questions” are the same card; pictures sit straight on the card; the platform switch is at the top right of an opened row; on a phone only iPhone pictures show where a story has them.</>,
+            decision: <><strong>9. One column, few text sizes (a step smaller on a phone), and one list style.</strong> Lists are drawn like the app’s grouped lists (a small header above a card, a small line under it); “What you get” and “Questions” are the same card; pictures sit straight on the card; the platform switch is at the top right of an opened row; on a phone only iPhone pictures show where a story has them.</>,
             rejected: <>five text sizes, twelve styles and five left edges, which a visual review measured on the earlier page.</>,
             why: <>Fewer styles make a calmer page and one that is easier to keep. A phone cannot show a Mac window at a readable size.</>,
           },
@@ -214,6 +214,16 @@ export function LandingComponents() {
             decision: <><strong>11. Every component is a pure function of its props, with the words in <code>landing/copy.ts</code> and the picture files, and all styles sit under <code>.lp</code> and use classes only.</strong> Light and dark follow the system; <code>lp-light</code> and <code>lp-dark</code> force one for this mock page.</>,
             rejected: <>words written inside each component; styling bare elements, which would leak into the device frames.</>,
             why: <>One place to read and check every sentence, and a component that renders the same in the mock and on the server. The frames inside keep the mock app’s own look.</>,
+          },
+          {
+            decision: <><strong>12. Text is smaller on a phone (owner, 2026-11-27).</strong> Body 16 to 17, supporting 14 to 15, lead line 18 to 22 and group heading 20 to 22, each growing with the width.</>,
+            rejected: <>17, 15 and 22 at every width.</>,
+            why: <>On a phone the lead ran to six lines and the body looked too large (owner).</>,
+          },
+          {
+            decision: <><strong>13. A gallery keeps its scrollbar for a mouse</strong> and hides it only where a finger swipes.</>,
+            rejected: <>no scrollbar anywhere; arrow buttons, which need a script.</>,
+            why: <>Without it a mouse with no trackpad had no visible way along the row.</>,
           },
         ]}
       />
@@ -239,6 +249,7 @@ export function LandingComponents() {
       <History
         proposal
         entries={[
+          { date: '2026-11-27', text: <>After a check against Chrome’s Modern Web Guidance: text became a step smaller on a phone (body 16, lead 18) in place of 17 and 22 everywhere; galleries show their scrollbar to a mouse in place of none; the skip link was removed, since the header holds nothing to skip; the chosen platform is outlined in forced colours; the lists say they are lists; and a gallery’s name no longer tells how to scroll it.</> },
           { date: '2026-11-27', text: <>Every heading became Nunito at 700 with slightly tighter lines (owner: “nunito at 700 for all headings”). Replaced Varela Round, whose single weight looked too light. The logo keeps its Varela Round letters.</> },
           { date: '2026-11-27', text: <>Section headings became prominent and centred again, with a line under them, followed by the panels (frames G and H). Replaced the small left-aligned titles over each panel, because the owner preferred the centred ones.</> },
           { date: '2026-11-27', text: <>A visual review measured five sizes, twelve styles and five left edges, so the page became one column with lists drawn like the app’s grouped lists (a small header above a card, a small line under it), “What you get” and “Questions” as the same card, pictures straight on the card, the platform switch at the top right of an opened row and, on a phone, only iPhone pictures where a story has them. Replaced the mixed styles of the earlier page. Frames I to Q.</> },

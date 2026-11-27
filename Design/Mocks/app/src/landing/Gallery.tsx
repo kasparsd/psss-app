@@ -45,7 +45,8 @@ export function Gallery({ id, title, pictures }: {
         </fieldset>
       )}
       {shown.map((p) => (
-        <ol key={p} className="lp-gal-track" data-platform={p} tabIndex={0} aria-label={`${title} on ${platformNames[p]}: ${pictures[p]!.length} pictures. Swipe or scroll sideways.`}>
+        // Safari drops the list's meaning when its markers are removed, so the role says it again.
+        <ol key={p} className="lp-gal-track" role="list" data-platform={p} tabIndex={0} aria-label={`${title} on ${platformNames[p]}: ${pictures[p]!.length} pictures`}>
           {pictures[p]!.map((s, i) => (
             <li className="lp-gal-slide" key={i}>
               <div className="lp-gal-tile"><div className="lp-gal-device" inert aria-hidden="true">{s.screen}</div></div>
