@@ -139,11 +139,17 @@ final class UnlockGate {
         if isUnlocked, leftAt == nil { leftAt = now }
     }
 
+    /// True while the lock in progress happens only because the person left the app ("Immediately"). The Safari fill grant
+    /// outlives such a lock, as leaving for Safari is what it is for (`SafariFillCoordinator`); every other lock takes it back.
+    @ObservationIgnored private(set) var isLockingForLeave = false
+
     /// The scene reached the background. Starts the clock, and with "Immediately" locks at once, so what is locked is already
     /// locked when the person comes back.
     func didEnterBackground(after timing: LockTiming, now: Date = .now) {
         didLeave(now: now)
         guard timing == .immediately else { return }
+        isLockingForLeave = true
+        defer { isLockingForLeave = false }
         // Locked already: a vault still being opened must not finish behind the lock.
         if isUnlocked { close() } else { onLock?(false) }
     }

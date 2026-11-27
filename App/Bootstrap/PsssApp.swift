@@ -11,6 +11,9 @@ struct PsssApp: App {
     private static let codes = IncomingCodeRequests()
     /// Closes the vaults on every lock, whether or not a window is open.
     private static let appLock = AppLock(gate: UnlockGate(), session: VaultSession(), whenLocked: { codes.clear() })
+    #if os(iOS)
+    private static let safariFill = SafariFillCoordinator.live(session: appLock.session, gate: appLock.gate)
+    #endif
     @State private var gate = PsssApp.appLock.gate
     @State private var session = PsssApp.appLock.session
     @State private var autoFill = AutoFillStatus.live()
@@ -27,12 +30,9 @@ struct PsssApp: App {
         // Keys earlier builds kept in the App Group are removed, and a vault left without a key asks for its password.
         BiometricKey.removeOldAppGroupItems()
         Self.appLock.session.forgetMissingSavedKeys()
-        // The Safari extension reads its own copy of the vault list: written now and on each return (the AutoFill provider
-        // cannot write it), and after every change the app makes.
-        VaultReference.mirrorForSafari()
-        NotificationCenter.default.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { _ = VaultReference.mirrorForSafari() }
-        }
+        // Card and address fill in Safari: takes back a grant left by an earlier run and keeps the extension's copy of the vault
+        // list up to date.
+        Self.safariFill.start()
         // Undo is the capsule after Move to Recently Deleted (and Command-Z on iPad). Shaking the phone must not undo anything.
         UIApplication.shared.applicationSupportsShakeToEdit = false
         #elseif os(macOS)
@@ -55,7 +55,16 @@ struct PsssApp: App {
                 .environment(settingsRequests)
                 .environment(incomingCodes)
                 // A site's “set up authenticator” link. It only queues; the unlocked vault asks which login it belongs to.
-                .onOpenURL { incomingCodes.receive($0) }
+                .onOpenURL { url in
+                    incomingCodes.receive(url)
+                    #if os(iOS)
+                    // Or the Safari popup's link. It shares nothing by itself.
+                    Self.safariFill.open(url)
+                    #endif
+                }
+                #if os(iOS)
+                .modifier(SafariFillPresentation(coordinator: Self.safariFill, gate: gate, session: session))
+                #endif
                 #if os(macOS)
                 // The browser relay starts once, as soon as the session exists. Later windows find it running.
                 .task { BrowserRelayLauncher.shared.startIfNeeded(session: session) }

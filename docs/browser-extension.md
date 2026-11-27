@@ -35,7 +35,7 @@ On iPhone and iPad the extension duplicated what system AutoFill already does (f
 
 ### iPhone and iPad: cards and addresses
 
-Built so far (2026-11-26, plan `docs/plans/ios-safari-fill.md`): the target, its native handler, the shared grant code and the popup. The app does not yet write the grant or answer the popup’s links, so nothing can be filled on a device.
+Built so far (2026-11-27, plan `docs/plans/ios-safari-fill.md`): the target, its native handler, the shared grant code, the popup and, in Debug builds, [the app side](#the-app-side). Switching it on for Release builds remains.
 
 | Part | Where |
 | --- | --- |
@@ -45,6 +45,18 @@ Built so far (2026-11-26, plan `docs/plans/ios-safari-fill.md`): the target, its
 | Keychain group | `<team>.app.psss.safari-fill`, listed by the app and this extension only, and handed to the code through the Info.plist key `PsssSafariFillAccessGroup`. The app lists its own `<team>.app.psss.Psss` first, so an item saved without a group does not land where the extension can read it |
 | App Group | `group.app.psss.safari`, listed by the app and this extension only: the app's copy of the vault list (identifiers, names, forgotten identifiers, order) and the “seen” note. The extension lists neither `group.app.psss` (vault files, and a Keychain group) nor the vault key group; see [AutoFill](autofill.md#where-the-saved-key-is-and-what-the-safari-extension-can-reach) |
 | Release | The `Psss-iOS` Release configuration sets `EXCLUDED_SOURCE_FILE_NAMES = SafariExtension-iOS.appex`, so the app does not carry the unfinished extension. Debug builds embed it. Remove the setting when the feature is switched on |
+
+#### The app side
+
+iPhone and iPad only (`App/Features/SafariFillCoordinator.swift` decides, `SafariFillReturnView.swift` draws and connects it); the Mac compiles neither. Debug builds only until the feature is switched on: a Release build registers no `psss` scheme (it and the Mac register the stand-in `psss-off`: `PSSS_LINK_SCHEME` in `Configuration/Base.xcconfig` and `iOS.xcconfig`) and ignores the links (`SafariFillCoordinator.isReachable`).
+
+- **Links.** Any website or app can send them, so only the exact forms `psss://safari-fill`, `psss://safari-fill?vault=<uuid>` and `psss://open` are read; nothing in a link is shown. A link never shares anything by itself. It is ignored during onboarding and in the sample vault, and for a vault that is unknown or removed. `psss://open` ends a pending request and by itself touches no grant (the rules under "Taking back" apply to the return it causes).
+- **A request** lives in memory for 120 s on the continuous clock (never shown). It first applies the lock that is due on the return to Psss, then takes back any grant. Without a vault identifier it is the shown vault.
+- **Locked vault.** Psss shows that vault's unlock screen. Unlocking it (Face ID or password) writes the grant and shows “<Vault> is unlocked”. Unlocking another vault instead, leaving that unlock screen for an open vault, a lock the person chooses or the 120 s end the request. A short absence does not.
+- **Vault already open.** “Fill from <Vault> in Safari” asks for a new Face ID or Touch ID check, with the device passcode as the fallback and as the only check without biometry (the same rule as the saved key). The check starts by itself once; “Use Face ID” (or “Use Passcode”) asks again, Cancel goes back to the vault. Its answer counts only for the request it was asked for. Leaving Psss ends it.
+- **Unsaved work.** Showing another vault would drop an open sheet or an item being edited. Then a locked vault's request is ignored (the person can tap Open Psss again afterwards); an open vault is asked about without switching. Psss's screens sit in a window of their own above the scene, so whatever is under them stays as it was.
+- **Writing.** On the main actor, which is where vaults lock: the extension's copy of the vault list (when it cannot be written, nothing is shared), the snapshot of the open store, then one more check of request, lock, listing and store, then the write. Any failure takes back the grant and shows “Couldn’t share with Safari” with Try Again and Done.
+- **Taking back.** “Immediately” locks Psss when it is left, and the grant stays while the person is in Safari. Coming back to a locked Psss deletes it, whether it was locked on leaving or otherwise, and so does the next launch. Also taken back: every other lock (Lock Vault of any vault, Lock All, the lock on a late return, a lock with a notice), removal of any vault, any write to the shared vault’s file, a changed file being taken over, the file being linked anew, deleted or found unreadable (a change in another vault leaves it), a new request, a failed share, the device locking while Psss runs and a copy of the vault list that cannot be written. A grant past its time is deleted when Psss comes back. A delete that failed is tried again then. A lock in the AutoFill sheet has no effect, and a change made elsewhere while Psss stays away is not seen until it comes back.
 
 #### The popup
 
@@ -57,7 +69,7 @@ Mock: `#/ios-safari-fill`. It lists the cards and addresses of the one ready vau
 - **What a Fill reports.** Only what the page still holds once every field is written (see “Checked after writing” below). A word written only in part (one of two street boxes, first name without last, expiry month without year) has its own sentence in the partly filled notice, “Part of the street address was not filled. Check it on the page.” (the same for “name” and “expiry”), after the sentences about what is in the form and what was not filled. “Nothing was filled” and the other notices that say so appear only when no value can be in the page: before the write, or when the page fill answered that it holds none and has nothing `left`. After a Fill the focus moves to the notice.
 - **Unknown result.** The write failed, timed out or gave no usable answer, or the page did not keep something as written (`left` is not empty, even when other fields did fill). The popup claims nothing: a warning titled “Check the form” with “Psss couldn’t confirm what was filled. Check the fields on this page, or open Psss to copy the details.” and Open Psss.
 - **No addresses.** An address form while the ready vault has none shows “No addresses in <vault>” with “Open Psss to add one.” and Open Psss, laid out like the no-cards state.
-- **Links**, both opened only by a tap, with `tabs.update` on the current tab, after which the popup closes. Neither carries anything secret. The app side is not built.
+- **Links**, both opened only by a tap, with `tabs.update` on the current tab, after which the popup closes. Neither carries anything secret. See [the app side](#the-app-side).
 
 | Link | Meaning | Offered when |
 | --- | --- | --- |

@@ -3,3 +3,7 @@ SDKROOT = iphoneos
 SUPPORTED_PLATFORMS = iphoneos iphonesimulator
 IPHONEOS_DEPLOYMENT_TARGET = 27.0
 TARGETED_DEVICE_FAMILY = 1,2
+// Registers the scheme of the Safari popup's links (psss://safari-fill, psss://open) in Debug builds, by setting the value in
+// Configuration/App-Info.plist as psss. Release builds keep the stand-in of Base.xcconfig until the Safari extension is switched
+// on (docs/plans/ios-safari-fill.md, slice 7).
+PSSS_LINK_SCHEME[config=Debug] = psss

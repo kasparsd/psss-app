@@ -300,9 +300,11 @@ struct VaultView: View {
     @State private var didFocusOnLaunch = false
     /// A new item being added, in a sheet. An existing item is edited on its own page, see `editingID`.
     @State private var editor: VaultItem?
-    /// The item whose page is the editor right now (owner, 2026-11-24). While it is set, everything outside that page is dimmed and
-    /// does not react: Cancel or Save come first. The draft itself lives on the page (`ItemDetail`).
-    @State private var editingID: VaultItem.ID?
+    /// The item whose page is the editor right now (owner, 2026-11-24), with what was typed. While it is set, everything outside that
+    /// page is dimmed and does not react: Cancel or Save come first. Held here, above both layouts, so a change of width keeps it.
+    /// Memory only.
+    @State private var edit = ItemEdit()
+    private var editingID: VaultItem.ID? { edit.itemID }
     private var isEditingInPlace: Bool { editingID != nil }
     @State private var showsEditorRemoved = false
     @State private var showsSetup = false
@@ -397,6 +399,7 @@ struct VaultView: View {
 
     var body: some View {
         withSceneValues
+            .modifier(EndsEdit(edit: edit, unlocked: gate.isUnlocked, vault: session.reference?.id, locked: shownVaultIsLocked))
             #if os(macOS)
             // Edit, Delete (system item) and the Delete key act on the selected item while the list has focus. A text field
             // that has focus handles both itself. ⌘⌫ belongs to the labeled item under it, Move to Recently Deleted (`deleteCommand`).
@@ -710,7 +713,7 @@ struct VaultView: View {
                 // the item, the person is told it was removed.
                 reloadingEditedItem = editor?.id ?? editingID
                 editor = nil
-                editingID = nil
+                edit.end()
                 reloadFromDisk()
             }
             Button("Save My Change Anyway", role: .destructive) { conflict = false; overwrite() }
@@ -1145,7 +1148,7 @@ struct VaultView: View {
         if let item = items.first(where: { $0.id == id }) {
             ItemDetail(item: item, hideSignal: hideSignal,
                        vault: store.title, vaultLocation: (store as? KeePassVaultStore).flatMap { $0.reference.managed ? nil : $0.reference.fileName },
-                       isEditing: Binding(get: { editingID == item.id }, set: { editingID = $0 ? item.id : nil }),
+                       edit: edit, beganEditing: {},
                        save: saveEdited, keepDraft: keepDraft, mapFields: { mapping in
                            try saveMapping(mapping, of: item.id)
                        }, delete: { delete(item.id) }, used: { markUsed(item.id) })
@@ -1824,7 +1827,7 @@ struct VaultView: View {
         if let open = editingID, gone(open) {
             dropRefusedWrite()
             showsEditorRemoved = true
-            editingID = nil
+            edit.end()
         }
         // Reload Vault closed the editor of an item the reloaded vault no longer has.
         if let edited = reloadingEditedItem {
@@ -1876,7 +1879,7 @@ struct VaultView: View {
             selectNeighbor(of: id, in: before)
             closeOpenLogins()
             editor = nil
-            editingID = nil
+            edit.end()
             offerUndo(of: item)
         })
     }
@@ -1958,7 +1961,7 @@ struct VaultView: View {
         attempt({ try store.save([item]) }, subject: item.id, then: {
             refresh()
             registerIdentities()
-            editingID = nil
+            edit.end()
         })
     }
 
@@ -1967,7 +1970,7 @@ struct VaultView: View {
         try vault.mapFields(mapping, of: id)
         refresh()
         registerIdentities()
-        editingID = nil
+        edit.end()
         if let item = items.first(where: { $0.id == id }), place == .all, !inSearchTab {
             let wider = filter.revealing(item)
             if wider != filter { filterBinding.wrappedValue = wider }
@@ -2087,25 +2090,38 @@ private struct WideToolbarButton: View {
     }
 }
 
+/// What was typed goes with the vault: when it locks, and when another vault is shown.
+private struct EndsEdit: ViewModifier {
+    let edit: ItemEdit
+    let unlocked: Bool
+    let vault: UUID?
+    let locked: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: unlocked) { edit.end() }
+            .onChange(of: vault) { edit.end() }
+            .onChange(of: locked) { _, locked in if locked { edit.end() } }
+    }
+}
+
 private struct ItemDetail: View {
     let item: VaultItem
     let hideSignal: Int
     let vault: String
     let vaultLocation: String?
-    /// Edit turns this page into the editor in place (owner, 2026-11-24). The vault screen owns the flag, because it dims and
-    /// disables the rest of the window while it is set; the draft belongs to the page.
-    @Binding var isEditing: Bool
-    /// Stores the edited item. A refused save leaves `isEditing` set, so the person's text stays.
+    /// Edit turns this page into the editor in place (owner, 2026-11-24). The vault screen owns the edit and its draft, because it
+    /// dims and disables the rest of the window meanwhile, and because the page is built again when the window changes width.
+    let edit: ItemEdit
+    let beganEditing: () -> Void
+    /// Stores the edited item. A refused save leaves the edit open, so the person's text stays.
     let save: (VaultItem) -> Void
     /// Stores the draft while editing goes on, so a code survives leaving the app to type it into the site.
     let keepDraft: (VaultItem) -> Void
     let mapFields: (ItemFieldMapping) throws -> Void
     let delete: () -> Void
     let used: () -> Void
-    @State private var draft: VaultItem
     @State private var codeInput: VerificationCodeInput?
-    /// The field Edit opens with focused, when it was opened from a field's Add.
-    @State private var editFocus: ItemField?
     @State private var confirmsDiscard = false
     @State private var revealed: Set<FieldID> = []
     /// The field whose copy icon is a checkmark, for about a second and a half.
@@ -2116,20 +2132,26 @@ private struct ItemDetail: View {
     @State private var showsFieldMapping = false
 
     init(item: VaultItem, hideSignal: Int, vault: String, vaultLocation: String?,
-         isEditing: Binding<Bool>, save: @escaping (VaultItem) -> Void,
+         edit: ItemEdit, beganEditing: @escaping () -> Void, save: @escaping (VaultItem) -> Void,
          keepDraft: @escaping (VaultItem) -> Void, mapFields: @escaping (ItemFieldMapping) throws -> Void,
          delete: @escaping () -> Void, used: @escaping () -> Void) {
         self.item = item
         self.hideSignal = hideSignal
         self.vault = vault
         self.vaultLocation = vaultLocation
-        _isEditing = isEditing
+        self.edit = edit
+        self.beganEditing = beganEditing
         self.save = save
         self.keepDraft = keepDraft
         self.mapFields = mapFields
         self.delete = delete
         self.used = used
-        _draft = State(initialValue: item)
+    }
+
+    private var isEditing: Bool { edit.itemID == item.id }
+    private var draft: VaultItem { edit.draft(of: item) }
+    private var draftBinding: Binding<VaultItem> {
+        Binding(get: { edit.draft(of: item) }, set: { edit.update($0) })
     }
 
     private enum FieldID: Hashable { case value(ItemField), code, totpSecret, totpLink, wifiSecurity, wifiHidden, copyAddress }
@@ -2169,15 +2191,16 @@ private struct ItemDetail: View {
 
     private var editFields: ItemFields {
         let mappingAction: (() -> Void)? = canMap ? { beginFieldMapping() } : nil
-        return ItemFields(item: $draft, codeInput: $codeInput, mapFieldsLabel: mappingLabel,
-                          onMapFields: mappingAction, canMapFields: !draft.hasChanges(from: item), onDelete: delete, focusField: editFocus)
+        return ItemFields(item: draftBinding, codeInput: $codeInput, mapFieldsLabel: mappingLabel,
+                          onMapFields: mappingAction, canMapFields: !draft.hasChanges(from: item), onDelete: delete,
+                          focusField: edit.focus, tookFocus: { edit.focus = nil })
     }
 
     var body: some View {
         page
             .modifier(HidesRevealedValues(signal: hideSignal) { revealed = [] })
             // A password changed underneath an editor that has not touched it follows, so Save does not put the old one back.
-            .onChange(of: item.secret) { old, new in if isEditing, draft.secret == old { draft.secret = new } }
+            .onChange(of: item.secret) { old, new in if isEditing, draft.secret == old { draftBinding.wrappedValue.secret = new } }
             // Starting and ending edit mode hides what was shown, as leaving the item does.
             .onChange(of: isEditing) { revealed = [] }
             .onChange(of: showsFieldMapping) { revealed = [] }
@@ -2192,7 +2215,7 @@ private struct ItemDetail: View {
             }
         }
         .formStyle(.grouped)
-        .codeSheet(item: $draft, input: $codeInput, keepDraft: keepDraft)
+        .codeSheet(item: draftBinding, input: $codeInput, keepDraft: keepDraft)
         .sheet(isPresented: $showsQR) {
             if let url = item.totpSetupURL { TOTPQRSheet(url: url, title: item.displayTitle) }
         }
@@ -2227,7 +2250,7 @@ private struct ItemDetail: View {
         }
         #endif
         .copiedPill(pill)
-        .modifier(DiscardChanges(isPresented: $confirmsDiscard) { isEditing = false })
+        .modifier(DiscardChanges(isPresented: $confirmsDiscard) { edit.end() })
     }
 
     @ToolbarContentBuilder
@@ -2257,16 +2280,15 @@ private struct ItemDetail: View {
     }
 
     private func beginEditing(atCode: Bool = false, at field: ItemField? = nil) {
-        draft = item
         revealed = []
-        editFocus = field
-        isEditing = true
+        edit.begin(item, focus: field)
+        beganEditing()
         if atCode { codeInput = .manual }
     }
 
     /// Cancel with something changed asks first; with nothing changed it just leaves edit mode.
     private func cancel() {
-        if draft.hasChanges(from: item) { confirmsDiscard = true } else { isEditing = false }
+        if draft.hasChanges(from: item) { confirmsDiscard = true } else { edit.end() }
     }
 
     private func commit() { if canSave { save(draft.savedForm) } }

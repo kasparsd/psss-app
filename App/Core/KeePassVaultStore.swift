@@ -547,6 +547,9 @@ final class KeePassVaultStore: VaultStore {
     private var oldBackupsRemain = false
     /// Whether the last `commit` left rollback copies that were made with an older password.
     private(set) var lastCommitLeftOldBackups = false
+    /// Runs before the vault's content changes: before every write and before a changed file is taken over, and when the file
+    /// cannot be read any more. The session sets it.
+    var contentWillChange: (() -> Void)?
 
     /// The vault's name made safe for display (`VaultName.short`); the reference keeps the name as typed.
     var title: String { VaultName.short(reference.name) }
@@ -707,6 +710,7 @@ final class KeePassVaultStore: VaultStore {
     /// Writes the vault. Refuses when the file changed since it was read, unless inside `overwriting`, and always refuses when the
     /// file exists but cannot be read (so Overwrite cannot write blind either). Read, check and write are one coordinated step.
     private func commit() throws {
+        contentWillChange?()
         document.touchModified()
         document.prepareForSave()
         let data = try KDBX.write(document)
@@ -727,14 +731,24 @@ final class KeePassVaultStore: VaultStore {
         lastCommitLeftOldBackups = oldBackupsRemain
     }
 
+    /// The file as it is now. One that was deleted or cannot be read counts as changed.
+    private func readFile() throws -> Data {
+        do { return try VaultFiles.read(url) } catch {
+            contentWillChange?()
+            throw error
+        }
+    }
+
     /// Replaces the open document with what is on disk now. Pending edits are lost. Runs the KDF, so it is async.
     func reload() async throws {
         let seen = baseDigest
-        let data = try VaultFiles.read(url)
+        let data = try readFile()
+        contentWillChange?()
         let key = document.transformedKey
         let fresh = try await Task.detached { try KDBX.open(data, transformedKey: key) }.value
         // Our own write finished while the file was being opened: what we hold is newer than what was read, so keep it.
         guard baseDigest == seen else { return }
+        contentWillChange?()  // again: something may have copied the old items while the file was being opened
         document = fresh
         baseDigest = KDBXCrypto.sha256(data)
         credentialsChangePending = false  // the document is what is on disk now, so no password change is pending
@@ -752,13 +766,16 @@ final class KeePassVaultStore: VaultStore {
     /// Returns whether it did. Uses the key held in memory, so it never asks for the password; throws
     /// `KDBXError.wrongCredentials` when the password or KDF seed was changed elsewhere.
     func reloadIfChanged() async throws -> Bool {
-        let data = try VaultFiles.read(url)
+        let data = try readFile()
         let seen = baseDigest
         guard let seen, !KDBXCrypto.equal(KDBXCrypto.sha256(data), seen) else { return false }
+        // Also when the new file cannot be opened (its password was changed elsewhere): what is held here is out of date.
+        contentWillChange?()
         let key = document.transformedKey
         let fresh = try await Task.detached { try KDBX.open(data, transformedKey: key) }.value
         // Our own write finished while the file was being opened: what we hold is newer, so keep it.
         guard let current = baseDigest, KDBXCrypto.equal(current, seen) else { return false }
+        contentWillChange?()  // again: something may have copied the old items while the file was being opened
         document = fresh
         baseDigest = KDBXCrypto.sha256(data)
         return true
@@ -829,6 +846,26 @@ final class VaultSession {
     /// Called whenever a vault stops being open, by a lock, Lock All or a removal (not by quitting: the process ends). The browser
     /// relay empties its offer ledger here (`SessionVaultService`).
     @ObservationIgnored var onVaultClosed: (@MainActor (UUID) -> Void)?
+
+    /// What whoever holds a copy of a vault's items must hear before it happens: the iPhone and iPad Safari fill grant
+    /// (`SafariFillCoordinator`).
+    enum VaultEvent: Equatable, Sendable {
+        /// An open vault is being closed by a lock.
+        case locked(UUID)
+        /// A vault, open or locked, is being removed from the app.
+        case removed(UUID)
+        /// An open vault is about to be written, or replaced with a changed file.
+        case contentWillChange(UUID)
+    }
+
+    @ObservationIgnored var onVaultEvent: (@MainActor (VaultEvent) -> Void)?
+
+    /// Puts an open vault in its place and passes its changes on.
+    private func hold(_ store: KeePassVaultStore) {
+        let id = store.reference.id
+        store.contentWillChange = { [weak self] in self?.onVaultEvent?(.contentWillChange(id)) }
+        stores[id] = store
+    }
 
     /// Vaults whose file was found but could not be read (damaged, not a vault, a format Psss does not open), as learned by the
     /// last attempt to open them in this process. Shown as "Can't be read"; cleared when the vault opens.
@@ -917,7 +954,7 @@ final class VaultSession {
         reference.persist()
         self.reference = reference
         remembered = VaultReference.remembered
-        stores[reference.id] = KeePassVaultStore(reference: reference, url: url, scoped: false, document: document, fileData: data)
+        hold(KeePassVaultStore(reference: reference, url: url, scoped: false, document: document, fileData: data))
         noteShown()
     }
 
@@ -1074,7 +1111,10 @@ final class VaultSession {
             url = VaultFiles.managedURL(fileName: reference.fileName)
             scoped = false
         } else {
-            guard let bookmark = reference.bookmark, let resolved = try? VaultFiles.resolve(bookmark) else { throw VaultStoreError.fileMissing }
+            guard let bookmark = reference.bookmark, let resolved = try? VaultFiles.resolve(bookmark) else {
+                onVaultEvent?(.contentWillChange(reference.id))
+                throw VaultStoreError.fileMissing
+            }
             url = resolved.url
             scoped = url.startAccessingSecurityScopedResource()
             if resolved.stale, let fresh = try? VaultFiles.bookmark(for: url) {
@@ -1108,7 +1148,7 @@ final class VaultSession {
             adopt(reference)
             unreadable.remove(id)
             let opened = KeePassVaultStore(reference: reference, url: url, scoped: scoped, document: document, fileData: data)
-            stores[id] = opened
+            hold(opened)
             heldPrompts.remove(id)
             noteShown()
             // The 30-day purge of Recently Deleted. Off unless the app switched it on, so the AutoFill extension, which opens the
@@ -1120,6 +1160,11 @@ final class VaultSession {
             case KDBXError.notAVault, KDBXError.corrupted, KDBXError.unsupported: unreadable.insert(reference.id)
             default: break
             }
+            // A file that is gone or cannot be opened for any reason but the password given or a lock counts as changed.
+            switch error {
+            case KDBXError.wrongCredentials, VaultStoreError.lockedMeanwhile: break
+            default: onVaultEvent?(.contentWillChange(reference.id))
+            }
             throw error
         }
     }
@@ -1130,6 +1175,7 @@ final class VaultSession {
         let scoped = picked.startAccessingSecurityScopedResource()
         defer { if scoped { picked.stopAccessingSecurityScopedResource() } }
         let bookmark = try VaultFiles.bookmark(for: picked), fileName = picked.lastPathComponent
+        onVaultEvent?(.contentWillChange(reference.id))
         reference.bookmark = bookmark
         reference.fileName = fileName
         self.reference = VaultReference.update(reference.id) { $0.bookmark = bookmark; $0.fileName = fileName } ?? reference
@@ -1246,6 +1292,7 @@ final class VaultSession {
     func releaseBiometricPrompts() { heldPrompts = [] }
 
     private func drop(_ id: UUID) {
+        onVaultEvent?(.locked(id))
         try? stores[id]?.flush()
         stores[id] = nil
         returnPlaces.didLock(id)
@@ -1262,6 +1309,7 @@ final class VaultSession {
         guard let gone = knownVaults.first(where: { $0.id == id }) else { return }
         let wasShown = id == reference?.id
         let wasOpen = stores[id] != nil
+        onVaultEvent?(.removed(id))
         stores[id] = nil
         if wasOpen { onVaultClosed?(id) }
         returnPlaces.forget(id)

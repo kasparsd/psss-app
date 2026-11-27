@@ -1596,6 +1596,7 @@ do {
 
 Task { @MainActor in
     do { try await checkVaultKeys() } catch { check("the vault key checks threw", false) }
+    do { try await checkCoordinator() } catch { check("the coordinator checks threw", false) }
     print("safari fill: \(passes) passed, \(failures) failed")
     exit(failures == 0 ? 0 : 1)
 }

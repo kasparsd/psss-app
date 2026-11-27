@@ -75,6 +75,8 @@ struct ItemFields: View {
     var onDelete: (() -> Void)?
     /// A field to start with focused when editing an existing item (from a field's Add on the item page).
     var focusField: ItemField?
+    /// Called once `focusField` has the focus, so a form built again (the window changed width) does not ask for it again.
+    var tookFocus: () -> Void = {}
     @FocusState private var focused: ItemField?
 
     var body: some View {
@@ -103,7 +105,7 @@ struct ItemFields: View {
             if let onDelete { deleteGroup(onDelete) }
         }
         .task {
-            if let focusField { focused = focusField; return }
+            if let focusField { focused = focusField; tookFocus(); return }
             guard isNew else { return }
             switch item.kind {
             // A new login starts at Website; with the website already there (added from a search) at Username.

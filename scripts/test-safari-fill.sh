@@ -7,7 +7,7 @@
 set -e
 cd "$(dirname "$0")/.."
 mkdir -p build/safari-fill-test
-FILES="App/SafariFill/*.swift App/Core/SafariFillSnapshot.swift"
+FILES="App/SafariFill/*.swift App/Core/SafariFillSnapshot.swift App/Features/SafariFillCoordinator.swift"
 
 # No value of a card or an address may be logged, printed, or kept anywhere but the one Keychain item. LEAKS covers print and
 # every Logger level.
@@ -97,10 +97,10 @@ for key in vaultReference rememberedVaults forgottenVaultIDs vaultOrder; do
   fi
 done
 
-# The snapshot is tested against a real vault document, built from the same source list as the hostless KDBX tests (read from
+# The snapshot and the app side (the coordinator, with the real app lock) are tested against real vaults, built from the same source list as the hostless KDBX tests (read from
 # scripts/test-kdbx.sh, without that script's own test files).
 VAULT_SOURCES=$(sed -n '/^SOURCES="/,/"$/p' scripts/test-kdbx.sh | sed 's/^SOURCES="//; s/"$//; s/\\$//' | tr -s ' \n' '\n\n' | grep -v '^Tests/' | grep -v '^$' | grep -v '/SafariFill' | tr '\n' ' ')
 # shellcheck disable=SC2086
-swiftc -O -swift-version 6 -D HOSTLESS_TESTS -D HOSTLESS_UNLOCKGATE $VAULT_SOURCES App/Core/UnlockGate.swift $FILES Tests/SafariFill/main.swift -o build/safari-fill-test/run
+swiftc -O -swift-version 6 -D HOSTLESS_TESTS -D HOSTLESS_UNLOCKGATE $VAULT_SOURCES App/Core/UnlockGate.swift App/Core/AppLock.swift $FILES Tests/SafariFill/main.swift Tests/SafariFill/Coordinator.swift -o build/safari-fill-test/run
 rm -rf build/safari-fill-test/root
 PSSS_TEST_ROOT="$PWD/build/safari-fill-test/root" build/safari-fill-test/run

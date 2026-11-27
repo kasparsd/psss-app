@@ -2,6 +2,8 @@ SWIFT_VERSION = 6.0
 SWIFT_EMIT_LOC_STRINGS = YES
 MARKETING_VERSION = 0.1.0
 CURRENT_PROJECT_VERSION = 2
+// A stand-in for the psss URL scheme in Configuration/App-Info.plist, so that psss is not registered. See iOS.xcconfig.
+PSSS_LINK_SCHEME = psss-off
 
 // Per-developer overrides (team, entitlements suffix). Untracked.
 #include? "Local.xcconfig"

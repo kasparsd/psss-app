@@ -218,7 +218,7 @@ export function IosSafariFill() {
   return (
     <Page
       title="Cards and addresses in Safari (iPhone and iPad)"
-      status={<><strong>Approved by the owner, 2026-11-26: frames 0 to 7b and 9, and the popup states 5b and 10 to 21 (14b and 15c included).</strong> The extension target and its handler are built and left out of Release; the popup and the app side are not built. The owner’s top priority: iOS has no third-party AutoFill for cards or addresses, so Psss adds a Safari extension whose popup fills a card or an address into the checkout form. Safari’s words and behaviour were checked in the iOS 27.2 simulator; a real iPhone and the iPad still need a check. Two owner decisions shape it: after unlocking in Psss, Safari receives only a copy of one vault’s cards and addresses, never the vault’s key; and the security code fills with the card’s other fields in one tap.</>}
+      status={<><strong>Approved by the owner, 2026-11-26: frames 0 to 7b and 9, and the popup states 5b and 10 to 21 (14b and 15c included).</strong> The extension target, its handler, the popup and the app side (4b, 16a, 17a, 17b) are built and left out of Release builds. The owner’s top priority: iOS has no third-party AutoFill for cards or addresses, so Psss adds a Safari extension whose popup fills a card or an address into the checkout form. Safari’s words and behaviour were checked in the iOS 27.2 simulator; a real iPhone and the iPad still need a check. Two owner decisions shape it: after unlocking in Psss, Safari receives only a copy of one vault’s cards and addresses, never the vault’s key; and the security code fills with the card’s other fields in one tap.</>}
     >
       <Clarity
         intro={<p>On a checkout page the person opens Psss from Safari’s page menu, picks a card or an address and taps Fill. The popup is a small web page in a sheet that Safari draws; the card data comes from the vault, is shown only as network, last four digits and expiry, and goes into the page only on that tap.</p>}
@@ -273,12 +273,13 @@ export function IosSafariFill() {
         <Frame phone label="4a·2 · Safari asks" caption="After Open Psss the popup closes and Safari asks over the checkout page. Open goes to Psss. Cancel leaves the page as it was. Safari draws the question and its words.">
           <SafariPhone ask />
         </Frame>
-        <Frame phone label="4b · In Psss, after unlocking" caption="Psss says that the vault is unlocked and what to do next, and nothing else new. The status bar’s ◀ Safari link is the system’s.">
+        <Frame phone label="4b · In Psss, after unlocking" caption="Psss says that the vault is unlocked and what to do next. Done goes to the vault; leaving Psss closes the screen too. The status bar’s ◀ Safari link is the system’s.">
           <IPhone>
             <Back />
             <div className="isf-pad" style={{ flex: 1, justifyContent: 'center', alignItems: 'center', textAlign: 'center', padding: 24 }}>
               <div className="t">Passwords is unlocked</div>
               <div>Go back to Safari and tap Psss again.</div>
+              <button className="btn plain">Done</button>
             </div>
           </IPhone>
         </Frame>
@@ -382,10 +383,10 @@ export function IosSafariFill() {
         <Frame phone label="16b · In Safari: Psss can’t answer" caption="Psss in Safari cannot read what the app saved or the vault list, or gets a reply it does not understand. No vault name or select, because there is no list. No error codes.">
           <SafariPhone sheet={<><PHeadBare /><Notice kind="warning" title="Psss can’t fill right now" action={OpenPsss}>Nothing was filled. Open Psss, then try again in Safari.</Notice></>} />
         </Frame>
-        <Frame phone label="17a · Psss was already open" caption="After Open Psss, an unlocked Psss asks for Face ID again before Safari gets anything. Face ID starts by itself; the system draws it. A device with Touch ID says Touch ID. Success shows frame 4b.">
+        <Frame phone label="17a · Psss was already open" caption="After Open Psss, an unlocked Psss asks for Face ID again before Safari gets anything. Face ID starts by itself; the system draws it. A device with Touch ID says Touch ID; one without either says “Use your passcode to let Safari fill its cards and addresses.” The passcode is also the fallback when Face ID fails. Success shows frame 4b.">
           <AppScreen title="Fill from Passwords in Safari" text="Use Face ID to let Safari fill its cards and addresses." overlay={<BioPrompt bio="Face ID" reason="" />} />
         </Frame>
-        <Frame phone label="17b · Face ID cancelled or failed" caption="Nothing was given to Safari. One button asks again; Cancel goes to the vault. The ◀ Safari link still works.">
+        <Frame phone label="17b · Face ID cancelled or failed" caption="Nothing was given to Safari. One button asks again (“Use Passcode” without Face ID or Touch ID); Cancel goes to the vault. When the check cannot run or fails for another reason than Cancel, the reason shows in grey above the button. The ◀ Safari link still works.">
           <AppScreen title="Fill from Passwords in Safari" text="Use Face ID to let Safari fill its cards and addresses.">
             <button className="btn pri wide">Use Face ID</button>
             <button className="btn plain">Cancel</button>
@@ -526,6 +527,7 @@ export function IosSafariFill() {
 
       <History
         entries={[
+          { date: '2026-11-27', text: <>Built, the app side. Frame 4b gained a Done button, as on 16a: it covers the whole window, and a screen must have a visible way out (Apple’s guidance for modal screens; “◀ Safari” is not always there, for example beside Safari on iPad). 17a and 17b gained their wording for a device without Face ID or Touch ID, and the grey line for a check that cannot run. Not yet approved by the owner.</> },
           { date: '2026-11-26', text: <>Owner, built: notices have no coloured background. The icon says the kind (grey circled i, orange triangle, spinner) beside the words; grey replaces the accent-blue information icon, which looked tappable. Replaces the tinted card.</> },
           { date: '2026-11-26', text: <>The owner approved three states that had no agreed words: no addresses in the vault (5b, where the popup would otherwise show nothing), an unknown result (14b) and part of one field filled (15c, where that field was named in neither sentence).</> },
           { date: '2026-11-26', text: <>The owner approved frames 20 (no vault yet) and 21 (first load) as drawn, with a 20 second wait before 16b that is never shown, and removed the large Done button from 3a and 3b, as already on 15a and 15b, because it doubled Safari’s Done.</> },

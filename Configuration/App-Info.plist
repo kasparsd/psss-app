@@ -16,6 +16,19 @@
                 <string>otpauth</string>
             </array>
         </dict>
+        <!-- The iPhone and iPad Safari popup's links (SafariFillCoordinator). The scheme is psss in iOS Debug builds only; Release
+             builds and the Mac get a stand-in that no link of Psss uses and nothing acts on, as an empty scheme is not allowed
+             (Configuration/Base.xcconfig and iOS.xcconfig). -->
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>app.psss.safari-fill</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>$(PSSS_LINK_SCHEME)</string>
+            </array>
+        </dict>
     </array>
     <!-- iPhone and iPad: the Keychain group of the card and address grant for the Safari extension (KeychainSafariFillStore). The Mac
          app shares this file, has no entitlement for the group and never reads the key. -->

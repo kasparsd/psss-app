@@ -1,4 +1,47 @@
 import Foundation
+import Observation
+
+/// The one item being edited on its own page, and what has been typed so far. The vault screen holds it above its layouts, so a
+/// change of width (a foldable's posture, an iPad window) keeps it. It holds secrets: memory only, never encoded, stored or logged,
+/// and gone with `end()` or with the screen. A class, so typing redraws the page that reads the draft and not the whole screen.
+@MainActor @Observable
+final class ItemEdit {
+    /// The item being edited; nil when none is.
+    private(set) var itemID: VaultItem.ID?
+    private var typed: VaultItem?
+    /// The field to focus when the editor opens (from a field's Add).
+    var focus: ItemField?
+
+    /// Every edit there is, held weakly, so a link from outside can tell that showing another vault would drop typed text.
+    @ObservationIgnored private static let all = NSHashTable<ItemEdit>.weakObjects()
+    static var isAnyInProgress: Bool { all.allObjects.contains { $0.itemID != nil } }
+
+    init() { Self.all.add(self) }
+
+    func begin(_ item: VaultItem, focus: ItemField? = nil) {
+        typed = item
+        itemID = item.id
+        self.focus = focus
+    }
+
+    func end() {
+        guard itemID != nil || typed != nil else { return }
+        itemID = nil
+        typed = nil
+        focus = nil
+    }
+
+    /// What the page of `item` edits: what was typed, or the item itself when it is not the one being edited.
+    func draft(of item: VaultItem) -> VaultItem {
+        if let typed, typed.id == item.id { typed } else { item }
+    }
+
+    /// Takes typed text. A field that reports late, after the edit ended or for another item, changes nothing.
+    func update(_ draft: VaultItem) {
+        guard draft.id == itemID else { return }
+        typed = draft
+    }
+}
 
 /// What the item form needs to know about a draft: whether its setup key is usable, what Save stores, and whether anything differs
 /// from the stored item. Pure, so the in-place edit and the new-item sheet agree and the tests can check it.

@@ -49,8 +49,24 @@ const exclusions = ([id]) => Object.entries(configuration(id, "Release")).filter
 need("Psss-iOS Release excludes the unfinished extension, with no setting that undoes it",
   exclusions([app]), [["EXCLUDED_SOURCE_FILE_NAMES", "SafariExtension-iOS.appex"]]);
 
-// DEBUG compiles the localhost allowance into the handler, so no setting that reaches the extension's Release build may define
-// it: the target's, the project's, or the xcconfig files either is based on.
+// The app side is unfinished too. Only a Debug build of an iPhone or iPad target registers the popup's scheme, and only a Debug
+// build acts on its links (`SafariFillCoordinator.isReachable`; the hostless tests, compiled without DEBUG, check the effect).
+// Slice 7 changes these together with the switch above.
+const schemes = plist("Configuration/App-Info.plist").CFBundleURLTypes.flatMap((type) => type.CFBundleURLSchemes);
+need("URL schemes of the app", schemes, ["otpauth", "$(PSSS_LINK_SCHEME)"]);
+const definitions = ["project.pbxproj", ...readdirSync("Configuration").filter((name) => name.endsWith(".xcconfig") && name !== "Local.xcconfig")]
+  .flatMap((name) => readFileSync(name === "project.pbxproj" ? `Psss.xcodeproj/${name}` : `Configuration/${name}`, "utf8").split("\n")
+    .map((line) => line.trim()).filter((line) => /^"?PSSS_LINK_SCHEME/.test(line)).map((line) => `${name}: ${line}`));
+need("the link scheme is switched on for Debug on iPhone and iPad only", definitions.sort(),
+  ["Base.xcconfig: PSSS_LINK_SCHEME = psss-off", "iOS.xcconfig: PSSS_LINK_SCHEME[config=Debug] = psss"]);
+const coordinator = readFileSync("App/Features/SafariFillCoordinator.swift", "utf8");
+need("the links are acted on in Debug builds only",
+  coordinator.match(/#if DEBUG\s+nonisolated static let isReachable = (\w+)\s+#else\s+nonisolated static let isReachable = (\w+)\s+#endif/)?.slice(1),
+  ["true", "false"]);
+
+// DEBUG compiles the localhost allowance into the handler and switches the app side on, so no setting that reaches the Release
+// build of the extension or of the iPhone and iPad app may define it: either target's, the project's, or the xcconfig files any
+// of them is based on.
 const included = (path) => {
   let text;
   try { text = readFileSync(path, "utf8"); } catch { return []; }
@@ -62,7 +78,7 @@ const included = (path) => {
   });
 };
 const project = objects[plist("Psss.xcodeproj/project.pbxproj").rootObject];
-const release = [project, extension].flatMap((owner) => {
+const release = [project, extension, app].flatMap((owner) => {
   const { buildSettings, baseConfigurationReference: base } = objects[owner.buildConfigurationList].buildConfigurations
     .map((id) => objects[id]).find((c) => c.name === "Release");
   return [
@@ -70,7 +86,7 @@ const release = [project, extension].flatMap((owner) => {
     ...(base ? included(`Configuration/${objects[base].path.split("/").pop()}`) : []),
   ];
 });
-need("settings that define DEBUG in the extension's Release build", release
+need("settings that define DEBUG in the extension's or the app's Release build", release
   .filter(([, key, value]) => /^(SWIFT_ACTIVE_COMPILATION_CONDITIONS|OTHER_SWIFT_FLAGS)(\[|$)/.test(key) &&
     !key.includes("[config=Debug]") && /(^|[\s"']|-D)DEBUG\b/.test(value))
   .map(([where, key]) => `${where}: ${key}`), []);
